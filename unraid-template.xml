@@ -1,13 +1,13 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>Arr-Scheduler</Name>
-  <Repository>ghcr.io/YOUR_GITHUB_USERNAME/arr-scheduler</Repository>
+  <Repository>ghcr.io/pedrogvm97/arr-scheduler</Repository>
   <Registry>https://ghcr.io/</Registry>
   <Network>bridge</Network>
   <Shell>sh</Shell>
   <Privileged>false</Privileged>
-  <Support>https://github.com/YOUR_GITHUB_USERNAME/arr-scheduler/issues</Support>
-  <Project>https://github.com/YOUR_GITHUB_USERNAME/arr-scheduler</Project>
+  <Support>https://github.com/pedrogvm97/arr-scheduler/issues</Support>
+  <Project>https://github.com/pedrogvm97/arr-scheduler</Project>
   <Overview>A localized Next.js web application to act as an intelligent scheduler and orchestrator for Radarr, Sonarr, and Prowlarr without external internet access.</Overview>
   <Category>MediaApp:Video MediaApp:Music Other:</Category>
   <WebUI>http://[IP]:[PORT:3000]</WebUI>
