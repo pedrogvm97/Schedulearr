@@ -33,7 +33,7 @@ export default function Settings() {
         if (!name || !url || !apiKey) return;
 
         const newInstance = {
-            id: crypto.randomUUID(),
+            id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             type,
             name,
             url: url.replace(/\/$/, ""), // strip trailing slash
@@ -146,8 +146,8 @@ export default function Settings() {
                                 <div>
                                     <div className="flex justify-between items-start mb-2">
                                         <span className={`text-xs font-bold uppercase tracking-wider px-2 py-1 rounded ${inst.type === 'radarr' ? 'bg-yellow-500/20 text-yellow-400' :
-                                                inst.type === 'sonarr' ? 'bg-cyan-500/20 text-cyan-400' :
-                                                    'bg-orange-500/20 text-orange-400'
+                                            inst.type === 'sonarr' ? 'bg-cyan-500/20 text-cyan-400' :
+                                                'bg-orange-500/20 text-orange-400'
                                             }`}>
                                             {inst.type}
                                         </span>
