@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getInstances, addInstance, removeInstance, Instance } from '@/lib/db';
+import { getInstances, addInstance, removeInstance, toggleInstanceEnabled, Instance } from '@/lib/db';
 
 export async function GET() {
     try {
@@ -23,6 +23,21 @@ export async function POST(req: Request) {
         return NextResponse.json({ success: true, instance: body });
     } catch (error) {
         return NextResponse.json({ error: 'Failed to add instance' }, { status: 500 });
+    }
+}
+
+export async function PUT(req: Request) {
+    try {
+        const body = await req.json();
+
+        if (!body.id || typeof body.enabled !== 'boolean') {
+            return NextResponse.json({ error: 'Missing id or enabled boolean' }, { status: 400 });
+        }
+
+        toggleInstanceEnabled(body.id, body.enabled);
+        return NextResponse.json({ success: true });
+    } catch (error) {
+        return NextResponse.json({ error: 'Failed to update instance toggle' }, { status: 500 });
     }
 }
 

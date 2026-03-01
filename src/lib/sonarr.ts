@@ -28,6 +28,8 @@ export interface SonarrSeries {
         sizeOnDisk: number;
         percentOfEpisodes: number;
     };
+    episodes?: SonarrEpisode[];
+    genres?: string[];
 }
 
 // Fetch all series with their statistics

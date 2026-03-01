@@ -24,7 +24,19 @@ export default function Settings() {
         setLoading(false);
     };
 
+    const [profile, setProfile] = useState("recently_added");
+
     useEffect(() => {
+        const fetchSettings = async () => {
+            try {
+                const res = await fetch('/api/settings');
+                const data = await res.json();
+                if (data.priority_profile) setProfile(data.priority_profile);
+            } catch (e) {
+                console.error(e);
+            }
+        };
+        fetchSettings();
         fetchInstances();
     }, []);
 
@@ -63,11 +75,48 @@ export default function Settings() {
         }
     };
 
+    const handleSaveProfile = async (newProfile: string) => {
+        setProfile(newProfile);
+        try {
+            await fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ key: 'priority_profile', value: newProfile })
+            });
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
     return (
-        <div className="max-w-4xl mx-auto p-6 space-y-8">
+        <div className="max-w-4xl mx-auto p-6 space-y-8 pb-24">
             <div>
                 <h1 className="text-3xl font-bold text-white mb-2">Settings</h1>
                 <p className="text-zinc-400">Configure your connections to Radarr, Sonarr, and Prowlarr.</p>
+            </div>
+
+            {/* Global Settings */}
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+                <h2 className="text-xl font-semibold text-white mb-4">Global Engine Settings</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium text-zinc-300">Priority Profile</label>
+                        <select
+                            value={profile}
+                            onChange={(e) => handleSaveProfile(e.target.value)}
+                            className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                        >
+                            <option value="recently_added">Recently Added (Default)</option>
+                            <option value="recently_released">Recently Released (Sorts by Air Date)</option>
+                            <option value="nearly_complete">Nearly Complete (Sorts by Series Completion %)</option>
+                            <option value="random">Random (Scrambles the search queue entirely)</option>
+                            <option value="custom" disabled>Custom Drag & Drop (Coming Soon)</option>
+                        </select>
+                        <p className="text-xs text-zinc-500 mt-1">
+                            This defines the sorting algorithm the background engine uses when selecting the next batch of media to search for.
+                        </p>
+                    </div>
+                </div>
             </div>
 
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">

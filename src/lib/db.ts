@@ -21,21 +21,22 @@ db.exec(`
     value TEXT NOT NULL
   );
 
-  CREATE TABLE IF NOT EXISTS search_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    media_id INTEGER NOT NULL,
-    media_type TEXT NOT NULL, -- 'movie' or 'series'
-    title TEXT NOT NULL,
-    last_searched_at INTEGER NOT NULL,
-    status TEXT NOT NULL -- 'pending', 'searching', 'found', 'failed'
-  );
-
   CREATE TABLE IF NOT EXISTS instances (
     id TEXT PRIMARY KEY, -- Generate UUID
     type TEXT NOT NULL, -- 'radarr', 'sonarr', 'prowlarr'
     name TEXT NOT NULL,
     url TEXT NOT NULL,
-    api_key TEXT NOT NULL
+    api_key TEXT NOT NULL,
+    enabled INTEGER DEFAULT 1
+  );
+
+  CREATE TABLE IF NOT EXISTS search_history (
+    id TEXT PRIMARY KEY,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    profile TEXT NOT NULL,
+    movies_searched TEXT,
+    episodes_searched TEXT,
+    reason TEXT
   );
 `);
 
@@ -50,6 +51,7 @@ export interface Instance {
     name: string;
     url: string;
     api_key: string;
+    enabled: boolean;
 }
 
 export const getSetting = (key: string): string | null => {
@@ -58,28 +60,70 @@ export const getSetting = (key: string): string | null => {
     return result ? result.value : null;
 };
 
-export const setSetting = (key: string, value: string) => {
-    const stmt = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
+export const setSetting = (key: string, value: string): void => {
+    const stmt = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
     stmt.run(key, value);
 };
 
-export const getInstances = (type?: string): Instance[] => {
+export const getInstances = (type?: string, activeOnly: boolean = false): Instance[] => {
+    let raw;
     if (type) {
-        const stmt = db.prepare('SELECT * FROM instances WHERE type = ?');
-        return stmt.all(type) as Instance[];
+        if (activeOnly) {
+            const stmt = db.prepare('SELECT * FROM instances WHERE type = ? AND enabled = 1');
+            raw = stmt.all(type);
+        } else {
+            const stmt = db.prepare('SELECT * FROM instances WHERE type = ?');
+            raw = stmt.all(type);
+        }
+    } else {
+        if (activeOnly) {
+            const stmt = db.prepare('SELECT * FROM instances WHERE enabled = 1');
+            raw = stmt.all();
+        } else {
+            const stmt = db.prepare('SELECT * FROM instances');
+            raw = stmt.all();
+        }
     }
-    const stmt = db.prepare('SELECT * FROM instances');
-    return stmt.all() as Instance[];
+
+    return raw.map((r: any) => ({
+        ...r,
+        enabled: r.enabled === 1
+    })) as Instance[];
 };
 
 export const addInstance = (instance: Instance) => {
-    const stmt = db.prepare('INSERT INTO instances (id, type, name, url, api_key) VALUES (?, ?, ?, ?, ?)');
-    stmt.run(instance.id, instance.type, instance.name, instance.url, instance.api_key);
+    const stmt = db.prepare('INSERT INTO instances (id, type, name, url, api_key, enabled) VALUES (?, ?, ?, ?, ?, ?)');
+    stmt.run(instance.id, instance.type, instance.name, instance.url, instance.api_key, instance.enabled ? 1 : 0);
 }
 
 export const removeInstance = (id: string) => {
     const stmt = db.prepare('DELETE FROM instances WHERE id = ?');
     stmt.run(id);
 }
+
+export const toggleInstanceEnabled = (id: string, enabled: boolean) => {
+    const stmt = db.prepare('UPDATE instances SET enabled = ? WHERE id = ?');
+    stmt.run(enabled ? 1 : 0, id);
+}
+
+export const logSearchHistory = (profile: string, movies: string[], episodes: string[], reason: string = '') => {
+    const stmt = db.prepare('INSERT INTO search_history (id, profile, movies_searched, episodes_searched, reason) VALUES (?, ?, ?, ?, ?)');
+    stmt.run(
+        `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        profile,
+        JSON.stringify(movies),
+        JSON.stringify(episodes),
+        reason
+    );
+};
+
+export const getSearchHistory = (limit: number = 50) => {
+    const stmt = db.prepare('SELECT * FROM search_history ORDER BY timestamp DESC LIMIT ?');
+    return stmt.all(limit).map((row: any) => ({
+        ...row,
+        movies_searched: JSON.parse(row.movies_searched),
+        episodes_searched: JSON.parse(row.episodes_searched)
+    }));
+};
 
 export default db;

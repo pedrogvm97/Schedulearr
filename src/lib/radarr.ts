@@ -13,6 +13,7 @@ export interface RadarrMovie {
     inCinemas?: string;
     physicalRelease?: string;
     digitalRelease?: string;
+    genres: string[];
 }
 
 // Function to fetch all movies
