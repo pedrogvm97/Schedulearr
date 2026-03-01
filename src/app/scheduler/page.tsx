@@ -6,24 +6,32 @@ import { formatDistanceToNow } from 'date-fns';
 export default function SchedulerQueue() {
     const [movies, setMovies] = useState<any[]>([]);
     const [episodes, setEpisodes] = useState<any[]>([]);
+    const [profiles, setProfiles] = useState<Record<string, Record<number, string>>>({});
     const [loading, setLoading] = useState(true);
     const [searchToggles, setSearchToggles] = useState<Record<string, boolean>>({});
     const [selectedGenre, setSelectedGenre] = useState<string>('All');
     const [instanceFilters, setInstanceFilters] = useState<Record<string, boolean>>({});
+    const [searchQuery, setSearchQuery] = useState('');
+    const [qualityFilter, setQualityFilter] = useState('missing'); // 'all', 'missing', 'upgradeable'
 
     useEffect(() => {
         const fetchData = async () => {
             setLoading(true);
             try {
-                const [movieRes, epRes] = await Promise.all([
+                const [movieRes, epRes, profileRes] = await Promise.all([
                     fetch('/api/radarr/all'),
-                    fetch('/api/sonarr/all')
+                    fetch('/api/sonarr/all'),
+                    fetch('/api/quality')
                 ]);
 
                 if (movieRes.ok) setMovies(await movieRes.json());
                 if (epRes.ok) setEpisodes(await epRes.json());
+                if (profileRes.ok) {
+                    const profileData = await profileRes.json();
+                    setProfiles(profileData.profiles);
+                }
             } catch (e) {
-                console.error("Failed to load missing media", e);
+                console.error("Failed to load data", e);
             }
             setLoading(false);
         };
@@ -71,14 +79,16 @@ export default function SchedulerQueue() {
         );
     }
 
-    // Combine and sort all media by date added
+    // Combine and structure all media
     let combined = [
         ...movies.map(m => ({
             ...m,
             type: 'movie',
             sortDate: new Date(m.added).getTime(),
             idStr: `movie-${m.id}`,
-            isDownloaded: m.hasFile
+            isDownloaded: m.hasFile,
+            targetQualityProfile: profiles[m.instanceUrl]?.[m.qualityProfileId] || 'Unknown',
+            currentQualityScale: m.movieFile?.quality?.quality?.resolution || 0
         })),
         ...episodes.map(e => ({
             ...e,
@@ -86,9 +96,27 @@ export default function SchedulerQueue() {
             sortDate: new Date(e.added).getTime(),
             idStr: `series-${e.id}`,
             isDownloaded: e.statistics?.percentOfEpisodes === 100,
-            stats: e.statistics
+            stats: e.statistics,
+            targetQualityProfile: profiles[e.instanceUrl]?.[e.qualityProfileId] || 'Unknown'
         }))
-    ].filter(c => !c.isDownloaded).sort((a, b) => b.sortDate - a.sortDate);
+    ].sort((a, b) => b.sortDate - a.sortDate);
+
+    // Filter by Quality Status
+    if (qualityFilter === 'missing') {
+        combined = combined.filter(c => !c.isDownloaded);
+    } else if (qualityFilter === 'upgradeable') {
+        // Simple heuristic: if it has a file but the resolution is low compared to the profile name expectations (could be improved with explicit score mapping)
+        // For MVP, "Upgradeable" just means it is downloaded but still Monitored by the Arr app
+        combined = combined.filter(c => c.isDownloaded && c.monitored);
+    } else if (qualityFilter === 'all') {
+        // No filter needed
+    }
+
+    // Filter by Search Query
+    if (searchQuery.trim() !== '') {
+        const query = searchQuery.toLowerCase();
+        combined = combined.filter(c => c.title.toLowerCase().includes(query));
+    }
 
     // Extract all unique genres
     const allGenres = new Set<string>();
@@ -127,19 +155,47 @@ export default function SchedulerQueue() {
                 </div>
 
                 {/* Filters */}
-                <div className="flex flex-col items-end gap-3">
-                    {/* Genre Filter */}
-                    <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-slate-400">Genre:</span>
-                        <select
-                            value={selectedGenre}
-                            onChange={(e) => setSelectedGenre(e.target.value)}
-                            className="bg-zinc-900 border border-zinc-800 text-white text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block p-2.5 outline-none"
-                        >
-                            {uniqueGenres.map(g => (
-                                <option key={g} value={g}>{g}</option>
-                            ))}
-                        </select>
+                <div className="flex flex-col items-end gap-3 flex-wrap max-w-[60%]">
+                    {/* First Row: Search & Dropdowns */}
+                    <div className="flex items-center gap-3 w-full justify-end">
+                        {/* Search Bar */}
+                        <div className="flex-1 max-w-sm">
+                            <input
+                                type="text"
+                                placeholder="Search by exact title..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="w-full bg-zinc-900 border border-zinc-800 text-white text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block p-2.5 outline-none placeholder-zinc-600"
+                            />
+                        </div>
+
+                        {/* Quality Filter */}
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-slate-400">Quality:</span>
+                            <select
+                                value={qualityFilter}
+                                onChange={(e) => setQualityFilter(e.target.value)}
+                                className="bg-zinc-900 border border-zinc-800 text-white text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block p-2.5 outline-none"
+                            >
+                                <option value="missing">Missing Only</option>
+                                <option value="upgradeable">Upgradeable Only</option>
+                                <option value="all">Everything</option>
+                            </select>
+                        </div>
+
+                        {/* Genre Filter */}
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-slate-400">Genre:</span>
+                            <select
+                                value={selectedGenre}
+                                onChange={(e) => setSelectedGenre(e.target.value)}
+                                className="bg-zinc-900 border border-zinc-800 text-white text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block p-2.5 outline-none"
+                            >
+                                {uniqueGenres.map(g => (
+                                    <option key={g} value={g}>{g}</option>
+                                ))}
+                            </select>
+                        </div>
                     </div>
 
                     {/* Instance Filters */}
@@ -150,8 +206,8 @@ export default function SchedulerQueue() {
                                 key={inst.id}
                                 onClick={() => toggleInstance(inst.name, inst.id)}
                                 className={`px-3 py-1 text-xs font-semibold rounded-full border transition-colors ${instanceFilters[inst.name] !== false
-                                        ? 'bg-blue-500/20 text-blue-400 border-blue-500/50 hover:bg-blue-500/30'
-                                        : 'bg-zinc-800 text-zinc-500 border-zinc-700 hover:bg-zinc-700'
+                                    ? 'bg-blue-500/20 text-blue-400 border-blue-500/50 hover:bg-blue-500/30'
+                                    : 'bg-zinc-800 text-zinc-500 border-zinc-700 hover:bg-zinc-700'
                                     }`}
                             >
                                 {inst.name}
@@ -197,14 +253,30 @@ export default function SchedulerQueue() {
                                         </h3>
                                         <p className="text-sm text-zinc-400">
                                             {item.type === 'movie'
-                                                ? 'Missing from Library'
+                                                ? (item.isDownloaded ? 'Downloaded' : 'Missing from Library')
                                                 : (item.stats ? `${item.stats.episodeFileCount} / ${item.stats.episodeCount} Episodes (${Math.round(item.stats.percentOfEpisodes)}%)` : 'Unknown')}
                                             {' • Added '}{formatDistanceToNow(item.sortDate, { addSuffix: true })}
+                                            {' • Target: '}
+                                            <span className="text-indigo-400 font-semibold">{item.targetQualityProfile}</span>
+                                            {item.type === 'movie' && item.isDownloaded && (
+                                                <span className="ml-2 px-1.5 py-0.5 rounded textxs bg-zinc-800 border border-zinc-700 text-zinc-300">
+                                                    Current: {item.currentQualityScale}p
+                                                </span>
+                                            )}
                                         </p>
                                     </div>
                                 </div>
 
                                 <div className="flex items-center gap-4">
+                                    <button
+                                        className="text-xs bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 font-medium px-3 py-1.5 rounded-lg border border-emerald-500/30 transition-colors mr-2"
+                                        onClick={() => {
+                                            // Handle manual trigger individual logic (To be implemented securely later)
+                                            console.log("Trigger Single Search", item);
+                                        }}
+                                    >
+                                        Force Search
+                                    </button>
                                     <span className="text-xs text-zinc-500 font-medium mr-2">Status: {isToggled ? 'Active' : 'Paused'}</span>
                                     <button
                                         onClick={() => toggleSearch(item.idStr)}

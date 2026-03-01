@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { getInstances } from '@/lib/db';
 import { getAllMovies } from '@/lib/radarr';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
     try {
         const instances = getInstances('radarr');

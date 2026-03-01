@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { getInstances } from '@/lib/db';
 import { getAllSeries } from '@/lib/sonarr';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
     try {
         const instances = getInstances('sonarr');

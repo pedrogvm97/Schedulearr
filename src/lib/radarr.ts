@@ -14,6 +14,21 @@ export interface RadarrMovie {
     physicalRelease?: string;
     digitalRelease?: string;
     genres: string[];
+    qualityProfileId: number;
+    movieFile?: {
+        size: number;
+        quality: {
+            quality: {
+                name: string;
+                resolution: number;
+            }
+        }
+    };
+}
+
+export interface RadarrQualityProfile {
+    id: number;
+    name: string;
 }
 
 // Function to fetch all movies
@@ -69,5 +84,18 @@ export const triggerMovieSearch = async (url: string, apiKey: string, movieIds: 
     } catch (error) {
         console.error(`Error triggering search on Radarr (${url}):`, error);
         return false;
+    }
+};
+
+// Function to get Quality Profiles
+export const getQualityProfiles = async (url: string, apiKey: string): Promise<RadarrQualityProfile[]> => {
+    try {
+        const response = await axios.get(`${url}/api/v3/qualityprofile`, {
+            headers: { 'X-Api-Key': apiKey }
+        });
+        return response.data;
+    } catch (error) {
+        console.error(`Error fetching Radarr Quality Profiles (${url}):`, error);
+        return [];
     }
 };

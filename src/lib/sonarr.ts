@@ -30,6 +30,12 @@ export interface SonarrSeries {
     };
     episodes?: SonarrEpisode[];
     genres?: string[];
+    qualityProfileId: number;
+}
+
+export interface SonarrQualityProfile {
+    id: number;
+    name: string;
 }
 
 // Fetch all series with their statistics
@@ -111,5 +117,18 @@ export const triggerEpisodeSearch = async (url: string, apiKey: string, episodeI
     } catch (error) {
         console.error(`Error triggering search on Sonarr (${url}):`, error);
         return false;
+    }
+};
+
+// Function to get Quality Profiles
+export const getQualityProfiles = async (url: string, apiKey: string): Promise<SonarrQualityProfile[]> => {
+    try {
+        const response = await axios.get(`${url}/api/v3/qualityprofile`, {
+            headers: { 'X-Api-Key': apiKey }
+        });
+        return response.data;
+    } catch (error) {
+        console.error(`Error fetching Sonarr Quality Profiles (${url}):`, error);
+        return [];
     }
 };
