@@ -8,6 +8,7 @@ export default function Dashboard() {
   const [episodes, setEpisodes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [limit, setLimit] = useState<number | null>(null);
+  const [filterStatus, setFilterStatus] = useState<'all' | 'missing' | 'downloaded'>('all');
 
   // Fake state for UI demonstration (would be connected to backend DB in full implementation)
   const [searchToggles, setSearchToggles] = useState<Record<string, boolean>>({});
@@ -17,8 +18,8 @@ export default function Dashboard() {
       setLoading(true);
       try {
         const [movieRes, epRes] = await Promise.all([
-          fetch('/api/radarr/missing'),
-          fetch('/api/sonarr/missing')
+          fetch('/api/radarr/all'),
+          fetch('/api/sonarr/all')
         ]);
 
         if (movieRes.ok) setMovies(await movieRes.json());
@@ -47,11 +48,27 @@ export default function Dashboard() {
     );
   }
 
-  // Combine and sort all missing media by date added
+  // Combine and sort all media by date added
   let combined = [
-    ...movies.map(m => ({ ...m, type: 'movie', sortDate: new Date(m.added).getTime(), idStr: `movie-${m.id}` })),
-    ...episodes.map(e => ({ ...e, type: 'episode', sortDate: new Date(e.seriesAdded).getTime(), idStr: `ep-${e.id}` }))
+    ...movies.map(m => ({
+      ...m,
+      type: 'movie',
+      sortDate: new Date(m.added).getTime(),
+      idStr: `movie-${m.id}`,
+      isDownloaded: m.hasFile
+    })),
+    ...episodes.map(e => ({
+      ...e,
+      type: 'series',
+      sortDate: new Date(e.added).getTime(),
+      idStr: `series-${e.id}`,
+      isDownloaded: e.statistics?.percentOfEpisodes === 100,
+      stats: e.statistics
+    }))
   ].sort((a, b) => b.sortDate - a.sortDate); // Newest first
+
+  if (filterStatus === 'missing') combined = combined.filter(c => !c.isDownloaded);
+  if (filterStatus === 'downloaded') combined = combined.filter(c => c.isDownloaded);
 
   if (limit !== null) {
     combined = combined.slice(0, limit);
@@ -61,11 +78,21 @@ export default function Dashboard() {
     <div className="max-w-7xl mx-auto px-6 space-y-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-white mb-2">Missing Media</h1>
-          <p className="text-zinc-400">Items missing from your Arr instances, prioritized by date added.</p>
+          <h1 className="text-3xl font-bold tracking-tight text-white mb-2">Media Center</h1>
+          <p className="text-zinc-400">View and manage all your tracked media and download statuses.</p>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          <select
+            value={filterStatus}
+            onChange={(e: any) => setFilterStatus(e.target.value)}
+            className="bg-zinc-900 text-zinc-300 border border-zinc-800 rounded-lg px-3 py-2 text-sm font-medium transition-colors outline-none focus:border-emerald-500"
+          >
+            <option value="all">All Media</option>
+            <option value="missing">Missing Only</option>
+            <option value="downloaded">Downloaded</option>
+          </select>
+          <div className="w-px h-6 bg-zinc-800 mx-1"></div>
           <button
             onClick={() => setLimit(limit === null ? null : (limit === 5 ? null : 5))}
             className={`${limit === 5 ? 'bg-zinc-800 text-white' : 'bg-zinc-900 text-zinc-300'} hover:bg-zinc-800 border border-zinc-800 rounded-lg px-4 py-2 text-sm font-medium transition-colors`}
@@ -122,13 +149,20 @@ export default function Dashboard() {
                         }`}>
                         {item.type}
                       </span>
+                      <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm ${item.isDownloaded ? 'bg-emerald-500/20 text-emerald-500' : 'bg-red-500/20 text-red-500'
+                        }`}>
+                        {item.isDownloaded ? 'Downloaded' : 'Missing'}
+                      </span>
                       <span className="text-xs text-zinc-500 font-medium">{item.instanceName}</span>
                     </div>
                     <h3 className="text-lg font-medium text-white">
-                      {item.type === 'movie' ? item.title : `${item.seriesTitle} - S${String(item.seasonNumber).padStart(2, '0')}E${String(item.episodeNumber).padStart(2, '0')} - ${item.title}`}
+                      {item.title}
                     </h3>
                     <p className="text-sm text-zinc-400">
-                      Added {formatDistanceToNow(item.sortDate, { addSuffix: true })}
+                      {item.type === 'movie'
+                        ? (item.isDownloaded ? '100% Downloaded' : 'Missing from Library')
+                        : (item.stats ? `${item.stats.episodeFileCount} / ${item.stats.episodeCount} Episodes (${Math.round(item.stats.percentOfEpisodes)}%)` : 'Unknown')}
+                      {' • Added '}{formatDistanceToNow(item.sortDate, { addSuffix: true })}
                     </p>
                   </div>
                 </div>

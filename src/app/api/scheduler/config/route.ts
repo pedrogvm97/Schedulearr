@@ -6,7 +6,8 @@ export async function GET() {
         const config = {
             interval: getSetting('scheduler_interval') || '60',
             batchSize: getSetting('scheduler_batch') || '10',
-            enabled: getSetting('scheduler_enabled') === 'true'
+            enabled: getSetting('scheduler_enabled') === 'true',
+            priorityProfile: getSetting('priority_profile') || 'recently_added'
         };
         return NextResponse.json(config);
     } catch (error) {
@@ -21,6 +22,7 @@ export async function POST(req: Request) {
         if (body.interval) setSetting('scheduler_interval', body.interval.toString());
         if (body.batchSize) setSetting('scheduler_batch', body.batchSize.toString());
         if (body.enabled !== undefined) setSetting('scheduler_enabled', body.enabled.toString());
+        if (body.priorityProfile) setSetting('priority_profile', body.priorityProfile.toString());
 
         return NextResponse.json({ success: true, config: body });
     } catch (error) {

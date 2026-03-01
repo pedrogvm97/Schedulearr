@@ -17,7 +17,31 @@ export interface SonarrSeries {
     title: string;
     id: number;
     added: string;
+    status: string;
+    monitored: boolean;
+    nextAiring?: string;
+    previousAiring?: string;
+    statistics?: {
+        episodeFileCount: number;
+        episodeCount: number;
+        totalEpisodeCount: number;
+        sizeOnDisk: number;
+        percentOfEpisodes: number;
+    };
 }
+
+// Fetch all series with their statistics
+export const getAllSeries = async (url: string, apiKey: string): Promise<SonarrSeries[]> => {
+    try {
+        const response = await axios.get(`${url}/api/v3/series`, {
+            headers: { 'X-Api-Key': apiKey }
+        });
+        return response.data;
+    } catch (error) {
+        console.error(`Error fetching all series from Sonarr (${url}):`, error);
+        return [];
+    }
+};
 
 export interface MissingEpisode extends SonarrEpisode {
     seriesTitle: string;

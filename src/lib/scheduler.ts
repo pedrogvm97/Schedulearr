@@ -1,6 +1,6 @@
-import { getInstances } from '@/lib/db';
-import { getMissingMovies, triggerMovieSearch } from '@/lib/radarr';
-import { getMissingEpisodes, triggerEpisodeSearch } from '@/lib/sonarr';
+import { getInstances, getSetting } from '@/lib/db';
+import { getAllMovies, triggerMovieSearch, RadarrMovie } from '@/lib/radarr';
+import { getAllSeries, getMissingEpisodes, triggerEpisodeSearch, SonarrSeries } from '@/lib/sonarr';
 import { getIndexerHealth } from '@/lib/prowlarr';
 
 // Prevent multiple scheduler instances from running in dev mode HMR
@@ -38,7 +38,14 @@ if (!global.globalSchedulerRunning) {
 
 export async function runBatchSearch() {
     const prowlarrs = getInstances('prowlarr');
-    let allowedBatchSize = 10; // Default pulling from DB
+    const enabled = getSetting('scheduler_enabled') === 'true';
+    if (!enabled) {
+        console.log('⏸️  Scheduler is disabled in settings. Skipping run.');
+        return;
+    }
+
+    let allowedBatchSize = parseInt(getSetting('scheduler_batch') || '10');
+    const profile = getSetting('priority_profile') || 'recently_added';
 
     // 1. Check Prowlarr health first to avoid bans
     if (prowlarrs.length > 0) {
@@ -50,33 +57,65 @@ export async function runBatchSearch() {
         }
     }
 
-    // 2. Fetch missing items
+    // 2. Fetch ALL items to evaluate priority
     const radarrs = getInstances('radarr');
     const sonarrs = getInstances('sonarr');
 
-    let allMovieTargets: { id: number, apiUrl: string, apiKey: string }[] = [];
-    let allEpTargets: { id: number, apiUrl: string, apiKey: string }[] = [];
+    let allMovieTargets: { id: number, apiUrl: string, apiKey: string, movie: RadarrMovie }[] = [];
 
     // Radarr Movies
     for (const r of radarrs) {
-        const missing = await getMissingMovies(r.url, r.api_key);
-        allMovieTargets.push(...missing.map(m => ({ id: m.id, apiUrl: r.url, apiKey: r.api_key })));
+        const allMovies = await getAllMovies(r.url, r.api_key);
+        // Only target missing, published, monitored movies
+        const missing = allMovies.filter(m => !m.hasFile && m.monitored && m.isAvailable);
+        allMovieTargets.push(...missing.map(m => ({ id: m.id, apiUrl: r.url, apiKey: r.api_key, movie: m })));
     }
+
+    let allEpTargets: { id: number, apiUrl: string, apiKey: string, seriesInfo?: SonarrSeries }[] = [];
 
     // Sonarr Episodes
+    // For episodes, getting missing directly is still efficient, but we need series data for priority sorting
     for (const s of sonarrs) {
-        const missing = await getMissingEpisodes(s.url, s.api_key);
-        allEpTargets.push(...missing.map(m => ({ id: m.id, apiUrl: s.url, apiKey: s.api_key })));
+        const missingEps = await getMissingEpisodes(s.url, s.api_key);
+        const allSeries = await getAllSeries(s.url, s.api_key);
+        const seriesMap = new Map(allSeries.map(series => [series.id, series]));
+
+        // Augment missing eps with series stats for Priority sorting
+        allEpTargets.push(...missingEps.map(ep => ({
+            id: ep.id,
+            apiUrl: s.url,
+            apiKey: s.api_key,
+            seriesInfo: seriesMap.get(ep.seriesId)
+        })));
     }
 
-    // 3. Select a small batch to search to avoid overloading the instances/indexers
-    // Prioritize older missing items (would require sorting by 'added' date)
+    // 3. Priority Engine Sorting
+    if (profile === 'recently_released') {
+        allMovieTargets.sort((a, b) => {
+            const dateA = a.movie.physicalRelease || a.movie.digitalRelease || a.movie.inCinemas || "1970-01-01";
+            const dateB = b.movie.physicalRelease || b.movie.digitalRelease || b.movie.inCinemas || "1970-01-01";
+            return new Date(dateB).getTime() - new Date(dateA).getTime();
+        });
+        // Episodes already sorted by airdate via API
+    } else if (profile === 'nearly_complete') {
+        // Prioritize series that have a high percentage downloaded
+        allEpTargets.sort((a, b) => {
+            const pctA = a.seriesInfo?.statistics?.percentOfEpisodes || 0;
+            const pctB = b.seriesInfo?.statistics?.percentOfEpisodes || 0;
+            return pctB - pctA; // Highest percentage first
+        });
+        // Movies don't have partial completion, fallback to added date
+        allMovieTargets.sort((a, b) => new Date(b.movie.added).getTime() - new Date(a.movie.added).getTime());
+    } else {
+        // default: recently_added (or custom if not implemented yet)
+        allMovieTargets.sort((a, b) => new Date(b.movie.added).getTime() - new Date(a.movie.added).getTime());
+    }
+
+    // 4. Select the batch
     const movieBatch = allMovieTargets.slice(0, Math.floor(allowedBatchSize / 2));
     const epBatch = allEpTargets.slice(0, Math.ceil(allowedBatchSize / 2));
 
-    // 4. Trigger the searches
-    // Group by instance to send one combined API call where possible
-    // For MVP demonstration, we fire them individually or map them per instance
+    // 5. Trigger the searches
     const radarrGroups = movieBatch.reduce((acc, curr) => {
         if (!acc[curr.apiUrl]) acc[curr.apiUrl] = { key: curr.apiKey, ids: [] };
         acc[curr.apiUrl].ids.push(curr.id);
@@ -85,7 +124,7 @@ export async function runBatchSearch() {
 
     for (const [url, data] of Object.entries(radarrGroups)) {
         if (data.ids.length > 0) {
-            console.log(`🎬 Triggering search for ${data.ids.length} movies on Radarr at ${url}`);
+            console.log(`🎬 Triggering search for ${data.ids.length} movies on Radarr at ${url} using ${profile} profile`);
             await triggerMovieSearch(url, data.key, data.ids);
         }
     }
@@ -98,7 +137,7 @@ export async function runBatchSearch() {
 
     for (const [url, data] of Object.entries(sonarrGroups)) {
         if (data.ids.length > 0) {
-            console.log(`📺 Triggering search for ${data.ids.length} episodes on Sonarr at ${url}`);
+            console.log(`📺 Triggering search for ${data.ids.length} episodes on Sonarr at ${url} using ${profile} profile`);
             await triggerEpisodeSearch(url, data.key, data.ids);
         }
     }

@@ -6,6 +6,7 @@ export default function SchedulerConfig() {
     const [interval, setIntervalVal] = useState("60");
     const [batchSize, setBatchSize] = useState("10");
     const [enabled, setEnabled] = useState(false);
+    const [priorityProfile, setPriorityProfile] = useState("recently_added");
 
     const [loading, setLoading] = useState(false);
 
@@ -16,6 +17,7 @@ export default function SchedulerConfig() {
                 if (data.interval) setIntervalVal(data.interval);
                 if (data.batchSize) setBatchSize(data.batchSize);
                 if (data.enabled !== undefined) setEnabled(data.enabled);
+                if (data.priorityProfile) setPriorityProfile(data.priorityProfile);
             });
     }, []);
 
@@ -26,7 +28,7 @@ export default function SchedulerConfig() {
             await fetch('/api/scheduler/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ interval, batchSize, enabled })
+                body: JSON.stringify({ interval, batchSize, enabled, priorityProfile })
             });
             const btn = document.getElementById('save-config-btn');
             if (btn) {
@@ -66,7 +68,42 @@ export default function SchedulerConfig() {
                         </button>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-2">
+                    <div className="border-t border-zinc-800 pt-6">
+                        <div className="mb-4">
+                            <h2 className="text-lg font-medium text-white">Priority Engine Profile</h2>
+                            <p className="text-sm text-zinc-400">Select how the background scheduler chooses which missing items to search for first.</p>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {[
+                                { id: 'recently_added', title: 'Recently Added', desc: 'Prioritize media you just added to Radarr/Sonarr.' },
+                                { id: 'recently_released', title: 'Recently Released', desc: 'Prioritize missing items whose release/air date just passed.' },
+                                { id: 'nearly_complete', title: 'Nearly Complete', desc: 'Prioritize Sonarr series that are almost 100% downloaded.' },
+                                { id: 'custom', title: 'Custom (Hold)', desc: 'Use explicitly defined drag-and-drop ordering. (Coming Soon)' }
+                            ].map(profile => (
+                                <div
+                                    key={profile.id}
+                                    onClick={() => profile.id !== 'custom' && setPriorityProfile(profile.id)}
+                                    className={`p-4 rounded-xl border cursor-pointer transition-all ${priorityProfile === profile.id
+                                            ? 'bg-emerald-900/20 border-emerald-500/50'
+                                            : 'bg-zinc-950 border-zinc-800 hover:border-zinc-700'
+                                        } ${profile.id === 'custom' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                >
+                                    <div className="flex items-center gap-3 mb-1">
+                                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${priorityProfile === profile.id ? 'border-emerald-500' : 'border-zinc-600'
+                                            }`}>
+                                            {priorityProfile === profile.id && <div className="w-2 h-2 rounded-full bg-emerald-500"></div>}
+                                        </div>
+                                        <h3 className={`font-medium ${priorityProfile === profile.id ? 'text-emerald-400' : 'text-zinc-200'}`}>
+                                            {profile.title}
+                                        </h3>
+                                    </div>
+                                    <p className="text-xs text-zinc-500 ml-7">{profile.desc}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-6 border-t border-zinc-800">
                         <div className="space-y-2">
                             <label className="text-sm font-medium text-white flex justify-between">
                                 <span>Search Interval</span>

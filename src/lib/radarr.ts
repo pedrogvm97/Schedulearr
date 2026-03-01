@@ -10,7 +10,23 @@ export interface RadarrMovie {
     sizeOnDisk: number;
     status: string; // 'released', 'inCinemas', etc.
     isAvailable: boolean;
+    inCinemas?: string;
+    physicalRelease?: string;
+    digitalRelease?: string;
 }
+
+// Function to fetch all movies
+export const getAllMovies = async (url: string, apiKey: string): Promise<RadarrMovie[]> => {
+    try {
+        const response = await axios.get(`${url}/api/v3/movie`, {
+            headers: { 'X-Api-Key': apiKey }
+        });
+        return response.data;
+    } catch (error) {
+        console.error(`Error fetching all movies from Radarr (${url}):`, error);
+        return [];
+    }
+};
 
 // Function to fetch missing movies from a single Radarr instance
 export const getMissingMovies = async (url: string, apiKey: string): Promise<RadarrMovie[]> => {
