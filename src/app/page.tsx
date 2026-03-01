@@ -7,6 +7,7 @@ export default function Dashboard() {
   const [movies, setMovies] = useState<any[]>([]);
   const [episodes, setEpisodes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [limit, setLimit] = useState<number | null>(null);
 
   // Fake state for UI demonstration (would be connected to backend DB in full implementation)
   const [searchToggles, setSearchToggles] = useState<Record<string, boolean>>({});
@@ -47,10 +48,14 @@ export default function Dashboard() {
   }
 
   // Combine and sort all missing media by date added
-  const combined = [
+  let combined = [
     ...movies.map(m => ({ ...m, type: 'movie', sortDate: new Date(m.added).getTime(), idStr: `movie-${m.id}` })),
     ...episodes.map(e => ({ ...e, type: 'episode', sortDate: new Date(e.seriesAdded).getTime(), idStr: `ep-${e.id}` }))
   ].sort((a, b) => b.sortDate - a.sortDate); // Newest first
+
+  if (limit !== null) {
+    combined = combined.slice(0, limit);
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-6 space-y-8">
@@ -61,13 +66,33 @@ export default function Dashboard() {
         </div>
 
         <div className="flex gap-2">
-          <button className="bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 rounded-lg px-4 py-2 text-sm font-medium transition-colors">
+          <button
+            onClick={() => setLimit(limit === null ? null : (limit === 5 ? null : 5))}
+            className={`${limit === 5 ? 'bg-zinc-800 text-white' : 'bg-zinc-900 text-zinc-300'} hover:bg-zinc-800 border border-zinc-800 rounded-lg px-4 py-2 text-sm font-medium transition-colors`}
+          >
             Last 5
           </button>
-          <button className="bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 rounded-lg px-4 py-2 text-sm font-medium transition-colors">
+          <button
+            onClick={() => setLimit(limit === null ? null : (limit === 10 ? null : 10))}
+            className={`${limit === 10 ? 'bg-zinc-800 text-white' : 'bg-zinc-900 text-zinc-300'} hover:bg-zinc-800 border border-zinc-800 rounded-lg px-4 py-2 text-sm font-medium transition-colors`}
+          >
             Last 10
           </button>
-          <button className="bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 border border-emerald-500/30 rounded-lg px-4 py-2 text-sm font-medium transition-colors">
+          <button
+            onClick={async () => {
+              const btn = document.getElementById('trigger-btn');
+              if (btn) btn.innerText = 'Triggering...';
+              try {
+                await fetch('/api/scheduler/trigger', { method: 'POST' });
+                if (btn) btn.innerText = 'Search Triggered!';
+                setTimeout(() => { if (btn) btn.innerText = 'Trigger Search Now' }, 3000);
+              } catch (e) {
+                if (btn) btn.innerText = 'Error';
+              }
+            }}
+            id="trigger-btn"
+            className="bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 border border-emerald-500/30 rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+          >
             Trigger Search Now
           </button>
         </div>

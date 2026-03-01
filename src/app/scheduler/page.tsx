@@ -1,16 +1,43 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export default function SchedulerConfig() {
     const [interval, setIntervalVal] = useState("60");
     const [batchSize, setBatchSize] = useState("10");
     const [enabled, setEnabled] = useState(false);
 
-    // In a real implementation this would fetch and save to the DB via an API route
-    const handleSave = (e: React.FormEvent) => {
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        fetch('/api/scheduler/config')
+            .then(res => res.json())
+            .then(data => {
+                if (data.interval) setIntervalVal(data.interval);
+                if (data.batchSize) setBatchSize(data.batchSize);
+                if (data.enabled !== undefined) setEnabled(data.enabled);
+            });
+    }, []);
+
+    const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
-        alert("Configuration saved! (Demonstration)");
+        setLoading(true);
+        try {
+            await fetch('/api/scheduler/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ interval, batchSize, enabled })
+            });
+            const btn = document.getElementById('save-config-btn');
+            if (btn) {
+                const old = btn.innerText;
+                btn.innerText = 'Saved!';
+                setTimeout(() => { btn.innerText = old; }, 2000);
+            }
+        } catch (e) {
+            console.error('Failed to save config', e);
+        }
+        setLoading(false);
     };
 
     return (
@@ -39,8 +66,7 @@ export default function SchedulerConfig() {
                         </button>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-2 opacity-50 pointer-events-none">
-                        {/* These are just visual mockups for now to complete the MVP design loop */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-2">
                         <div className="space-y-2">
                             <label className="text-sm font-medium text-white flex justify-between">
                                 <span>Search Interval</span>
@@ -77,8 +103,10 @@ export default function SchedulerConfig() {
 
                     <div className="pt-4 border-t border-zinc-800 flex justify-end">
                         <button
+                            id="save-config-btn"
+                            disabled={loading}
                             type="submit"
-                            className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2 px-8 rounded-lg transition-colors"
+                            className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2 px-8 rounded-lg transition-colors disabled:opacity-50"
                         >
                             Save Settings
                         </button>

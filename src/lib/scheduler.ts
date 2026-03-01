@@ -36,7 +36,7 @@ if (!global.globalSchedulerRunning) {
     setTimeout(startScheduler, 5000);
 }
 
-async function runBatchSearch() {
+export async function runBatchSearch() {
     const prowlarrs = getInstances('prowlarr');
     let allowedBatchSize = 10; // Default pulling from DB
 
