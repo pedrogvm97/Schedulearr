@@ -8,35 +8,46 @@ export default function SchedulerQueue() {
     const [episodes, setEpisodes] = useState<any[]>([]);
     const [profiles, setProfiles] = useState<Record<string, Record<number, string>>>({});
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [schedulerConfig, setSchedulerConfig] = useState<{ enabled: boolean, interval: number, batchSize: number }>({ enabled: true, interval: 5, batchSize: 10 });
+    const [searchHistory, setSearchHistory] = useState<any[]>([]);
     const [searchToggles, setSearchToggles] = useState<Record<string, boolean>>({});
     const [selectedGenre, setSelectedGenre] = useState<string>('All');
     const [instanceFilters, setInstanceFilters] = useState<Record<string, boolean>>({});
     const [searchQuery, setSearchQuery] = useState('');
     const [qualityFilter, setQualityFilter] = useState('missing'); // 'all', 'missing', 'upgradeable'
 
-    useEffect(() => {
-        const fetchData = async () => {
-            setLoading(true);
-            try {
-                const [movieRes, epRes, profileRes] = await Promise.all([
-                    fetch('/api/radarr/all'),
-                    fetch('/api/sonarr/all'),
-                    fetch('/api/quality')
-                ]);
-
-                if (movieRes.ok) setMovies(await movieRes.json());
-                if (epRes.ok) setEpisodes(await epRes.json());
-                if (profileRes.ok) {
-                    const profileData = await profileRes.json();
-                    setProfiles(profileData.profiles);
-                }
-            } catch (e) {
-                console.error("Failed to load data", e);
+    // Fetch data function
+    const fetchData = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const [movieRes, epRes, profileRes, configRes, historyRes] = await Promise.all([
+                fetch('/api/radarr/all'),
+                fetch('/api/sonarr/all'),
+                fetch('/api/quality'),
+                fetch('/api/scheduler/config'),
+                fetch('/api/search/history')
+            ]);
+            if (movieRes.ok) setMovies(await movieRes.json());
+            if (epRes.ok) setEpisodes(await epRes.json());
+            if (profileRes.ok) {
+                const profileData = await profileRes.json();
+                setProfiles(profileData.profiles);
             }
-            setLoading(false);
-        };
+            if (configRes.ok) setSchedulerConfig(await configRes.json());
+            if (historyRes.ok) setSearchHistory(await historyRes.json());
+        } catch (e) {
+            console.error("Failed to load data", e);
+            setError(e instanceof Error ? e.message : String(e));
+        }
+        setLoading(false);
+    };
 
+    useEffect(() => {
         fetchData();
+        const interval = setInterval(fetchData, 5 * 60 * 1000); // refresh every 5 minutes
+        return () => clearInterval(interval);
     }, []);
 
     const toggleSearch = (id: string) => {
@@ -78,6 +89,16 @@ export default function SchedulerQueue() {
             </div>
         );
     }
+    if (error) {
+        return (
+            <div className="bg-rose-900 border border-rose-700 text-white p-4 rounded mb-4">
+                <p className="font-medium">Error loading data: {error}</p>
+                <button onClick={fetchData} className="mt-2 px-3 py-1 text-sm bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 border border-emerald-500/30 rounded">
+                    Retry
+                </button>
+            </div>
+        );
+    }
 
     // Combine and structure all media
     let combined = [
@@ -88,7 +109,8 @@ export default function SchedulerQueue() {
             idStr: `movie-${m.id}`,
             isDownloaded: m.hasFile,
             targetQualityProfile: profiles[m.instanceUrl]?.[m.qualityProfileId] || 'Unknown',
-            currentQualityScale: m.movieFile?.quality?.quality?.resolution || 0
+            currentQualityScale: m.movieFile?.quality?.quality?.resolution || 0,
+            instanceId: m.instanceId
         })),
         ...episodes.map(e => ({
             ...e,
@@ -97,7 +119,8 @@ export default function SchedulerQueue() {
             idStr: `series-${e.id}`,
             isDownloaded: e.statistics?.percentOfEpisodes === 100,
             stats: e.statistics,
-            targetQualityProfile: profiles[e.instanceUrl]?.[e.qualityProfileId] || 'Unknown'
+            targetQualityProfile: profiles[e.instanceUrl]?.[e.qualityProfileId] || 'Unknown',
+            instanceId: e.instanceId
         }))
     ].sort((a, b) => b.sortDate - a.sortDate);
 
@@ -214,6 +237,67 @@ export default function SchedulerQueue() {
                             </button>
                         ))}
                     </div>
+                    {/* Refresh Data button */}
+                    <button
+                        onClick={fetchData}
+                        className="px-3 py-1 text-xs font-medium rounded-full bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 border border-emerald-500/30"
+                    >
+                        Refresh Data
+                    </button>
+                    {/* Scheduler Config Controls */}
+                    <div className="flex items-center gap-2 mt-2">
+                        <label className="text-sm text-slate-400">Scheduler:</label>
+                        <button
+                            onClick={() => {
+                                const newConfig = { ...schedulerConfig, enabled: !schedulerConfig.enabled };
+                                setSchedulerConfig(newConfig);
+                                fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newConfig) });
+                            }}
+                            className={`px-3 py-1 text-xs rounded ${schedulerConfig.enabled ? 'bg-green-600/20 text-green-400' : 'bg-red-600/20 text-red-400'}`}
+                        >
+                            {schedulerConfig.enabled ? 'On' : 'Off'}
+                        </button>
+                        <label className="text-sm text-slate-400">Interval (min):</label>
+                        <input
+                            type="number"
+                            min={1}
+                            max={60}
+                            value={schedulerConfig.interval}
+                            onChange={e => {
+                                const val = Math.max(1, Math.min(60, Number(e.target.value)));
+                                const newConfig = { ...schedulerConfig, interval: val };
+                                setSchedulerConfig(newConfig);
+                                fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newConfig) });
+                            }}
+                            className="w-16 bg-zinc-800 border border-zinc-700 text-white text-sm rounded"
+                        />
+                        <label className="text-sm text-slate-400">Batch Size:</label>
+                        <select
+                            value={schedulerConfig.batchSize}
+                            onChange={e => {
+                                const val = Number(e.target.value);
+                                const newConfig = { ...schedulerConfig, batchSize: val };
+                                setSchedulerConfig(newConfig);
+                                fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newConfig) });
+                            }}
+                            className="bg-zinc-800 border border-zinc-700 text-white text-sm rounded"
+                        >
+                            {[...Array(20)].map((_, i) => (
+                                <option key={i + 1} value={i + 1}>{i + 1}</option>
+                            ))}
+                        </select>
+                    </div>
+                    {/* Search History */}
+                    <div className="mt-4 max-h-48 overflow-y-auto">
+                        <h3 className="text-sm font-medium text-slate-400 mb-2">Search History</h3>
+                        <ul className="space-y-1">
+                            {searchHistory.map((h, idx) => (
+                                <li key={idx} className="text-xs text-zinc-300">
+                                    {new Date(h.timestamp).toLocaleString()} – {h.profile} – {h.movies.length} movies, {h.episodes.length} episodes – {h.reason}
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
                 </div>
             </div>
 
@@ -270,9 +354,21 @@ export default function SchedulerQueue() {
                                 <div className="flex items-center gap-4">
                                     <button
                                         className="text-xs bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 font-medium px-3 py-1.5 rounded-lg border border-emerald-500/30 transition-colors mr-2"
-                                        onClick={() => {
-                                            // Handle manual trigger individual logic (To be implemented securely later)
-                                            console.log("Trigger Single Search", item);
+                                        onClick={async () => {
+                                            try {
+                                                const res = await fetch('/api/search/trigger', {
+                                                    method: 'POST',
+                                                    headers: { 'Content-Type': 'application/json' },
+                                                    body: JSON.stringify({ instanceId: item.instanceId, type: item.type })
+                                                });
+                                                const data = await res.json();
+                                                if (!res.ok) throw new Error(data.error || 'Trigger failed');
+                                                // Simple toast feedback
+                                                alert(`Search triggered: ${data.message || 'OK'}`);
+                                            } catch (e) {
+                                                console.error(e);
+                                                alert('Failed to trigger search');
+                                            }
                                         }}
                                     >
                                         Force Search

@@ -1,31 +1,28 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
-import { getSetting, setSetting } from '@/lib/db';
+import { getSchedulerConfig, setSchedulerConfig } from '@/lib/db';
 
 export async function GET() {
     try {
-        const config = {
-            interval: getSetting('scheduler_interval') || '60',
-            batchSize: getSetting('scheduler_batch') || '10',
-            enabled: getSetting('scheduler_enabled') === 'true',
-            priorityProfile: getSetting('priority_profile') || 'recently_added'
-        };
+        const config = getSchedulerConfig();
         return NextResponse.json(config);
-    } catch (error) {
+    } catch (e) {
+        console.error('Error fetching scheduler config', e);
         return NextResponse.json({ error: 'Failed to fetch config' }, { status: 500 });
     }
 }
 
-export async function POST(req: Request) {
+export async function PUT(req: Request) {
     try {
         const body = await req.json();
-
-        if (body.interval) setSetting('scheduler_interval', body.interval.toString());
-        if (body.batchSize) setSetting('scheduler_batch', body.batchSize.toString());
-        if (body.enabled !== undefined) setSetting('scheduler_enabled', body.enabled.toString());
-        if (body.priorityProfile) setSetting('priority_profile', body.priorityProfile.toString());
-
-        return NextResponse.json({ success: true, config: body });
-    } catch (error) {
-        return NextResponse.json({ error: 'Failed to save config' }, { status: 500 });
+        const { enabled, interval, batchSize } = body;
+        if (typeof enabled !== 'boolean' || typeof interval !== 'number' || typeof batchSize !== 'number') {
+            return NextResponse.json({ error: 'Invalid config payload' }, { status: 400 });
+        }
+        setSchedulerConfig({ enabled, interval, batchSize });
+        return NextResponse.json({ success: true });
+    } catch (e) {
+        console.error('Error updating scheduler config', e);
+        return NextResponse.json({ error: 'Failed to update config' }, { status: 500 });
     }
 }

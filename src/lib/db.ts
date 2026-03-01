@@ -65,6 +65,20 @@ export const setSetting = (key: string, value: string): void => {
     stmt.run(key, value);
 };
 
+// Scheduler Config Helpers
+export const getSchedulerConfig = () => {
+    const enabled = getSetting('scheduler_enabled') === 'true';
+    const interval = parseInt(getSetting('scheduler_interval') || '5'); // minutes
+    const batchSize = parseInt(getSetting('scheduler_batch') || '10');
+    return { enabled, interval, batchSize };
+};
+
+export const setSchedulerConfig = (config: { enabled: boolean; interval: number; batchSize: number }) => {
+    setSetting('scheduler_enabled', config.enabled ? 'true' : 'false');
+    setSetting('scheduler_interval', config.interval.toString());
+    setSetting('scheduler_batch', config.batchSize.toString());
+};
+
 export const getInstances = (type?: string, activeOnly: boolean = false): Instance[] => {
     let raw;
     if (type) {
