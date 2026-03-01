@@ -132,3 +132,22 @@ export const getQualityProfiles = async (url: string, apiKey: string): Promise<S
         return [];
     }
 };
+
+// Check queue for a specific episode ID
+export const getEpisodeQueueStatus = async (url: string, apiKey: string, episodeId: number): Promise<string | null> => {
+    try {
+        const response = await axios.get(`${url}/api/v3/queue`, {
+            headers: { 'X-Api-Key': apiKey },
+            params: { episodeId }
+        });
+        const records = response.data.records;
+        if (records && records.length > 0) {
+            return records[0].status; // e.g., 'downloading', 'completed', 'delay'
+        }
+        return null; // Not in queue (could be already imported or not grabbed)
+    } catch (error) {
+        console.error(`Error fetching queue from Sonarr (${url}):`, error);
+        return null;
+    }
+};
+

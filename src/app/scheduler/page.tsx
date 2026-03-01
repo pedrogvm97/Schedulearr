@@ -34,8 +34,10 @@ export default function SchedulerQueue() {
     const [instanceFilters, setInstanceFilters] = useState<Record<string, boolean>>({});
     const [searchQuery, setSearchQuery] = useState('');
     const [qualityFilter, setQualityFilter] = useState('missing'); // 'all', 'missing', 'upgradeable'
-    const [priorityMode, setPriorityMode] = useState<'auto' | 'custom'>('auto');
+    const [profile, setProfile] = useState('recently_added');
     const [orderedIds, setOrderedIds] = useState<string[]>([]);
+    const [showActiveOnly, setShowActiveOnly] = useState(false);
+    const [searchingItems, setSearchingItems] = useState<Record<string, { status: string, isPolling: boolean }>>({});
 
     const sensors = useSensors(
         useSensor(PointerSensor),
@@ -49,12 +51,13 @@ export default function SchedulerQueue() {
         setLoading(true);
         setError(null);
         try {
-            const [movieRes, epRes, profileRes, configRes, historyRes] = await Promise.all([
+            const [movieRes, epRes, profileRes, configRes, historyRes, settingsRes] = await Promise.all([
                 fetch('/api/radarr/all'),
                 fetch('/api/sonarr/all'),
                 fetch('/api/quality'),
                 fetch('/api/scheduler/config'),
-                fetch('/api/search/history')
+                fetch('/api/search/history'),
+                fetch('/api/settings')
             ]);
             if (movieRes.ok) setMovies(await movieRes.json());
             if (epRes.ok) setEpisodes(await epRes.json());
@@ -64,6 +67,10 @@ export default function SchedulerQueue() {
             }
             if (configRes.ok) setSchedulerConfig(await configRes.json());
             if (historyRes.ok) setSearchHistory(await historyRes.json());
+            if (settingsRes.ok) {
+                const settingsData = await settingsRes.json();
+                if (settingsData.priority_profile) setProfile(settingsData.priority_profile);
+            }
         } catch (e) {
             console.error("Failed to load data", e);
             setError(e instanceof Error ? e.message : String(e));
@@ -82,6 +89,51 @@ export default function SchedulerQueue() {
             ...prev,
             [id]: !prev[id]
         }));
+    };
+
+    const handleForceSearch = async (item: any) => {
+        setSearchingItems(prev => ({ ...prev, [item.idStr]: { status: 'Triggering...', isPolling: true } }));
+
+        try {
+            const res = await fetch('/api/search/trigger', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ instanceId: item.instanceId, type: item.type, mediaId: item.id })
+            });
+
+            if (!res.ok) throw new Error('Trigger failed');
+
+            setSearchingItems(prev => ({ ...prev, [item.idStr]: { status: 'Searching indexers...', isPolling: true } }));
+
+            let tries = 0;
+            const maxTries = 10;
+
+            const pollInterval = setInterval(async () => {
+                tries++;
+                try {
+                    const statusRes = await fetch(`/api/search/status?instanceId=${item.instanceId}&type=${item.type}&mediaId=${item.id}`);
+                    if (statusRes.ok) {
+                        const data = await statusRes.json();
+                        if (data.status !== 'Not in queue') {
+                            setSearchingItems(prev => ({ ...prev, [item.idStr]: { status: `Grabbed (${data.status})`, isPolling: false } }));
+                            clearInterval(pollInterval);
+                            return;
+                        }
+                    }
+                } catch (e) {
+                    console.error('Polling error', e);
+                }
+
+                if (tries >= maxTries) {
+                    setSearchingItems(prev => ({ ...prev, [item.idStr]: { status: 'Finished (Not found)', isPolling: false } }));
+                    clearInterval(pollInterval);
+                }
+            }, 3000);
+
+        } catch (err) {
+            console.error(err);
+            setSearchingItems(prev => ({ ...prev, [item.idStr]: { status: 'Error', isPolling: false } }));
+        }
     };
 
     const toggleInstance = async (name: string, id: string) => {
@@ -109,7 +161,18 @@ export default function SchedulerQueue() {
         }
     };
 
-
+    const handleSaveProfile = async (newProfile: string) => {
+        setProfile(newProfile);
+        try {
+            await fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ key: 'priority_profile', value: newProfile })
+            });
+        } catch (e) {
+            console.error('Failed to save profile', e);
+        }
+    };
 
     // Combine and structure all media
     let combined = [
@@ -180,8 +243,15 @@ export default function SchedulerQueue() {
     // Filter by selected instances
     combined = combined.filter(item => instanceFilters[item.instanceName] !== false);
 
+    const totalItems = combined.length;
+
+    // Filter by active status
+    if (showActiveOnly) {
+        combined = combined.filter(item => searchToggles[item.idStr] !== false);
+    }
+
     // If Custom Priority is enabled, sort the combined array by the orderedIds state.
-    if (priorityMode === 'custom') {
+    if (profile === 'custom') {
         combined.sort((a, b) => {
             const indexA = orderedIds.indexOf(a.idStr);
             const indexB = orderedIds.indexOf(b.idStr);
@@ -242,27 +312,32 @@ export default function SchedulerQueue() {
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight text-white mb-2">Scheduler Queue</h1>
-                    <p className="text-zinc-400">Manage your active search tracking list and prioritize genres.</p>
+                    <p className="text-zinc-400 mb-1">Manage your active search tracking list and prioritize genres.</p>
+                    {!loading && totalItems > 0 && (
+                        <p className="text-sm font-medium text-emerald-500/80">
+                            Showing {combined.length} of {totalItems} items
+                        </p>
+                    )}
                 </div>
 
                 {/* Filters */}
                 <div className="flex flex-col items-end gap-3 flex-wrap max-w-[60%] w-full">
                     {/* First Row: Search & Dropdowns */}
                     <div className="flex items-center gap-3 w-full justify-end">
-                        {/* Priority Sort Toggle */}
-                        <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg p-1">
-                            <button
-                                onClick={() => setPriorityMode('auto')}
-                                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${priorityMode === 'auto' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-400 hover:text-zinc-300'}`}
+                        {/* Priority Profile Dropdown */}
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-slate-400">Sort Profile:</span>
+                            <select
+                                value={profile}
+                                onChange={(e) => handleSaveProfile(e.target.value)}
+                                className="bg-zinc-900 border border-zinc-800 text-white text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block p-2.5 outline-none"
                             >
-                                Auto Sort
-                            </button>
-                            <button
-                                onClick={() => setPriorityMode('custom')}
-                                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${priorityMode === 'custom' ? 'bg-indigo-600/30 text-indigo-300 shadow-sm' : 'text-zinc-400 hover:text-zinc-300'}`}
-                            >
-                                Custom Drag & Drop
-                            </button>
+                                <option value="recently_added">Added Date (Default)</option>
+                                <option value="recently_released">Release Date</option>
+                                <option value="nearly_complete">Series Completion %</option>
+                                <option value="random">Randomized</option>
+                                <option value="custom">Custom Drag & Drop</option>
+                            </select>
                         </div>
                         {/* Search Bar */}
                         <div className="flex-1 max-w-sm">
@@ -287,6 +362,16 @@ export default function SchedulerQueue() {
                                 <option value="upgradeable">Upgradeable Only</option>
                                 <option value="all">Everything</option>
                             </select>
+
+                            {/* Active Only Filter */}
+                            <label className="flex items-center cursor-pointer ml-2">
+                                <span className="text-sm font-medium text-slate-400 mr-2">Active Only:</span>
+                                <div className="relative">
+                                    <input type="checkbox" className="sr-only" checked={showActiveOnly} onChange={() => setShowActiveOnly(!showActiveOnly)} />
+                                    <div className={`block w-10 h-6 rounded-full transition-colors ${showActiveOnly ? 'bg-purple-500' : 'bg-zinc-700'}`}></div>
+                                    <div className={`dot absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${showActiveOnly ? 'transform translate-x-4' : ''}`}></div>
+                                </div>
+                            </label>
                         </div>
 
                         {/* Genre Quick Filters */}
@@ -432,7 +517,7 @@ export default function SchedulerQueue() {
                             {combined.map((item) => {
                                 const isToggled = searchToggles[item.idStr] !== false; // Default true
                                 return (
-                                    <SortableItem key={item.idStr} id={item.idStr} isDraggable={priorityMode === 'custom'}>
+                                    <SortableItem key={item.idStr} id={item.idStr} isDraggable={profile === 'custom'}>
                                         <div
                                             className={`flex items-center justify-between p-4 rounded-xl border transition-all ${isToggled ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-950 border-zinc-900 opacity-60'
                                                 }`}
@@ -485,29 +570,23 @@ export default function SchedulerQueue() {
                                             </div>
 
                                             <div className="flex items-center gap-4">
-                                                <button
-                                                    className="text-xs bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 font-medium px-3 py-1.5 rounded-lg border border-emerald-500/30 transition-colors mr-2 relative z-20 cursor-pointer"
-                                                    onPointerDown={(e) => e.stopPropagation()}
-                                                    onClick={async (e) => {
-                                                        e.stopPropagation();
-                                                        try {
-                                                            const res = await fetch('/api/search/trigger', {
-                                                                method: 'POST',
-                                                                headers: { 'Content-Type': 'application/json' },
-                                                                body: JSON.stringify({ instanceId: item.instanceId, type: item.type })
-                                                            });
-                                                            const data = await res.json();
-                                                            if (!res.ok) throw new Error(data.error || 'Trigger failed');
-                                                            // Simple toast feedback
-                                                            alert(`Search triggered: ${data.message || 'OK'}`);
-                                                        } catch (err) {
-                                                            console.error(err);
-                                                            alert('Failed to trigger search');
-                                                        }
-                                                    }}
-                                                >
-                                                    Force Search
-                                                </button>
+                                                {searchingItems[item.idStr] ? (
+                                                    <span className="text-xs font-semibold px-3 py-1.5 rounded-lg border bg-zinc-800/80 text-zinc-300 border-zinc-700 mr-2 flex items-center gap-2">
+                                                        {searchingItems[item.idStr].isPolling && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>}
+                                                        {searchingItems[item.idStr].status}
+                                                    </span>
+                                                ) : (
+                                                    <button
+                                                        className="text-xs bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 font-medium px-3 py-1.5 rounded-lg border border-emerald-500/30 transition-colors mr-2 relative z-20 cursor-pointer"
+                                                        onPointerDown={(e) => e.stopPropagation()}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleForceSearch(item);
+                                                        }}
+                                                    >
+                                                        Force Search
+                                                    </button>
+                                                )}
                                                 <span className="text-xs text-zinc-500 font-medium mr-2">Status: {isToggled ? 'Active' : 'Paused'}</span>
                                                 <button
                                                     onPointerDown={(e) => e.stopPropagation()}

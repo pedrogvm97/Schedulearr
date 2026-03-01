@@ -23,7 +23,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </Link>
               <div className="hidden md:flex items-center gap-1">
                 <Link href="/" className="px-3 py-2 text-sm font-medium rounded-md text-zinc-400 hover:text-white hover:bg-zinc-900 transition-colors">Dashboard</Link>
-                <Link href="/scheduler" className="px-3 py-2 text-sm font-medium rounded-md text-zinc-400 hover:text-white hover:bg-zinc-900 transition-colors">Scheduler config</Link>
+                <Link href="/scheduler" className="px-3 py-2 text-sm font-medium rounded-md text-zinc-400 hover:text-white hover:bg-zinc-900 transition-colors">Media Search</Link>
                 <Link href="/settings" className="px-3 py-2 text-sm font-medium rounded-md text-zinc-400 hover:text-white hover:bg-zinc-900 transition-colors">Settings</Link>
               </div>
             </div>

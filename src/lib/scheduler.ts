@@ -1,4 +1,4 @@
-import { getInstances, getSetting, logSearchHistory } from '@/lib/db';
+import { getInstances, getSetting, logSearchHistory, getSchedulerConfig } from '@/lib/db';
 import { getAllMovies, triggerMovieSearch, RadarrMovie } from '@/lib/radarr';
 import { getAllSeries, triggerEpisodeSearch, SonarrSeries } from '@/lib/sonarr';
 import { getIndexerHealth } from '@/lib/prowlarr';
@@ -18,22 +18,28 @@ if (!global.globalSchedulerRunning) {
     const startScheduler = () => {
         console.log('🏁 Arr Scheduler background orchestrator started.');
 
-        // Default: run every 30 minutes. 
-        // Real implementation would pull this from the `settings` SQLite table we defined earlier.
-        const intervalMs = 30 * 60 * 1000;
-
-        setInterval(async () => {
+        const runCycle = async () => {
             console.log('🕒 Arr Scheduler running automated batch...');
             try {
                 await runBatchSearch();
             } catch (error) {
                 console.error('❌ Scheduler error:', error);
             }
-        }, intervalMs);
+
+            // Fetch dynamic interval from database
+            const { interval } = getSchedulerConfig();
+            // Default 30 min if missing or invalid, with a minimum of 1 minute to prevent CPU spinning
+            const validInterval = (!interval || isNaN(interval) || interval < 1) ? 30 : interval;
+            const intervalMs = validInterval * 60 * 1000;
+
+            setTimeout(runCycle, intervalMs);
+        };
+
+        // Start the first full search cycle after a short 5-second delay to let the server start up
+        setTimeout(runCycle, 5000);
     };
 
-    // Start the background process, decoupled from any specific incoming HTTP request
-    setTimeout(startScheduler, 5000);
+    startScheduler();
 }
 
 export async function runBatchSearch() {

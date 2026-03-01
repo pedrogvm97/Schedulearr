@@ -99,3 +99,21 @@ export const getQualityProfiles = async (url: string, apiKey: string): Promise<R
         return [];
     }
 };
+
+// Check queue for a specific movie ID
+export const getMovieQueueStatus = async (url: string, apiKey: string, movieId: number): Promise<string | null> => {
+    try {
+        const response = await axios.get(`${url}/api/v3/queue`, {
+            headers: { 'X-Api-Key': apiKey },
+            params: { movieId }
+        });
+        const records = response.data.records;
+        if (records && records.length > 0) {
+            return records[0].status; // e.g., 'downloading', 'completed', 'delay'
+        }
+        return null;
+    } catch (error) {
+        console.error(`Error fetching queue from Radarr (${url}):`, error);
+        return null;
+    }
+};
