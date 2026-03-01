@@ -2,6 +2,24 @@
 
 import { useState, useEffect } from 'react';
 import { formatDistanceToNow } from 'date-fns';
+import {
+    DndContext,
+    closestCenter,
+    KeyboardSensor,
+    PointerSensor,
+    useSensor,
+    useSensors,
+    DragEndEvent
+} from '@dnd-kit/core';
+import {
+    arrayMove,
+    SortableContext,
+    sortableKeyboardCoordinates,
+    verticalListSortingStrategy,
+    useSortable
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { SortableItem } from '@/components/SortableItem';
 
 export default function SchedulerQueue() {
     const [movies, setMovies] = useState<any[]>([]);
@@ -16,6 +34,15 @@ export default function SchedulerQueue() {
     const [instanceFilters, setInstanceFilters] = useState<Record<string, boolean>>({});
     const [searchQuery, setSearchQuery] = useState('');
     const [qualityFilter, setQualityFilter] = useState('missing'); // 'all', 'missing', 'upgradeable'
+    const [priorityMode, setPriorityMode] = useState<'auto' | 'custom'>('auto');
+    const [orderedIds, setOrderedIds] = useState<string[]>([]);
+
+    const sensors = useSensors(
+        useSensor(PointerSensor),
+        useSensor(KeyboardSensor, {
+            coordinateGetter: sortableKeyboardCoordinates,
+        })
+    );
 
     // Fetch data function
     const fetchData = async () => {
@@ -169,6 +196,45 @@ export default function SchedulerQueue() {
     // Filter by selected instances
     combined = combined.filter(item => instanceFilters[item.instanceName] !== false);
 
+    // If Custom Priority is enabled, sort the combined array by the orderedIds state.
+    if (priorityMode === 'custom') {
+        combined.sort((a, b) => {
+            const indexA = orderedIds.indexOf(a.idStr);
+            const indexB = orderedIds.indexOf(b.idStr);
+
+            // If both are in the manual order, sort by that order
+            if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+            // If A is in order but B isn't, A comes first
+            if (indexA !== -1) return -1;
+            // If B is in order but A isn't, B comes first
+            if (indexB !== -1) return 1;
+            // If neither is in custom order yet, fallback to original auto-sort (date based)
+            return 0;
+        });
+    }
+
+    // Keep orderedIds in sync visually if it's empty (initial load)
+    useEffect(() => {
+        if (combined.length > 0 && orderedIds.length === 0) {
+            setOrderedIds(combined.map(c => c.idStr));
+        }
+    }, [combined, orderedIds.length]);
+
+    const handleDragEnd = (event: DragEndEvent) => {
+        const { active, over } = event;
+
+        if (over && active.id !== over.id) {
+            setOrderedIds((items) => {
+                const oldIndex = items.indexOf(active.id as string);
+                const newIndex = items.indexOf(over.id as string);
+                return arrayMove(items, oldIndex, newIndex);
+            });
+
+            // NOTE: In a full implementation, we'd also sync this new array to the backend DB 
+            // `custom_priority` table to persist it across reloads.
+        }
+    };
+
     return (
         <div className="max-w-7xl mx-auto px-6 space-y-8 pb-12">
             <div className="flex items-center justify-between">
@@ -178,9 +244,24 @@ export default function SchedulerQueue() {
                 </div>
 
                 {/* Filters */}
-                <div className="flex flex-col items-end gap-3 flex-wrap max-w-[60%]">
+                <div className="flex flex-col items-end gap-3 flex-wrap max-w-[60%] w-full">
                     {/* First Row: Search & Dropdowns */}
                     <div className="flex items-center gap-3 w-full justify-end">
+                        {/* Priority Sort Toggle */}
+                        <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg p-1">
+                            <button
+                                onClick={() => setPriorityMode('auto')}
+                                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${priorityMode === 'auto' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-400 hover:text-zinc-300'}`}
+                            >
+                                Auto Sort
+                            </button>
+                            <button
+                                onClick={() => setPriorityMode('custom')}
+                                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${priorityMode === 'custom' ? 'bg-indigo-600/30 text-indigo-300 shadow-sm' : 'text-zinc-400 hover:text-zinc-300'}`}
+                            >
+                                Custom Drag & Drop
+                            </button>
+                        </div>
                         {/* Search Bar */}
                         <div className="flex-1 max-w-sm">
                             <input
@@ -206,18 +287,46 @@ export default function SchedulerQueue() {
                             </select>
                         </div>
 
-                        {/* Genre Filter */}
-                        <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-slate-400">Genre:</span>
-                            <select
-                                value={selectedGenre}
-                                onChange={(e) => setSelectedGenre(e.target.value)}
-                                className="bg-zinc-900 border border-zinc-800 text-white text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block p-2.5 outline-none"
+                        {/* Genre Quick Filters */}
+                        <div className="flex items-center gap-2 flex-wrap w-full justify-end mt-2">
+                            <span className="text-sm font-medium text-slate-400 mr-1">Genres:</span>
+                            {/* We'll show top common genres plus 'All' as quick buttons, and keep the dropdown if there are too many */}
+                            <button
+                                onClick={() => setSelectedGenre('All')}
+                                className={`px-3 py-1 text-xs font-semibold rounded-full border transition-colors ${selectedGenre === 'All'
+                                    ? 'bg-purple-500/20 text-purple-400 border-purple-500/50 hover:bg-purple-500/30'
+                                    : 'bg-zinc-800 text-zinc-500 border-zinc-700 hover:bg-zinc-700'
+                                    }`}
                             >
-                                {uniqueGenres.map(g => (
-                                    <option key={g} value={g}>{g}</option>
-                                ))}
-                            </select>
+                                All
+                            </button>
+                            {/* Map through a few popular ones, or just map all unique genres if it's not too crazy */}
+                            {uniqueGenres.filter(g => g !== 'All').slice(0, 8).map(g => (
+                                <button
+                                    key={g}
+                                    onClick={() => setSelectedGenre(g)}
+                                    className={`px-3 py-1 text-xs font-semibold rounded-full border transition-colors ${selectedGenre === g
+                                        ? 'bg-purple-500/20 text-purple-400 border-purple-500/50 hover:bg-purple-500/30'
+                                        : 'bg-zinc-800 text-zinc-500 border-zinc-700 hover:bg-zinc-700'
+                                        }`}
+                                >
+                                    {g}
+                                </button>
+                            ))}
+
+                            {/* If there are lots of genres, keep the dropdown as a fallback for the rest */}
+                            {uniqueGenres.length > 9 && (
+                                <select
+                                    value={selectedGenre}
+                                    onChange={(e) => setSelectedGenre(e.target.value)}
+                                    className="bg-zinc-900 border border-zinc-800 text-white text-xs rounded-full focus:ring-purple-500 focus:border-purple-500 block px-3 py-1 sm outline-none h-6"
+                                >
+                                    <option value="" disabled>More...</option>
+                                    {uniqueGenres.filter(g => g !== 'All').slice(8).map(g => (
+                                        <option key={g} value={g}>{g}</option>
+                                    ))}
+                                </select>
+                            )}
                         </div>
                     </div>
 
@@ -308,85 +417,116 @@ export default function SchedulerQueue() {
                     <p className="text-zinc-500 mt-2">No missing media matching this filter.</p>
                 </div>
             ) : (
-                <div className="grid grid-cols-1 gap-3">
-                    {combined.map((item) => {
-                        const isToggled = searchToggles[item.idStr] !== false; // Default true
-                        return (
-                            <div
-                                key={item.idStr}
-                                className={`flex items-center justify-between p-4 rounded-xl border transition-all ${isToggled ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-950 border-zinc-900 opacity-60'
-                                    }`}
-                            >
-                                <div className="flex items-center gap-4">
-                                    <div className={`w-2 h-12 rounded-full ${item.type === 'movie' ? 'bg-yellow-500' : 'bg-cyan-500'}`} />
-                                    <div>
-                                        <div className="flex items-center gap-2 mb-1">
-                                            <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm ${item.type === 'movie' ? 'bg-yellow-500/20 text-yellow-500' : 'bg-cyan-500/20 text-cyan-500'
-                                                }`}>
-                                                {item.type}
-                                            </span>
-                                            {/* Show first two genres as tags if available */}
-                                            {item.genres && item.genres.slice(0, 2).map((g: string) => (
-                                                <span key={g} className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm bg-purple-500/20 text-purple-400">
-                                                    {g}
-                                                </span>
-                                            ))}
-                                        </div>
-                                        <h3 className="text-lg font-medium text-white">
-                                            {item.title}
-                                        </h3>
-                                        <p className="text-sm text-zinc-400">
-                                            {item.type === 'movie'
-                                                ? (item.isDownloaded ? 'Downloaded' : 'Missing from Library')
-                                                : (item.stats ? `${item.stats.episodeFileCount} / ${item.stats.episodeCount} Episodes (${Math.round(item.stats.percentOfEpisodes)}%)` : 'Unknown')}
-                                            {' • Added '}{formatDistanceToNow(item.sortDate, { addSuffix: true })}
-                                            {' • Target: '}
-                                            <span className="text-indigo-400 font-semibold">{item.targetQualityProfile}</span>
-                                            {item.type === 'movie' && item.isDownloaded && (
-                                                <span className="ml-2 px-1.5 py-0.5 rounded textxs bg-zinc-800 border border-zinc-700 text-zinc-300">
-                                                    Current: {item.currentQualityScale}p
-                                                </span>
-                                            )}
-                                        </p>
-                                    </div>
-                                </div>
+                <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={handleDragEnd}
+                >
+                    <SortableContext
+                        items={combined.map(c => c.idStr)}
+                        strategy={verticalListSortingStrategy}
+                    >
+                        <div className="grid grid-cols-1 gap-3">
+                            {combined.map((item) => {
+                                const isToggled = searchToggles[item.idStr] !== false; // Default true
+                                return (
+                                    <SortableItem key={item.idStr} id={item.idStr} isDraggable={priorityMode === 'custom'}>
+                                        <div
+                                            className={`flex items-center justify-between p-4 rounded-xl border transition-all ${isToggled ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-950 border-zinc-900 opacity-60'
+                                                }`}
+                                        >
+                                            <div className="flex items-center gap-4">
+                                                <div className={`w-2 h-12 rounded-full ${item.type === 'movie' ? 'bg-yellow-500' : 'bg-cyan-500'}`} />
+                                                <div>
+                                                    <div className="flex items-center gap-2 mb-1">
+                                                        <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm ${item.type === 'movie' ? 'bg-yellow-500/20 text-yellow-500' : 'bg-cyan-500/20 text-cyan-500'
+                                                            }`}>
+                                                            {item.type}
+                                                        </span>
+                                                        {/* Show first two genres as tags if available */}
+                                                        {item.genres && item.genres.slice(0, 2).map((g: string) => (
+                                                            <span key={g} className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm bg-purple-500/20 text-purple-400">
+                                                                {g}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                    <h3 className="text-lg font-medium text-white">
+                                                        {item.title}
+                                                    </h3>
+                                                    <p className="text-sm text-zinc-400">
+                                                        {item.type === 'movie'
+                                                            ? (item.isDownloaded ? 'Downloaded' : 'Missing from Library')
+                                                            : (item.stats ? `${item.stats.episodeFileCount} / ${item.stats.episodeCount} Episodes (${Math.round(item.stats.percentOfEpisodes)}%)` : 'Unknown')}
+                                                        {' • Added '}{formatDistanceToNow(item.sortDate, { addSuffix: true })}
+                                                        <div className="mt-2 flex items-center gap-2">
+                                                            <div className="flex bg-zinc-900 border border-zinc-700/50 rounded-md overflow-hidden text-xs font-medium">
+                                                                <div className="bg-zinc-800 px-2 py-0.5 text-zinc-400 border-r border-zinc-700/50">Target</div>
+                                                                <div className="px-2 py-0.5 text-indigo-400 bg-indigo-500/10">
+                                                                    {item.targetQualityProfile}
+                                                                </div>
+                                                            </div>
 
-                                <div className="flex items-center gap-4">
-                                    <button
-                                        className="text-xs bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 font-medium px-3 py-1.5 rounded-lg border border-emerald-500/30 transition-colors mr-2"
-                                        onClick={async () => {
-                                            try {
-                                                const res = await fetch('/api/search/trigger', {
-                                                    method: 'POST',
-                                                    headers: { 'Content-Type': 'application/json' },
-                                                    body: JSON.stringify({ instanceId: item.instanceId, type: item.type })
-                                                });
-                                                const data = await res.json();
-                                                if (!res.ok) throw new Error(data.error || 'Trigger failed');
-                                                // Simple toast feedback
-                                                alert(`Search triggered: ${data.message || 'OK'}`);
-                                            } catch (e) {
-                                                console.error(e);
-                                                alert('Failed to trigger search');
-                                            }
-                                        }}
-                                    >
-                                        Force Search
-                                    </button>
-                                    <span className="text-xs text-zinc-500 font-medium mr-2">Status: {isToggled ? 'Active' : 'Paused'}</span>
-                                    <button
-                                        onClick={() => toggleSearch(item.idStr)}
-                                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-zinc-950 ${isToggled ? 'bg-emerald-500' : 'bg-zinc-700'
-                                            }`}
-                                    >
-                                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isToggled ? 'translate-x-6' : 'translate-x-1'
-                                            }`} />
-                                    </button>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
+                                                            {item.type === 'movie' && item.isDownloaded && (
+                                                                <div className="flex bg-zinc-900 border border-zinc-700/50 rounded-md overflow-hidden text-xs font-medium">
+                                                                    <div className="bg-zinc-800 px-2 py-0.5 text-zinc-400 border-r border-zinc-700/50">Current</div>
+                                                                    <div className={`px-2 py-0.5 ${item.currentQualityScale >= 2160 ? 'text-emerald-400 bg-emerald-500/10' :
+                                                                        item.currentQualityScale >= 1080 ? 'text-blue-400 bg-blue-500/10' :
+                                                                            'text-yellow-400 bg-yellow-500/10'
+                                                                        }`}>
+                                                                        {item.currentQualityScale ? `${item.currentQualityScale}p` : 'Unknown'}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex items-center gap-4">
+                                                <button
+                                                    className="text-xs bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 font-medium px-3 py-1.5 rounded-lg border border-emerald-500/30 transition-colors mr-2 relative z-20 cursor-pointer"
+                                                    onPointerDown={(e) => e.stopPropagation()}
+                                                    onClick={async (e) => {
+                                                        e.stopPropagation();
+                                                        try {
+                                                            const res = await fetch('/api/search/trigger', {
+                                                                method: 'POST',
+                                                                headers: { 'Content-Type': 'application/json' },
+                                                                body: JSON.stringify({ instanceId: item.instanceId, type: item.type })
+                                                            });
+                                                            const data = await res.json();
+                                                            if (!res.ok) throw new Error(data.error || 'Trigger failed');
+                                                            // Simple toast feedback
+                                                            alert(`Search triggered: ${data.message || 'OK'}`);
+                                                        } catch (err) {
+                                                            console.error(err);
+                                                            alert('Failed to trigger search');
+                                                        }
+                                                    }}
+                                                >
+                                                    Force Search
+                                                </button>
+                                                <span className="text-xs text-zinc-500 font-medium mr-2">Status: {isToggled ? 'Active' : 'Paused'}</span>
+                                                <button
+                                                    onPointerDown={(e) => e.stopPropagation()}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        toggleSearch(item.idStr);
+                                                    }}
+                                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-zinc-950 cursor-pointer z-20 ${isToggled ? 'bg-emerald-500' : 'bg-zinc-700'
+                                                        }`}
+                                                >
+                                                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isToggled ? 'translate-x-6' : 'translate-x-1'
+                                                        }`} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </SortableItem>
+                                );
+                            })}
+                        </div>
+                    </SortableContext>
+                </DndContext>
             )}
         </div>
     );

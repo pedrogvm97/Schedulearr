@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { runBatchSearch } from '@/lib/scheduler'; // We need to export runBatchSearch
 
+export const dynamic = 'force-dynamic';
+
 export async function POST() {
     try {
         // Run the search batch immediately
