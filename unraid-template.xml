@@ -10,7 +10,7 @@
   <Project>https://github.com/pedrogvm97/arr-scheduler</Project>
   <Overview>A localized Next.js web application to act as an intelligent scheduler and orchestrator for Radarr, Sonarr, and Prowlarr without external internet access.</Overview>
   <Category>MediaApp:Video MediaApp:Music Other:</Category>
-  <WebUI>http://[IP]:[PORT:3000]</WebUI>
+  <WebUI>http://[IP]:[PORT:3010]</WebUI>
   <TemplateURL/>
   <Icon>https://raw.githubusercontent.com/nextjs/desktop/main/assets/nextjs-icon.png</Icon>
   <ExtraParams/>
@@ -24,8 +24,8 @@
     <Mode>bridge</Mode>
     <Publish>
       <Port>
-        <HostPort>3000</HostPort>
-        <ContainerPort>3000</ContainerPort>
+        <HostPort>3010</HostPort>
+        <ContainerPort>3010</ContainerPort>
         <Protocol>tcp</Protocol>
       </Port>
     </Publish>
@@ -39,6 +39,6 @@
   </Data>
   <Environment/>
   <Labels/>
-  <Config Name="WebUI" Target="3000" Default="3000" Mode="tcp" Description="Web interface port" Type="Port" Display="always" Required="true" Mask="false">3000</Config>
+  <Config Name="WebUI" Target="3010" Default="3010" Mode="tcp" Description="Web interface port" Type="Port" Display="always" Required="true" Mask="false">3010</Config>
   <Config Name="AppData Config Path" Target="/app/data" Default="/mnt/user/appdata/arr-scheduler/data" Mode="rw" Description="Path to store SQLite database configuration." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/arr-scheduler/data</Config>
 </Container>
