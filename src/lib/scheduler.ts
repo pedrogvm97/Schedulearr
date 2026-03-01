@@ -41,7 +41,7 @@ export async function runBatchSearch() {
     const enabled = getSetting('scheduler_enabled') === 'true';
     if (!enabled) {
         console.log('⏸️  Scheduler is disabled in settings. Skipping run.');
-        return;
+        return { success: false, reason: 'Scheduler is disabled in settings', movies: [], episodes: [] };
     }
 
     let allowedBatchSize = parseInt(getSetting('scheduler_batch') || '10');
@@ -60,6 +60,10 @@ export async function runBatchSearch() {
     // 2. Fetch ALL items to evaluate priority
     const radarrs = getInstances('radarr');
     const sonarrs = getInstances('sonarr');
+
+    if (radarrs.length === 0 && sonarrs.length === 0) {
+        return { success: false, reason: 'No Radarr or Sonarr instances configured', movies: [], episodes: [] };
+    }
 
     let allMovieTargets: { id: number, apiUrl: string, apiKey: string, movie: RadarrMovie }[] = [];
 
@@ -122,10 +126,12 @@ export async function runBatchSearch() {
         return acc;
     }, {} as Record<string, { key: string, ids: number[] }>);
 
+    const triggeredMovies = [];
     for (const [url, data] of Object.entries(radarrGroups)) {
         if (data.ids.length > 0) {
             console.log(`🎬 Triggering search for ${data.ids.length} movies on Radarr at ${url} using ${profile} profile`);
             await triggerMovieSearch(url, data.key, data.ids);
+            triggeredMovies.push(...data.ids);
         }
     }
 
@@ -135,12 +141,20 @@ export async function runBatchSearch() {
         return acc;
     }, {} as Record<string, { key: string, ids: number[] }>);
 
+    const triggeredEpisodes = [];
     for (const [url, data] of Object.entries(sonarrGroups)) {
         if (data.ids.length > 0) {
             console.log(`📺 Triggering search for ${data.ids.length} episodes on Sonarr at ${url} using ${profile} profile`);
             await triggerEpisodeSearch(url, data.key, data.ids);
+            triggeredEpisodes.push(...data.ids);
         }
     }
+
+    return {
+        success: true,
+        movies: movieBatch.map(m => m.movie.title),
+        episodes: epBatch.map(e => e.seriesInfo ? `${e.seriesInfo.title} (Episode ID: ${e.id})` : `Episode ID: ${e.id}`)
+    };
 }
 
 // Export a dummy object to satisfy Next.js if this file is imported elsewhere

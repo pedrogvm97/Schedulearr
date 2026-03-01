@@ -4,8 +4,8 @@ import { runBatchSearch } from '@/lib/scheduler'; // We need to export runBatchS
 export async function POST() {
     try {
         // Run the search batch immediately
-        await runBatchSearch();
-        return NextResponse.json({ success: true, message: 'Search batch triggered successfully.' });
+        const results = await runBatchSearch();
+        return NextResponse.json(results);
     } catch (error) {
         console.error('API /scheduler/trigger error:', error);
         return NextResponse.json({ error: 'Failed to trigger search' }, { status: 500 });

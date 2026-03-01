@@ -9,6 +9,13 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [limit, setLimit] = useState<number | null>(null);
   const [filterStatus, setFilterStatus] = useState<'all' | 'missing' | 'downloaded'>('all');
+  const [triggerResult, setTriggerResult] = useState<{
+    show: boolean,
+    success?: boolean,
+    reason?: string,
+    movies?: string[],
+    episodes?: string[]
+  }>({ show: false });
 
   // Fake state for UI demonstration (would be connected to backend DB in full implementation)
   const [searchToggles, setSearchToggles] = useState<Record<string, boolean>>({});
@@ -110,11 +117,21 @@ export default function Dashboard() {
               const btn = document.getElementById('trigger-btn');
               if (btn) btn.innerText = 'Triggering...';
               try {
-                await fetch('/api/scheduler/trigger', { method: 'POST' });
-                if (btn) btn.innerText = 'Search Triggered!';
-                setTimeout(() => { if (btn) btn.innerText = 'Trigger Search Now' }, 3000);
+                const res = await fetch('/api/scheduler/trigger', { method: 'POST' });
+                const data = await res.json();
+
+                setTriggerResult({
+                  show: true,
+                  success: data.success,
+                  reason: data.reason,
+                  movies: data.movies || [],
+                  episodes: data.episodes || []
+                });
+
+                if (btn) btn.innerText = 'Trigger Search Now';
               } catch (e) {
-                if (btn) btn.innerText = 'Error';
+                if (btn) btn.innerText = 'Trigger Search Now';
+                setTriggerResult({ show: true, success: false, reason: 'Network error executing trigger.' });
               }
             }}
             id="trigger-btn"
@@ -180,6 +197,59 @@ export default function Dashboard() {
               </div>
             );
           })}
+        </div>
+      )}
+      {/* Manual Trigger Result Modal */}
+      {triggerResult.show && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 max-w-lg w-full">
+            <h3 className="text-xl font-bold text-white mb-2">
+              {triggerResult.success ? 'Search Triggered' : 'Search Skipped'}
+            </h3>
+
+            {!triggerResult.success && (
+              <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4 my-6">
+                <p className="text-red-400 text-sm font-medium">{triggerResult.reason}</p>
+              </div>
+            )}
+
+            {triggerResult.success && (
+              <div className="my-6 space-y-4">
+                <p className="text-zinc-400 text-sm">The background scheduler has executed a batch search.</p>
+
+                {(triggerResult.movies?.length ?? 0) > 0 && (
+                  <div>
+                    <h4 className="text-white text-sm font-medium mb-2 border-b border-zinc-800 pb-1">Movies Searched</h4>
+                    <ul className="text-zinc-400 text-xs space-y-1 list-disc list-inside h-24 overflow-y-auto">
+                      {triggerResult.movies?.map(m => <li key={m}>{m}</li>)}
+                    </ul>
+                  </div>
+                )}
+
+                {(triggerResult.episodes?.length ?? 0) > 0 && (
+                  <div>
+                    <h4 className="text-white text-sm font-medium mb-2 border-b border-zinc-800 pb-1">Episodes Searched</h4>
+                    <ul className="text-zinc-400 text-xs space-y-1 list-disc list-inside h-24 overflow-y-auto">
+                      {triggerResult.episodes?.map(e => <li key={e}>{e}</li>)}
+                    </ul>
+                  </div>
+                )}
+
+                {(triggerResult.movies?.length === 0 && triggerResult.episodes?.length === 0) && (
+                  <p className="text-zinc-500 text-sm italic">No missing media items matched the priority criteria stringently enough (or they are already fully downloaded).</p>
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-end pt-4 border-t border-zinc-800">
+              <button
+                onClick={() => setTriggerResult({ show: false })}
+                className="bg-zinc-800 hover:bg-zinc-700 text-white font-medium px-6 py-2 rounded-lg transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
