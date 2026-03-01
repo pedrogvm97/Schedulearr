@@ -73,6 +73,7 @@ export const triggerMovieSearch = async (url: string, apiKey: string, movieIds: 
     if (movieIds.length === 0) return true;
 
     try {
+        console.log(`🎬 [RADARR] Triggering search for movie IDs: ${movieIds.join(', ')}`);
         const response = await axios.post(`${url}/api/v3/command`, {
             name: 'MoviesSearch',
             movieIds: movieIds
@@ -80,7 +81,11 @@ export const triggerMovieSearch = async (url: string, apiKey: string, movieIds: 
             headers: { 'X-Api-Key': apiKey }
         });
 
-        return response.status === 201;
+        if (response.status === 201) {
+            console.log(`✅ [RADARR] Search command accepted successfully.`);
+            return true;
+        }
+        return false;
     } catch (error) {
         console.error(`Error triggering search on Radarr (${url}):`, error);
         return false;

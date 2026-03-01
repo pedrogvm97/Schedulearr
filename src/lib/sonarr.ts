@@ -106,6 +106,7 @@ export const triggerEpisodeSearch = async (url: string, apiKey: string, episodeI
     if (episodeIds.length === 0) return true;
 
     try {
+        console.log(`📺 [SONARR] Triggering search for episode IDs: ${episodeIds.join(', ')}`);
         const response = await axios.post(`${url}/api/v3/command`, {
             name: 'EpisodeSearch',
             episodeIds: episodeIds
@@ -113,7 +114,11 @@ export const triggerEpisodeSearch = async (url: string, apiKey: string, episodeI
             headers: { 'X-Api-Key': apiKey }
         });
 
-        return response.status === 201;
+        if (response.status === 201) {
+            console.log(`✅ [SONARR] Search command accepted successfully.`);
+            return true;
+        }
+        return false;
     } catch (error) {
         console.error(`Error triggering search on Sonarr (${url}):`, error);
         return false;

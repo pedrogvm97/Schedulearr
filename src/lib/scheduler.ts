@@ -19,7 +19,8 @@ if (!global.globalSchedulerRunning) {
         console.log('🏁 Arr Scheduler background orchestrator started.');
 
         const runCycle = async () => {
-            console.log('🕒 Arr Scheduler running automated batch...');
+            const now = new Date().toISOString();
+            console.log(`[${now}] 🕒 Arr Scheduler running automated batch...`);
             try {
                 await runBatchSearch();
             } catch (error) {
@@ -84,6 +85,7 @@ export async function runBatchSearch() {
         const allMovies = await getAllMovies(r.url, r.api_key);
         // Only target missing, published, monitored movies
         const missing = allMovies.filter(m => !m.hasFile && m.monitored && m.isAvailable);
+        console.log(`[RADARR] Found ${missing.length} missing/monitored movies on ${r.name}`);
         allMovieTargets.push(...missing.map(m => ({ id: m.id, apiUrl: r.url, apiKey: r.api_key, movie: m })));
     }
 
@@ -99,15 +101,18 @@ export async function runBatchSearch() {
         for (const series of allSeries) {
             if (series.monitored && series.statistics && series.episodes) {
                 const missingEpisodes = series.episodes.filter(ep => !ep.hasFile && ep.monitored && ep.episodeFileId === 0);
-                allEpTargets.push(...missingEpisodes.map(ep => ({
-                    id: ep.id,
-                    apiUrl: s.url,
-                    apiKey: s.api_key,
-                    seriesInfo: seriesMap.get(ep.seriesId),
-                    airDateUtc: ep.airDateUtc
-                })));
+                if (missingEpisodes.length > 0) {
+                    allEpTargets.push(...missingEpisodes.map(ep => ({
+                        id: ep.id,
+                        apiUrl: s.url,
+                        apiKey: s.api_key,
+                        seriesInfo: seriesMap.get(ep.seriesId),
+                        airDateUtc: ep.airDateUtc
+                    })));
+                }
             }
         }
+        console.log(`[SONARR] Found ${allEpTargets.length} missing episodes on ${s.name}`);
     }
 
     // 3. Priority Engine Sorting
@@ -180,8 +185,10 @@ export async function runBatchSearch() {
 
     // Log the success to the interactive history ledger
     if (mTitles.length > 0 || eTitles.length > 0) {
+        console.log(`✅ Batch complete. Triggered ${mTitles.length} movies and ${eTitles.length} episodes.`);
         logSearchHistory(profile, mTitles, eTitles, `Successfully triggered background priority searches.`);
     } else {
+        console.log('ℹ️  No missing media matched priority criteria. Skipping triggers.');
         logSearchHistory(profile, [], [], `No missing media matched priority criteria. Queue is fully downloaded.`);
     }
 
