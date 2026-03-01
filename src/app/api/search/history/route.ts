@@ -7,7 +7,7 @@ export async function GET() {
         const history = getSearchHistory();
         return NextResponse.json(history);
     } catch (e) {
-        console.error('Error fetching search history', e);
-        return NextResponse.json({ error: 'Failed to fetch history' }, { status: 500 });
+        console.error('------- Error fetching search history ACTUAL ERROR -------', e);
+        return NextResponse.json({ error: String(e) }, { status: 500 });
     }
 }

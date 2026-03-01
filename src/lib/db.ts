@@ -10,6 +10,7 @@ if (!fs.existsSync(dbDir)) {
 }
 
 const dbPath = path.join(dbDir, 'arr-scheduler.db');
+console.log('[DEBUG] INITIALIZING DB AT PATH:', dbPath, 'WITH NODE_ENV:', process.env.NODE_ENV);
 const db = new Database(dbPath);
 
 db.pragma('journal_mode = WAL');
@@ -39,6 +40,10 @@ db.exec(`
     reason TEXT
   );
 `);
+
+// Simple schema migrations for existing databases
+try { db.exec("ALTER TABLE instances ADD COLUMN enabled INTEGER DEFAULT 1;"); } catch (e) { /* column exists */ }
+try { db.exec("ALTER TABLE search_history ADD COLUMN timestamp DATETIME DEFAULT CURRENT_TIMESTAMP;"); } catch (e) { /* column exists */ }
 
 export interface Setting {
     key: string;

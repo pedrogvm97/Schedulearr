@@ -33,7 +33,7 @@ export async function GET() {
 
         return NextResponse.json({ profiles: profileMap });
     } catch (error) {
-        console.error("Failed to fetch quality profiles", error);
-        return NextResponse.json({ error: 'Failed to fetch quality profiles' }, { status: 500 });
+        console.error("------- Failed to fetch quality profiles ACTUAL ERROR -------", error);
+        return NextResponse.json({ error: String(error) }, { status: 500 });
     }
 }

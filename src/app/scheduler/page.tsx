@@ -109,23 +109,7 @@ export default function SchedulerQueue() {
         }
     };
 
-    if (loading) {
-        return (
-            <div className="flex items-center justify-center min-h-[50vh]">
-                <div className="w-8 h-8 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin"></div>
-            </div>
-        );
-    }
-    if (error) {
-        return (
-            <div className="bg-rose-900 border border-rose-700 text-white p-4 rounded mb-4">
-                <p className="font-medium">Error loading data: {error}</p>
-                <button onClick={fetchData} className="mt-2 px-3 py-1 text-sm bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 border border-emerald-500/30 rounded">
-                    Retry
-                </button>
-            </div>
-        );
-    }
+
 
     // Combine and structure all media
     let combined = [
@@ -234,6 +218,24 @@ export default function SchedulerQueue() {
             // `custom_priority` table to persist it across reloads.
         }
     };
+
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center min-h-[50vh]">
+                <div className="w-8 h-8 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin"></div>
+            </div>
+        );
+    }
+    if (error) {
+        return (
+            <div className="bg-rose-900 border border-rose-700 text-white p-4 rounded mb-4">
+                <p className="font-medium">Error loading data: {error}</p>
+                <button onClick={fetchData} className="mt-2 px-3 py-1 text-sm bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 border border-emerald-500/30 rounded">
+                    Retry
+                </button>
+            </div>
+        );
+    }
 
     return (
         <div className="max-w-7xl mx-auto px-6 space-y-8 pb-12">
