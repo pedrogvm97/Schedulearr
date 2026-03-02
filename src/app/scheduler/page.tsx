@@ -121,7 +121,7 @@ export default function SchedulerQueue() {
         }
     }, []);
 
-    // Save UI state when it changes
+    // Save UI state when it changes (LocalStorage for immediate UI, DB for backend scheduler)
     useEffect(() => {
         const stateToSave = {
             selectedGenres,
@@ -132,7 +132,27 @@ export default function SchedulerQueue() {
             genreLogic
         };
         localStorage.setItem('schedulerUIState', JSON.stringify(stateToSave));
-    }, [selectedGenres, instanceFilters, qualityFilter, showActiveOnly, showNextBatchOnly, genreLogic]);
+
+        // Background sync to SQLite so scheduler.ts can read these
+        const syncToDatabase = async () => {
+            try {
+                await Promise.all([
+                    fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'ui_selected_genres', value: JSON.stringify(selectedGenres) }) }),
+                    fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'ui_genre_logic', value: genreLogic }) }),
+                    fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'ui_instance_filters', value: JSON.stringify(instanceFilters) }) }),
+                    fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'ui_active_only', value: showActiveOnly ? 'true' : 'false' }) }),
+                    fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'ui_search_toggles', value: JSON.stringify(searchToggles) }) })
+                ]);
+            } catch (e) {
+                console.error("Failed to sync UI state to database", e);
+            }
+        };
+
+        // Debounce slightly to avoid slamming the API if user clicks multiple genres quickly
+        const timeoutId = setTimeout(syncToDatabase, 500);
+        return () => clearTimeout(timeoutId);
+
+    }, [selectedGenres, instanceFilters, qualityFilter, showActiveOnly, showNextBatchOnly, genreLogic, searchToggles]);
 
     const handleSelectAll = () => {
         const updates: Record<string, boolean> = {};

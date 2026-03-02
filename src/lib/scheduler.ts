@@ -115,7 +115,62 @@ export async function runBatchSearch() {
         console.log(`[SONARR] Found ${allEpTargets.length} missing episodes on ${s.name}`);
     }
 
-    // 3. Priority Engine Sorting
+    // 3. UI Frontend Filters Integration
+    try {
+        const uiSelectedGenresRaw = getSetting('ui_selected_genres');
+        const uiGenreLogic = getSetting('ui_genre_logic') || 'OR';
+        const uiInstanceFiltersRaw = getSetting('ui_instance_filters');
+        const uiSearchTogglesRaw = getSetting('ui_search_toggles');
+
+        const selectedGenres: string[] = uiSelectedGenresRaw ? JSON.parse(uiSelectedGenresRaw) : ['All'];
+        const instanceFilters: Record<string, boolean> = uiInstanceFiltersRaw ? JSON.parse(uiInstanceFiltersRaw) : {};
+        const searchToggles: Record<string, boolean> = uiSearchTogglesRaw ? JSON.parse(uiSearchTogglesRaw) : {};
+
+        console.log(`[FILTER] Applying Frontend Constraints. Genres: ${selectedGenres.length > 1 ? selectedGenres.length : 'All'} | Logic: ${uiGenreLogic}`);
+
+        // Define a universal filter function that mimics the frontend's visual culling logic
+        const applyFilters = (targets: any[], type: 'movie' | 'series', idMapper: (t: any) => string) => {
+            return targets.filter(t => {
+                const idStr = `${type}-${idMapper(t)}`;
+
+                // Explicit Pause Toggle Filter
+                if (searchToggles[idStr] === false) return false;
+
+                // Media Instance Filter (The instance URL/Name must map correctly, assuming instance filtering maps to Radarr/Sonarr name)
+                const instanceName = type === 'movie' ? radarrs.find(r => r.url === t.apiUrl)?.name : sonarrs.find(s => s.url === t.apiUrl)?.name;
+                if (instanceName && instanceFilters[instanceName] === false) return false;
+
+                // Genre Logic Filter
+                if (!selectedGenres.includes('All')) {
+                    const itemGenres = type === 'movie' ? t.movie.genres : t.seriesInfo?.genres;
+                    if (!itemGenres || !Array.isArray(itemGenres)) return false;
+
+                    if (uiGenreLogic === 'OR') {
+                        if (!itemGenres.some(g => selectedGenres.includes(g))) return false;
+                    } else if (uiGenreLogic === 'AND') {
+                        if (!selectedGenres.every(g => itemGenres.includes(g))) return false;
+                    } else if (uiGenreLogic === 'EXCLUDE') {
+                        if (itemGenres.some(g => selectedGenres.includes(g))) return false;
+                    }
+                }
+
+                return true;
+            });
+        };
+
+        const initialMovieCount = allMovieTargets.length;
+        const initialEpCount = allEpTargets.length;
+
+        allMovieTargets = applyFilters(allMovieTargets, 'movie', t => t.movie.id.toString());
+        allEpTargets = applyFilters(allEpTargets, 'series', t => t.id.toString());
+
+        console.log(`[FILTER] Eliminated ${initialMovieCount - allMovieTargets.length} movies and ${initialEpCount - allEpTargets.length} episodes via UI constraints.`);
+
+    } catch (filterError) {
+        console.error('❌ Scheduler UI filter parsing failed. Falling back to unprotected raw prioritization.', filterError);
+    }
+
+    // 4. Priority Engine Sorting
     if (profile === 'recently_released') {
         allMovieTargets.sort((a, b) => {
             const dateA = a.movie.physicalRelease || a.movie.digitalRelease || a.movie.inCinemas || "1970-01-01";
@@ -145,11 +200,11 @@ export async function runBatchSearch() {
         });
     }
 
-    // 4. Select the batch
+    // 5. Select the batch
     const movieBatch = allMovieTargets.slice(0, Math.floor(allowedBatchSize / 2));
     const epBatch = allEpTargets.slice(0, Math.ceil(allowedBatchSize / 2));
 
-    // 5. Trigger the searches
+    // 6. Trigger the searches
     const radarrGroups = movieBatch.reduce((acc, curr) => {
         if (!acc[curr.apiUrl]) acc[curr.apiUrl] = { key: curr.apiKey, ids: [] };
         acc[curr.apiUrl].ids.push(curr.id);
@@ -197,7 +252,7 @@ export async function runBatchSearch() {
         movies: mTitles,
         episodes: eTitles
     };
-}
+} // <-- Missing closing bracket for runBatchSearch
 
 // Export a dummy object to satisfy Next.js if this file is imported elsewhere
 export const scheduler = { active: true };
