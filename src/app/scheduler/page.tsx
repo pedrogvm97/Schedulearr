@@ -1149,7 +1149,6 @@ export default function SchedulerQueue() {
                         </SortableContext>
                     </DndContext>
                 )}
-                )}
             </div>
 
             {/* Interactive Search Modal Overlay */}
