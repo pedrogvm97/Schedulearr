@@ -82,6 +82,11 @@ export default function SchedulerQueue() {
     const [isRunningBatch, setIsRunningBatch] = useState(false);
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
+    const [interactiveSearchItem, setInteractiveSearchItem] = useState<{ type: 'movie' | 'series' | 'episode', id: number, instanceId: string, title: string } | null>(null);
+    const [interactiveReleases, setInteractiveReleases] = useState<any[]>([]);
+    const [loadingReleases, setLoadingReleases] = useState(false);
+    const [triggeringReleaseGuid, setTriggeringReleaseGuid] = useState<string | null>(null);
+
     const sensors = useSensors(
         useSensor(PointerSensor),
         useSensor(KeyboardSensor, {
@@ -100,6 +105,55 @@ export default function SchedulerQueue() {
             return next.length === 0 ? ['All'] : next;
         });
     };
+
+    // --- Interactive Search Feature Handlers ---
+    const handleInteractiveSearch = async (type: 'movie' | 'series' | 'episode', id: number, instanceId: string, title: string) => {
+        setInteractiveSearchItem({ type, id, instanceId, title });
+        setLoadingReleases(true);
+        setInteractiveReleases([]);
+        try {
+            const endpoint = type === 'movie'
+                ? `/api/radarr/releases?movieId=${id}&instanceId=${instanceId}`
+                : `/api/sonarr/releases?episodeId=${id}&instanceId=${instanceId}`;
+            const res = await fetch(endpoint);
+            const data = await res.json();
+            if (Array.isArray(data)) {
+                setInteractiveReleases(data);
+            } else {
+                console.error("Failed to load releases", data);
+            }
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setLoadingReleases(false);
+        }
+    };
+
+    const triggerInteractiveDownload = async (guid: string, indexerId: number) => {
+        if (!interactiveSearchItem) return;
+        setTriggeringReleaseGuid(guid);
+        try {
+            const endpoint = interactiveSearchItem.type === 'movie' ? '/api/radarr/releases' : '/api/sonarr/releases';
+            await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    guid,
+                    indexerId,
+                    instanceId: interactiveSearchItem.instanceId
+                })
+            });
+            // Auto close modal on success
+            setInteractiveSearchItem(null);
+            // Optionally we can trigger a refresh here, or just let background task pick it up
+            fetchData();
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setTriggeringReleaseGuid(null);
+        }
+    };
+    // ----------------------------------------
 
     // Fetch data function
     const fetchData = async () => {
@@ -588,19 +642,19 @@ export default function SchedulerQueue() {
                         </div>
 
                         {/* Scheduler Controls - Moved Up */}
-                        <div className="flex items-center gap-3 bg-zinc-900/60 border border-zinc-800 rounded-xl p-3 shadow-sm flex-wrap">
-                            <span className="text-sm font-semibold text-zinc-300 mr-2">Scheduler:</span>
+                        <div className="flex items-center gap-3 bg-zinc-900/60 border border-zinc-800 rounded-xl p-3 shadow-sm flex-wrap lg:flex-nowrap">
+                            <span className="text-sm font-semibold text-zinc-300 mr-2 flex-shrink-0">Scheduler:</span>
                             <button
                                 onClick={() => {
                                     const newConfig = { ...schedulerConfig, enabled: !schedulerConfig.enabled };
                                     setSchedulerConfig(newConfig);
                                     fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newConfig) });
                                 }}
-                                className={`px-4 py-2 text-sm font-bold rounded-lg border transition-all ${schedulerConfig.enabled ? 'bg-green-600 border-green-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.3)]' : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700'}`}
+                                className={`flex-shrink-0 px-4 py-2 text-sm font-bold rounded-lg border transition-all ${schedulerConfig.enabled ? 'bg-green-600 border-green-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.3)]' : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700'}`}
                             >
                                 {schedulerConfig.enabled ? 'ON' : 'OFF'}
                             </button>
-                            <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2">
+                            <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 flex-shrink-0">
                                 <label className="text-sm font-medium text-zinc-400">Interval (m):</label>
                                 <input
                                     type="number"
@@ -616,7 +670,7 @@ export default function SchedulerQueue() {
                                     className="w-14 bg-transparent text-white text-sm font-bold outline-none text-center"
                                 />
                             </div>
-                            <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2">
+                            <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 flex-shrink-0">
                                 <label className="text-sm font-medium text-zinc-400">Batch Size:</label>
                                 <select
                                     value={schedulerConfig.batchSize}
@@ -633,7 +687,7 @@ export default function SchedulerQueue() {
                                     ))}
                                 </select>
                             </div>
-                            <div className="flex items-center justify-center gap-2 bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1.5 md:ml-auto w-full md:w-auto mt-2 md:mt-0">
+                            <div className="flex items-center justify-center gap-2 bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1.5 md:ml-auto flex-shrink-0">
                                 <div className="flex items-center gap-2 px-2 border-r border-zinc-800">
                                     <span className="text-sm font-medium text-zinc-400">Next Search:</span>
                                     <CountdownTimer nextRun={nextRun} enabled={schedulerConfig.enabled} />
@@ -955,6 +1009,18 @@ export default function SchedulerQueue() {
                                                 </div>
 
                                                 <div className="flex items-center gap-4">
+                                                    {item.type === 'movie' && (
+                                                        <button
+                                                            className="text-xs bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 font-medium px-3 py-1.5 rounded-lg border border-indigo-500/30 transition-colors mr-2 relative z-20 cursor-pointer"
+                                                            onPointerDown={(e) => e.stopPropagation()}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleInteractiveSearch('movie', item.id, item.instanceId, item.title);
+                                                            }}
+                                                        >
+                                                            Interactive Search
+                                                        </button>
+                                                    )}
                                                     {searchingItems[item.idStr] ? (
                                                         <span className="text-xs font-semibold px-3 py-1.5 rounded-lg border bg-zinc-800/80 text-zinc-300 border-zinc-700 mr-2 flex items-center gap-2">
                                                             {searchingItems[item.idStr].isPolling && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>}
@@ -1029,31 +1095,43 @@ export default function SchedulerQueue() {
                                                                     </div>
                                                                     <div>
                                                                         {!ep.hasFile && ep.monitored && new Date(ep.airDateUtc).getTime() < Date.now() && (
-                                                                            <button
-                                                                                id={`search-ep-${item.instanceId}-${ep.id}`}
-                                                                                onClick={() => {
-                                                                                    // Trigger manual search for single episode
-                                                                                    fetch('/api/search/trigger', {
-                                                                                        method: 'POST',
-                                                                                        headers: { 'Content-Type': 'application/json' },
-                                                                                        body: JSON.stringify({ type: 'episode', mediaId: ep.id, instanceId: item.instanceId })
-                                                                                    });
+                                                                                <button
+                                                                                    id={`search-ep-${item.instanceId}-${ep.id}`}
+                                                                                    onPointerDown={(e) => e.stopPropagation()}
+                                                                                    onClick={(e) => {
+                                                                                        e.stopPropagation();
+                                                                                        // Trigger manual search for single episode
+                                                                                        fetch('/api/search/trigger', {
+                                                                                            method: 'POST',
+                                                                                            headers: { 'Content-Type': 'application/json' },
+                                                                                            body: JSON.stringify({ type: 'episode', mediaId: ep.id, instanceId: item.instanceId })
+                                                                                        });
 
-                                                                                    // Optimistic UX feedback override
-                                                                                    const btn = document.getElementById(`search-ep-${item.instanceId}-${ep.id}`);
-                                                                                    if (btn) {
-                                                                                        btn.innerText = 'Searching...';
-                                                                                        btn.classList.replace('text-emerald-400', 'text-amber-400');
-                                                                                        btn.classList.replace('bg-emerald-600/20', 'bg-amber-600/20');
-                                                                                    }
+                                                                                        // Optimistic UX feedback override
+                                                                                        const btn = document.getElementById(`search-ep-${item.instanceId}-${ep.id}`);
+                                                                                        if (btn) {
+                                                                                            btn.innerText = 'Searching...';
+                                                                                            btn.classList.replace('text-emerald-400', 'text-amber-400');
+                                                                                            btn.classList.replace('bg-emerald-600/20', 'bg-amber-600/20');
+                                                                                        }
 
-                                                                                    // Inject into episode state so the logic knows
-                                                                                    setEpisodes(prev => prev.map(e => e.id === item.id && e.instanceId === item.instanceId ? { ...e, queuedEpisodeIds: [...(e.queuedEpisodeIds || []), ep.id] } : e));
-                                                                                }}
-                                                                                className="px-2 py-1 text-[10px] font-semibold bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 rounded border border-emerald-500/20 hover:border-emerald-500/40 transition-colors"
-                                                                            >
-                                                                                Search Episode
-                                                                            </button>
+                                                                                        // Inject into episode state so the logic knows
+                                                                                        setEpisodes(prev => prev.map(e => e.id === item.id && e.instanceId === item.instanceId ? { ...e, queuedEpisodeIds: [...(e.queuedEpisodeIds || []), ep.id] } : e));
+                                                                                    }}
+                                                                                    className="px-2 py-1 text-[10px] font-semibold bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 rounded border border-emerald-500/20 hover:border-emerald-500/40 transition-colors"
+                                                                                >
+                                                                                    Search Episode
+                                                                                </button>
+                                                                                <button
+                                                                                    onPointerDown={(e) => e.stopPropagation()}
+                                                                                    onClick={(e) => {
+                                                                                        e.stopPropagation();
+                                                                                        handleInteractiveSearch('episode', ep.id, item.instanceId, `${item.title} - S${String(ep.seasonNumber).padStart(2, '0')}E${String(ep.episodeNumber).padStart(2, '0')}`);
+                                                                                    }}
+                                                                                    className="px-2 py-1 text-[10px] font-semibold bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 rounded border border-indigo-500/20 hover:border-indigo-500/40 transition-colors ml-2"
+                                                                                >
+                                                                                    Interactive Search
+                                                                                </button>
                                                                         )}
                                                                     </div>
                                                                 </div>
@@ -1071,7 +1149,92 @@ export default function SchedulerQueue() {
                         </SortableContext>
                     </DndContext>
                 )}
+                )}
             </div>
+
+            {/* Interactive Search Modal Overlay */}
+            {interactiveSearchItem && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+                        <div className="p-5 border-b border-zinc-800/60 bg-zinc-900/50 flex justify-between items-center">
+                            <div>
+                                <h2 className="text-xl font-bold text-white mb-1">Interactive Release Search</h2>
+                                <p className="text-sm text-zinc-400 font-medium">Top 10 highest scored releases for: <span className="text-indigo-400 font-bold">{interactiveSearchItem.title}</span></p>
+                            </div>
+                            <button
+                                onClick={() => setInteractiveSearchItem(null)}
+                                className="text-zinc-500 hover:text-white p-2 bg-zinc-900 rounded-full hover:bg-zinc-800 border border-zinc-800 transition-colors"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-5">
+                            {loadingReleases ? (
+                                <div className="flex flex-col items-center justify-center py-20">
+                                    <div className="w-10 h-10 rounded-full border-4 border-indigo-500 border-t-transparent animate-spin mb-4"></div>
+                                    <p className="text-zinc-400 font-medium animate-pulse">Querying indexers for live releases...</p>
+                                </div>
+                            ) : interactiveReleases.length === 0 ? (
+                                <div className="flex flex-col items-center justify-center py-20 bg-zinc-900/30 rounded-xl border border-dashed border-zinc-800">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="text-zinc-600 mb-4"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                                    <h3 className="text-lg font-bold text-zinc-300">No Releases Found</h3>
+                                    <p className="text-sm text-zinc-500 mt-1 max-w-sm text-center">Your indexers could not find any active releases for this item matching its quality profile.</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-3">
+                                    {interactiveReleases.map((release, idx) => (
+                                        <div key={release.guid} className="bg-zinc-900 border border-zinc-800 hover:border-indigo-500/50 transition-colors p-4 rounded-xl flex flex-col md:flex-row gap-4 items-start md:items-center justify-between group">
+                                            <div className="flex-1 min-w-0 pr-4">
+                                                <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                                                    <span className="flex items-center justify-center w-6 h-6 rounded bg-zinc-800 text-zinc-400 text-xs font-bold ring-1 ring-zinc-700">#{idx + 1}</span>
+                                                    <span className={`text-xs font-bold px-2 py-0.5 rounded ${release.customFormatScore > 0 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-zinc-800 text-zinc-400 border border-zinc-700'}`}>Score: {release.customFormatScore}</span>
+                                                    <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border border-blue-500/20 bg-blue-500/10 text-blue-400">{release.quality || 'Unknown'}</span>
+                                                    {release.rejected && (
+                                                        <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded border border-rose-500/20 bg-rose-500/10 text-rose-400">Rejected</span>
+                                                    )}
+                                                </div>
+                                                <h4 className="text-sm font-medium text-zinc-200 break-words leading-snug group-hover:text-white transition-colors">
+                                                    {release.title}
+                                                </h4>
+                                                <div className="flex items-center gap-3 mt-2 text-xs font-medium text-zinc-500">
+                                                    <span className="flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg> {(release.size / 1024 / 1024 / 1024).toFixed(2)} GB</span>
+                                                    <span className="text-zinc-700">•</span>
+                                                    <span>{release.indexer}</span>
+                                                    <span className="text-zinc-700">•</span>
+                                                    <span className="uppercase text-[10px] tracking-wider">{release.protocol}</span>
+                                                </div>
+                                                {release.rejected && release.rejections && release.rejections.length > 0 && (
+                                                    <div className="mt-2 text-xs text-rose-400/80 bg-rose-500/5 p-2 rounded border border-rose-500/10 hidden group-hover:block transition-all">
+                                                        Warning: {release.rejections.join(', ')}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div className="flex-shrink-0 mt-3 md:mt-0 w-full md:w-auto">
+                                                <button
+                                                    onClick={() => triggerInteractiveDownload(release.guid, release.indexerId)}
+                                                    disabled={triggeringReleaseGuid !== null}
+                                                    className={`w-full md:w-auto flex items-center justify-center gap-2 px-6 py-2.5 text-sm font-bold rounded-lg border transition-all ${triggeringReleaseGuid === release.guid
+                                                        ? 'bg-amber-500/20 text-amber-400 border-amber-500/30 cursor-wait'
+                                                        : triggeringReleaseGuid
+                                                            ? 'bg-zinc-800 text-zinc-600 border-zinc-700 cursor-not-allowed'
+                                                            : 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500 shadow-lg shadow-indigo-500/20 hover:scale-[1.02] active:scale-[0.98]'
+                                                        }`}
+                                                >
+                                                    {triggeringReleaseGuid === release.guid ? (
+                                                        <><div className="w-4 h-4 rounded-full border-2 border-amber-500 border-t-transparent animate-spin"></div> Grabbing...</>
+                                                    ) : (
+                                                        <><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> Download</>
+                                                    )}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div >
     );
 }
