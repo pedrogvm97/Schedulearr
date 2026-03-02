@@ -176,24 +176,24 @@ export default function SchedulerQueue() {
 
     // Combine and structure all media
     let combined = [
-        ...movies.map(m => ({
+        ...(Array.isArray(movies) ? movies : []).map(m => ({
             ...m,
             type: 'movie',
             sortDate: new Date(m.added).getTime(),
             idStr: `movie-${m.id}`,
             isDownloaded: m.hasFile,
-            targetQualityProfile: profiles[m.instanceUrl]?.[m.qualityProfileId] || 'Unknown',
+            targetQualityProfile: profiles?.[m.instanceUrl]?.[m.qualityProfileId] || 'Unknown',
             currentQualityScale: m.movieFile?.quality?.quality?.resolution || 0,
             instanceId: m.instanceId
         })),
-        ...episodes.map(e => ({
+        ...(Array.isArray(episodes) ? episodes : []).map(e => ({
             ...e,
             type: 'series',
             sortDate: new Date(e.added).getTime(),
             idStr: `series-${e.id}`,
             isDownloaded: e.statistics?.percentOfEpisodes === 100,
             stats: e.statistics,
-            targetQualityProfile: profiles[e.instanceUrl]?.[e.qualityProfileId] || 'Unknown',
+            targetQualityProfile: profiles?.[e.instanceUrl]?.[e.qualityProfileId] || 'Unknown',
             instanceId: e.instanceId
         }))
     ].sort((a, b) => b.sortDate - a.sortDate);
@@ -487,9 +487,9 @@ export default function SchedulerQueue() {
                     <div className="mt-4 max-h-48 overflow-y-auto">
                         <h3 className="text-sm font-medium text-slate-400 mb-2">Search History</h3>
                         <ul className="space-y-1">
-                            {searchHistory.map((h, idx) => (
+                            {(Array.isArray(searchHistory) ? searchHistory : []).map((h, idx) => (
                                 <li key={idx} className="text-xs text-zinc-300">
-                                    {new Date(h.timestamp).toLocaleString()} – {h.profile} – {h.movies.length} movies, {h.episodes.length} episodes – {h.reason}
+                                    {new Date(h.timestamp).toLocaleString()} – {h.profile} – {Array.isArray(h.movies) ? h.movies.length : (h.movies_searched?.length || 0)} movies, {Array.isArray(h.episodes) ? h.episodes.length : (h.episodes_searched?.length || 0)} episodes – {h.reason}
                                 </li>
                             ))}
                         </ul>
