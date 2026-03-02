@@ -506,12 +506,21 @@ export default function SchedulerQueue() {
         const moviesInList = displayItems.filter(c => c.type === 'movie');
         const seriesInList = displayItems.filter(c => c.type === 'series');
 
-        // Note: Scheduler uses floor for movies and ceil for series
-        const maxMovies = Math.floor(allowedBatchSize / 2);
-        const maxSeries = Math.ceil(allowedBatchSize / 2);
+        // Scheduler uses dynamic shifting to fill the batch if one type is exhausted
+        let maxMovies = Math.floor(allowedBatchSize / 2);
+        let maxSeries = Math.ceil(allowedBatchSize / 2);
 
-        const batchedMovies = moviesInList.slice(0, maxMovies);
-        const batchedSeries = seriesInList.slice(0, maxSeries);
+        let moviesAvailable = moviesInList.length;
+        let seriesAvailable = seriesInList.length;
+
+        let moviesNeeded = Math.min(moviesAvailable, maxMovies);
+        let seriesNeeded = Math.min(seriesAvailable, maxSeries);
+
+        let movieShortfall = maxMovies - moviesNeeded;
+        let seriesShortfall = maxSeries - seriesNeeded;
+
+        const batchedMovies = moviesInList.slice(0, moviesNeeded + seriesShortfall);
+        const batchedSeries = seriesInList.slice(0, seriesNeeded + movieShortfall);
 
         // Keep them in the relative order they were produced by the sorting block above
         const validIds = new Set([...batchedMovies, ...batchedSeries].map(x => x.idStr));

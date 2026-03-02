@@ -217,9 +217,21 @@ export async function runBatchSearch() {
         });
     }
 
-    // 5. Select the batch
-    const movieBatch = allMovieTargets.slice(0, Math.floor(allowedBatchSize / 2));
-    const epBatch = allEpTargets.slice(0, Math.ceil(allowedBatchSize / 2));
+    // 5. Select the batch (Dynamically shift unused allowance to the other type)
+    let maxMovies = Math.floor(allowedBatchSize / 2);
+    let maxSeries = Math.ceil(allowedBatchSize / 2);
+
+    let moviesAvailable = allMovieTargets.length;
+    let seriesAvailable = allEpTargets.length;
+
+    let moviesNeeded = Math.min(moviesAvailable, maxMovies);
+    let seriesNeeded = Math.min(seriesAvailable, maxSeries);
+
+    let movieShortfall = maxMovies - moviesNeeded;
+    let seriesShortfall = maxSeries - seriesNeeded;
+
+    const movieBatch = allMovieTargets.slice(0, moviesNeeded + seriesShortfall);
+    const epBatch = allEpTargets.slice(0, seriesNeeded + movieShortfall);
 
     // 6. Trigger the searches
     const radarrGroups = movieBatch.reduce((acc, curr) => {
