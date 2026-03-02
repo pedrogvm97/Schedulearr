@@ -862,7 +862,6 @@ export default function SchedulerQueue() {
                                                             >
                                                                 {item.instanceName}
                                                             </span>
-                                                            )}
                                                             {/* Show first two genres as tags if available */}
                                                             {item.genres && item.genres.slice(0, 2).map((g: string) => (
                                                                 <span key={g} className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm bg-purple-500/20 text-purple-400">
@@ -932,7 +931,6 @@ export default function SchedulerQueue() {
                                                             e.stopPropagation();
                                                             toggleSearch(item.idStr);
                                                         }}
-                                                        onPointerDown={(e) => e.stopPropagation()}
                                                         className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-zinc-950 cursor-pointer z-50 ${isToggled ? 'bg-emerald-500' : 'bg-zinc-700'
                                                             }`}
                                                     >
