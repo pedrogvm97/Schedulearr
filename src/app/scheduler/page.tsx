@@ -103,6 +103,37 @@ export default function SchedulerQueue() {
         return () => clearInterval(interval);
     }, []);
 
+    // Load persisted UI state on mount
+    useEffect(() => {
+        const savedState = localStorage.getItem('schedulerUIState');
+        if (savedState) {
+            try {
+                const parsed = JSON.parse(savedState);
+                if (parsed.selectedGenres) setSelectedGenres(parsed.selectedGenres);
+                if (parsed.instanceFilters) setInstanceFilters(parsed.instanceFilters);
+                if (parsed.qualityFilter) setQualityFilter(parsed.qualityFilter);
+                if (parsed.showActiveOnly !== undefined) setShowActiveOnly(parsed.showActiveOnly);
+                if (parsed.showNextBatchOnly !== undefined) setShowNextBatchOnly(parsed.showNextBatchOnly);
+                if (parsed.genreLogic) setGenreLogic(parsed.genreLogic);
+            } catch (e) {
+                console.error("Failed to parse saved UI state", e);
+            }
+        }
+    }, []);
+
+    // Save UI state when it changes
+    useEffect(() => {
+        const stateToSave = {
+            selectedGenres,
+            instanceFilters,
+            qualityFilter,
+            showActiveOnly,
+            showNextBatchOnly,
+            genreLogic
+        };
+        localStorage.setItem('schedulerUIState', JSON.stringify(stateToSave));
+    }, [selectedGenres, instanceFilters, qualityFilter, showActiveOnly, showNextBatchOnly, genreLogic]);
+
     const handleSelectAll = () => {
         const updates: Record<string, boolean> = {};
         combined.forEach(item => { updates[item.idStr] = true; });
