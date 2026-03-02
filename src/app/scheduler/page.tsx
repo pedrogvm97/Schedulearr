@@ -79,6 +79,7 @@ export default function SchedulerQueue() {
 
     const [isSaving, setIsSaving] = useState(false);
     const [saveSuccess, setSaveSuccess] = useState(false);
+    const [isRunningBatch, setIsRunningBatch] = useState(false);
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
     const sensors = useSensors(
@@ -503,8 +504,10 @@ export default function SchedulerQueue() {
     // Apply Next Batch limit slicing
     if (showNextBatchOnly) {
         const allowedBatchSize = schedulerConfig.batchSize || 10;
-        const moviesInList = displayItems.filter(c => c.type === 'movie');
-        const seriesInList = displayItems.filter(c => c.type === 'series');
+        // Ignore items that are manually toggled off so they don't eat up preview slots
+        const activeItemsForBatch = displayItems.filter(c => searchToggles[c.idStr] !== false);
+        const moviesInList = activeItemsForBatch.filter(c => c.type === 'movie');
+        const seriesInList = activeItemsForBatch.filter(c => c.type === 'series');
 
         // Scheduler uses dynamic shifting to fill the batch if one type is exhausted
         let maxMovies = Math.floor(allowedBatchSize / 2);
@@ -576,13 +579,10 @@ export default function SchedulerQueue() {
                             <h1 className="text-3xl font-bold tracking-tight text-white mb-2">Scheduler Queue</h1>
                             <p className="text-zinc-400 mb-1">Manage your active search tracking list and prioritize genres.</p>
                             {!loading && totalItems > 0 && (
-                                <div className="flex items-center gap-4 mt-2">
+                                <div className="flex items-center mt-2">
                                     <p className="text-sm font-medium text-emerald-500/80">
                                         Showing {displayItems.length} of {totalItems} items
                                     </p>
-                                    <div className="h-4 w-px bg-zinc-800"></div>
-                                    <button onClick={() => handleSelectAll(targetItemsForBulkActions)} className="text-xs text-zinc-400 hover:text-white transition-colors">Select All</button>
-                                    <button onClick={() => handleDeselectAll(targetItemsForBulkActions)} className="text-xs text-zinc-400 hover:text-white transition-colors">Deselect All</button>
                                 </div>
                             )}
                         </div>
@@ -633,9 +633,40 @@ export default function SchedulerQueue() {
                                     ))}
                                 </select>
                             </div>
-                            <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 md:ml-auto w-full md:w-auto mt-2 md:mt-0 justify-center">
-                                <span className="text-sm font-medium text-zinc-400">Next Search:</span>
-                                <CountdownTimer nextRun={nextRun} enabled={schedulerConfig.enabled} />
+                            <div className="flex items-center justify-center gap-2 bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1.5 md:ml-auto w-full md:w-auto mt-2 md:mt-0">
+                                <div className="flex items-center gap-2 px-2 border-r border-zinc-800">
+                                    <span className="text-sm font-medium text-zinc-400">Next Search:</span>
+                                    <CountdownTimer nextRun={nextRun} enabled={schedulerConfig.enabled} />
+                                </div>
+                                <button
+                                    onClick={async () => {
+                                        setIsRunningBatch(true);
+                                        try {
+                                            await fetch('/api/scheduler/run', { method: 'POST' });
+                                            // Optional: Fetch data or logs again to refresh page state after a run
+                                            await fetchData();
+                                        } catch (e) {
+                                            console.error("Failed to run manual batch", e);
+                                        } finally {
+                                            setIsRunningBatch(false);
+                                        }
+                                    }}
+                                    disabled={isRunningBatch || !schedulerConfig.enabled}
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md transition-all ${isRunningBatch
+                                        ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30 cursor-wait'
+                                        : !schedulerConfig.enabled
+                                            ? 'bg-zinc-900 text-zinc-600 cursor-not-allowed'
+                                            : 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-600/30 hover:text-emerald-300'
+                                        }`}
+                                    title="Force the background scheduler to immediately execute the next configured batch"
+                                >
+                                    {isRunningBatch ? (
+                                        <div className="w-3.5 h-3.5 rounded-full border-2 border-amber-500 border-t-transparent animate-spin"></div>
+                                    ) : (
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                                    )}
+                                    {isRunningBatch ? 'Running...' : 'Run Batch Now'}
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -746,7 +777,15 @@ export default function SchedulerQueue() {
             <div>
                 <div className="flex flex-col md:flex-row md:items-end justify-between border-b border-zinc-800 pb-4 mb-4 gap-4">
                     <div className="flex flex-col gap-3">
-                        <h2 className="text-2xl font-bold text-white tracking-tight">Media</h2>
+                        <div className="flex items-center gap-4">
+                            <h2 className="text-2xl font-bold text-white tracking-tight">Media</h2>
+                            {!loading && totalItems > 0 && (
+                                <div className="flex items-center gap-2">
+                                    <button onClick={() => handleSelectAll(targetItemsForBulkActions)} className="px-3 py-1.5 text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md border border-zinc-700 transition-colors shadow-sm">Select All</button>
+                                    <button onClick={() => handleDeselectAll(targetItemsForBulkActions)} className="px-3 py-1.5 text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md border border-zinc-700 transition-colors shadow-sm">Deselect All</button>
+                                </div>
+                            )}
+                        </div>
                         <div className="flex items-center mt-1">
                             {/* Active Instances Section moved here */}
                             <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mr-3">Instances:</span>
