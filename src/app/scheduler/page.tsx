@@ -688,65 +688,104 @@ export default function SchedulerQueue() {
                         </div>
                     </div>
 
-                    {/* Row 2: Genres & Instances */}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                        <div>
-                            <div className="flex flex-col mb-4 gap-2">
-                                <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wider block">Filter by Genre</span>
+                    {/* Row 2: Genres (Full Width) */}
+                    <div className="w-full">
+                        <div className="flex flex-col mb-4 gap-2">
+                            <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wider block">Filter by Genre</span>
 
-                                {/* Enlarged Logic Buttons matching user request */}
-                                <div className="flex items-center bg-zinc-950 border border-zinc-800 rounded-lg p-1 w-fit shadow-inner">
-                                    <button
-                                        onClick={() => setGenreLogic('OR')}
-                                        className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${genreLogic === 'OR' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                        title="Match ANY selected genre"
-                                    >OR</button>
-                                    <button
-                                        onClick={() => setGenreLogic('AND')}
-                                        className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${genreLogic === 'AND' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                        title="Match ALL selected genres"
-                                    >AND</button>
-                                    <button
-                                        onClick={() => setGenreLogic('EXCLUDE')}
-                                        className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${genreLogic === 'EXCLUDE' ? 'bg-rose-900/40 text-rose-400 shadow-sm border border-rose-800/30' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                        title="Match NO selected genres"
-                                    >EXCLUDE</button>
-                                </div>
-                            </div>
-                            <div className="flex flex-wrap gap-2 pr-2">
-                                {uniqueGenres.map(g => {
-                                    const isSelected = selectedGenres.includes(g);
-                                    return (
-                                        <button
-                                            key={g}
-                                            onClick={() => handleGenreToggle(g)}
-                                            className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-all ${isSelected
-                                                ? 'bg-purple-500/20 text-purple-300 border-purple-500/50 hover:bg-purple-500/30 shadow-sm'
-                                                : 'bg-zinc-950/50 text-zinc-400 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/50'
-                                                }`}
-                                        >
-                                            {g}
-                                        </button>
-                                    );
-                                })}
+                            {/* Enlarged Logic Buttons matching user request */}
+                            <div className="flex items-center bg-zinc-950 border border-zinc-800 rounded-lg p-1 w-fit shadow-inner mb-2">
+                                <button
+                                    onClick={() => setGenreLogic('OR')}
+                                    className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${genreLogic === 'OR' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                    title="Match ANY selected genre"
+                                >OR</button>
+                                <button
+                                    onClick={() => setGenreLogic('AND')}
+                                    className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${genreLogic === 'AND' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                    title="Match ALL selected genres"
+                                >AND</button>
+                                <button
+                                    onClick={() => setGenreLogic('EXCLUDE')}
+                                    className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${genreLogic === 'EXCLUDE' ? 'bg-rose-900/40 text-rose-400 shadow-sm border border-rose-800/30' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                    title="Match NO selected genres"
+                                >EXCLUDE</button>
                             </div>
                         </div>
-                        <div>
-                            <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wider block mb-3">Active Instances</span>
-                            <div className="flex flex-wrap gap-2 mb-4">
+                        <div className="flex flex-wrap gap-2 w-full">
+                            {uniqueGenres.map(g => {
+                                const isSelected = selectedGenres.includes(g);
+                                return (
+                                    <button
+                                        key={g}
+                                        onClick={() => handleGenreToggle(g)}
+                                        className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-all ${isSelected
+                                            ? 'bg-purple-500/20 text-purple-300 border-purple-500/50 hover:bg-purple-500/30 shadow-sm'
+                                            : 'bg-zinc-950/50 text-zinc-400 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/50'
+                                            }`}
+                                    >
+                                        {g}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Media Table Area */}
+            <div>
+                <div className="flex flex-col md:flex-row md:items-end justify-between border-b border-zinc-800 pb-4 mb-4 gap-4">
+                    <div className="flex flex-col gap-3">
+                        <h2 className="text-2xl font-bold text-white tracking-tight">Media</h2>
+                        <div className="flex items-center mt-1">
+                            {/* Active Instances Section moved here */}
+                            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mr-3">Instances:</span>
+                            <div className="flex flex-wrap gap-2">
                                 {uniqueInstances.map(inst => {
                                     const isSelected = instanceFilters[inst.id] !== false;
+
+                                    // Make sure inst.color is supported by Tailwind or inject via style if it's a hex
+                                    const isHexColor = inst.color?.startsWith('#');
+                                    const dotStyle = isHexColor ? { backgroundColor: inst.color } : {};
+                                    const dotClass = !isHexColor && inst.color ? inst.color : 'bg-blue-500';
+
+                                    // Selected states coloring
+                                    const highlightStyle = isSelected && isHexColor ? { borderColor: inst.color, color: inst.color } : {};
+                                    const bgStyle = isSelected && isHexColor ? { backgroundColor: `${inst.color}33` } : {}; // 33 is ~20% opacity matching original bg-blue-500/20
+
+                                    // Define dynamic classes exclusively for tailwind base colors safely
+                                    const TW_COLORS: Record<string, string> = {
+                                        "bg-red-500": isSelected ? "bg-red-500/20 text-red-400 border-red-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                        "bg-orange-500": isSelected ? "bg-orange-500/20 text-orange-400 border-orange-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                        "bg-amber-500": isSelected ? "bg-amber-500/20 text-amber-400 border-amber-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                        "bg-yellow-500": isSelected ? "bg-yellow-500/20 text-yellow-400 border-yellow-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                        "bg-lime-500": isSelected ? "bg-lime-500/20 text-lime-400 border-lime-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                        "bg-green-500": isSelected ? "bg-green-500/20 text-green-400 border-green-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                        "bg-emerald-500": isSelected ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                        "bg-teal-500": isSelected ? "bg-teal-500/20 text-teal-400 border-teal-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                        "bg-cyan-500": isSelected ? "bg-cyan-500/20 text-cyan-400 border-cyan-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                        "bg-sky-500": isSelected ? "bg-sky-500/20 text-sky-400 border-sky-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                        "bg-blue-500": isSelected ? "bg-blue-500/20 text-blue-400 border-blue-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                        "bg-indigo-500": isSelected ? "bg-indigo-500/20 text-indigo-400 border-indigo-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                        "bg-violet-500": isSelected ? "bg-violet-500/20 text-violet-400 border-violet-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                        "bg-purple-500": isSelected ? "bg-purple-500/20 text-purple-400 border-purple-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                        "bg-fuchsia-500": isSelected ? "bg-fuchsia-500/20 text-fuchsia-400 border-fuchsia-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                        "bg-pink-500": isSelected ? "bg-pink-500/20 text-pink-400 border-pink-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                        "bg-rose-500": isSelected ? "bg-rose-500/20 text-rose-400 border-rose-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                    };
+
+                                    const standardTailwindClass = TW_COLORS[inst.color || "bg-blue-500"] || TW_COLORS["bg-blue-500"];
+
                                     return (
                                         <button
                                             key={inst.id}
-                                            onClick={() => toggleInstance(inst.id, inst.id)}
-                                            className={`px-4 py-2 text-sm font-medium rounded-lg border transition-all ${isSelected
-                                                ? 'bg-blue-500/20 text-blue-300 border-blue-500/50 hover:bg-blue-500/30 shadow-sm'
-                                                : 'bg-zinc-950/50 text-zinc-500 border-zinc-800 hover:bg-zinc-800/50'
-                                                }`}
+                                            onClick={() => toggleInstance(inst.name, inst.id)}
+                                            style={isHexColor && isSelected ? { ...highlightStyle, ...bgStyle } : (isHexColor ? highlightStyle : {})}
+                                            className={`px-3 py-1 text-xs font-semibold rounded-full border transition-all ${!isHexColor ? standardTailwindClass : 'hover:opacity-80'}`}
                                         >
-                                            <div className="flex items-center gap-2">
-                                                {inst.color && <div className={`w-3 h-3 rounded-full ${inst.color}`} title="Instance Color"></div>}
+                                            <div className="flex items-center gap-1.5">
+                                                <div className={`w-2 h-2 rounded-full ${!isHexColor ? dotClass : ''}`} style={dotStyle} title="Instance Color"></div>
                                                 {inst.name}
                                             </div>
                                         </button>
@@ -755,24 +794,6 @@ export default function SchedulerQueue() {
                             </div>
                         </div>
                     </div>
-                    {/* Search History */}
-                    <div className="mt-4 max-h-48 overflow-y-auto">
-                        <h3 className="text-sm font-medium text-slate-400 mb-2">Search History</h3>
-                        <ul className="space-y-1">
-                            {(Array.isArray(searchHistory) ? searchHistory : []).map((h, idx) => (
-                                <li key={idx} className="text-xs text-zinc-300">
-                                    {new Date(h.timestamp).toLocaleString()} – {h.profile} – {Array.isArray(h.movies) ? h.movies.length : (h.movies_searched?.length || 0)} movies, {Array.isArray(h.episodes) ? h.episodes.length : (h.episodes_searched?.length || 0)} episodes – {h.reason}
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
-                </div>
-            </div>
-
-            {/* Media Table Area */}
-            <div>
-                <div className="flex flex-col md:flex-row md:items-end justify-between border-b border-zinc-800 pb-4 mb-4 gap-4">
-                    <h2 className="text-2xl font-bold text-white tracking-tight">Media</h2>
                     <div className="flex items-center gap-6 flex-wrap bg-zinc-900/40 p-2 rounded-xl border border-zinc-800/80">
                         <label className="flex items-center cursor-pointer group">
                             <div className="relative">
@@ -831,10 +852,16 @@ export default function SchedulerQueue() {
                                                                 }`}>
                                                                 {item.type}
                                                             </span>
-                                                            {item.instanceName && (
-                                                                <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm bg-zinc-800 text-zinc-400 border border-zinc-700">
-                                                                    {item.instanceName}
-                                                                </span>
+                                                            <span
+                                                                className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm border border-zinc-700/50 opacity-80"
+                                                                style={{
+                                                                    backgroundColor: item.instanceColor?.startsWith('#') ? `${item.instanceColor}1a` : undefined, // 1a is ~10%
+                                                                    color: item.instanceColor?.startsWith('#') ? item.instanceColor : undefined,
+                                                                    borderColor: item.instanceColor?.startsWith('#') ? `${item.instanceColor}33` : undefined // 33 is ~20%
+                                                                }}
+                                                            >
+                                                                {item.instanceName}
+                                                            </span>
                                                             )}
                                                             {/* Show first two genres as tags if available */}
                                                             {item.genres && item.genres.slice(0, 2).map((g: string) => (
@@ -905,7 +932,8 @@ export default function SchedulerQueue() {
                                                             e.stopPropagation();
                                                             toggleSearch(item.idStr);
                                                         }}
-                                                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-zinc-950 cursor-pointer z-20 ${isToggled ? 'bg-emerald-500' : 'bg-zinc-700'
+                                                        onPointerDown={(e) => e.stopPropagation()}
+                                                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-zinc-950 cursor-pointer z-50 ${isToggled ? 'bg-emerald-500' : 'bg-zinc-700'
                                                             }`}
                                                     >
                                                         <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isToggled ? 'translate-x-6' : 'translate-x-1'

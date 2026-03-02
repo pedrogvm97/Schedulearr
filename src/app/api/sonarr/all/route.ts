@@ -20,6 +20,7 @@ export async function GET() {
                 ...s,
                 instanceName: instance.name,
                 instanceId: instance.id,
+                instanceColor: instance.color,
                 queuedEpisodeIds: queuedEpisodeIds.filter(id => s.episodes?.some((ep: any) => ep.id === id))
             }))];
         }
