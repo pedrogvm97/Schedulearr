@@ -147,7 +147,8 @@ export const getEpisodeQueueStatus = async (url: string, apiKey: string, episode
         });
         const records = response.data.records;
         if (records && records.length > 0) {
-            return records[0].status; // e.g., 'downloading', 'completed', 'delay'
+            const match = records.find((r: any) => r.episodeId === episodeId);
+            if (match) return match.status; // e.g., 'downloading', 'completed', 'delay'
         }
         return null; // Not in queue (could be already imported or not grabbed)
     } catch (error) {

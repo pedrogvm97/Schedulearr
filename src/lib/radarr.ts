@@ -114,7 +114,8 @@ export const getMovieQueueStatus = async (url: string, apiKey: string, movieId: 
         });
         const records = response.data.records;
         if (records && records.length > 0) {
-            return records[0].status; // e.g., 'downloading', 'completed', 'delay'
+            const match = records.find((r: any) => r.movieId === movieId);
+            if (match) return match.status; // e.g., 'downloading', 'completed', 'delay'
         }
         return null;
     } catch (error) {
