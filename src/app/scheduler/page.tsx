@@ -40,6 +40,12 @@ export default function SchedulerQueue() {
     const [showNextBatchOnly, setShowNextBatchOnly] = useState(false);
     const [searchingItems, setSearchingItems] = useState<Record<string, { status: string, isPolling: boolean }>>({});
 
+    // New Feature States
+    const [genreLogic, setGenreLogic] = useState<'OR' | 'AND' | 'EXCLUDE'>('OR');
+    const [expandedSeriesId, setExpandedSeriesId] = useState<string | null>(null);
+    const [seriesEpisodes, setSeriesEpisodes] = useState<Record<string, any[]>>({});
+    const [loadingEpisodes, setLoadingEpisodes] = useState<Record<string, boolean>>({});
+
     const sensors = useSensors(
         useSensor(PointerSensor),
         useSensor(KeyboardSensor, {
@@ -96,6 +102,48 @@ export default function SchedulerQueue() {
         const interval = setInterval(fetchData, 5 * 60 * 1000); // refresh every 5 minutes
         return () => clearInterval(interval);
     }, []);
+
+    const handleSelectAll = () => {
+        const updates: Record<string, boolean> = {};
+        combined.forEach(item => { updates[item.idStr] = true; });
+        setSearchToggles(prev => ({ ...prev, ...updates }));
+    };
+
+    const handleDeselectAll = () => {
+        const updates: Record<string, boolean> = {};
+        combined.forEach(item => { updates[item.idStr] = false; });
+        setSearchToggles(prev => ({ ...prev, ...updates }));
+    };
+
+    const fetchSeriesEpisodes = async (instanceId: string, seriesId: number) => {
+        const cacheKey = `${instanceId}-${seriesId}`;
+        if (seriesEpisodes[cacheKey]) return; // already loaded
+
+        setLoadingEpisodes(prev => ({ ...prev, [cacheKey]: true }));
+        try {
+            const res = await fetch(`/api/sonarr/episodes?instanceId=${instanceId}&seriesId=${seriesId}`);
+            if (res.ok) {
+                const data = await res.json();
+                setSeriesEpisodes(prev => ({ ...prev, [cacheKey]: data }));
+            }
+        } catch (e) {
+            console.error('Failed to load episodes', e);
+        }
+        setLoadingEpisodes(prev => ({ ...prev, [cacheKey]: false }));
+    };
+
+    const toggleExpandSeries = (item: any, e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (item.type !== 'series') return;
+
+        const cacheKey = `${item.instanceId}-${item.id}`;
+        if (expandedSeriesId === cacheKey) {
+            setExpandedSeriesId(null);
+        } else {
+            setExpandedSeriesId(cacheKey);
+            fetchSeriesEpisodes(item.instanceId, item.id);
+        }
+    };
 
     const toggleSearch = (id: string) => {
         setSearchToggles(prev => ({
@@ -197,7 +245,8 @@ export default function SchedulerQueue() {
             isDownloaded: m.hasFile,
             targetQualityProfile: profiles?.[m.instanceUrl]?.[m.qualityProfileId] || 'Unknown',
             currentQualityScale: m.movieFile?.quality?.quality?.resolution || 0,
-            instanceId: m.instanceId
+            instanceId: m.instanceId,
+            instanceColor: m.instanceColor
         })),
         ...(Array.isArray(episodes) ? episodes : []).map(e => ({
             ...e,
@@ -207,7 +256,8 @@ export default function SchedulerQueue() {
             isDownloaded: e.statistics?.percentOfEpisodes === 100,
             stats: e.statistics,
             targetQualityProfile: profiles?.[e.instanceUrl]?.[e.qualityProfileId] || 'Unknown',
-            instanceId: e.instanceId
+            instanceId: e.instanceId,
+            instanceColor: e.instanceColor
         }))
     ].sort((a, b) => b.sortDate - a.sortDate);
 
@@ -239,9 +289,19 @@ export default function SchedulerQueue() {
 
     // Filter by selected genres
     if (!selectedGenres.includes('All')) {
-        combined = combined.filter(item =>
-            item.genres && Array.isArray(item.genres) && item.genres.some((g: string) => selectedGenres.includes(g))
-        );
+        combined = combined.filter(item => {
+            const itemGenres = item.genres || [];
+            if (!Array.isArray(itemGenres)) return false;
+
+            if (genreLogic === 'OR') {
+                return itemGenres.some((g: string) => selectedGenres.includes(g));
+            } else if (genreLogic === 'AND') {
+                return selectedGenres.every((g: string) => itemGenres.includes(g));
+            } else if (genreLogic === 'EXCLUDE') {
+                return !itemGenres.some((g: string) => selectedGenres.includes(g));
+            }
+            return true;
+        });
     }
 
     // Extract unique instances and apply instance filters
@@ -354,14 +414,19 @@ export default function SchedulerQueue() {
 
     return (
         <div className="max-w-7xl mx-auto px-6 space-y-8 pb-12">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight text-white mb-2">Scheduler Queue</h1>
                     <p className="text-zinc-400 mb-1">Manage your active search tracking list and prioritize genres.</p>
                     {!loading && totalItems > 0 && (
-                        <p className="text-sm font-medium text-emerald-500/80">
-                            Showing {combined.length} of {totalItems} items
-                        </p>
+                        <div className="flex items-center gap-4 mt-2">
+                            <p className="text-sm font-medium text-emerald-500/80">
+                                Showing {combined.length} of {totalItems} items
+                            </p>
+                            <div className="h-4 w-px bg-zinc-800"></div>
+                            <button onClick={handleSelectAll} className="text-xs text-zinc-400 hover:text-white transition-colors">Select All</button>
+                            <button onClick={handleDeselectAll} className="text-xs text-zinc-400 hover:text-white transition-colors">Deselect All</button>
+                        </div>
                     )}
                 </div>
 
@@ -441,8 +506,27 @@ export default function SchedulerQueue() {
                     {/* Row 3: Genres & Instances */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         <div>
-                            <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wider block mb-2">Filter by Genre</span>
-                            <div className="flex flex-wrap gap-2 max-h-[140px] overflow-y-auto pr-2 custom-scrollbar">
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wider block">Filter by Genre</span>
+                                <div className="flex items-center bg-zinc-950/50 border border-zinc-800 rounded-lg p-0.5">
+                                    <button
+                                        onClick={() => setGenreLogic('OR')}
+                                        className={`px-2 py-0.5 text-[10px] font-bold rounded-md transition-colors ${genreLogic === 'OR' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                        title="Match ANY selected genre"
+                                    >OR</button>
+                                    <button
+                                        onClick={() => setGenreLogic('AND')}
+                                        className={`px-2 py-0.5 text-[10px] font-bold rounded-md transition-colors ${genreLogic === 'AND' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                        title="Match ALL selected genres"
+                                    >AND</button>
+                                    <button
+                                        onClick={() => setGenreLogic('EXCLUDE')}
+                                        className={`px-2 py-0.5 text-[10px] font-bold rounded-md transition-colors ${genreLogic === 'EXCLUDE' ? 'bg-zinc-800 text-rose-400' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                        title="Match NO selected genres"
+                                    >EXCLUDE</button>
+                                </div>
+                            </div>
+                            <div className="flex flex-wrap gap-2 pr-2">
                                 {uniqueGenres.map(g => {
                                     const isSelected = selectedGenres.includes(g);
                                     return (
@@ -497,15 +581,15 @@ export default function SchedulerQueue() {
                                     <input
                                         type="number"
                                         min={1}
-                                        max={60}
+                                        max={10080}
                                         value={schedulerConfig.interval}
                                         onChange={e => {
-                                            const val = Math.max(1, Math.min(60, Number(e.target.value)));
+                                            const val = Math.max(1, Math.min(10080, Number(e.target.value)));
                                             const newConfig = { ...schedulerConfig, interval: val };
                                             setSchedulerConfig(newConfig);
                                             fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newConfig) });
                                         }}
-                                        className="w-12 bg-transparent text-white text-xs outline-none text-center"
+                                        className="w-14 bg-transparent text-white text-xs outline-none text-center"
                                     />
                                 </div>
                                 <div className="flex items-center gap-2 bg-zinc-950/50 border border-zinc-800 rounded-md px-3 py-1">
@@ -564,17 +648,23 @@ export default function SchedulerQueue() {
                                 return (
                                     <SortableItem key={item.idStr} id={item.idStr} isDraggable={profile === 'custom'}>
                                         <div
+                                            onClick={(e) => item.type === 'series' && toggleExpandSeries(item, e)}
                                             className={`flex items-center justify-between p-4 rounded-xl border transition-all ${isToggled ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-950 border-zinc-900 opacity-60'
-                                                }`}
+                                                } ${item.type === 'series' ? 'cursor-pointer hover:bg-zinc-800' : ''}`}
                                         >
                                             <div className="flex items-center gap-4">
-                                                <div className={`w-2 h-12 rounded-full ${item.type === 'movie' ? 'bg-yellow-500' : 'bg-cyan-500'}`} />
+                                                <div className={`w-2 h-12 rounded-full ${item.instanceColor || (item.type === 'movie' ? 'bg-yellow-500' : 'bg-cyan-500')}`} />
                                                 <div>
                                                     <div className="flex items-center gap-2 mb-1">
                                                         <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm ${item.type === 'movie' ? 'bg-yellow-500/20 text-yellow-500' : 'bg-cyan-500/20 text-cyan-500'
                                                             }`}>
                                                             {item.type}
                                                         </span>
+                                                        {item.instanceName && (
+                                                            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm bg-zinc-800 text-zinc-400 border border-zinc-700">
+                                                                {item.instanceName}
+                                                            </span>
+                                                        )}
                                                         {/* Show first two genres as tags if available */}
                                                         {item.genres && item.genres.slice(0, 2).map((g: string) => (
                                                             <span key={g} className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm bg-purple-500/20 text-purple-400">
@@ -582,15 +672,20 @@ export default function SchedulerQueue() {
                                                             </span>
                                                         ))}
                                                     </div>
-                                                    <h3 className="text-lg font-medium text-white">
+                                                    <h3 className="text-lg font-medium text-white flex items-center gap-2">
                                                         {item.title}
+                                                        {item.type === 'series' && (
+                                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`text-zinc-500 transition-transform ${expandedSeriesId === `${item.instanceId}-${item.id}` ? 'rotate-180' : ''}`}><polyline points="6 9 12 15 18 9"></polyline></svg>
+                                                        )}
                                                     </h3>
-                                                    <p className="text-sm text-zinc-400">
+                                                    <div className="text-sm text-zinc-400 flex flex-wrap items-center gap-x-2 gap-y-1">
                                                         {item.type === 'movie'
                                                             ? (item.isDownloaded ? 'Downloaded' : 'Missing from Library')
                                                             : (item.stats ? `${item.stats.episodeFileCount} / ${item.stats.episodeCount} Episodes (${Math.round(item.stats.percentOfEpisodes)}%)` : 'Unknown')}
-                                                        {' • Added '}{formatDistanceToNow(item.sortDate, { addSuffix: true })}
-                                                        <div className="mt-2 flex items-center gap-2">
+                                                        <span className="text-zinc-600">•</span>
+                                                        <span>Added {formatDistanceToNow(item.sortDate, { addSuffix: true })}</span>
+
+                                                        <div className="flex items-center gap-2 w-full mt-1">
                                                             <div className="flex bg-zinc-900 border border-zinc-700/50 rounded-md overflow-hidden text-xs font-medium">
                                                                 <div className="bg-zinc-800 px-2 py-0.5 text-zinc-400 border-r border-zinc-700/50">Target</div>
                                                                 <div className="px-2 py-0.5 text-indigo-400 bg-indigo-500/10">
@@ -610,7 +705,7 @@ export default function SchedulerQueue() {
                                                                 </div>
                                                             )}
                                                         </div>
-                                                    </p>
+                                                    </div>
                                                 </div>
                                             </div>
 
@@ -629,7 +724,7 @@ export default function SchedulerQueue() {
                                                             handleForceSearch(item);
                                                         }}
                                                     >
-                                                        Force Search
+                                                        Force Search {item.type === 'series' && '(All)'}
                                                     </button>
                                                 )}
                                                 <span className="text-xs text-zinc-500 font-medium mr-2">Status: {isToggled ? 'Active' : 'Paused'}</span>
@@ -647,6 +742,73 @@ export default function SchedulerQueue() {
                                                 </button>
                                             </div>
                                         </div>
+
+                                        {/* Expanded Series Episodes Panel */}
+                                        {item.type === 'series' && expandedSeriesId === `${item.instanceId}-${item.id}` && (
+                                            <div className="ml-8 mt-1 mb-4 border-l-2 border-zinc-800 pl-4 py-2 space-y-2">
+                                                {loadingEpisodes[`${item.instanceId}-${item.id}`] ? (
+                                                    <div className="text-sm text-zinc-500 flex items-center gap-2">
+                                                        <div className="w-4 h-4 rounded-full border-2 border-zinc-500 border-t-transparent animate-spin"></div>
+                                                        Loading episodes...
+                                                    </div>
+                                                ) : seriesEpisodes[`${item.instanceId}-${item.id}`] ? (
+                                                    <div className="grid gap-2">
+                                                        {seriesEpisodes[`${item.instanceId}-${item.id}`].map((ep: any) => (
+                                                            <div key={ep.id} className="bg-zinc-900/50 border border-zinc-800/80 rounded-lg p-3 flex items-center justify-between hover:bg-zinc-800/50 transition-colors">
+                                                                <div>
+                                                                    <div className="flex items-center gap-2 mb-1">
+                                                                        <span className="text-xs font-mono text-zinc-400 bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">S{String(ep.seasonNumber).padStart(2, '0')}E{String(ep.episodeNumber).padStart(2, '0')}</span>
+                                                                        <h4 className="text-sm font-medium text-zinc-200">{ep.title}</h4>
+                                                                        {ep.hasFile ? (
+                                                                            <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Downloaded</span>
+                                                                        ) : ep.monitored ? (
+                                                                            <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">Missing</span>
+                                                                        ) : (
+                                                                            <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-500 border border-zinc-700">Unmonitored</span>
+                                                                        )}
+                                                                    </div>
+                                                                    {ep.hasFile && ep.episodeFile && (
+                                                                        <div className="flex items-center gap-2 mt-1">
+                                                                            <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded">{ep.episodeFile.quality?.quality?.name || 'Unknown Quality'}</span>
+                                                                            {ep.episodeFile.mediaInfo?.subtitles && ep.episodeFile.mediaInfo.subtitles.length > 0 && (
+                                                                                <span className="text-[10px] bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                                                                    <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                                                                                    Subtitles
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                    )}
+                                                                    {!ep.hasFile && ep.airDateUtc && new Date(ep.airDateUtc).getTime() > Date.now() && (
+                                                                        <p className="text-[10px] text-zinc-500 mt-1">Airs: {new Date(ep.airDateUtc).toLocaleDateString()}</p>
+                                                                    )}
+                                                                </div>
+                                                                <div>
+                                                                    {!ep.hasFile && ep.monitored && new Date(ep.airDateUtc).getTime() < Date.now() && (
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                // Trigger manual search for single episode
+                                                                                fetch('/api/search/trigger', {
+                                                                                    method: 'POST',
+                                                                                    headers: { 'Content-Type': 'application/json' },
+                                                                                    body: JSON.stringify({ type: 'episode', mediaId: ep.id, instanceId: item.instanceId })
+                                                                                });
+                                                                                // UX feedback override without robust polling
+                                                                                alert('Search triggered for S' + String(ep.seasonNumber).padStart(2, '0') + 'E' + String(ep.episodeNumber).padStart(2, '0'));
+                                                                            }}
+                                                                            className="px-2 py-1 text-[10px] font-semibold bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 rounded border border-emerald-500/20 hover:border-emerald-500/40 transition-colors"
+                                                                        >
+                                                                            Search Episode
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-sm text-zinc-500">No episodes found.</div>
+                                                )}
+                                            </div>
+                                        )}
                                     </SortableItem>
                                 );
                             })}

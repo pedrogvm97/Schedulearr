@@ -12,7 +12,7 @@ export async function GET() {
         for (const instance of instances) {
             const movies = await getAllMovies(instance.url, instance.api_key);
             // Map instance name to the list so UI knows where it came from
-            allMedia = [...allMedia, ...movies.map(m => ({ ...m, instanceName: instance.name, instanceId: instance.id }))];
+            allMedia = [...allMedia, ...movies.map(m => ({ ...m, instanceName: instance.name, instanceId: instance.id, instanceColor: instance.color }))];
         }
 
         // Sort by date added descending (newest first)

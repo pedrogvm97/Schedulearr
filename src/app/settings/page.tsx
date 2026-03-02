@@ -11,6 +11,14 @@ export default function Settings() {
     const [name, setName] = useState("");
     const [url, setUrl] = useState("");
     const [apiKey, setApiKey] = useState("");
+    const [color, setColor] = useState('bg-zinc-500'); // default fallback
+
+    const predefinedColors = [
+        'bg-red-500', 'bg-orange-500', 'bg-amber-500', 'bg-yellow-500', 'bg-lime-500',
+        'bg-green-500', 'bg-emerald-500', 'bg-teal-500', 'bg-cyan-500', 'bg-sky-500',
+        'bg-blue-500', 'bg-indigo-500', 'bg-violet-500', 'bg-purple-500', 'bg-fuchsia-500',
+        'bg-pink-500', 'bg-rose-500', 'bg-zinc-500', 'bg-slate-500', 'bg-stone-500'
+    ];
 
     const fetchInstances = async () => {
         setLoading(true);
@@ -47,7 +55,9 @@ export default function Settings() {
             type,
             name,
             url: url.replace(/\/$/, ""), // strip trailing slash
-            api_key: apiKey
+            api_key: apiKey,
+            enabled: true,
+            color
         };
 
         try {
@@ -58,7 +68,7 @@ export default function Settings() {
             });
             fetchInstances();
             // reset form
-            setName(""); setUrl(""); setApiKey("");
+            setName(""); setUrl(""); setApiKey(""); setColor('bg-zinc-500');
         } catch (e) {
             console.error(e);
         }
@@ -129,6 +139,21 @@ export default function Settings() {
                         />
                     </div>
 
+                    <div className="md:col-span-2 space-y-2 mt-2">
+                        <label className="text-sm font-medium text-zinc-300">Instance Indicator Color</label>
+                        <div className="flex flex-wrap gap-2">
+                            {predefinedColors.map(c => (
+                                <button
+                                    key={c}
+                                    type="button"
+                                    onClick={() => setColor(c)}
+                                    className={`w-6 h-6 rounded-full ${c} ${color === c ? 'ring-2 ring-white ring-offset-2 ring-offset-zinc-900 border-2 border-transparent' : 'opacity-70 hover:opacity-100 border border-zinc-800'}`}
+                                    aria-label={`Select ${c}`}
+                                />
+                            ))}
+                        </div>
+                    </div>
+
                     <div className="md:col-span-2 mt-2">
                         <button
                             type="submit"
@@ -155,12 +180,12 @@ export default function Settings() {
                             <div key={inst.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex flex-col justify-between">
                                 <div>
                                     <div className="flex justify-between items-start mb-2">
-                                        <span className={`text-xs font-bold uppercase tracking-wider px-2 py-1 rounded ${inst.type === 'radarr' ? 'bg-yellow-500/20 text-yellow-400' :
-                                            inst.type === 'sonarr' ? 'bg-cyan-500/20 text-cyan-400' :
-                                                'bg-orange-500/20 text-orange-400'
-                                            }`}>
-                                            {inst.type}
-                                        </span>
+                                        <div className="flex items-center gap-2">
+                                            {inst.color && <div className={`w-3 h-3 rounded-full ${inst.color}`} title="Instance Color"></div>}
+                                            <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-sm ${inst.type === 'radarr' ? 'bg-yellow-500/20 text-yellow-500' : inst.type === 'sonarr' ? 'bg-cyan-500/20 text-cyan-500' : 'bg-purple-500/20 text-purple-500'}`}>
+                                                {inst.type}
+                                            </span>
+                                        </div>
                                         <button
                                             onClick={() => handleDelete(inst.id)}
                                             className="text-zinc-500 hover:text-red-400 p-1"

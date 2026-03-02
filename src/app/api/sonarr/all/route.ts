@@ -11,7 +11,7 @@ export async function GET() {
 
         for (const instance of instances) {
             const series = await getAllSeries(instance.url, instance.api_key);
-            allMedia = [...allMedia, ...series.map(s => ({ ...s, instanceName: instance.name, instanceId: instance.id }))];
+            allMedia = [...allMedia, ...series.map(s => ({ ...s, instanceName: instance.name, instanceId: instance.id, instanceColor: instance.color }))];
         }
 
         // Sort by date added descending

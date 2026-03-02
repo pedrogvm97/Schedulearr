@@ -43,6 +43,7 @@ db.exec(`
 
 // Simple schema migrations for existing databases
 try { db.exec("ALTER TABLE instances ADD COLUMN enabled INTEGER DEFAULT 1;"); } catch (e) { /* column exists */ }
+try { db.exec("ALTER TABLE instances ADD COLUMN color TEXT;"); } catch (e) { /* column exists */ }
 try { db.exec("ALTER TABLE search_history ADD COLUMN timestamp DATETIME DEFAULT CURRENT_TIMESTAMP;"); } catch (e) { /* column exists */ }
 
 export interface Setting {
@@ -57,6 +58,7 @@ export interface Instance {
     url: string;
     api_key: string;
     enabled: boolean;
+    color?: string;
 }
 
 export const getSetting = (key: string): string | null => {
@@ -111,8 +113,8 @@ export const getInstances = (type?: string, activeOnly: boolean = false): Instan
 };
 
 export const addInstance = (instance: Instance) => {
-    const stmt = db.prepare('INSERT INTO instances (id, type, name, url, api_key, enabled) VALUES (?, ?, ?, ?, ?, ?)');
-    stmt.run(instance.id, instance.type, instance.name, instance.url, instance.api_key, instance.enabled ? 1 : 0);
+    const stmt = db.prepare('INSERT INTO instances (id, type, name, url, api_key, enabled, color) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    stmt.run(instance.id, instance.type, instance.name, instance.url, instance.api_key, instance.enabled ? 1 : 0, instance.color || null);
 }
 
 export const removeInstance = (id: string) => {
