@@ -1,11 +1,12 @@
 import { getInstances, getSetting, logSearchHistory, getSchedulerConfig } from '@/lib/db';
-import { getAllMovies, triggerMovieSearch, RadarrMovie } from '@/lib/radarr';
-import { getAllSeries, triggerEpisodeSearch, SonarrSeries } from '@/lib/sonarr';
+import { getAllMovies, triggerMovieSearch, RadarrMovie, getQueue as getRadarrQueue } from '@/lib/radarr';
+import { getAllSeries, triggerEpisodeSearch, SonarrSeries, getQueue as getSonarrQueue } from '@/lib/sonarr';
 import { getIndexerHealth } from '@/lib/prowlarr';
 
 // Prevent multiple scheduler instances from running in dev mode HMR
 declare global {
     var globalSchedulerRunning: boolean | undefined;
+    var globalNextSchedulerRun: number | null;
 }
 
 if (!global.globalSchedulerRunning) {
@@ -33,14 +34,20 @@ if (!global.globalSchedulerRunning) {
             const validInterval = (!interval || isNaN(interval) || interval < 1) ? 30 : interval;
             const intervalMs = validInterval * 60 * 1000;
 
+            global.globalNextSchedulerRun = Date.now() + intervalMs;
             setTimeout(runCycle, intervalMs);
         };
 
         // Start the first full search cycle after a short 5-second delay to let the server start up
+        global.globalNextSchedulerRun = Date.now() + 5000;
         setTimeout(runCycle, 5000);
     };
 
     startScheduler();
+}
+
+export function getNextSchedulerRun() {
+    return global.globalNextSchedulerRun || null;
 }
 
 export async function runBatchSearch() {
@@ -82,10 +89,15 @@ export async function runBatchSearch() {
 
     // Radarr Movies
     for (const r of radarrs) {
-        const allMovies = await getAllMovies(r.url, r.api_key);
-        // Only target missing, published, monitored movies
-        const missing = allMovies.filter(m => !m.hasFile && m.monitored && m.isAvailable);
-        console.log(`[RADARR] Found ${missing.length} missing/monitored movies on ${r.name}`);
+        const [allMovies, queue] = await Promise.all([
+            getAllMovies(r.url, r.api_key),
+            getRadarrQueue(r.url, r.api_key)
+        ]);
+        const queuedMovieIds = new Set(queue.map(q => q.movieId));
+
+        // Only target missing, published, monitored movies, AND NOT in the downloading queue
+        const missing = allMovies.filter(m => !m.hasFile && m.monitored && m.isAvailable && !queuedMovieIds.has(m.id));
+        console.log(`[RADARR] Found ${missing.length} missing/monitored (not queued) movies on ${r.name}`);
         allMovieTargets.push(...missing.map(m => ({ id: m.id, apiUrl: r.url, apiKey: r.api_key, movie: m })));
     }
 
@@ -94,13 +106,18 @@ export async function runBatchSearch() {
     // Sonarr Episodes
     // For episodes, getting missing directly is still efficient, but we need series data for priority sorting
     for (const s of sonarrs) {
-        // getMissingEpisodes is no longer used, we fetch all series and then filter for missing episodes
-        const allSeries = await getAllSeries(s.url, s.api_key);
+        const [allSeries, queue] = await Promise.all([
+            getAllSeries(s.url, s.api_key),
+            getSonarrQueue(s.url, s.api_key)
+        ]);
+        const queuedEpisodeIds = new Set(queue.map(q => q.episodeId));
         const seriesMap = new Map(allSeries.map(series => [series.id, series]));
 
         for (const series of allSeries) {
             if (series.monitored && series.statistics && series.episodes) {
-                const missingEpisodes = series.episodes.filter(ep => !ep.hasFile && ep.monitored && ep.episodeFileId === 0);
+                const missingEpisodes = series.episodes.filter(ep =>
+                    !ep.hasFile && ep.monitored && ep.episodeFileId === 0 && !queuedEpisodeIds.has(ep.id)
+                );
                 if (missingEpisodes.length > 0) {
                     allEpTargets.push(...missingEpisodes.map(ep => ({
                         id: ep.id,

@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import HistoryLedger from "@/components/HistoryLedger";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 
 export default function Dashboard() {
   const [triggerResult, setTriggerResult] = useState<{
@@ -12,6 +13,26 @@ export default function Dashboard() {
     episodes?: string[]
   }>({ show: false });
   const [isTriggering, setIsTriggering] = useState(false);
+  const [chartData, setChartData] = useState<any[]>([]);
+  const [instances, setInstances] = useState<Record<string, { name: string, color: string, type: string }>>({});
+  const [loadingStats, setLoadingStats] = useState(true);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const res = await fetch('/api/stats');
+        if (res.ok) {
+          const json = await res.json();
+          setChartData(json.data || []);
+          setInstances(json.instances || {});
+        }
+      } catch (e) {
+        console.error("Failed to load stats", e);
+      }
+      setLoadingStats(false);
+    };
+    fetchStats();
+  }, []);
 
   const handleManualTrigger = async () => {
     setIsTriggering(true);
@@ -48,6 +69,57 @@ export default function Dashboard() {
           >
             {isTriggering ? 'Triggering...' : 'Trigger Search Now'}
           </button>
+        </div>
+      </div>
+
+      {/* Analytics Graph */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 mb-8">
+        <h2 className="text-xl font-bold text-white mb-6">30-Day Download Velocity</h2>
+        <div className="h-72 w-full">
+          {loadingStats ? (
+            <div className="w-full h-full flex items-center justify-center text-zinc-500 font-medium">Loading aggregated statistics...</div>
+          ) : chartData.length === 0 ? (
+            <div className="w-full h-full flex items-center justify-center text-zinc-500 font-medium">No download events logged in the past 30 days.</div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                <XAxis
+                  dataKey="date"
+                  stroke="#52525b"
+                  fontSize={12}
+                  tickFormatter={(val) => {
+                    const d = new Date(val);
+                    return `${d.getMonth() + 1}/${d.getDate()}`;
+                  }}
+                />
+                <YAxis stroke="#52525b" fontSize={12} allowDecimals={false} />
+                <Tooltip
+                  cursor={{ fill: '#27272a', opacity: 0.4 }}
+                  contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '8px', color: '#fff' }}
+                  itemStyle={{ fontSize: '12px', fontWeight: 600 }}
+                  labelStyle={{ fontSize: '13px', color: '#a1a1aa', marginBottom: '4px' }}
+                />
+                <Legend
+                  wrapperStyle={{ paddingTop: '20px', fontSize: '12px' }}
+                  formatter={(value) => {
+                    const inst = instances[value];
+                    return inst ? inst.name : value;
+                  }}
+                />
+                {Object.keys(instances).map(id => (
+                  <Bar
+                    key={id}
+                    dataKey={id}
+                    name={id}
+                    stackId="a"
+                    fill={instances[id].color}
+                    radius={[2, 2, 0, 0]}
+                  />
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </div>
       </div>
 

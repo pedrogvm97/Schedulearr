@@ -68,6 +68,39 @@ export const getMissingMovies = async (url: string, apiKey: string): Promise<Rad
     }
 };
 
+// Function to fetch active queue (downloading/importing)
+export const getQueue = async (url: string, apiKey: string): Promise<any[]> => {
+    try {
+        const response = await axios.get(`${url}/api/v3/queue`, {
+            headers: { 'X-Api-Key': apiKey }
+        });
+        return response.data.records || [];
+    } catch (error) {
+        console.error(`Error fetching Radarr queue (${url}):`, error);
+        return [];
+    }
+};
+
+// Function to fetch download grab history
+export const getGrabHistory = async (url: string, apiKey: string, limit: number = 500): Promise<any[]> => {
+    try {
+        const response = await axios.get(`${url}/api/v3/history`, {
+            headers: { 'X-Api-Key': apiKey },
+            params: {
+                page: 1,
+                pageSize: limit,
+                sortKey: 'date',
+                sortDirection: 'descending',
+                eventType: 1 // 1 = Grabbed
+            }
+        });
+        return response.data.records || [];
+    } catch (error) {
+        console.error(`Error fetching Radarr grab history (${url}):`, error);
+        return [];
+    }
+};
+
 // Function to trigger a search for specific movies on a Radarr instance
 export const triggerMovieSearch = async (url: string, apiKey: string, movieIds: number[]): Promise<boolean> => {
     if (movieIds.length === 0) return true;

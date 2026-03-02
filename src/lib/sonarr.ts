@@ -51,6 +51,39 @@ export const getAllSeries = async (url: string, apiKey: string): Promise<SonarrS
     }
 };
 
+// Fetch all missing episodes and map them to their series titles
+export const getQueue = async (url: string, apiKey: string): Promise<any[]> => {
+    try {
+        const response = await axios.get(`${url}/api/v3/queue`, {
+            headers: { 'X-Api-Key': apiKey }
+        });
+        return response.data.records || [];
+    } catch (error) {
+        console.error(`Error fetching Sonarr queue (${url}):`, error);
+        return [];
+    }
+};
+
+// Function to fetch download grab history
+export const getGrabHistory = async (url: string, apiKey: string, limit: number = 500): Promise<any[]> => {
+    try {
+        const response = await axios.get(`${url}/api/v3/history`, {
+            headers: { 'X-Api-Key': apiKey },
+            params: {
+                page: 1,
+                pageSize: limit,
+                sortKey: 'date',
+                sortDirection: 'descending',
+                eventType: 1 // 1 = Grabbed
+            }
+        });
+        return response.data.records || [];
+    } catch (error) {
+        console.error(`Error fetching Sonarr grab history (${url}):`, error);
+        return [];
+    }
+};
+
 export interface MissingEpisode extends SonarrEpisode {
     seriesTitle: string;
     seriesAdded: string;

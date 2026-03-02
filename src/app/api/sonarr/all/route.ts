@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getInstances } from '@/lib/db';
-import { getAllSeries } from '@/lib/sonarr';
+import { getAllSeries, getQueue } from '@/lib/sonarr';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,8 +10,18 @@ export async function GET() {
         let allMedia: any[] = [];
 
         for (const instance of instances) {
-            const series = await getAllSeries(instance.url, instance.api_key);
-            allMedia = [...allMedia, ...series.map(s => ({ ...s, instanceName: instance.name, instanceId: instance.id }))];
+            const [series, queue] = await Promise.all([
+                getAllSeries(instance.url, instance.api_key),
+                getQueue(instance.url, instance.api_key)
+            ]);
+            const queuedEpisodeIds = queue.map(q => q.episodeId);
+
+            allMedia = [...allMedia, ...series.map(s => ({
+                ...s,
+                instanceName: instance.name,
+                instanceId: instance.id,
+                queuedEpisodeIds: queuedEpisodeIds.filter(id => s.episodes?.some((ep: any) => ep.id === id))
+            }))];
         }
 
         // Sort by date added descending
