@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import {
     DndContext,
@@ -79,6 +79,7 @@ export default function SchedulerQueue() {
 
     const [isSaving, setIsSaving] = useState(false);
     const [saveSuccess, setSaveSuccess] = useState(false);
+    const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
     const sensors = useSensors(
         useSensor(PointerSensor),
@@ -132,12 +133,25 @@ export default function SchedulerQueue() {
                         setSearchToggles(JSON.parse(settingsData.ui_search_toggles));
                     } catch (e) { }
                 }
+                if (settingsData.ui_instance_filters) {
+                    try {
+                        setInstanceFilters(JSON.parse(settingsData.ui_instance_filters));
+                    } catch (e) { }
+                }
+                if (settingsData.ui_selected_genres) {
+                    try {
+                        setSelectedGenres(JSON.parse(settingsData.ui_selected_genres));
+                    } catch (e) { }
+                }
+                if (settingsData.ui_genre_logic) setGenreLogic(settingsData.ui_genre_logic);
+                if (settingsData.ui_active_only !== undefined) setShowActiveOnly(settingsData.ui_active_only === 'true');
             }
         } catch (e) {
             console.error("Failed to load data", e);
             setError(e instanceof Error ? e.message : String(e));
         }
         setLoading(false);
+        setHasUnsavedChanges(false);
     };
 
     useEffect(() => {
@@ -190,7 +204,10 @@ export default function SchedulerQueue() {
             genreLogic
         };
         localStorage.setItem('schedulerUIState', JSON.stringify(stateToSave));
-    }, [selectedGenres, instanceFilters, qualityFilter, showActiveOnly, showNextBatchOnly, genreLogic]);
+        if (!loading && movies.length > 0) {
+            setHasUnsavedChanges(true);
+        }
+    }, [selectedGenres, instanceFilters, qualityFilter, showActiveOnly, showNextBatchOnly, genreLogic, searchToggles]);
 
     const handleSaveConfiguration = async () => {
         setIsSaving(true);
@@ -204,6 +221,7 @@ export default function SchedulerQueue() {
                 fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'ui_search_toggles', value: JSON.stringify(searchToggles) }) })
             ]);
             setSaveSuccess(true);
+            setHasUnsavedChanges(false);
             setTimeout(() => setSaveSuccess(false), 3000);
         } catch (e) {
             console.error("Failed to sync UI state to database", e);
@@ -211,15 +229,15 @@ export default function SchedulerQueue() {
         setIsSaving(false);
     };
 
-    const handleSelectAll = () => {
+    const handleSelectAll = (filteredItems: any[]) => {
         const updates: Record<string, boolean> = {};
-        combined.forEach(item => { updates[item.idStr] = true; });
+        filteredItems.forEach(item => { updates[item.idStr] = true; });
         setSearchToggles(prev => ({ ...prev, ...updates }));
     };
 
-    const handleDeselectAll = () => {
+    const handleDeselectAll = (filteredItems: any[]) => {
         const updates: Record<string, boolean> = {};
-        combined.forEach(item => { updates[item.idStr] = false; });
+        filteredItems.forEach(item => { updates[item.idStr] = false; });
         setSearchToggles(prev => ({ ...prev, ...updates }));
     };
 
@@ -314,28 +332,13 @@ export default function SchedulerQueue() {
     };
 
     const toggleInstance = async (name: string, id: string) => {
-        const isCurrentlyEnabled = instanceFilters[name] !== false;
+        const isCurrentlyEnabled = instanceFilters[id] !== false;
 
-        // Optimistic UI update
+        // Optimistic UI update only. Save settings persists this.
         setInstanceFilters(prev => ({
             ...prev,
-            [name]: !isCurrentlyEnabled
+            [id]: !isCurrentlyEnabled
         }));
-
-        try {
-            await fetch('/api/instances', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id, enabled: !isCurrentlyEnabled })
-            });
-        } catch (e) {
-            console.error('Failed to update instance toggle override in DB', e);
-            // Revert on error
-            setInstanceFilters(prev => ({
-                ...prev,
-                [name]: isCurrentlyEnabled
-            }));
-        }
     };
 
     const handleSaveProfile = async (newProfile: string) => {
@@ -432,14 +435,18 @@ export default function SchedulerQueue() {
     // Filter by selected instances (using ID instead of name to prevent collisions)
     combined = combined.filter(item => instanceFilters[item.instanceId] !== false);
 
-    // Filter by active status
+    // Extract items before we calculate if they should be hidden from UI for visual only active rules
+    const targetItemsForBulkActions = [...combined];
+
+    // Filter by active status for displaying purposes only
+    let displayItems = combined;
     if (showActiveOnly) {
-        combined = combined.filter(item => searchToggles[item.idStr] !== false);
+        displayItems = displayItems.filter(item => searchToggles[item.idStr] !== false);
     }
 
     // Apply Profile Sorting System so UI matches backend expectations
     if (profile === 'custom') {
-        combined.sort((a, b) => {
+        displayItems.sort((a, b) => {
             const indexA = orderedIds.indexOf(a.idStr);
             const indexB = orderedIds.indexOf(b.idStr);
             if (indexA !== -1 && indexB !== -1) return indexA - indexB;
@@ -448,13 +455,13 @@ export default function SchedulerQueue() {
             return 0; // fallback to sortDate if unset
         });
     } else if (profile === 'recently_released') {
-        combined.sort((a, b) => {
+        displayItems.sort((a, b) => {
             const dateA = a.type === 'movie' ? (a.physicalRelease || a.digitalRelease || a.inCinemas || "1970-01-01") : (a.airDateUtc || "1970-01-01");
             const dateB = b.type === 'movie' ? (b.physicalRelease || b.digitalRelease || b.inCinemas || "1970-01-01") : (b.airDateUtc || "1970-01-01");
             return new Date(dateB).getTime() - new Date(dateA).getTime();
         });
     } else if (profile === 'nearly_complete') {
-        combined.sort((a, b) => {
+        displayItems.sort((a, b) => {
             const pctA = a.type === 'series' ? (a.stats?.percentOfEpisodes || 0) : 0;
             const pctB = b.type === 'series' ? (b.stats?.percentOfEpisodes || 0) : 0;
             // Rank series higher if they have high completion, tie-break by sortDate. Movies go to bottom, sorted by date.
@@ -463,14 +470,14 @@ export default function SchedulerQueue() {
         });
     } else if (profile === 'random') {
         // Pseudo-stable random sort per load
-        combined.sort(() => Math.random() - 0.5);
+        displayItems.sort(() => Math.random() - 0.5);
     }
     // 'recently_added' defaults to the initial map sort by sortDate, so no extra block needed.
 
     // Always bubble exact or strong search matches to the top, overriding generic sort profiles
     if (searchQuery.trim() !== '') {
         const query = searchQuery.toLowerCase();
-        combined.sort((a, b) => {
+        displayItems.sort((a, b) => {
             const aTitle = a.title.toLowerCase();
             const bTitle = b.title.toLowerCase();
             const aExact = aTitle === query;
@@ -491,13 +498,13 @@ export default function SchedulerQueue() {
     }
 
     // Calculate total viewable items before batching
-    const totalItems = combined.length;
+    const totalItems = displayItems.length;
 
     // Apply Next Batch limit slicing
     if (showNextBatchOnly) {
         const allowedBatchSize = schedulerConfig.batchSize || 10;
-        const moviesInList = combined.filter(c => c.type === 'movie');
-        const seriesInList = combined.filter(c => c.type === 'series');
+        const moviesInList = displayItems.filter(c => c.type === 'movie');
+        const seriesInList = displayItems.filter(c => c.type === 'series');
 
         // Note: Scheduler uses floor for movies and ceil for series
         const maxMovies = Math.floor(allowedBatchSize / 2);
@@ -508,15 +515,15 @@ export default function SchedulerQueue() {
 
         // Keep them in the relative order they were produced by the sorting block above
         const validIds = new Set([...batchedMovies, ...batchedSeries].map(x => x.idStr));
-        combined = combined.filter(c => validIds.has(c.idStr));
+        displayItems = displayItems.filter(c => validIds.has(c.idStr));
     }
 
     // Keep orderedIds in sync visually if it's empty (initial load)
     useEffect(() => {
-        if (combined.length > 0 && orderedIds.length === 0) {
-            setOrderedIds(combined.map(c => c.idStr));
+        if (displayItems.length > 0 && orderedIds.length === 0) {
+            setOrderedIds(displayItems.map(c => c.idStr));
         }
-    }, [combined, orderedIds.length]);
+    }, [displayItems, orderedIds.length]);
 
     const handleDragEnd = (event: DragEndEvent) => {
         const { active, over } = event;
@@ -562,11 +569,11 @@ export default function SchedulerQueue() {
                             {!loading && totalItems > 0 && (
                                 <div className="flex items-center gap-4 mt-2">
                                     <p className="text-sm font-medium text-emerald-500/80">
-                                        Showing {combined.length} of {totalItems} items
+                                        Showing {displayItems.length} of {totalItems} items
                                     </p>
                                     <div className="h-4 w-px bg-zinc-800"></div>
-                                    <button onClick={handleSelectAll} className="text-xs text-zinc-400 hover:text-white transition-colors">Select All</button>
-                                    <button onClick={handleDeselectAll} className="text-xs text-zinc-400 hover:text-white transition-colors">Deselect All</button>
+                                    <button onClick={() => handleSelectAll(targetItemsForBulkActions)} className="text-xs text-zinc-400 hover:text-white transition-colors">Select All</button>
+                                    <button onClick={() => handleDeselectAll(targetItemsForBulkActions)} className="text-xs text-zinc-400 hover:text-white transition-colors">Deselect All</button>
                                 </div>
                             )}
                         </div>
@@ -666,13 +673,18 @@ export default function SchedulerQueue() {
                                     <option value="all">Everything</option>
                                 </select>
                             </div>
-                            <button
-                                onClick={handleSaveConfiguration}
-                                disabled={isSaving}
-                                className={`ml-2 px-4 py-2 text-xs font-semibold rounded-lg shadow-sm border transition-all ${saveSuccess ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/40' : 'bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 border-indigo-500/30'}`}
-                            >
-                                {isSaving ? 'Saving...' : saveSuccess ? 'Saved ✓' : 'Save Configuration'}
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={handleSaveConfiguration}
+                                    disabled={isSaving}
+                                    className={`px-4 py-2 text-xs font-semibold rounded-lg shadow-sm border transition-all ${saveSuccess ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/40' : 'bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 border-indigo-500/30'}`}
+                                >
+                                    {isSaving ? 'Saving...' : saveSuccess ? 'Saved ✓' : 'Save Configuration'}
+                                </button>
+                                {hasUnsavedChanges && !saveSuccess && (
+                                    <span className="text-[10px] text-amber-500 font-medium animate-pulse ml-1">Unsaved changes</span>
+                                )}
+                            </div>
                         </div>
                     </div>
 
@@ -785,7 +797,7 @@ export default function SchedulerQueue() {
                     </div>
                 </div>
 
-                {combined.length === 0 ? (
+                {displayItems.length === 0 ? (
                     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-12 text-center flex flex-col items-center">
                         <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-500 mb-4 opacity-50"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
                         <h3 className="text-xl font-semibold text-white">All caught up!</h3>
@@ -798,11 +810,11 @@ export default function SchedulerQueue() {
                         onDragEnd={handleDragEnd}
                     >
                         <SortableContext
-                            items={combined.map(c => c.idStr)}
+                            items={displayItems.map(c => c.idStr)}
                             strategy={verticalListSortingStrategy}
                         >
                             <div className="grid grid-cols-1 gap-3">
-                                {combined.map((item) => {
+                                {displayItems.map((item) => {
                                     const isToggled = searchToggles[item.idStr] !== false; // Default true
                                     return (
                                         <SortableItem key={item.idStr} id={item.idStr} isDraggable={profile === 'custom'}>
