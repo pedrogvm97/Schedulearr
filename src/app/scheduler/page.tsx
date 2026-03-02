@@ -30,13 +30,14 @@ export default function SchedulerQueue() {
     const [schedulerConfig, setSchedulerConfig] = useState<{ enabled: boolean, interval: number, batchSize: number }>({ enabled: true, interval: 5, batchSize: 10 });
     const [searchHistory, setSearchHistory] = useState<any[]>([]);
     const [searchToggles, setSearchToggles] = useState<Record<string, boolean>>({});
-    const [selectedGenre, setSelectedGenre] = useState<string>('All');
+    const [selectedGenres, setSelectedGenres] = useState<string[]>(['All']);
     const [instanceFilters, setInstanceFilters] = useState<Record<string, boolean>>({});
     const [searchQuery, setSearchQuery] = useState('');
     const [qualityFilter, setQualityFilter] = useState('missing'); // 'all', 'missing', 'upgradeable'
     const [profile, setProfile] = useState('recently_added');
     const [orderedIds, setOrderedIds] = useState<string[]>([]);
     const [showActiveOnly, setShowActiveOnly] = useState(false);
+    const [showNextBatchOnly, setShowNextBatchOnly] = useState(false);
     const [searchingItems, setSearchingItems] = useState<Record<string, { status: string, isPolling: boolean }>>({});
 
     const sensors = useSensors(
@@ -45,6 +46,18 @@ export default function SchedulerQueue() {
             coordinateGetter: sortableKeyboardCoordinates,
         })
     );
+
+    const handleGenreToggle = (g: string) => {
+        if (g === 'All') {
+            setSelectedGenres(['All']);
+            return;
+        }
+        setSelectedGenres(prev => {
+            const isSelected = prev.includes(g);
+            const next = isSelected ? prev.filter(x => x !== g && x !== 'All') : [...prev.filter(x => x !== 'All'), g];
+            return next.length === 0 ? ['All'] : next;
+        });
+    };
 
     // Fetch data function
     const fetchData = async () => {
@@ -224,10 +237,10 @@ export default function SchedulerQueue() {
     });
     const uniqueGenres = ['All', ...Array.from(allGenres).sort()];
 
-    // Filter by selected genre
-    if (selectedGenre !== 'All') {
+    // Filter by selected genres
+    if (!selectedGenres.includes('All')) {
         combined = combined.filter(item =>
-            item.genres && Array.isArray(item.genres) && item.genres.includes(selectedGenre)
+            item.genres && Array.isArray(item.genres) && item.genres.some((g: string) => selectedGenres.includes(g))
         );
     }
 
@@ -243,28 +256,60 @@ export default function SchedulerQueue() {
     // Filter by selected instances
     combined = combined.filter(item => instanceFilters[item.instanceName] !== false);
 
-    const totalItems = combined.length;
-
     // Filter by active status
     if (showActiveOnly) {
         combined = combined.filter(item => searchToggles[item.idStr] !== false);
     }
 
-    // If Custom Priority is enabled, sort the combined array by the orderedIds state.
+    // Apply Profile Sorting System so UI matches backend expectations
     if (profile === 'custom') {
         combined.sort((a, b) => {
             const indexA = orderedIds.indexOf(a.idStr);
             const indexB = orderedIds.indexOf(b.idStr);
-
-            // If both are in the manual order, sort by that order
             if (indexA !== -1 && indexB !== -1) return indexA - indexB;
-            // If A is in order but B isn't, A comes first
             if (indexA !== -1) return -1;
-            // If B is in order but A isn't, B comes first
             if (indexB !== -1) return 1;
-            // If neither is in custom order yet, fallback to original auto-sort (date based)
-            return 0;
+            return 0; // fallback to sortDate if unset
         });
+    } else if (profile === 'recently_released') {
+        combined.sort((a, b) => {
+            const dateA = a.type === 'movie' ? (a.physicalRelease || a.digitalRelease || a.inCinemas || "1970-01-01") : (a.airDateUtc || "1970-01-01");
+            const dateB = b.type === 'movie' ? (b.physicalRelease || b.digitalRelease || b.inCinemas || "1970-01-01") : (b.airDateUtc || "1970-01-01");
+            return new Date(dateB).getTime() - new Date(dateA).getTime();
+        });
+    } else if (profile === 'nearly_complete') {
+        combined.sort((a, b) => {
+            const pctA = a.type === 'series' ? (a.stats?.percentOfEpisodes || 0) : 0;
+            const pctB = b.type === 'series' ? (b.stats?.percentOfEpisodes || 0) : 0;
+            // Rank series higher if they have high completion, tie-break by sortDate. Movies go to bottom, sorted by date.
+            if (pctA !== pctB) return pctB - pctA;
+            return b.sortDate - a.sortDate;
+        });
+    } else if (profile === 'random') {
+        // Pseudo-stable random sort per load
+        combined.sort(() => Math.random() - 0.5);
+    }
+    // 'recently_added' defaults to the initial map sort by sortDate, so no extra block needed.
+
+    // Calculate total viewable items before batching
+    const totalItems = combined.length;
+
+    // Apply Next Batch limit slicing
+    if (showNextBatchOnly) {
+        const allowedBatchSize = schedulerConfig.batchSize || 10;
+        const moviesInList = combined.filter(c => c.type === 'movie');
+        const seriesInList = combined.filter(c => c.type === 'series');
+
+        // Note: Scheduler uses floor for movies and ceil for series
+        const maxMovies = Math.floor(allowedBatchSize / 2);
+        const maxSeries = Math.ceil(allowedBatchSize / 2);
+
+        const batchedMovies = moviesInList.slice(0, maxMovies);
+        const batchedSeries = seriesInList.slice(0, maxSeries);
+
+        // Keep them in the relative order they were produced by the sorting block above
+        const validIds = new Set([...batchedMovies, ...batchedSeries].map(x => x.idStr));
+        combined = combined.filter(c => validIds.has(c.idStr));
     }
 
     // Keep orderedIds in sync visually if it's empty (initial load)
@@ -320,168 +365,168 @@ export default function SchedulerQueue() {
                     )}
                 </div>
 
-                {/* Filters */}
-                <div className="flex flex-col items-end gap-3 flex-wrap max-w-[60%] w-full">
-                    {/* First Row: Search & Dropdowns */}
-                    <div className="flex items-center gap-3 w-full justify-end">
-                        {/* Priority Profile Dropdown */}
-                        <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-slate-400">Sort Profile:</span>
-                            <select
-                                value={profile}
-                                onChange={(e) => handleSaveProfile(e.target.value)}
-                                className="bg-zinc-900 border border-zinc-800 text-white text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block p-2.5 outline-none"
-                            >
-                                <option value="recently_added">Added Date (Default)</option>
-                                <option value="recently_released">Release Date</option>
-                                <option value="nearly_complete">Series Completion %</option>
-                                <option value="random">Randomized</option>
-                                <option value="custom">Custom Drag & Drop</option>
-                            </select>
-                        </div>
-                        {/* Search Bar */}
-                        <div className="flex-1 max-w-sm">
+                {/* Filter & Controls Box - New Layout */}
+                <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-5 mb-6 shadow-sm w-full mt-4">
+                    {/* Row 1: Search & Core Filters */}
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
+                        <div className="flex-1 w-full relative">
                             <input
                                 type="text"
-                                placeholder="Search by exact title..."
+                                placeholder="Search active media..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                className="w-full bg-zinc-900 border border-zinc-800 text-white text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block p-2.5 outline-none placeholder-zinc-600"
+                                className="w-full bg-zinc-950/50 border border-zinc-700/50 text-white text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block p-2.5 outline-none placeholder-zinc-500"
                             />
                         </div>
-
-                        {/* Quality Filter */}
-                        <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-slate-400">Quality:</span>
-                            <select
-                                value={qualityFilter}
-                                onChange={(e) => setQualityFilter(e.target.value)}
-                                className="bg-zinc-900 border border-zinc-800 text-white text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block p-2.5 outline-none"
-                            >
-                                <option value="missing">Missing Only</option>
-                                <option value="upgradeable">Upgradeable Only</option>
-                                <option value="all">Everything</option>
-                            </select>
-
-                            {/* Active Only Filter */}
-                            <label className="flex items-center cursor-pointer ml-2">
-                                <span className="text-sm font-medium text-slate-400 mr-2">Active Only:</span>
-                                <div className="relative">
-                                    <input type="checkbox" className="sr-only" checked={showActiveOnly} onChange={() => setShowActiveOnly(!showActiveOnly)} />
-                                    <div className={`block w-10 h-6 rounded-full transition-colors ${showActiveOnly ? 'bg-purple-500' : 'bg-zinc-700'}`}></div>
-                                    <div className={`dot absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${showActiveOnly ? 'transform translate-x-4' : ''}`}></div>
-                                </div>
-                            </label>
-                        </div>
-
-                        {/* Genre Quick Filters */}
-                        <div className="flex items-center gap-2 flex-wrap w-full justify-end mt-2">
-                            <span className="text-sm font-medium text-slate-400 mr-1">Genres:</span>
-                            {/* We'll show top common genres plus 'All' as quick buttons, and keep the dropdown if there are too many */}
-                            <button
-                                onClick={() => setSelectedGenre('All')}
-                                className={`px-3 py-1 text-xs font-semibold rounded-full border transition-colors ${selectedGenre === 'All'
-                                    ? 'bg-purple-500/20 text-purple-400 border-purple-500/50 hover:bg-purple-500/30'
-                                    : 'bg-zinc-800 text-zinc-500 border-zinc-700 hover:bg-zinc-700'
-                                    }`}
-                            >
-                                All
-                            </button>
-                            {/* Map through a few popular ones, or just map all unique genres if it's not too crazy */}
-                            {uniqueGenres.filter(g => g !== 'All').slice(0, 8).map(g => (
-                                <button
-                                    key={g}
-                                    onClick={() => setSelectedGenre(g)}
-                                    className={`px-3 py-1 text-xs font-semibold rounded-full border transition-colors ${selectedGenre === g
-                                        ? 'bg-purple-500/20 text-purple-400 border-purple-500/50 hover:bg-purple-500/30'
-                                        : 'bg-zinc-800 text-zinc-500 border-zinc-700 hover:bg-zinc-700'
-                                        }`}
-                                >
-                                    {g}
-                                </button>
-                            ))}
-
-                            {/* If there are lots of genres, keep the dropdown as a fallback for the rest */}
-                            {uniqueGenres.length > 9 && (
+                        <div className="flex items-center gap-3 flex-wrap">
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium text-zinc-400">Sort Profile:</span>
                                 <select
-                                    value={selectedGenre}
-                                    onChange={(e) => setSelectedGenre(e.target.value)}
-                                    className="bg-zinc-900 border border-zinc-800 text-white text-xs rounded-full focus:ring-purple-500 focus:border-purple-500 block px-3 py-1 sm outline-none h-6"
+                                    value={profile}
+                                    onChange={(e) => handleSaveProfile(e.target.value)}
+                                    className="bg-zinc-950/50 border border-zinc-700/50 text-white text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block p-2 outline-none"
                                 >
-                                    <option value="" disabled>More...</option>
-                                    {uniqueGenres.filter(g => g !== 'All').slice(8).map(g => (
-                                        <option key={g} value={g}>{g}</option>
-                                    ))}
+                                    <option value="recently_added">Added Date (Default)</option>
+                                    <option value="recently_released">Release Date</option>
+                                    <option value="nearly_complete">Completion %</option>
+                                    <option value="random">Randomized</option>
+                                    <option value="custom">Custom Drag & Drop</option>
                                 </select>
-                            )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium text-zinc-400">Quality:</span>
+                                <select
+                                    value={qualityFilter}
+                                    onChange={(e) => setQualityFilter(e.target.value)}
+                                    className="bg-zinc-950/50 border border-zinc-700/50 text-white text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block p-2 outline-none"
+                                >
+                                    <option value="missing">Missing Only</option>
+                                    <option value="upgradeable">Upgradeable Only</option>
+                                    <option value="all">Everything</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
 
-                    {/* Instance Filters */}
-                    <div className="flex items-center gap-2 flex-wrap justify-end">
-                        <span className="text-sm font-medium text-slate-400">Instances:</span>
-                        {uniqueInstances.map(inst => (
-                            <button
-                                key={inst.id}
-                                onClick={() => toggleInstance(inst.name, inst.id)}
-                                className={`px-3 py-1 text-xs font-semibold rounded-full border transition-colors ${instanceFilters[inst.name] !== false
-                                    ? 'bg-blue-500/20 text-blue-400 border-blue-500/50 hover:bg-blue-500/30'
-                                    : 'bg-zinc-800 text-zinc-500 border-zinc-700 hover:bg-zinc-700'
-                                    }`}
-                            >
-                                {inst.name}
-                            </button>
-                        ))}
-                    </div>
-                    {/* Refresh Data button */}
-                    <button
-                        onClick={fetchData}
-                        className="px-3 py-1 text-xs font-medium rounded-full bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 border border-emerald-500/30"
-                    >
-                        Refresh Data
-                    </button>
-                    {/* Scheduler Config Controls */}
-                    <div className="flex items-center gap-2 mt-2">
-                        <label className="text-sm text-slate-400">Scheduler:</label>
+                    {/* Row 2: Toggles */}
+                    <div className="flex items-center gap-6 mb-5 pb-5 border-b border-zinc-800/60 flex-wrap">
+                        <label className="flex items-center cursor-pointer group">
+                            <div className="relative">
+                                <input type="checkbox" className="sr-only" checked={showActiveOnly} onChange={() => setShowActiveOnly(!showActiveOnly)} />
+                                <div className={`block w-10 h-6 rounded-full transition-colors ${showActiveOnly ? 'bg-purple-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
+                                <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${showActiveOnly ? 'translate-x-4' : ''}`}></div>
+                            </div>
+                            <span className="text-sm font-medium text-zinc-300 ml-3">Show Active Media Only</span>
+                        </label>
+                        <label className="flex items-center cursor-pointer group">
+                            <div className="relative">
+                                <input type="checkbox" className="sr-only" checked={showNextBatchOnly} onChange={() => setShowNextBatchOnly(!showNextBatchOnly)} />
+                                <div className={`block w-10 h-6 rounded-full transition-colors ${showNextBatchOnly ? 'bg-amber-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
+                                <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${showNextBatchOnly ? 'translate-x-4' : ''}`}></div>
+                            </div>
+                            <div className="ml-3 flex flex-col">
+                                <span className="text-sm font-medium text-zinc-300">Preview Upcoming Batch</span>
+                                <span className="text-[10px] text-zinc-500 leading-tight">Shows exactly what will be searched next cycle</span>
+                            </div>
+                        </label>
+                        <div className="flex-1"></div>
                         <button
-                            onClick={() => {
-                                const newConfig = { ...schedulerConfig, enabled: !schedulerConfig.enabled };
-                                setSchedulerConfig(newConfig);
-                                fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newConfig) });
-                            }}
-                            className={`px-3 py-1 text-xs rounded ${schedulerConfig.enabled ? 'bg-green-600/20 text-green-400' : 'bg-red-600/20 text-red-400'}`}
+                            onClick={fetchData}
+                            className="px-4 py-2 text-xs font-semibold rounded-lg bg-emerald-600/10 text-emerald-400 hover:bg-emerald-600/20 shadow-sm border border-emerald-500/20 transition-all"
                         >
-                            {schedulerConfig.enabled ? 'On' : 'Off'}
+                            Refresh Server Data
                         </button>
-                        <label className="text-sm text-slate-400">Interval (min):</label>
-                        <input
-                            type="number"
-                            min={1}
-                            max={60}
-                            value={schedulerConfig.interval}
-                            onChange={e => {
-                                const val = Math.max(1, Math.min(60, Number(e.target.value)));
-                                const newConfig = { ...schedulerConfig, interval: val };
-                                setSchedulerConfig(newConfig);
-                                fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newConfig) });
-                            }}
-                            className="w-16 bg-zinc-800 border border-zinc-700 text-white text-sm rounded"
-                        />
-                        <label className="text-sm text-slate-400">Batch Size:</label>
-                        <select
-                            value={schedulerConfig.batchSize}
-                            onChange={e => {
-                                const val = Number(e.target.value);
-                                const newConfig = { ...schedulerConfig, batchSize: val };
-                                setSchedulerConfig(newConfig);
-                                fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newConfig) });
-                            }}
-                            className="bg-zinc-800 border border-zinc-700 text-white text-sm rounded"
-                        >
-                            {[...Array(20)].map((_, i) => (
-                                <option key={i + 1} value={i + 1}>{i + 1}</option>
-                            ))}
-                        </select>
+                    </div>
+
+                    {/* Row 3: Genres & Instances */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div>
+                            <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wider block mb-2">Filter by Genre</span>
+                            <div className="flex flex-wrap gap-2 max-h-[140px] overflow-y-auto pr-2 custom-scrollbar">
+                                {uniqueGenres.map(g => {
+                                    const isSelected = selectedGenres.includes(g);
+                                    return (
+                                        <button
+                                            key={g}
+                                            onClick={() => handleGenreToggle(g)}
+                                            className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-all ${isSelected
+                                                ? 'bg-purple-500/20 text-purple-300 border-purple-500/50 hover:bg-purple-500/30 shadow-sm'
+                                                : 'bg-zinc-950/50 text-zinc-400 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/50'
+                                                }`}
+                                        >
+                                            {g}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                        <div>
+                            <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wider block mb-2">Active Instances</span>
+                            <div className="flex flex-wrap gap-2 mb-4">
+                                {uniqueInstances.map(inst => {
+                                    const isSelected = instanceFilters[inst.name] !== false;
+                                    return (
+                                        <button
+                                            key={inst.id}
+                                            onClick={() => toggleInstance(inst.name, inst.id)}
+                                            className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-all ${isSelected
+                                                ? 'bg-blue-500/20 text-blue-300 border-blue-500/50 hover:bg-blue-500/30 shadow-sm'
+                                                : 'bg-zinc-950/50 text-zinc-500 border-zinc-800 hover:bg-zinc-800/50'
+                                                }`}
+                                        >
+                                            {inst.name}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+
+                            <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wider block mb-2">Scheduler Controls</span>
+                            <div className="flex items-center gap-3 flex-wrap">
+                                <button
+                                    onClick={() => {
+                                        const newConfig = { ...schedulerConfig, enabled: !schedulerConfig.enabled };
+                                        setSchedulerConfig(newConfig);
+                                        fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newConfig) });
+                                    }}
+                                    className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-all ${schedulerConfig.enabled ? 'bg-green-600/10 text-green-400 border-green-500/30' : 'bg-red-600/10 text-red-400 border-red-500/30'}`}
+                                >
+                                    {schedulerConfig.enabled ? 'Scheduler: On' : 'Scheduler: Off'}
+                                </button>
+                                <div className="flex items-center gap-2 bg-zinc-950/50 border border-zinc-800 rounded-md px-3 py-1">
+                                    <label className="text-xs font-medium text-zinc-400">Interval (m):</label>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={60}
+                                        value={schedulerConfig.interval}
+                                        onChange={e => {
+                                            const val = Math.max(1, Math.min(60, Number(e.target.value)));
+                                            const newConfig = { ...schedulerConfig, interval: val };
+                                            setSchedulerConfig(newConfig);
+                                            fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newConfig) });
+                                        }}
+                                        className="w-12 bg-transparent text-white text-xs outline-none text-center"
+                                    />
+                                </div>
+                                <div className="flex items-center gap-2 bg-zinc-950/50 border border-zinc-800 rounded-md px-3 py-1">
+                                    <label className="text-xs font-medium text-zinc-400">Batch Size:</label>
+                                    <select
+                                        value={schedulerConfig.batchSize}
+                                        onChange={e => {
+                                            const val = Number(e.target.value);
+                                            const newConfig = { ...schedulerConfig, batchSize: val };
+                                            setSchedulerConfig(newConfig);
+                                            fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newConfig) });
+                                        }}
+                                        className="bg-transparent text-white text-xs outline-none"
+                                    >
+                                        {[...Array(30)].map((_, i) => (
+                                            <option key={i + 1} value={i + 1}>{i + 1}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     {/* Search History */}
                     <div className="mt-4 max-h-48 overflow-y-auto">
