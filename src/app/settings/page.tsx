@@ -22,6 +22,8 @@ export default function Settings() {
     const [qbitSizeCleanupEnabled, setQbitSizeCleanupEnabled] = useState(false);
     const [qbitMaxSizeGb, setQbitMaxSizeGb] = useState(100);
 
+    const [isAuthorModalOpen, setIsAuthorModalOpen] = useState(false);
+
     const predefinedColors = [
         'bg-red-500', 'bg-orange-500', 'bg-amber-500', 'bg-yellow-500', 'bg-lime-500',
         'bg-green-500', 'bg-emerald-500', 'bg-teal-500', 'bg-cyan-500', 'bg-sky-500',
@@ -377,7 +379,12 @@ export default function Settings() {
             {/* About / Support Section */}
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 flex flex-col md:flex-row items-center justify-between text-sm">
                 <div className="flex flex-col md:flex-row items-center gap-4 mb-4 md:mb-0 text-center md:text-left">
-                    <img src="/author.png" alt="Author" className="w-14 h-14 rounded-full object-cover grayscale hover:grayscale-0 transition-all border-2 border-zinc-800 shadow-xl" />
+                    <img
+                        src="/author.png"
+                        alt="Author"
+                        className="w-14 h-14 rounded-full object-cover transition-all border-2 border-zinc-800 shadow-xl hover:scale-105 hover:border-emerald-500/50 cursor-pointer"
+                        onClick={() => setIsAuthorModalOpen(true)}
+                    />
                     <div>
                         <p className="font-medium text-zinc-300 text-base">Schedulearr is free and unlocked forever.</p>
                         <p className="text-zinc-500 mt-1">If this app saved you time, <a href="https://ko-fi.com/flash4k" target="_blank" rel="noopener noreferrer" className="text-emerald-500 hover:text-emerald-400 font-semibold underline underline-offset-2 transition-colors">you can buy me a coffee here!</a> ☕</p>
@@ -388,6 +395,60 @@ export default function Settings() {
                     <span className="opacity-50 mt-1 inline-block">v1.0.0</span>
                 </div>
             </div>
+
+            {/* Author Appreciation Modal */}
+            {isAuthorModalOpen && (
+                <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={() => setIsAuthorModalOpen(false)}>
+                    <div
+                        className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 max-w-sm w-full shadow-2xl flex flex-col items-center text-center relative overflow-hidden"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {/* Decorative background gradients */}
+                        <div className="absolute -top-24 -right-24 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
+                        <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
+
+                        <button
+                            className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors p-1"
+                            onClick={() => setIsAuthorModalOpen(false)}
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                        </button>
+
+                        <div className="relative mb-6 group">
+                            <div className="absolute inset-0 bg-emerald-500/20 rounded-full blur-xl scale-110 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                            <img
+                                src="/author.png"
+                                alt="Author"
+                                className="w-32 h-32 rounded-full object-cover border-4 border-zinc-800 shadow-2xl relative z-10"
+                            />
+                        </div>
+
+                        <h3 className="text-2xl font-bold text-white mb-2 tracking-tight">Thank You!</h3>
+                        <p className="text-zinc-400 text-sm mb-8 leading-relaxed">
+                            I built Schedulearr to scratch my own itch, and it's amazing to see others finding it useful. Your support helps me keep improving it and motivates me to build more cool things.
+                        </p>
+
+                        <a
+                            href="https://ko-fi.com/flash4k"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="w-full py-3 px-4 bg-[#FF5E5B] hover:bg-[#ff4642] text-white font-bold rounded-xl transition-all flex items-center justify-center gap-3 shadow-lg shadow-[#FF5E5B]/20 hover:shadow-[#FF5E5B]/40 hover:-translate-y-0.5"
+                        >
+                            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M23.881 8.948c-.773-4.085-4.859-4.593-4.859-4.593H.723c-.604 0-.679.798-.679.798s-.082 7.324-.022 11.822c.164 2.424 2.586 2.672 2.586 2.672s8.267-.023 11.966-.049c2.438-.426 2.683-2.566 2.658-3.143V14.12s5.404.14 7.279-1.928c1.642-1.815 1.543-2.618 1.543-2.618h-.001C25.043 8.358 23.88 8.949 23.88 8.949zm-13.84 5.253a.294.294 0 01-.002.415c-1.354 1.341-3.619 1.332-4.966-.008L3.195 12.72s-1.464-1.428-1.439-3.235c.039-2.028 1.704-3.558 3.659-3.511 1.054.025 2.103.542 2.809 1.488 1.15-.992 2.37-1.488 3.511-1.488 2.339 0 3.738 1.847 3.69 3.824-.044 1.802-1.385 3.398-1.385 3.398l-4.001 3.998zm6.444-4.513h-2.115V6.756h2.15v3.425c.01.218.006.452.006.452s1.428.17 1.423 1.334c-.004 1.002-1.464 1.053-1.464 1.053z" />
+                            </svg>
+                            Buy me a Coffee on Ko-fi
+                        </a>
+
+                        <button
+                            className="mt-4 text-sm font-medium text-zinc-500 hover:text-zinc-300 transition-colors"
+                            onClick={() => setIsAuthorModalOpen(false)}
+                        >
+                            Close
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
