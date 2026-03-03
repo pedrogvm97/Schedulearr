@@ -12,7 +12,7 @@
   <Category>MediaApp:Video MediaApp:Music Other:</Category>
   <WebUI>http://[IP]:[PORT:3010]</WebUI>
   <TemplateURL/>
-  <Icon>https://raw.githubusercontent.com/nextjs/desktop/main/assets/nextjs-icon.png</Icon>
+  <Icon>https://raw.githubusercontent.com/pedrogvm97/arr-scheduler/main/public/icon.png</Icon>
   <ExtraParams/>
   <PostArgs/>
   <CPUset/>
