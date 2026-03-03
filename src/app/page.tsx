@@ -17,6 +17,9 @@ export default function Dashboard() {
   const [instances, setInstances] = useState<Record<string, { name: string, color: string, type: string }>>({});
   const [loadingStats, setLoadingStats] = useState(true);
 
+  const [prowlarrHealth, setProwlarrHealth] = useState<any[]>([]);
+  const [loadingProwlarr, setLoadingProwlarr] = useState(true);
+
   useEffect(() => {
     const fetchStats = async () => {
       try {
@@ -31,7 +34,22 @@ export default function Dashboard() {
       }
       setLoadingStats(false);
     };
+
+    const fetchProwlarrHealth = async () => {
+      try {
+        const res = await fetch('/api/prowlarr/health');
+        if (res.ok) {
+          const json = await res.json();
+          setProwlarrHealth(json.instances || []);
+        }
+      } catch (e) {
+        console.error("Failed to load prowlarr health", e);
+      }
+      setLoadingProwlarr(false);
+    };
+
     fetchStats();
+    fetchProwlarrHealth();
   }, []);
 
   const handleManualTrigger = async () => {
@@ -51,6 +69,42 @@ export default function Dashboard() {
       setTriggerResult({ show: true, success: false, reason: 'Network error executing trigger.' });
     }
     setIsTriggering(false);
+  };
+
+  const CustomTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-zinc-900 border border-zinc-800 p-3 rounded-lg shadow-xl max-w-sm">
+          <p className="text-zinc-400 text-xs mb-2 font-semibold">
+            {new Date(label).toDateString()}
+          </p>
+
+          <div className="space-y-3">
+            {payload.map((entry: any, index: number) => {
+              const titles = entry.payload[`${entry.dataKey}_titles`] || [];
+              if (titles.length === 0) return null;
+
+              return (
+                <div key={index}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.fill }} />
+                    <span className="text-xs font-bold" style={{ color: entry.fill }}>
+                      {instances[entry.dataKey]?.name || entry.name} ({entry.value})
+                    </span>
+                  </div>
+                  <ul className="pl-4 list-disc text-zinc-300 text-xs space-y-0.5 max-h-32 overflow-y-auto">
+                    {titles.map((t: string, i: number) => (
+                      <li key={i} className="truncate" title={t}>{t}</li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+    return null;
   };
 
   return (
@@ -96,9 +150,7 @@ export default function Dashboard() {
                 <YAxis stroke="#52525b" fontSize={12} allowDecimals={false} />
                 <Tooltip
                   cursor={{ fill: '#27272a', opacity: 0.4 }}
-                  contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '8px', color: '#fff' }}
-                  itemStyle={{ fontSize: '12px', fontWeight: 600 }}
-                  labelStyle={{ fontSize: '13px', color: '#a1a1aa', marginBottom: '4px' }}
+                  content={<CustomTooltip />}
                 />
                 <Legend
                   wrapperStyle={{ paddingTop: '20px', fontSize: '12px' }}
@@ -122,6 +174,49 @@ export default function Dashboard() {
           )}
         </div>
       </div>
+
+      {/* Prowlarr Indexers Health */}
+      {!loadingProwlarr && prowlarrHealth.length > 0 && (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 mb-8">
+          <h2 className="text-xl font-bold text-white mb-6">Prowlarr Indexer Health</h2>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {prowlarrHealth.map((prowlarrInst) => (
+              <div key={prowlarrInst.id} className="bg-zinc-950 border border-zinc-800 rounded-xl p-5">
+                <div className="flex items-center justify-between mb-4 border-b border-zinc-800 pb-3">
+                  <div className="flex items-center gap-3">
+                    <span className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <h3 className="text-lg font-bold text-white">{prowlarrInst.name}</h3>
+                  </div>
+                  <div className="text-sm text-zinc-400 font-medium">
+                    {prowlarrInst.health?.indexers?.length || 0} Enabled Indexers
+                  </div>
+                </div>
+
+                {(!prowlarrInst.health?.indexers || prowlarrInst.health.indexers.length === 0) ? (
+                  <div className="text-zinc-500 italic text-sm py-2">No indexers enabled or accessible.</div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    {prowlarrInst.health.indexers.map((indexer: any) => {
+                      const isHealthy = indexer.status === 1;
+                      return (
+                        <div key={indexer.id} className="flex items-center gap-2 p-2 rounded-lg bg-zinc-900 border border-zinc-800">
+                          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isHealthy ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                          <div className="flex flex-col min-w-0">
+                            <span className="text-xs font-semibold text-zinc-300 truncate" title={indexer.name}>{indexer.name}</span>
+                            <span className={`text-[10px] uppercase font-bold tracking-wider ${isHealthy ? 'text-emerald-500/70' : 'text-red-500/70'}`}>
+                              {isHealthy ? 'Healthy' : 'Failing'}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
         <HistoryLedger />

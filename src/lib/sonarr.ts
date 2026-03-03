@@ -190,3 +190,19 @@ export const getEpisodeQueueStatus = async (url: string, apiKey: string, episode
     }
 };
 
+
+
+
+// Function to delete an item from the Sonarr queue (and optionally blocklist/remove from client)
+export const deleteFromQueue = async (url: string, apiKey: string, queueId: number, removeFromClient: boolean = true, blocklist: boolean = true): Promise<boolean> => {
+    try {
+        const response = await axios.delete(`${url}/api/v3/queue/${queueId}`, {
+            headers: { 'X-Api-Key': apiKey },
+            params: { removeFromClient, blocklist }
+        });
+        return response.status === 200;
+    } catch (error) {
+        console.error(`Error deleting from Sonarr queue (${url}):`, error);
+        return false;
+    }
+};

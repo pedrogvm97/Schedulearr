@@ -12,6 +12,7 @@ export interface IndexerHealth {
     allHealthy: boolean;
     downIndexers: string[];
     totalActive: number;
+    indexers: ProwlarrIndexer[];
 }
 
 export const getIndexerHealth = async (url: string, apiKey: string): Promise<IndexerHealth> => {
@@ -33,7 +34,8 @@ export const getIndexerHealth = async (url: string, apiKey: string): Promise<Ind
         return {
             allHealthy: downIndexers.length === 0,
             downIndexers,
-            totalActive: activeIndexers.length
+            totalActive: activeIndexers.length,
+            indexers: activeIndexers
         };
 
     } catch (error) {
@@ -41,7 +43,8 @@ export const getIndexerHealth = async (url: string, apiKey: string): Promise<Ind
         return {
             allHealthy: false,
             downIndexers: ['API Connection Failed'],
-            totalActive: 0
+            totalActive: 0,
+            indexers: []
         };
     }
 };

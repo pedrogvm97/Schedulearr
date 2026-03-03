@@ -2,22 +2,29 @@ import { NextResponse } from 'next/server';
 import { getInstances } from '@/lib/db';
 import { getIndexerHealth } from '@/lib/prowlarr';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
     try {
-        const instances = getInstances('prowlarr');
+        const prowlarrInstances = getInstances('prowlarr', true);
 
-        if (instances.length === 0) {
-            return NextResponse.json({ status: 'No Prowlarr instances configured.', health: { allHealthy: true, totalActive: 0, downIndexers: [] } });
+        if (prowlarrInstances.length === 0) {
+            return NextResponse.json({ instances: [] });
         }
 
-        // Usually only 1 Prowlarr instance, but we'll take the first one
-        const instance = instances[0];
-        const health = await getIndexerHealth(instance.url, instance.api_key);
+        const healthData = await Promise.all(prowlarrInstances.map(async (inst) => {
+            const health = await getIndexerHealth(inst.url, inst.api_key);
+            return {
+                id: inst.id,
+                name: inst.name,
+                url: inst.url,
+                health
+            };
+        }));
 
-        return NextResponse.json({ status: 'ok', health });
-
+        return NextResponse.json({ instances: healthData });
     } catch (error) {
         console.error('API /prowlarr/health error:', error);
-        return NextResponse.json({ error: 'Failed to check Prowlarr health' }, { status: 500 });
+        return NextResponse.json({ error: 'Failed to fetch Prowlarr health' }, { status: 500 });
     }
 }

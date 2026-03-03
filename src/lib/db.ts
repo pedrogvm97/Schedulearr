@@ -24,7 +24,7 @@ db.exec(`
 
   CREATE TABLE IF NOT EXISTS instances (
     id TEXT PRIMARY KEY, -- Generate UUID
-    type TEXT NOT NULL, -- 'radarr', 'sonarr', 'prowlarr'
+    type TEXT NOT NULL, -- 'radarr', 'sonarr', 'prowlarr', 'qbittorrent'
     name TEXT NOT NULL,
     url TEXT NOT NULL,
     api_key TEXT NOT NULL,
@@ -53,7 +53,7 @@ export interface Setting {
 
 export interface Instance {
     id: string;
-    type: 'radarr' | 'sonarr' | 'prowlarr';
+    type: 'radarr' | 'sonarr' | 'prowlarr' | 'qbittorrent';
     name: string;
     url: string;
     api_key: string;

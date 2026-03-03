@@ -15,8 +15,8 @@ export async function GET() {
         const now = new Date();
         const thirtyDaysAgo = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
 
-        // Prepare data map: YYYY-MM-DD -> { [instanceId]: count }
-        const dailyStats: Record<string, Record<string, number>> = {};
+        // Prepare data map: YYYY-MM-DD -> { [instanceId]: string[] } (array of titles)
+        const dailyStats: Record<string, Record<string, string[]>> = {};
 
         // Initialize 30 days of empty maps
         for (let i = 29; i >= 0; i--) {
@@ -49,7 +49,20 @@ export async function GET() {
                     if (recordDate >= thirtyDaysAgo && recordDate <= now) {
                         const dateStr = recordDate.toISOString().split('T')[0];
                         if (dailyStats[dateStr]) {
-                            dailyStats[dateStr][id] = (dailyStats[dateStr][id] || 0) + 1;
+                            if (!dailyStats[dateStr][id]) dailyStats[dateStr][id] = [];
+
+                            // Try to extract clean title, fallback to sourceTitle
+                            let title = record.sourceTitle || 'Unknown Release';
+                            if (record.movie && record.movie.title) title = record.movie.title;
+                            if (record.series && record.series.title) {
+                                let epInfo = '';
+                                if (record.episode && record.episode.seasonNumber !== undefined && record.episode.episodeNumber !== undefined) {
+                                    epInfo = ` S${record.episode.seasonNumber.toString().padStart(2, '0')}E${record.episode.episodeNumber.toString().padStart(2, '0')}`;
+                                }
+                                title = record.series.title + epInfo;
+                            }
+
+                            dailyStats[dateStr][id].push(title);
                         }
                     }
                 });
@@ -64,7 +77,9 @@ export async function GET() {
         const chartData = Object.keys(dailyStats).sort().map(date => {
             const dayObj: any = { date };
             Object.keys(instanceMetadata).forEach(instanceId => {
-                dayObj[instanceId] = dailyStats[date][instanceId] || 0;
+                const titles = dailyStats[date][instanceId] || [];
+                dayObj[instanceId] = titles.length;
+                dayObj[`${instanceId}_titles`] = titles;
             });
             return dayObj;
         });

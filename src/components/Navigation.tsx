@@ -28,6 +28,7 @@ export function Navigation() {
                     </Link>
                     <div className="hidden md:flex items-center gap-1">
                         <Link href="/scheduler" className={isActive('/scheduler')}>Media Search</Link>
+                        <Link href="/downloads" className={isActive('/downloads')}>Downloads</Link>
                         <Link href="/settings" className={isActive('/settings')}>Settings</Link>
                         <Link href="/" className={isActive('/')}>Analytics</Link>
                     </div>

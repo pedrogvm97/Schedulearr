@@ -835,8 +835,17 @@ export default function SchedulerQueue() {
                             <h2 className="text-2xl font-bold text-white tracking-tight">Media</h2>
                             {!loading && totalItems > 0 && (
                                 <div className="flex items-center gap-2">
-                                    <button onClick={() => handleSelectAll(targetItemsForBulkActions)} className="px-3 py-1.5 text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md border border-zinc-700 transition-colors shadow-sm">Select All</button>
-                                    <button onClick={() => handleDeselectAll(targetItemsForBulkActions)} className="px-3 py-1.5 text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md border border-zinc-700 transition-colors shadow-sm">Deselect All</button>
+                                    <button onClick={() => handleSelectAll(targetItemsForBulkActions)} className="px-3 py-1.5 text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md border border-zinc-700 transition-colors shadow-sm">Activate all</button>
+                                    <button onClick={() => handleDeselectAll(targetItemsForBulkActions)} className="px-3 py-1.5 text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md border border-zinc-700 transition-colors shadow-sm">Deactivate all</button>
+                                    <div className="w-px h-6 bg-zinc-700 mx-2 hidden md:block"></div>
+                                    <label className="flex items-center cursor-pointer group">
+                                        <div className="relative">
+                                            <input type="checkbox" className="sr-only" checked={showActiveOnly} onChange={() => setShowActiveOnly(!showActiveOnly)} />
+                                            <div className={`block w-10 h-6 rounded-full transition-colors ${showActiveOnly ? 'bg-purple-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
+                                            <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${showActiveOnly ? 'translate-x-4' : ''}`}></div>
+                                        </div>
+                                        <span className="text-sm font-medium text-zinc-300 ml-3 hidden sm:inline-block">Show active media only</span>
+                                    </label>
                                 </div>
                             )}
                         </div>
@@ -897,15 +906,6 @@ export default function SchedulerQueue() {
                         </div>
                     </div>
                     <div className="flex items-center gap-6 flex-wrap bg-zinc-900/40 p-2 rounded-xl border border-zinc-800/80">
-                        <label className="flex items-center cursor-pointer group">
-                            <div className="relative">
-                                <input type="checkbox" className="sr-only" checked={showActiveOnly} onChange={() => setShowActiveOnly(!showActiveOnly)} />
-                                <div className={`block w-10 h-6 rounded-full transition-colors ${showActiveOnly ? 'bg-purple-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
-                                <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${showActiveOnly ? 'translate-x-4' : ''}`}></div>
-                            </div>
-                            <span className="text-sm font-medium text-zinc-300 ml-3">Show Active Media Only</span>
-                        </label>
-                        <div className="w-px h-6 bg-zinc-700 hidden md:block"></div>
                         <label className="flex items-center cursor-pointer group">
                             <div className="relative">
                                 <input type="checkbox" className="sr-only" checked={showNextBatchOnly} onChange={() => setShowNextBatchOnly(!showNextBatchOnly)} />
