@@ -75,8 +75,17 @@ export async function POST(req: Request) {
         });
 
         return NextResponse.json({ success: true });
-    } catch (e) {
-        console.error('Error triggering sonarr download:', e);
-        return NextResponse.json({ error: 'Failed to trigger download' }, { status: 500 });
+    } catch (e: any) {
+        let errorMessage = 'Failed to trigger download';
+
+        // Expose Sonarr's exact reason for rejecting the grab 
+        if (e.response && e.response.data && Array.isArray(e.response.data) && e.response.data.length > 0) {
+            errorMessage = e.response.data[0].errorMessage || errorMessage;
+        } else if (e.response?.data?.message) {
+            errorMessage = e.response.data.message;
+        }
+
+        console.error('Error triggering sonarr download:', errorMessage);
+        return NextResponse.json({ error: errorMessage }, { status: 400 });
     }
 }

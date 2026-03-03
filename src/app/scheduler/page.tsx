@@ -177,6 +177,26 @@ export default function SchedulerQueue() {
         } catch (e: any) {
             console.error(e);
             toast.error(e.message || 'Failed to send release to download client.');
+
+            // Revert optimistic updates on failure
+            if (interactiveSearchItem.type === 'movie') {
+                setMovies(prev => prev.map(m => m.id === interactiveSearchItem.id && m.instanceId === interactiveSearchItem.instanceId ? { ...m, isDownloading: false } : m));
+            } else if (interactiveSearchItem.type === 'episode') {
+                setEpisodes(prev => prev.map(e => {
+                    if (e.instanceId === interactiveSearchItem.instanceId && e.episodes?.some((ep: any) => ep.id === interactiveSearchItem.id)) {
+                        return { ...e, queuedEpisodeIds: (e.queuedEpisodeIds || []).filter((id: number) => id !== interactiveSearchItem.id) };
+                    }
+                    return e;
+                }));
+            } else {
+                setEpisodes(prev => prev.map(e => {
+                    if (e.id === interactiveSearchItem.id && e.instanceId === interactiveSearchItem.instanceId) {
+                        const epIdsToRemove = new Set(e.episodes?.map((ep: any) => ep.id) || []);
+                        return { ...e, queuedEpisodeIds: (e.queuedEpisodeIds || []).filter((id: number) => !epIdsToRemove.has(id)) };
+                    }
+                    return e;
+                }));
+            }
         } finally {
             setTriggeringReleaseGuid(null);
         }
