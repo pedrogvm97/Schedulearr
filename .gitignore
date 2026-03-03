@@ -42,3 +42,12 @@ next-env.d.ts
 
 # local database
 /data/
+
+# local dev scripts
+check_genre.js
+check_sonarr.js
+insert_instances.ts
+resize_icon.ps1
+test-prowl.js
+test-prowl.ts
+update_key.ts
