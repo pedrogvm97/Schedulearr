@@ -101,7 +101,9 @@ export default function SchedulerQueue() {
     const [orderedIds, setOrderedIds] = useState<string[]>([]);
     const [showActiveOnly, setShowActiveOnly] = useState(false);
     const [hideUnmonitored, setHideUnmonitored] = useState(false);
+    const [showDownloading, setShowDownloading] = useState(true);
     const [showNextBatchOnly, setShowNextBatchOnly] = useState(false);
+
     const [searchingItems, setSearchingItems] = useState<Record<string, { status: string, isPolling: boolean }>>({});
 
     // New Feature States
@@ -555,7 +557,17 @@ export default function SchedulerQueue() {
             instanceColor: e.instanceColor,
             isDownloading: e.queuedEpisodeIds && e.queuedEpisodeIds.length > 0
         }))
-    ].sort((a, b) => b.sortDate - a.sortDate);
+    ].sort((a, b) => {
+        // Group by Instance Name first
+        const instA = a.instanceName || '';
+        const instB = b.instanceName || '';
+        const instCmp = instA.localeCompare(instB);
+        if (instCmp !== 0) return instCmp;
+
+        // Then by sortDate
+        return b.sortDate - a.sortDate;
+    });
+
 
     // Extract ALL unique genres and instances BEFORE applying active filters so they never disappear
     const allGenres = new Set<string>();
@@ -573,16 +585,19 @@ export default function SchedulerQueue() {
 
     // Filter by Quality Status
     if (qualityFilter === 'missing') {
-        combined = combined.filter(c => !c.isDownloaded && !c.isDownloading);
+        combined = combined.filter(c => !c.isDownloaded);
     } else if (qualityFilter === 'upgradeable') {
-        // Simple heuristic: if it has a file but the resolution is low compared to the profile name expectations (could be improved with explicit score mapping)
-        // For MVP, "Upgradeable" just means it is downloaded but still Monitored by the Arr app
         combined = combined.filter(c => c.isDownloaded && c.monitored);
-    } else if (qualityFilter === 'downloading') {
-        combined = combined.filter(c => c.isDownloading);
     } else if (qualityFilter === 'all') {
         // No filter needed
     }
+
+    // Secondary Toggle for Downloading items
+    if (!showDownloading) {
+        combined = combined.filter(c => !c.isDownloading);
+    }
+
+
 
     // Filter by Search Query
     if (searchQuery.trim() !== '') {
@@ -642,7 +657,10 @@ export default function SchedulerQueue() {
             const dateB = b.type === 'movie' ? (b.physicalRelease || b.digitalRelease || b.inCinemas || "1970-01-01") : (b.airDateUtc || "1970-01-01");
             return new Date(dateB).getTime() - new Date(dateA).getTime();
         });
+    } else if (profile === 'alphabetical') {
+        displayItems.sort((a, b) => a.title.localeCompare(b.title));
     } else if (profile === 'nearly_complete') {
+
         displayItems.sort((a, b) => {
             const pctA = a.type === 'series' ? (a.stats?.percentOfEpisodes || 0) : 0;
             const pctB = b.type === 'series' ? (b.stats?.percentOfEpisodes || 0) : 0;
@@ -902,7 +920,7 @@ export default function SchedulerQueue() {
                         </div>
                         <div className="flex items-center gap-3 flex-wrap">
                             <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium text-zinc-400">Sort Profile:</span>
+                                <span className="text-sm font-medium text-zinc-400">Sort By:</span>
                                 <select
                                     value={profile}
                                     onChange={(e) => handleSaveProfile(e.target.value)}
@@ -910,13 +928,14 @@ export default function SchedulerQueue() {
                                 >
                                     <option value="recently_added">Added Date (Default)</option>
                                     <option value="recently_released">Release Date</option>
+                                    <option value="alphabetical">Alphabetical</option>
                                     <option value="nearly_complete">Completion %</option>
                                     <option value="random">Randomized</option>
                                     <option value="custom">Custom Drag & Drop</option>
                                 </select>
                             </div>
                             <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium text-zinc-400">Quality:</span>
+                                <span className="text-sm font-medium text-zinc-400">Library Filter:</span>
                                 <select
                                     value={qualityFilter}
                                     onChange={(e) => setQualityFilter(e.target.value)}
@@ -924,10 +943,10 @@ export default function SchedulerQueue() {
                                 >
                                     <option value="missing">Missing Only</option>
                                     <option value="upgradeable">Upgradeable Only</option>
-                                    <option value="downloading">Downloading Active</option>
                                     <option value="all">Everything</option>
                                 </select>
                             </div>
+
                             <div className="flex items-center gap-2">
                                 <button
                                     onClick={handleSaveConfiguration}
@@ -999,6 +1018,15 @@ export default function SchedulerQueue() {
                                     <button onClick={() => handleSelectAll(targetItemsForBulkActions)} className="px-3 py-1.5 text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md border border-zinc-700 transition-colors shadow-sm">Activate all</button>
                                     <button onClick={() => handleDeselectAll(targetItemsForBulkActions)} className="px-3 py-1.5 text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md border border-zinc-700 transition-colors shadow-sm">Deactivate all</button>
                                     <div className="w-px h-6 bg-zinc-700 mx-2 hidden md:block"></div>
+                                    <label className="flex items-center cursor-pointer group" title="When items are clicked to download, they remain on this list if this is ON">
+                                        <div className="relative">
+                                            <input type="checkbox" className="sr-only" checked={showDownloading} onChange={() => setShowDownloading(!showDownloading)} />
+                                            <div className={`block w-10 h-6 rounded-full transition-colors ${showDownloading ? 'bg-blue-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
+                                            <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${showDownloading ? 'translate-x-4' : ''}`}></div>
+                                        </div>
+                                        <span className="text-sm font-medium text-zinc-300 ml-3 hidden xl:inline-block">Show Downloading</span>
+                                    </label>
+                                    <div className="w-px h-6 bg-zinc-700 mx-2 hidden md:block"></div>
                                     <label className="flex items-center cursor-pointer group">
                                         <div className="relative">
                                             <input type="checkbox" className="sr-only" checked={showActiveOnly} onChange={() => setShowActiveOnly(!showActiveOnly)} />
@@ -1007,6 +1035,7 @@ export default function SchedulerQueue() {
                                         </div>
                                         <span className="text-sm font-medium text-zinc-300 ml-3 hidden xl:inline-block">Show active only</span>
                                     </label>
+
                                     <div className="w-px h-6 bg-zinc-700 mx-2 hidden md:block"></div>
                                     <label className="flex items-center cursor-pointer group">
                                         <div className="relative">
@@ -1075,57 +1104,18 @@ export default function SchedulerQueue() {
                             </div>
                         </div>
                     </div>
-                    <div className="flex items-center gap-6 flex-wrap bg-zinc-900/40 p-2 rounded-xl border border-zinc-800/80">
-                        {/* Batch Behavior */}
-                        <div className="flex items-center gap-3 pr-6 border-r border-zinc-800">
-                            <div className="flex flex-col">
-                                <span className="text-xs font-bold text-zinc-400 uppercase tracking-tighter">Batch Behavior</span>
-                                <div className="flex bg-zinc-950 p-1 rounded-lg border border-zinc-800 mt-1">
-                                    <button
-                                        onClick={() => updateSchedulerConfig({ batchBehavior: 'repeat' })}
-                                        className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${schedulerConfig.batchBehavior === 'repeat' ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                    >
-                                        REPEAT
-                                    </button>
-                                    <button
-                                        onClick={() => updateSchedulerConfig({ batchBehavior: 'rotate' })}
-                                        className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${schedulerConfig.batchBehavior === 'rotate' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                    >
-                                        ROTATE
-                                    </button>
-                                </div>
-                            </div>
 
-                            {schedulerConfig.batchBehavior === 'rotate' && (
-                                <div className="flex flex-col animate-in slide-in-from-left-2 duration-200">
-                                    <span className="text-xs font-bold text-zinc-400 uppercase tracking-tighter">Max Attempts</span>
-                                    <div className="flex items-center gap-2 mt-1">
-                                        <input
-                                            type="number"
-                                            min="1"
-                                            max="10"
-                                            value={schedulerConfig.maxAttempts}
-                                            onChange={(e) => updateSchedulerConfig({ maxAttempts: parseInt(e.target.value) || 3 })}
-                                            className="w-12 bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1 text-xs font-bold text-indigo-400 focus:outline-none focus:border-indigo-500"
-                                        />
-                                        <span className="text-[10px] text-zinc-500 font-medium">per item</span>
-                                    </div>
-                                </div>
-                            )}
+                    <label className="flex items-center cursor-pointer group shrink-0">
+                        <div className="relative">
+                            <input type="checkbox" className="sr-only" checked={showNextBatchOnly} onChange={() => setShowNextBatchOnly(!showNextBatchOnly)} />
+                            <div className={`block w-12 h-6 rounded-full transition-colors ${showNextBatchOnly ? 'bg-amber-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
+                            <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${showNextBatchOnly ? 'translate-x-6' : ''}`}></div>
                         </div>
-
-                        <label className="flex items-center cursor-pointer group">
-                            <div className="relative">
-                                <input type="checkbox" className="sr-only" checked={showNextBatchOnly} onChange={() => setShowNextBatchOnly(!showNextBatchOnly)} />
-                                <div className={`block w-12 h-6 rounded-full transition-colors ${showNextBatchOnly ? 'bg-amber-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
-                                <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${showNextBatchOnly ? 'translate-x-6' : ''}`}></div>
-                            </div>
-                            <div className="ml-3 flex flex-col">
-                                <span className="text-sm font-bold text-amber-500">Preview Upcoming Batch</span>
-                                <span className="text-[10px] text-zinc-400 leading-tight">Shows exactly what will be searched next cycle</span>
-                            </div>
-                        </label>
-                    </div>
+                        <div className="ml-3 flex flex-col">
+                            <span className="text-sm font-bold text-amber-500">Preview Upcoming Batch</span>
+                            <span className="text-[10px] text-zinc-400 leading-tight">Shows exactly what will be searched next cycle</span>
+                        </div>
+                    </label>
                 </div>
 
                 {displayItems.length === 0 ? (
@@ -1364,8 +1354,9 @@ export default function SchedulerQueue() {
                             </div>
                         </SortableContext>
                     </DndContext>
-                )}
-            </div>
+                )
+                }
+            </div >
 
             {/* Interactive Search Modal Overlay */}
             {

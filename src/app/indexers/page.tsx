@@ -224,11 +224,12 @@ export default function IndexersPage() {
                     <div
                         key={`${ind.prowlarr_instance_id}-${ind.id}`}
                         style={{
-                            borderColor: ind.enable ? `${ind.prowlarr_color}40` : '#27272a',
-                            boxShadow: ind.enable ? `0 0 15px ${ind.prowlarr_color}10` : 'none',
-                            backgroundColor: ind.enable ? `${ind.prowlarr_color}05` : 'transparent'
+                            borderColor: ind.enable ? `${ind.prowlarr_color}` : '#27272a',
+                            boxShadow: ind.enable ? `0 0 20px ${ind.prowlarr_color}20` : 'none',
+                            backgroundColor: ind.enable ? `${ind.prowlarr_color}08` : 'transparent'
                         }}
-                        className={`bg-zinc-900 border rounded-2xl p-6 flex flex-col transition-all duration-300 hover:scale-[1.01] ${ind.enable ? 'opacity-100' : 'opacity-40 grayscale-[0.5]'}`}
+                        className={`bg-zinc-900 border-2 rounded-2xl p-6 flex flex-col transition-all duration-300 hover:scale-[1.01] ${ind.enable ? 'opacity-100' : 'opacity-40 grayscale'}`}
+
                     >
                         <div className="flex justify-between items-start mb-4">
                             <div className="min-w-0 pr-4">
@@ -237,9 +238,15 @@ export default function IndexersPage() {
                                     {ind.status === 0 && <span className="bg-red-500/20 text-red-400 text-[10px] px-2 py-0.5 rounded-full font-black uppercase tracking-widest">Failing</span>}
                                 </h3>
                                 <div className="flex items-center gap-2 mt-1">
-                                    <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-zinc-950 text-zinc-500 border border-zinc-800">{ind.prowlarr_name}</span>
-                                    {!ind.enable && <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-red-500 text-white">Shutdown</span>}
+                                    <span
+                                        style={{ backgroundColor: `${ind.prowlarr_color}20`, color: ind.prowlarr_color, borderColor: `${ind.prowlarr_color}40` }}
+                                        className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded border"
+                                    >
+                                        {ind.prowlarr_name}
+                                    </span>
+                                    {!ind.enable && <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-red-600 text-white shadow-lg shadow-red-600/40">Shutdown</span>}
                                 </div>
+
                             </div>
 
                             {/* Toggle Switch */}

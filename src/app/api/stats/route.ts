@@ -91,21 +91,27 @@ export async function GET() {
                     if (recordDate >= thirtyDaysAgo && recordDate <= now) {
                         const dateStr = recordDate.toISOString().split('T')[0];
                         if (dailyStats[dateStr]) {
-                            // Event Types: 1=Grabbed, 3=Imported (Radarr), 4=Failed, 7=Imported (Sonarr)
-                            const eventType = record.eventType;
-                            const isImport = eventType === 'movieFileImported' || eventType === 'episodeFileImported' || record.eventType === 3 || record.eventType === 7;
-                            const isGrab = eventType === 'grabbed' || record.eventType === 1;
-                            const isFailed = eventType === 'downloadFailed' || record.eventType === 4;
+                            // Event Types: 1=Grabbed, 3=Imported, 4=Failed
+                            const isImport = record.eventType === 3 || record.eventType === 'movieFileImported' || record.eventType === 'episodeFileImported';
+                            const isGrab = record.eventType === 1 || record.eventType === 'grabbed';
+                            const isFailed = record.eventType === 4 || record.eventType === 'downloadFailed';
+
 
                             // Update numerical stats
                             if (statsSummary[dateStr][id]) {
                                 if (isGrab) statsSummary[dateStr][id].grabbed++;
                                 if (isImport) {
                                     statsSummary[dateStr][id].imported++;
-                                    // Try to get size
-                                    const size = record.movieFile?.size || record.episodeFile?.size || 0;
+                                    // Extract size from data property (bytes as string) or nested objects
+                                    let size = 0;
+                                    if (record.data && record.data.size) {
+                                        size = parseInt(record.data.size, 10) || 0;
+                                    } else {
+                                        size = record.movieFile?.size || record.episodeFile?.size || 0;
+                                    }
                                     statsSummary[dateStr][id].sizeBytes += size;
                                 }
+
                                 if (isFailed) statsSummary[dateStr][id].failed++;
                             }
 
@@ -131,8 +137,14 @@ export async function GET() {
                             if (isImport) status = 'Finalized';
                             if (isFailed) status = 'Failed';
 
-                            // Calculate size
-                            const sizeBytes = record.movieFile?.size || record.episodeFile?.size || 0;
+                            // Calculate size for the record list
+                            let sizeBytes = 0;
+                            if (record.data && record.data.size) {
+                                sizeBytes = parseInt(record.data.size, 10) || 0;
+                            } else {
+                                sizeBytes = record.movieFile?.size || record.episodeFile?.size || 0;
+                            }
+
 
                             allRecentRecords.push({
                                 title,
