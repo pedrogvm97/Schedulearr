@@ -6,6 +6,15 @@ import { Navigation } from '@/components/Navigation';
 export const metadata: Metadata = {
   title: 'Schedulearr',
   description: 'Intelligent scheduling dashboard for Radarr and Sonarr',
+  icons: {
+    icon: [
+      {
+        url: '/icon.png',
+        href: '/icon.png',
+        type: 'image/png',
+      },
+    ],
+  },
 };
 
 export default function Layout({ children }: { children: React.ReactNode }) {
