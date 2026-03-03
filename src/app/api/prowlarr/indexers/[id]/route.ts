@@ -3,9 +3,10 @@ import { getInstances } from '@/lib/db';
 import axios from 'axios';
 
 // PUT toggle indexer state directly in prowlarr
-export async function PUT(req: Request, { params }: { params: { id: string } }) {
+export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
     try {
-        const indexerId = parseInt(params.id);
+        const { id } = await params;
+        const indexerId = parseInt(id);
         const { instanceId, enable } = await req.json();
 
         if (!instanceId) return NextResponse.json({ error: 'Instance ID is required' }, { status: 400 });

@@ -153,11 +153,13 @@ export const logSearchHistory = (profile: string, movies: string[], episodes: st
     );
 };
 
-return stmt.all(limit).map((row: any) => ({
-    ...row,
-    movies_searched: JSON.parse(row.movies_searched),
-    episodes_searched: JSON.parse(row.episodes_searched)
-}));
+export const getSearchHistory = (limit: number = 50) => {
+    const stmt = db.prepare('SELECT * FROM search_history ORDER BY timestamp DESC LIMIT ?');
+    return stmt.all(limit).map((row: any) => ({
+        ...row,
+        movies_searched: JSON.parse(row.movies_searched),
+        episodes_searched: JSON.parse(row.episodes_searched)
+    }));
 };
 
 // --- Prowlarr Indexer Rules ---
