@@ -142,6 +142,15 @@ export const toggleInstanceEnabled = (id: string, enabled: boolean) => {
     stmt.run(enabled ? 1 : 0, id);
 }
 
+export const updateInstance = (instance: Instance) => {
+    const stmt = db.prepare(`
+        UPDATE instances 
+        SET type = ?, name = ?, url = ?, api_key = ?, color = ?
+        WHERE id = ?
+    `);
+    stmt.run(instance.type, instance.name, instance.url, instance.api_key, instance.color || null, instance.id);
+}
+
 export const logSearchHistory = (profile: string, movies: string[], episodes: string[], reason: string = '') => {
     const stmt = db.prepare('INSERT INTO search_history (id, profile, movies_searched, episodes_searched, reason) VALUES (?, ?, ?, ?, ?)');
     stmt.run(

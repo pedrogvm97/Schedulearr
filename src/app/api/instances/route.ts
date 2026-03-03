@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getInstances, addInstance, removeInstance, toggleInstanceEnabled, Instance } from '@/lib/db';
+import { getInstances, addInstance, removeInstance, toggleInstanceEnabled, updateInstance, Instance } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,14 +32,21 @@ export async function PUT(req: Request) {
     try {
         const body = await req.json();
 
+        // If it's a full update
+        if (body.id && body.type && body.name && body.url && body.api_key) {
+            updateInstance(body);
+            return NextResponse.json({ success: true, instance: body });
+        }
+
+        // If it's just a toggle
         if (!body.id || typeof body.enabled !== 'boolean') {
-            return NextResponse.json({ error: 'Missing id or enabled boolean' }, { status: 400 });
+            return NextResponse.json({ error: 'Missing id or enabled boolean for toggle, or missing fields for full update' }, { status: 400 });
         }
 
         toggleInstanceEnabled(body.id, body.enabled);
         return NextResponse.json({ success: true });
     } catch (error) {
-        return NextResponse.json({ error: 'Failed to update instance toggle' }, { status: 500 });
+        return NextResponse.json({ error: 'Failed to update instance' }, { status: 500 });
     }
 }
 

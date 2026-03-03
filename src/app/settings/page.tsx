@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { toast } from "sonner";
 
 export default function Settings() {
     const [instances, setInstances] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
     // Form state
+    const [editTargetId, setEditTargetId] = useState<string | null>(null);
     const [type, setType] = useState("radarr");
     const [name, setName] = useState("");
     const [url, setUrl] = useState("");
@@ -77,12 +79,12 @@ export default function Settings() {
         }
     };
 
-    const handleAdd = async (e: React.FormEvent) => {
+    const handleAddOrEdit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!name || !url || !apiKey) return;
 
-        const newInstance = {
-            id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        const updatedInstance = {
+            id: editTargetId || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             type,
             name,
             url: url.replace(/\/$/, ""), // strip trailing slash
@@ -92,26 +94,81 @@ export default function Settings() {
         };
 
         try {
-            await fetch('/api/instances', {
-                method: 'POST',
+            const method = editTargetId ? 'PUT' : 'POST';
+            const res = await fetch('/api/instances', {
+                method,
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(newInstance)
+                body: JSON.stringify(updatedInstance)
             });
+
+            if (!res.ok) throw new Error('Failed to save instance');
+
+            toast.success(editTargetId ? 'Instance updated successfully!' : 'Instance added successfully!');
             fetchInstances();
+
             // reset form
+            setEditTargetId(null);
             setName(""); setUrl(""); setApiKey(""); setColor('bg-zinc-500');
-        } catch (e) {
+        } catch (e: any) {
             console.error(e);
+            toast.error(e.message || 'Failed to save instance');
         }
     };
 
+    const handleEditClick = (inst: any) => {
+        setEditTargetId(inst.id);
+        setType(inst.type);
+        setName(inst.name);
+        setUrl(inst.url);
+        setApiKey(inst.api_key);
+        setColor(inst.color || 'bg-zinc-500');
+        // Scroll to top
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
     const handleDelete = async (id: string) => {
+        if (!confirm('Are you sure you want to delete this instance?')) return;
+
         try {
-            await fetch(`/api/instances?id=${id}`, { method: 'DELETE' });
+            const res = await fetch(`/api/instances?id=${id}`, { method: 'DELETE' });
+            if (!res.ok) throw new Error('Failed to delete instance');
+            toast.success('Instance deleted successfully');
+
+            if (editTargetId === id) {
+                setEditTargetId(null);
+                setName(""); setUrl(""); setApiKey(""); setColor('bg-zinc-500');
+            }
+
             fetchInstances();
-        } catch (e) {
+        } catch (e: any) {
             console.error(e);
+            toast.error(e.message || 'Failed to delete instance');
         }
+    };
+
+    // Health Badge internal component to fetch its own status
+    const HealthBadge = ({ id }: { id: string }) => {
+        const [status, setStatus] = useState<'loading' | 'online' | 'offline'>('loading');
+
+        useEffect(() => {
+            const checkHealth = async () => {
+                try {
+                    const res = await fetch(`/api/instances/health?id=${id}`);
+                    const data = await res.json();
+                    setStatus(data.status || 'offline');
+                } catch {
+                    setStatus('offline');
+                }
+            };
+            checkHealth();
+            // Optional: Re-check every minute
+            const interval = setInterval(checkHealth, 60000);
+            return () => clearInterval(interval);
+        }, [id]);
+
+        if (status === 'loading') return <div className="w-2 h-2 rounded-full bg-zinc-600 animate-pulse" title="Checking health..." />;
+        if (status === 'online') return <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]" title="Online" />;
+        return <div className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]" title="Offline" />;
     };
 
     return (
@@ -122,8 +179,21 @@ export default function Settings() {
             </div>
 
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-                <h2 className="text-xl font-semibold text-white mb-4">Add Instance</h2>
-                <form onSubmit={handleAdd} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-semibold text-white">{editTargetId ? 'Update Instance' : 'Add Instance'}</h2>
+                    {editTargetId && (
+                        <button
+                            onClick={() => {
+                                setEditTargetId(null);
+                                setName(""); setUrl(""); setApiKey(""); setColor('bg-zinc-500');
+                            }}
+                            className="text-sm text-zinc-400 hover:text-white"
+                        >
+                            Cancel Edit
+                        </button>
+                    )}
+                </div>
+                <form onSubmit={handleAddOrEdit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-1">
                         <label className="text-sm font-medium text-zinc-300">Type</label>
                         <select
@@ -194,7 +264,7 @@ export default function Settings() {
                             disabled={!name || !url || !apiKey}
                             className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            Add Connection
+                            {editTargetId ? 'Update Connection' : 'Add Connection'}
                         </button>
                     </div>
                 </form>
@@ -243,17 +313,27 @@ export default function Settings() {
                                         <div className="flex justify-between items-start mb-2">
                                             <div className="flex items-center gap-2">
                                                 {inst.color && <div className={`w-3 h-3 rounded-full ${inst.color}`} title="Instance Color"></div>}
-                                                <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-sm" style={{ color: borderColorHex, backgroundColor: `${borderColorHex}33` }}>
+                                                <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-sm flex items-center gap-1.5" style={{ color: borderColorHex, backgroundColor: `${borderColorHex}33` }}>
                                                     {inst.type}
                                                 </span>
+                                                <HealthBadge id={inst.id} />
                                             </div>
-                                            <button
-                                                onClick={() => handleDelete(inst.id)}
-                                                className="text-zinc-500 hover:text-red-400 p-1"
-                                                title="Delete instance"
-                                            >
-                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
-                                            </button>
+                                            <div className="flex gap-1">
+                                                <button
+                                                    onClick={() => handleEditClick(inst)}
+                                                    className="text-zinc-500 hover:text-blue-400 p-1"
+                                                    title="Edit instance"
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDelete(inst.id)}
+                                                    className="text-zinc-500 hover:text-red-400 p-1"
+                                                    title="Delete instance"
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+                                                </button>
+                                            </div>
                                         </div>
                                         <h3 className="text-lg font-medium text-white truncate" title={inst.name}>{inst.name}</h3>
                                         <p className="text-sm text-zinc-400 mt-1 truncate" title={inst.url}>{inst.url}</p>
