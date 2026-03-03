@@ -1,25 +1,25 @@
 <?xml version="1.0"?>
 <Container version="2">
-  <Name>Arr-Scheduler</Name>
-  <Repository>ghcr.io/pedrogvm97/arr-scheduler</Repository>
+  <Name>Schedulearr</Name>
+  <Repository>ghcr.io/pedrogvm97/Schedulearr</Repository>
   <Registry>https://ghcr.io/</Registry>
   <Network>bridge</Network>
   <Shell>sh</Shell>
   <Privileged>false</Privileged>
-  <Support>https://github.com/pedrogvm97/arr-scheduler/issues</Support>
-  <Project>https://github.com/pedrogvm97/arr-scheduler</Project>
-  <Overview>A localized Next.js web application to act as an intelligent scheduler and orchestrator for Radarr, Sonarr, and Prowlarr without external internet access.</Overview>
+  <Support>https://github.com/pedrogvm97/Schedulearr/issues</Support>
+  <Project>https://github.com/pedrogvm97/Schedulearr</Project>
+  <Overview>Schedulearr is a localized Next.js web application that acts as an intelligent scheduler and orchestrator for Radarr, Sonarr, and Prowlarr.</Overview>
   <Category>MediaApp:Video MediaApp:Music Other:</Category>
   <WebUI>http://[IP]:[PORT:3010]</WebUI>
   <TemplateURL/>
-  <Icon>https://raw.githubusercontent.com/pedrogvm97/arr-scheduler/main/public/icon-square.png</Icon>
+  <Icon>https://raw.githubusercontent.com/pedrogvm97/Schedulearr/main/public/icon-square.png</Icon>
   <ExtraParams/>
   <PostArgs/>
   <CPUset/>
   <DateInstalled/>
   <DonateText/>
   <DonateLink/>
-  <Description>Arr-Scheduler is a tool designed to intelligently trigger searches for missing media in Radarr and Sonarr, monitoring Prowlarr indexer health to avoid ban limits.</Description>
+  <Description>Schedulearr is a tool designed to intelligently trigger searches for missing media in Radarr and Sonarr, monitoring Prowlarr indexer health to avoid ban limits.</Description>
   <Networking>
     <Mode>bridge</Mode>
     <Publish>
@@ -40,5 +40,5 @@
   <Environment/>
   <Labels/>
   <Config Name="WebUI" Target="3010" Default="3010" Mode="tcp" Description="Web interface port" Type="Port" Display="always" Required="true" Mask="false">3010</Config>
-  <Config Name="AppData Config Path" Target="/app/data" Default="/mnt/user/appdata/arr-scheduler/data" Mode="rw" Description="Path to store SQLite database configuration." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/arr-scheduler/data</Config>
+  <Config Name="AppData Config Path" Target="/app/data" Default="/mnt/user/appdata/schedulearr/data" Mode="rw" Description="Path to store SQLite database configuration." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/schedulearr/data</Config>
 </Container>

@@ -1,5 +1,5 @@
 Add-Type -AssemblyName System.Drawing
-$imagePath = "c:\Users\pedro\Documents\Github\arr-scheduler\public\icon.png"
+$imagePath = "c:\Users\pedro\Documents\Github\Schedulearr\public\icon.png"
 $bmp = [System.Drawing.Bitmap]::FromFile($imagePath)
 
 $size = [math]::Max($bmp.Width, $bmp.Height)
@@ -13,7 +13,7 @@ $x = [int](($size - $bmp.Width) / 2)
 $y = [int](($size - $bmp.Height) / 2)
 $graphics.DrawImage($bmp, $x, $y, $bmp.Width, $bmp.Height)
 
-$outPath = "c:\Users\pedro\Documents\Github\arr-scheduler\public\icon-square.png"
+$outPath = "c:\Users\pedro\Documents\Github\Schedulearr\public\icon-square.png"
 $newBmp.Save($outPath, [System.Drawing.Imaging.ImageFormat]::Png)
 
 $graphics.Dispose()

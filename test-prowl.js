@@ -1,5 +1,5 @@
 const Database = require('better-sqlite3');
-const db = new Database('./data/arr-scheduler.db');
+const db = new Database('./data/schedulearr.db');
 const instances = db.prepare('SELECT * FROM instances WHERE enabled = 1 AND type = ?').all('prowlarr');
 
 async function test() {

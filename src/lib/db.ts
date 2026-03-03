@@ -9,7 +9,7 @@ if (!fs.existsSync(dbDir)) {
     fs.mkdirSync(dbDir, { recursive: true });
 }
 
-const dbPath = path.join(dbDir, 'arr-scheduler.db');
+const dbPath = path.join(dbDir, 'schedulearr.db');
 console.log('[DEBUG] INITIALIZING DB AT PATH:', dbPath, 'WITH NODE_ENV:', process.env.NODE_ENV);
 const db = new Database(dbPath);
 
