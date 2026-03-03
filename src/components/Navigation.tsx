@@ -16,11 +16,11 @@ export function Navigation() {
         <nav className="border-b border-zinc-900 bg-zinc-950/50 backdrop-blur-xl sticky top-0 z-50">
             <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
                 <div className="flex items-center gap-8">
-                    <Link href="/" className="flex items-center gap-2 group">
-                        <div className="w-8 h-8 flex items-center justify-center transition-transform group-hover:scale-105">
+                    <Link href="/" className="flex items-center gap-3 group">
+                        <div className="w-12 h-12 flex items-center justify-center transition-transform group-hover:scale-105">
                             <img src="/icon.png" alt="Schedulearr Logo" className="w-full h-full object-contain" />
                         </div>
-                        <span className="font-bold text-white tracking-tight">Schedulearr</span>
+                        <span className="font-bold text-lg text-white tracking-tight">Schedulearr</span>
                     </Link>
                     <div className="hidden md:flex items-center gap-1">
                         <Link href="/scheduler" className={isActive('/scheduler')}>Media Search</Link>

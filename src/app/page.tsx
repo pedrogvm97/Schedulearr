@@ -20,6 +20,16 @@ export default function Dashboard() {
   const [prowlarrHealth, setProwlarrHealth] = useState<any[]>([]);
   const [loadingProwlarr, setLoadingProwlarr] = useState(true);
 
+  const [showWelcome, setShowWelcome] = useState(false);
+
+  useEffect(() => {
+    // Check if user has seen welcome splash
+    const seenWelcome = localStorage.getItem('has_seen_welcome');
+    if (!seenWelcome) {
+      setShowWelcome(true);
+    }
+  }, []);
+
   useEffect(() => {
     const fetchStats = async () => {
       try {
@@ -266,6 +276,63 @@ export default function Dashboard() {
                   className="bg-zinc-800 hover:bg-zinc-700 text-white font-medium px-6 py-2 rounded-lg transition-colors"
                 >
                   Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+
+      {/* First Time Welcome Splash Modal */}
+      {
+        showWelcome && (
+          <div className="fixed inset-0 bg-black/90 flex items-center justify-center p-4 z-[60] backdrop-blur-sm">
+            <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-8 max-w-2xl w-full shadow-2xl">
+              <div className="flex items-center gap-4 mb-6">
+                <img src="/icon.png" alt="Schedulearr" className="w-16 h-16" />
+                <div>
+                  <h2 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400 tracking-tight">
+                    Welcome to Schedulearr!
+                  </h2>
+                  <p className="text-zinc-400 font-medium">Your automated release orchestrator for the Arr stack.</p>
+                </div>
+              </div>
+
+              <div className="space-y-4 mb-8">
+                <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex gap-4">
+                  <div className="mt-1 w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center flex-shrink-0 font-bold">1</div>
+                  <div>
+                    <h4 className="text-white font-semibold">Connect Your Instances</h4>
+                    <p className="text-sm text-zinc-400">Head to the Settings tab to link your Sonarr, Radarr, Prowlarr, and qBittorrent details.</p>
+                  </div>
+                </div>
+
+                <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex gap-4">
+                  <div className="mt-1 w-8 h-8 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center flex-shrink-0 font-bold">2</div>
+                  <div>
+                    <h4 className="text-white font-semibold">Activate Media</h4>
+                    <p className="text-sm text-zinc-400">Jump into the Media Search tab to select which movies or shows you want Schedulearr to orchestrate missing episodes/releases for.</p>
+                  </div>
+                </div>
+
+                <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex gap-4">
+                  <div className="mt-1 w-8 h-8 rounded-full bg-purple-500/20 text-purple-400 flex items-center justify-center flex-shrink-0 font-bold">3</div>
+                  <div>
+                    <h4 className="text-white font-semibold">Sit Back & Relax</h4>
+                    <p className="text-sm text-zinc-400">Schedulearr runs in the background continuously pacing Prowlarr searches to avoid API bans while grabbing top tier releases.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-4 border-t border-zinc-800">
+                <button
+                  onClick={() => {
+                    localStorage.setItem('has_seen_welcome', 'true');
+                    setShowWelcome(false);
+                  }}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-8 py-3 rounded-lg transition-colors shadow-lg shadow-emerald-500/20"
+                >
+                  Let's Go!
                 </button>
               </div>
             </div>
