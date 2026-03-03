@@ -132,8 +132,7 @@ export default function Dashboard() {
       </div>
 
       {/* Analytics Graph */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 mb-8">
-        <h2 className="text-xl font-bold text-white mb-6">30-Day Download Velocity</h2>
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 mb-8 mt-2">
         <div className="h-72 w-full">
           {loadingStats ? (
             <div className="w-full h-full flex items-center justify-center text-zinc-500 font-medium">Loading aggregated statistics...</div>
@@ -289,7 +288,7 @@ export default function Dashboard() {
           <div className="fixed inset-0 bg-black/90 flex items-center justify-center p-4 z-[60] backdrop-blur-sm">
             <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-8 max-w-2xl w-full shadow-2xl">
               <div className="flex items-center gap-4 mb-6">
-                <img src="/icon.png" alt="Schedulearr" className="w-16 h-16" />
+                <img src="/icon.png" alt="Schedulearr" className="w-16 h-16 object-contain" />
                 <div>
                   <h2 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400 tracking-tight">
                     Welcome to Schedulearr!
