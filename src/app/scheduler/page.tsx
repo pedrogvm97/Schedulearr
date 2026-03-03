@@ -484,6 +484,13 @@ export default function SchedulerQueue() {
                             // Optimistically update the main data array so it re-filters instantly
                             if (item.type === 'movie') {
                                 setMovies(prev => prev.map(m => m.id === item.id && m.instanceId === item.instanceId ? { ...m, isDownloading: true } : m));
+                            } else if (item.type === 'episode') {
+                                setEpisodes(prev => prev.map(e => {
+                                    if (e.instanceId === item.instanceId && e.episodes?.some((ep: any) => ep.id === item.id)) {
+                                        return { ...e, queuedEpisodeIds: [...(e.queuedEpisodeIds || []), item.id] };
+                                    }
+                                    return e;
+                                }));
                             } else {
                                 setEpisodes(prev => prev.map(e => e.id === item.id && e.instanceId === item.instanceId ? { ...e, queuedEpisodeIds: [...(e.queuedEpisodeIds || []), ...e.episodes?.map((ep: any) => ep.id) || []] } : e));
                             }
@@ -1323,20 +1330,49 @@ export default function SchedulerQueue() {
                                                                                 {ep.hasFile && ep.episodeFile && (
                                                                                     <div className="flex items-center gap-2 mt-1">
                                                                                         <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded">{ep.episodeFile.quality?.quality?.name || 'Unknown Quality'}</span>
+                                                                                        <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded">{formatSize(ep.episodeFile.size || 0)}</span>
                                                                                     </div>
                                                                                 )}
                                                                             </div>
-                                                                            <div className="flex items-center gap-2">
+                                                                            <div className="flex items-center gap-2 flex-wrap justify-end">
                                                                                 {!ep.hasFile && ep.monitored && new Date(ep.airDateUtc).getTime() < Date.now() && (
-                                                                                    <button
-                                                                                        onClick={(e) => {
-                                                                                            e.stopPropagation();
-                                                                                            handleInteractiveSearch('episode', ep.id, item.instanceId, `${item.title} - S${String(ep.seasonNumber).padStart(2, '0')}E${String(ep.episodeNumber).padStart(2, '0')}`);
-                                                                                        }}
-                                                                                        className="px-2 py-1 text-[10px] font-semibold bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 rounded border border-indigo-500/20 hover:border-indigo-500/40 transition-colors"
-                                                                                    >
-                                                                                        Interactive Search
-                                                                                    </button>
+                                                                                    <>
+                                                                                        <button
+                                                                                            onClick={(e) => {
+                                                                                                e.stopPropagation();
+                                                                                                handleInteractiveSearch('episode', ep.id, item.instanceId, `${item.title} - S${String(ep.seasonNumber).padStart(2, '0')}E${String(ep.episodeNumber).padStart(2, '0')}`);
+                                                                                            }}
+                                                                                            className="px-2 py-1 text-[10px] font-semibold bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 rounded border border-indigo-500/20 hover:border-indigo-500/40 transition-colors"
+                                                                                        >
+                                                                                            Interactive Search
+                                                                                        </button>
+
+                                                                                        {searchingItems[`episode-${item.instanceId}-${ep.id}`] ? (
+                                                                                            <span className="text-[10px] font-semibold px-2 py-1 rounded border bg-zinc-800/80 text-zinc-300 border-zinc-700 flex items-center gap-1.5">
+                                                                                                {searchingItems[`episode-${item.instanceId}-${ep.id}`].isPolling && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>}
+                                                                                                {searchingItems[`episode-${item.instanceId}-${ep.id}`].status}
+                                                                                            </span>
+                                                                                        ) : (
+                                                                                            <button
+                                                                                                className="px-2 py-1 text-[10px] font-semibold bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 rounded border border-emerald-500/20 hover:border-emerald-500/40 transition-colors cursor-pointer flex items-center gap-1"
+                                                                                                onPointerDown={(e) => e.stopPropagation()}
+                                                                                                onClick={(e) => {
+                                                                                                    e.stopPropagation();
+                                                                                                    const epItem = {
+                                                                                                        idStr: `episode-${item.instanceId}-${ep.id}`,
+                                                                                                        instanceId: item.instanceId,
+                                                                                                        type: 'episode',
+                                                                                                        id: ep.id
+                                                                                                    };
+                                                                                                    handleForceSearch(epItem);
+                                                                                                }}
+                                                                                                title="Trigger automatic search for this specific episode"
+                                                                                            >
+                                                                                                <RefreshCw size={12} />
+                                                                                                Force Search
+                                                                                            </button>
+                                                                                        )}
+                                                                                    </>
                                                                                 )}
                                                                             </div>
                                                                         </div>

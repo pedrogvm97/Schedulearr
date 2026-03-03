@@ -3,6 +3,7 @@ import { getAllMovies, triggerMovieSearch, RadarrMovie, getQueue as getRadarrQue
 import { getAllSeries, triggerEpisodeSearch, SonarrSeries, getQueue as getSonarrQueue } from '@/lib/sonarr';
 import { getIndexerHealth } from '@/lib/prowlarr';
 import { evaluateIndexerRules } from '@/lib/indexerAutomations';
+import { runAutoCleanup } from '@/lib/autoCleanup';
 
 // Prevent multiple scheduler instances from running in dev mode HMR
 declare global {
@@ -43,6 +44,25 @@ if (!global.globalSchedulerRunning) {
         // Start the first full search cycle after a short 5-second delay to let the server start up
         global.globalNextSchedulerRun = Date.now() + 5000;
         setTimeout(runCycle, 5000);
+
+        // Auto-cleanup background orchestrator
+        const runCleanupCycle = async () => {
+            const now = new Date().toISOString();
+            console.log(`[${now}] 🧹 Running automated qBittorrent cleanup...`);
+            try {
+                await runAutoCleanup();
+            } catch (error) {
+                console.error('❌ Auto-cleanup error:', error);
+            }
+
+            const intervalStr = getSetting('qbit_cleanup_interval_min');
+            const intervalMin = intervalStr ? parseInt(intervalStr) : 15;
+            const validInterval = (isNaN(intervalMin) || intervalMin < 1) ? 15 : intervalMin;
+            const intervalMs = validInterval * 60 * 1000;
+
+            setTimeout(runCleanupCycle, intervalMs);
+        };
+        setTimeout(runCleanupCycle, 15000); // Start 15s after boot
     };
 
     startScheduler();

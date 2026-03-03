@@ -17,6 +17,7 @@ export default function Settings() {
 
     // qBittorrent cleanup settings
     const [qbitCleanupEnabled, setQbitCleanupEnabled] = useState(false);
+    const [qbitCleanupIntervalMin, setQbitCleanupIntervalMin] = useState(15);
     const [qbitStagnationMin, setQbitStagnationMin] = useState(60);
     const [qbitDeleteFiles, setQbitDeleteFiles] = useState(true);
     const [qbitBlacklist, setQbitBlacklist] = useState(true);
@@ -52,6 +53,7 @@ export default function Settings() {
                 const data = await res.json();
 
                 if (data.qbit_cleanup_enabled === 'true') setQbitCleanupEnabled(true);
+                if (data.qbit_cleanup_interval_min) setQbitCleanupIntervalMin(parseInt(data.qbit_cleanup_interval_min));
                 if (data.qbit_cleanup_stagnation_min) setQbitStagnationMin(parseInt(data.qbit_cleanup_stagnation_min));
                 if (data.qbit_cleanup_delete_files === 'false') setQbitDeleteFiles(false);
                 if (data.qbit_cleanup_blacklist === 'false') setQbitBlacklist(false);
@@ -369,6 +371,22 @@ export default function Settings() {
                         >
                             <div className={`w-4 h-4 rounded-full bg-white absolute top-1 transition-transform ${qbitCleanupEnabled ? 'left-7' : 'left-1'}`} />
                         </button>
+                    </div>
+
+                    <div className="space-y-2">
+                        <label className="text-white font-medium block">Cleanup Interval (Minutes)</label>
+                        <p className="text-sm text-zinc-400">How often the background auto-cleanup process should run.</p>
+                        <input
+                            type="number"
+                            min="1"
+                            value={qbitCleanupIntervalMin}
+                            onChange={e => {
+                                const val = parseInt(e.target.value) || 15;
+                                setQbitCleanupIntervalMin(val);
+                                updateSetting('qbit_cleanup_interval_min', val);
+                            }}
+                            className="bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-2 text-white outline-none w-32 focus:border-emerald-500"
+                        />
                     </div>
 
                     <div className="space-y-2">

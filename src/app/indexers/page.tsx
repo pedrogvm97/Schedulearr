@@ -29,6 +29,34 @@ interface Indexer {
     rule: IndexerRule | null;
 }
 
+const tailwindToHex = (twClass: string) => {
+    if (!twClass) return '#3b82f6';
+    if (twClass.startsWith('#')) return twClass;
+    if (twClass.includes('slate')) return '#64748b';
+    if (twClass.includes('gray')) return '#6b7280';
+    if (twClass.includes('zinc')) return '#71717a';
+    if (twClass.includes('neutral')) return '#737373';
+    if (twClass.includes('stone')) return '#78716c';
+    if (twClass.includes('red')) return '#ef4444';
+    if (twClass.includes('orange')) return '#f97316';
+    if (twClass.includes('amber')) return '#f59e0b';
+    if (twClass.includes('yellow')) return '#eab308';
+    if (twClass.includes('lime')) return '#84cc16';
+    if (twClass.includes('green')) return '#22c55e';
+    if (twClass.includes('emerald')) return '#10b981';
+    if (twClass.includes('teal')) return '#14b8a6';
+    if (twClass.includes('cyan')) return '#06b6d4';
+    if (twClass.includes('sky')) return '#0ea5e9';
+    if (twClass.includes('blue')) return '#3b82f6';
+    if (twClass.includes('indigo')) return '#6366f1';
+    if (twClass.includes('violet')) return '#8b5cf6';
+    if (twClass.includes('purple')) return '#a855f7';
+    if (twClass.includes('fuchsia')) return '#d946ef';
+    if (twClass.includes('pink')) return '#ec4899';
+    if (twClass.includes('rose')) return '#f43f5e';
+    return '#3b82f6'; // fallback blue
+};
+
 export default function IndexersPage() {
     const [indexers, setIndexers] = useState<Indexer[]>([]);
     const [loading, setLoading] = useState(true);
@@ -219,88 +247,91 @@ export default function IndexersPage() {
                 )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {indexers.map(ind => (
-                    <div
-                        key={`${ind.prowlarr_instance_id}-${ind.id}`}
-                        style={{
-                            borderColor: ind.enable ? `${ind.prowlarr_color}` : '#27272a',
-                            boxShadow: ind.enable ? `0 0 20px ${ind.prowlarr_color}20` : 'none',
-                            backgroundColor: ind.enable ? `${ind.prowlarr_color}08` : 'transparent'
-                        }}
-                        className={`bg-zinc-900 border-2 rounded-2xl p-6 flex flex-col transition-all duration-300 hover:scale-[1.01] ${ind.enable ? 'opacity-100' : 'opacity-40 grayscale'}`}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {indexers.map(ind => {
+                    const hexColor = tailwindToHex(ind.prowlarr_color || 'bg-zinc-500');
+                    return (
+                        <div
+                            key={`${ind.prowlarr_instance_id}-${ind.id}`}
+                            style={{
+                                borderColor: ind.enable ? hexColor : '#27272a',
+                                boxShadow: ind.enable ? `0 0 15px ${hexColor}20` : 'none',
+                                backgroundColor: ind.enable ? `${hexColor}08` : 'transparent'
+                            }}
+                            className={`bg-zinc-900 border-2 rounded-xl p-4 flex flex-col transition-all duration-300 hover:scale-[1.02] ${ind.enable ? 'opacity-100' : 'opacity-40 grayscale'}`}
 
-                    >
-                        <div className="flex justify-between items-start mb-4">
-                            <div className="min-w-0 pr-4">
-                                <h3 className="text-xl font-bold text-white flex items-center gap-2 truncate">
-                                    {ind.name}
-                                    {ind.status === 0 && <span className="bg-red-500/20 text-red-400 text-[10px] px-2 py-0.5 rounded-full font-black uppercase tracking-widest">Failing</span>}
-                                </h3>
-                                <div className="flex items-center gap-2 mt-1">
-                                    <span
-                                        style={{ backgroundColor: `${ind.prowlarr_color}20`, color: ind.prowlarr_color, borderColor: `${ind.prowlarr_color}40` }}
-                                        className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded border"
-                                    >
-                                        {ind.prowlarr_name}
-                                    </span>
-                                    {!ind.enable && <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-red-600 text-white shadow-lg shadow-red-600/40">Shutdown</span>}
+                        >
+                            <div className="flex justify-between items-start mb-3">
+                                <div className="min-w-0 pr-3">
+                                    <h3 className="text-lg font-bold text-white flex items-center gap-2 truncate">
+                                        {ind.name}
+                                        {ind.status === 0 && <span className="bg-red-500/20 text-red-400 text-[10px] px-1.5 py-0.5 rounded-full font-black uppercase tracking-widest leading-none">Failing</span>}
+                                    </h3>
+                                    <div className="flex items-center gap-2 mt-1.5">
+                                        <span
+                                            style={{ backgroundColor: `${hexColor}20`, color: hexColor, borderColor: `${hexColor}40` }}
+                                            className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border leading-none"
+                                        >
+                                            {ind.prowlarr_name}
+                                        </span>
+                                        {!ind.enable && <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-red-600 text-white shadow-lg shadow-red-600/40 leading-none">Shutdown</span>}
+                                    </div>
+
                                 </div>
 
+                                {/* Toggle Switch */}
+                                <button
+                                    onClick={() => toggleIndexer(ind)}
+                                    style={ind.enable ? {
+                                        backgroundColor: hexColor,
+                                        boxShadow: `0 0 10px ${hexColor}60`
+                                    } : {}}
+                                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-all duration-300 focus:outline-none flex-shrink-0 mt-0.5 ${ind.enable ? '' : 'bg-zinc-800 border border-zinc-700'}`}
+                                    title={ind.enable ? "Enabled" : "Disabled"}
+                                >
+                                    <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform shadow-md ${ind.enable ? 'translate-x-5' : 'translate-x-0.5 grayscale'}`} />
+                                </button>
                             </div>
 
-                            {/* Toggle Switch */}
-                            <button
-                                onClick={() => toggleIndexer(ind)}
-                                style={ind.enable ? {
-                                    backgroundColor: ind.prowlarr_color || '#10b981',
-                                    boxShadow: `0 0 10px ${ind.prowlarr_color || '#10b981'}60`
-                                } : {}}
-                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all duration-300 focus:outline-none flex-shrink-0 ${ind.enable ? '' : 'bg-zinc-800 border border-zinc-700'}`}
-                                title={ind.enable ? "Enabled" : "Disabled"}
-                            >
-                                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-md ${ind.enable ? 'translate-x-6' : 'translate-x-1 grayscale'}`} />
-                            </button>
+                            {ind.rule ? (
+                                <div className="bg-zinc-950/80 rounded-lg p-3 text-[11px] mb-4 border border-zinc-800 shadow-inner">
+                                    <div className="flex justify-between mb-2">
+                                        <span className="text-zinc-500 font-bold uppercase tracking-widest">Data ({ind.rule.interval})</span>
+                                        <span className="text-white font-black tabular-nums">
+                                            {(ind.rule.current_size_bytes / (1024 ** 3)).toFixed(2)} GB
+                                            {ind.rule.max_size_bytes && <span className="text-zinc-600 ml-1">/ {(ind.rule.max_size_bytes / (1024 ** 3)).toFixed(1)} GB</span>}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-zinc-500 font-bold uppercase tracking-widest">Snatches</span>
+                                        <span className="text-white font-black tabular-nums">
+                                            {ind.rule.current_snatches}
+                                            {ind.rule.max_snatches && <span className="text-zinc-600 ml-1">/ {ind.rule.max_snatches}</span>}
+                                        </span>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="bg-zinc-950/40 rounded-lg p-3 text-[11px] mb-4 border border-dashed border-zinc-800 text-zinc-600 font-medium italic text-center">
+                                    No quota limits configured.
+                                </div>
+                            )}
+
+                            <div className="mt-auto">
+                                <button
+                                    onClick={() => openConfigModal(ind)}
+                                    style={ind.enable ? {
+                                        color: hexColor,
+                                        backgroundColor: `${hexColor}1A`,
+                                        borderColor: `${hexColor}40`
+                                    } : {}}
+                                    className={`w-full text-[10px] font-black uppercase tracking-widest py-2 rounded-md transition-all border border-zinc-800 hover:scale-[1.02] ${!ind.enable ? 'bg-zinc-800 text-zinc-600' : ''}`}
+                                >
+                                    {ind.rule ? 'Manage Quota' : 'Setup Quota'}
+                                </button>
+                            </div>
                         </div>
-
-                        {ind.rule ? (
-                            <div className="bg-zinc-950/80 rounded-xl p-4 text-sm mb-6 border border-zinc-800 shadow-inner">
-                                <div className="flex justify-between mb-2">
-                                    <span className="text-zinc-500 font-bold uppercase text-[10px] tracking-widest">Data ({ind.rule.interval})</span>
-                                    <span className="text-white font-black tabular-nums">
-                                        {(ind.rule.current_size_bytes / (1024 ** 3)).toFixed(2)} GB
-                                        {ind.rule.max_size_bytes && <span className="text-zinc-600 ml-1">/ {(ind.rule.max_size_bytes / (1024 ** 3)).toFixed(1)} GB</span>}
-                                    </span>
-                                </div>
-                                <div className="flex justify-between">
-                                    <span className="text-zinc-500 font-bold uppercase text-[10px] tracking-widest">Snatches</span>
-                                    <span className="text-white font-black tabular-nums">
-                                        {ind.rule.current_snatches}
-                                        {ind.rule.max_snatches && <span className="text-zinc-600 ml-1">/ {ind.rule.max_snatches}</span>}
-                                    </span>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="bg-zinc-950/40 rounded-xl p-4 text-xs mb-6 border border-dashed border-zinc-800 text-zinc-600 font-medium italic text-center">
-                                No quota limits configured.
-                            </div>
-                        )}
-
-                        <div className="mt-auto">
-                            <button
-                                onClick={() => openConfigModal(ind)}
-                                style={ind.enable ? {
-                                    color: ind.prowlarr_color || '#34d399',
-                                    backgroundColor: ind.prowlarr_color ? `${ind.prowlarr_color}1A` : 'rgba(16, 185, 129, 0.1)',
-                                    borderColor: ind.prowlarr_color ? `${ind.prowlarr_color}40` : '#34d39940'
-                                } : {}}
-                                className={`w-full text-[11px] font-black uppercase tracking-widest py-2.5 rounded-lg transition-all border border-zinc-800 hover:scale-[1.02] ${!ind.enable ? 'bg-zinc-800 text-zinc-600' : ''}`}
-                            >
-                                {ind.rule ? 'Manage Quota' : 'Setup Quota'}
-                            </button>
-                        </div>
-                    </div>
-                ))}
+                    );
+                })}
                 {indexers.length === 0 && (
                     <div className="col-span-full py-12 text-center border border-dashed border-zinc-800 rounded-2xl text-zinc-500">
                         No active Prowlarr instances or indexers found. Connect Prowlarr in Settings.

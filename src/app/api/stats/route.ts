@@ -92,10 +92,10 @@ export async function GET() {
                         const dateStr = recordDate.toISOString().split('T')[0];
                         if (dailyStats[dateStr]) {
                             // Event Types: 1=Grabbed, 3=Imported, 4=Failed
-                            const isImport = record.eventType === 3 || record.eventType === 'movieFileImported' || record.eventType === 'episodeFileImported';
-                            const isGrab = record.eventType === 1 || record.eventType === 'grabbed';
-                            const isFailed = record.eventType === 4 || record.eventType === 'downloadFailed';
-
+                            const typeStr = String(record.eventType).toLowerCase();
+                            const isImport = record.eventType === 3 || typeStr.includes('import');
+                            const isGrab = record.eventType === 1 || typeStr.includes('grabbed');
+                            const isFailed = record.eventType === 4 || typeStr.includes('failed');
 
                             // Update numerical stats
                             if (statsSummary[dateStr][id]) {
@@ -104,11 +104,13 @@ export async function GET() {
                                     statsSummary[dateStr][id].imported++;
                                     // Extract size from data property (bytes as string) or nested objects
                                     let size = 0;
-                                    if (record.data && record.data.size) {
-                                        size = parseInt(record.data.size, 10) || 0;
-                                    } else {
-                                        size = record.movieFile?.size || record.episodeFile?.size || 0;
-                                    }
+                                    if (record.data?.importedSize) size = parseInt(record.data.importedSize, 10);
+                                    else if (record.data?.size) size = parseInt(record.data.size, 10);
+                                    else if (record.movieFile?.size) size = parseInt(record.movieFile.size, 10);
+                                    else if (record.episodeFile?.size) size = parseInt(record.episodeFile.size, 10);
+                                    else if (record.size) size = parseInt(record.size, 10);
+
+                                    if (isNaN(size) || !size) size = 0;
                                     statsSummary[dateStr][id].sizeBytes += size;
                                 }
 
@@ -139,11 +141,13 @@ export async function GET() {
 
                             // Calculate size for the record list
                             let sizeBytes = 0;
-                            if (record.data && record.data.size) {
-                                sizeBytes = parseInt(record.data.size, 10) || 0;
-                            } else {
-                                sizeBytes = record.movieFile?.size || record.episodeFile?.size || 0;
-                            }
+                            if (record.data?.importedSize) sizeBytes = parseInt(record.data.importedSize, 10);
+                            else if (record.data?.size) sizeBytes = parseInt(record.data.size, 10);
+                            else if (record.movieFile?.size) sizeBytes = parseInt(record.movieFile.size, 10);
+                            else if (record.episodeFile?.size) sizeBytes = parseInt(record.episodeFile.size, 10);
+                            else if (record.size) sizeBytes = parseInt(record.size, 10);
+
+                            if (isNaN(sizeBytes) || !sizeBytes) sizeBytes = 0;
 
 
                             allRecentRecords.push({
