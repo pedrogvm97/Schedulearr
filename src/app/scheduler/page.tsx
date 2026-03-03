@@ -1095,6 +1095,7 @@ export default function SchedulerQueue() {
                                                                     </div>
                                                                     <div>
                                                                         {!ep.hasFile && ep.monitored && new Date(ep.airDateUtc).getTime() < Date.now() && (
+                                                                            <>
                                                                                 <button
                                                                                     id={`search-ep-${item.instanceId}-${ep.id}`}
                                                                                     onPointerDown={(e) => e.stopPropagation()}
@@ -1132,6 +1133,7 @@ export default function SchedulerQueue() {
                                                                                 >
                                                                                     Interactive Search
                                                                                 </button>
+                                                                            </>
                                                                         )}
                                                                     </div>
                                                                 </div>
