@@ -23,6 +23,28 @@ export default function Dashboard() {
 
   const [showWelcome, setShowWelcome] = useState(false);
   const [chartType, setChartType] = useState<'grabbed' | 'imported' | 'sizeGB'>('grabbed');
+  const [recentDownloadFilters, setRecentDownloadFilters] = useState<Record<string, boolean>>({});
+
+  const toggleRecentFilter = (id: string) => {
+    setRecentDownloadFilters(prev => ({
+      ...prev,
+      [id]: !prev[id]
+    }));
+  };
+
+  const getAge = (dateStr: string) => {
+    const now = new Date();
+    const then = new Date(dateStr);
+    const diffMs = now.getTime() - then.getTime();
+    const diffMin = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMin / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffDays > 0) return `${diffDays}d ago`;
+    if (diffHours > 0) return `${diffHours}h ago`;
+    if (diffMin > 0) return `${diffMin}m ago`;
+    return 'Just now';
+  };
 
   useEffect(() => {
     // Check if user has seen welcome splash
@@ -41,6 +63,15 @@ export default function Dashboard() {
           setChartData(json.data || []);
           setInstances(json.instances || {});
           if (json.recentDownloads) setRecentDownloads(json.recentDownloads);
+
+          // Initialize filters if empty
+          if (Object.keys(recentDownloadFilters).length === 0 && json.instances) {
+            const initialFilters: Record<string, boolean> = {};
+            Object.keys(json.instances).forEach(id => {
+              initialFilters[id] = true;
+            });
+            setRecentDownloadFilters(initialFilters);
+          }
         }
       } catch (e) {
         console.error("Failed to load stats", e);
@@ -246,32 +277,56 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Recent Downloads */}
+        {/* Recent History */}
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col max-h-[500px]">
-          <h2 className="text-xl font-bold text-white mb-6">Recent Downloads</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold text-white">Recent History</h2>
+            <div className="flex gap-1.5 flex-wrap">
+              {Object.keys(instances).map(id => (
+                <button
+                  key={id}
+                  onClick={() => toggleRecentFilter(id)}
+                  style={{
+                    borderColor: recentDownloadFilters[id] ? `${instances[id].color}40` : '#27272a',
+                    backgroundColor: recentDownloadFilters[id] ? `${instances[id].color}15` : 'transparent',
+                    color: recentDownloadFilters[id] ? instances[id].color : '#52525b'
+                  }}
+                  className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border transition-all hover:scale-105"
+                >
+                  {instances[id].name}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="flex flex-col gap-3 overflow-y-auto pr-2 custom-scrollbar">
             {loadingStats && (
-              <div className="text-zinc-500 text-sm italic py-2">Loading recent downloads...</div>
+              <div className="text-zinc-500 text-sm italic py-2">Loading recent history...</div>
             )}
             {!loadingStats && recentDownloads.length === 0 && (
               <div className="text-zinc-500 text-sm py-2 flex items-center justify-center p-8 bg-zinc-950/50 rounded-xl border border-zinc-800/50 border-dashed">
-                No downloads grabbed yet.
+                No history grabbed yet.
               </div>
             )}
-            {!loadingStats && recentDownloads.map((dl, idx) => {
+            {!loadingStats && recentDownloads.filter(dl => recentDownloadFilters[dl.instanceId] !== false).slice(0, 15).map((dl, idx) => {
               const inst = instances[dl.instanceId];
               return (
                 <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-zinc-950 border border-zinc-800 flex-shrink-0 transition hover:border-zinc-700">
                   <div className="flex flex-col min-w-0 pr-4">
                     <span className="text-sm font-semibold text-zinc-200 truncate" title={dl.title}>{dl.title}</span>
                     <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-xs text-zinc-500 font-medium">{new Date(dl.date).toLocaleString()}</span>
+                      <span className="text-xs text-zinc-500 font-medium">{getAge(dl.date)}</span>
                       <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${dl.status === 'Finalized' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' :
-                          dl.status === 'Failed' ? 'bg-red-500/10 text-red-500 border border-red-500/20' :
-                            'bg-blue-500/10 text-blue-500 border border-blue-500/20'
+                        dl.status === 'Failed' ? 'bg-red-500/10 text-red-500 border border-red-500/20' :
+                          'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
                         }`}>
                         {dl.status}
                       </span>
+                      {dl.size > 0 && (
+                        <span className="text-[10px] font-bold text-zinc-600 bg-zinc-900 px-1.5 py-0.5 rounded">
+                          {(dl.size / (1024 ** 3)).toFixed(2)} GB
+                        </span>
+                      )}
                     </div>
                   </div>
                   {inst && (

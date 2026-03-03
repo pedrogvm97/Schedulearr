@@ -1,4 +1,4 @@
-import { getInstances, getSetting, logSearchHistory, getSchedulerConfig } from '@/lib/db';
+import { getInstances, getSetting, logSearchHistory, getSchedulerConfig, getSchedulerTracking, incrementSchedulerAttempt } from '@/lib/db';
 import { getAllMovies, triggerMovieSearch, RadarrMovie, getQueue as getRadarrQueue } from '@/lib/radarr';
 import { getAllSeries, triggerEpisodeSearch, SonarrSeries, getQueue as getSonarrQueue } from '@/lib/sonarr';
 import { getIndexerHealth } from '@/lib/prowlarr';
@@ -55,7 +55,7 @@ export function getNextSchedulerRun() {
 export async function runBatchSearch() {
     const defaultRes = { success: false, reason: '', movies: [], episodes: [] };
     const prowlarrs = getInstances('prowlarr');
-    const enabled = getSetting('scheduler_enabled') === 'true';
+    const { enabled, batchBehavior, maxAttempts, batchSize: configBatchSize } = getSchedulerConfig();
     if (!enabled) {
         console.log('⏸️  Scheduler is disabled in settings. Skipping run.');
         defaultRes.reason = 'Scheduler is disabled in settings';
@@ -63,7 +63,7 @@ export async function runBatchSearch() {
         return defaultRes;
     }
 
-    let allowedBatchSize = parseInt(getSetting('scheduler_batch') || '10');
+    let allowedBatchSize = configBatchSize || 10;
     const profile = getSetting('priority_profile') || 'recently_added';
 
     // 1. Check Prowlarr health first to avoid bans
@@ -87,7 +87,7 @@ export async function runBatchSearch() {
         return defaultRes;
     }
 
-    let allMovieTargets: { id: number, apiUrl: string, apiKey: string, movie: RadarrMovie }[] = [];
+    let allMovieTargets: any[] = [];
 
     // Radarr Movies
     for (const r of radarrs) {
@@ -99,11 +99,21 @@ export async function runBatchSearch() {
 
         // Only target missing, published, monitored movies, AND NOT in the downloading queue
         const missing = allMovies.filter(m => !m.hasFile && m.monitored && m.isAvailable && !queuedMovieIds.has(m.id));
-        console.log(`[RADARR] Found ${missing.length} missing/monitored (not queued) movies on ${r.name}`);
-        allMovieTargets.push(...missing.map(m => ({ id: m.id, apiUrl: r.url, apiKey: r.api_key, movie: m })));
+
+        for (const m of missing) {
+            const tracking = getSchedulerTracking(m.id.toString(), r.id!, 'movie');
+            allMovieTargets.push({
+                id: m.id,
+                apiUrl: r.url,
+                apiKey: r.api_key,
+                instanceId: r.id,
+                movie: m,
+                attempts: tracking?.attempts || 0
+            });
+        }
     }
 
-    let allEpTargets: { id: number, apiUrl: string, apiKey: string, seriesInfo?: SonarrSeries, airDateUtc?: string }[] = [];
+    let allEpTargets: any[] = [];
 
     // Sonarr Episodes
     // For episodes, getting missing directly is still efficient, but we need series data for priority sorting
@@ -120,18 +130,20 @@ export async function runBatchSearch() {
                 const missingEpisodes = series.episodes.filter(ep =>
                     !ep.hasFile && ep.monitored && ep.episodeFileId === 0 && !queuedEpisodeIds.has(ep.id)
                 );
-                if (missingEpisodes.length > 0) {
-                    allEpTargets.push(...missingEpisodes.map(ep => ({
+                for (const ep of missingEpisodes) {
+                    const tracking = getSchedulerTracking(ep.id.toString(), s.id!, 'episode');
+                    allEpTargets.push({
                         id: ep.id,
                         apiUrl: s.url,
                         apiKey: s.api_key,
+                        instanceId: s.id,
                         seriesInfo: seriesMap.get(ep.seriesId),
-                        airDateUtc: ep.airDateUtc
-                    })));
+                        airDateUtc: ep.airDateUtc,
+                        attempts: tracking?.attempts || 0
+                    });
                 }
             }
         }
-        console.log(`[SONARR] Found ${allEpTargets.length} missing episodes on ${s.name}`);
     }
 
     // 3. UI Frontend Filters Integration
@@ -189,33 +201,54 @@ export async function runBatchSearch() {
         console.error('❌ Scheduler UI filter parsing failed. Falling back to unprotected raw prioritization.', filterError);
     }
 
-    // 4. Priority Engine Sorting
+    // 4. Priority Engine Sorting (Incorporating Rotate logic)
+    const sortWithRotation = (a: any, b: any, prioritySort: number) => {
+        if (batchBehavior === 'rotate') {
+            const aExceeded = a.attempts >= maxAttempts;
+            const bExceeded = b.attempts >= maxAttempts;
+            if (aExceeded && !bExceeded) return 1;
+            if (!aExceeded && bExceeded) return -1;
+            if (a.attempts !== b.attempts) return a.attempts - b.attempts; // Fewer attempts first
+        }
+        return prioritySort;
+    };
+
     if (profile === 'recently_released') {
         allMovieTargets.sort((a, b) => {
             const dateA = a.movie.physicalRelease || a.movie.digitalRelease || a.movie.inCinemas || "1970-01-01";
             const dateB = b.movie.physicalRelease || b.movie.digitalRelease || b.movie.inCinemas || "1970-01-01";
-            return new Date(dateB).getTime() - new Date(dateA).getTime();
+            const prio = new Date(dateB).getTime() - new Date(dateA).getTime();
+            return sortWithRotation(a, b, prio);
         });
-        allEpTargets.sort((a, b) => new Date(b.airDateUtc || "1970-01-01").getTime() - new Date(a.airDateUtc || "1970-01-01").getTime());
+        allEpTargets.sort((a, b) => {
+            const prio = new Date(b.airDateUtc || "1970-01-01").getTime() - new Date(a.airDateUtc || "1970-01-01").getTime();
+            return sortWithRotation(a, b, prio);
+        });
     } else if (profile === 'nearly_complete') {
-        // Prioritize series that have a high percentage downloaded
         allEpTargets.sort((a, b) => {
             const pctA = a.seriesInfo?.statistics?.percentOfEpisodes || 0;
             const pctB = b.seriesInfo?.statistics?.percentOfEpisodes || 0;
-            return pctB - pctA; // Highest percentage first
+            const prio = pctB - pctA;
+            return sortWithRotation(a, b, prio);
         });
-        // Movies don't have partial completion, fallback to added date
-        allMovieTargets.sort((a, b) => new Date(b.movie.added).getTime() - new Date(a.movie.added).getTime());
+        allMovieTargets.sort((a, b) => {
+            const prio = new Date(b.movie.added).getTime() - new Date(a.movie.added).getTime();
+            return sortWithRotation(a, b, prio);
+        });
     } else if (profile === 'random') {
-        allMovieTargets.sort(() => Math.random() - 0.5);
-        allEpTargets.sort(() => Math.random() - 0.5);
+        allMovieTargets.sort((a, b) => sortWithRotation(a, b, Math.random() - 0.5));
+        allEpTargets.sort((a, b) => sortWithRotation(a, b, Math.random() - 0.5));
     } else {
-        // default: recently_added (or custom if not implemented yet)
-        allMovieTargets.sort((a, b) => new Date(b.movie.added).getTime() - new Date(a.movie.added).getTime());
+        // recently_added
+        allMovieTargets.sort((a, b) => {
+            const prio = new Date(b.movie.added).getTime() - new Date(a.movie.added).getTime();
+            return sortWithRotation(a, b, prio);
+        });
         allEpTargets.sort((a, b) => {
             const addedA = a.seriesInfo?.added || new Date().toISOString();
             const addedB = b.seriesInfo?.added || new Date().toISOString();
-            return new Date(addedB).getTime() - new Date(addedA).getTime();
+            const prio = new Date(addedB).getTime() - new Date(addedA).getTime();
+            return sortWithRotation(a, b, prio);
         });
     }
 
@@ -243,11 +276,17 @@ export async function runBatchSearch() {
     }, {} as Record<string, { key: string, ids: number[] }>);
 
     const triggeredMovies = [];
-    for (const [url, data] of Object.entries(radarrGroups)) {
+    for (const [url, data] of Object.entries(radarrGroups) as [string, any][]) {
         if (data.ids.length > 0) {
             console.log(`🎬 Triggering search for ${data.ids.length} movies on Radarr at ${url} using ${profile} profile`);
             await triggerMovieSearch(url, data.key, data.ids);
             triggeredMovies.push(...data.ids);
+
+            // Increment attempts for each movie in this batch
+            for (const id of data.ids) {
+                const target = movieBatch.find(m => m.id === id);
+                if (target) incrementSchedulerAttempt(id.toString(), target.instanceId, 'movie');
+            }
         }
     }
 
@@ -258,11 +297,17 @@ export async function runBatchSearch() {
     }, {} as Record<string, { key: string, ids: number[] }>);
 
     const triggeredEpisodes = [];
-    for (const [url, data] of Object.entries(sonarrGroups)) {
+    for (const [url, data] of Object.entries(sonarrGroups) as [string, any][]) {
         if (data.ids.length > 0) {
             console.log(`📺 Triggering search for ${data.ids.length} episodes on Sonarr at ${url} using ${profile} profile`);
             await triggerEpisodeSearch(url, data.key, data.ids);
             triggeredEpisodes.push(...data.ids);
+
+            // Increment attempts for each episode in this batch
+            for (const id of data.ids) {
+                const target = epBatch.find(e => e.id === id);
+                if (target) incrementSchedulerAttempt(id.toString(), target.instanceId, 'episode');
+            }
         }
     }
 

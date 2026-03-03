@@ -54,12 +54,33 @@ db.exec(`
     auto_manage INTEGER DEFAULT 1,
     UNIQUE(indexer_id, prowlarr_instance_id)
   );
+
+  CREATE TABLE IF NOT EXISTS scheduler_tracking (
+    media_id TEXT NOT NULL,
+    instance_id TEXT NOT NULL,
+    type TEXT NOT NULL, -- 'movie', 'episode'
+    attempts INTEGER DEFAULT 0,
+    last_search DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(media_id, instance_id, type)
+  );
 `);
 
 // Simple schema migrations for existing databases
 try { db.exec("ALTER TABLE instances ADD COLUMN enabled INTEGER DEFAULT 1;"); } catch (e) { /* column exists */ }
 try { db.exec("ALTER TABLE instances ADD COLUMN color TEXT;"); } catch (e) { /* column exists */ }
 try { db.exec("ALTER TABLE search_history ADD COLUMN timestamp DATETIME DEFAULT CURRENT_TIMESTAMP;"); } catch (e) { /* column exists */ }
+try {
+    db.exec(`
+    CREATE TABLE IF NOT EXISTS scheduler_tracking (
+      media_id TEXT NOT NULL,
+      instance_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      attempts INTEGER DEFAULT 0,
+      last_search DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY(media_id, instance_id, type)
+    );
+  `);
+} catch (e) { /* table exists */ }
 
 export interface Setting {
     key: string;
@@ -90,15 +111,19 @@ export const setSetting = (key: string, value: string): void => {
 // Scheduler Config Helpers
 export const getSchedulerConfig = () => {
     const enabled = getSetting('scheduler_enabled') === 'true';
-    const interval = parseInt(getSetting('scheduler_interval') || '5'); // minutes
+    const interval = parseInt(getSetting('scheduler_interval') || '30'); // minutes
     const batchSize = parseInt(getSetting('scheduler_batch') || '10');
-    return { enabled, interval, batchSize };
+    const batchBehavior = getSetting('batch_behavior') || 'repeat'; // 'repeat' or 'rotate'
+    const maxAttempts = parseInt(getSetting('max_attempts') || '3');
+    return { enabled, interval, batchSize, batchBehavior, maxAttempts };
 };
 
-export const setSchedulerConfig = (config: { enabled: boolean; interval: number; batchSize: number }) => {
+export const setSchedulerConfig = (config: { enabled: boolean; interval: number; batchSize: number; batchBehavior?: string; maxAttempts?: number }) => {
     setSetting('scheduler_enabled', config.enabled ? 'true' : 'false');
     setSetting('scheduler_interval', config.interval.toString());
     setSetting('scheduler_batch', config.batchSize.toString());
+    if (config.batchBehavior) setSetting('batch_behavior', config.batchBehavior);
+    if (config.maxAttempts) setSetting('max_attempts', config.maxAttempts.toString());
 };
 
 export const getInstances = (type?: string, activeOnly: boolean = false): Instance[] => {
@@ -160,6 +185,28 @@ export const logSearchHistory = (profile: string, movies: string[], episodes: st
         JSON.stringify(episodes),
         reason
     );
+};
+
+// --- Scheduler Item Tracking ---
+export const getSchedulerTracking = (mediaId: string, instanceId: string, type: string) => {
+    const stmt = db.prepare('SELECT * FROM scheduler_tracking WHERE media_id = ? AND instance_id = ? AND type = ?');
+    return stmt.get(mediaId, instanceId, type) as { media_id: string, instance_id: string, type: string, attempts: number, last_search: string } | undefined;
+};
+
+export const incrementSchedulerAttempt = (mediaId: string, instanceId: string, type: string) => {
+    const stmt = db.prepare(`
+        INSERT INTO scheduler_tracking (media_id, instance_id, type, attempts, last_search)
+        VALUES (?, ?, ?, 1, CURRENT_TIMESTAMP)
+        ON CONFLICT(media_id, instance_id, type) DO UPDATE SET
+            attempts = attempts + 1,
+            last_search = CURRENT_TIMESTAMP
+    `);
+    stmt.run(mediaId, instanceId, type);
+};
+
+export const resetSchedulerAttempts = (mediaId: string, instanceId: string, type: string) => {
+    const stmt = db.prepare('UPDATE scheduler_tracking SET attempts = 0 WHERE media_id = ? AND instance_id = ? AND type = ?');
+    stmt.run(mediaId, instanceId, type);
 };
 
 export const getSearchHistory = (limit: number = 50) => {

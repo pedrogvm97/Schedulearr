@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import {
@@ -12,6 +14,18 @@ import {
     useSensors,
     DragEndEvent
 } from '@dnd-kit/core';
+import {
+    Search,
+    Trash2,
+    Play,
+    Pause,
+    RefreshCw,
+    Info,
+    ChevronDown,
+    ChevronUp,
+    X,
+    Database
+} from 'lucide-react';
 import {
     arrayMove,
     SortableContext,
@@ -58,7 +72,24 @@ export default function SchedulerQueue() {
     const [profiles, setProfiles] = useState<Record<string, Record<number, string>>>({});
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [schedulerConfig, setSchedulerConfig] = useState<{ enabled: boolean, interval: number, batchSize: number }>({ enabled: true, interval: 5, batchSize: 10 });
+    const [schedulerConfig, setSchedulerConfig] = useState<{ enabled: boolean, interval: number, batchSize: number, batchBehavior: string, maxAttempts: number }>({
+        enabled: true,
+        interval: 30,
+        batchSize: 10,
+        batchBehavior: 'repeat',
+        maxAttempts: 3
+    });
+
+    const updateSchedulerConfig = async (updates: Partial<typeof schedulerConfig>) => {
+        const newConfig = { ...schedulerConfig, ...updates } as any;
+        setSchedulerConfig(newConfig);
+        try {
+            await axios.post('/api/scheduler/config', newConfig);
+        } catch (err) {
+            console.error('Failed to update scheduler config:', err);
+        }
+    };
+
     const [nextRun, setNextRun] = useState<number | null>(null);
     const [searchHistory, setSearchHistory] = useState<any[]>([]);
     const [searchToggles, setSearchToggles] = useState<Record<string, boolean>>({});
@@ -95,6 +126,37 @@ export default function SchedulerQueue() {
             coordinateGetter: sortableKeyboardCoordinates,
         })
     );
+
+    const formatSize = (bytes: number) => {
+        if (!bytes || bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    };
+
+    const handleDeleteFile = async (type: 'movie' | 'episode', id: number, instanceId: string, fileId: number) => {
+        if (!confirm(`Are you sure you want to delete this ${type} file from disk? This cannot be undone.`)) return;
+
+        try {
+            const endpoint = type === 'movie'
+                ? `/api/radarr/file?movieFileId=${fileId}&instanceId=${instanceId}`
+                : `/api/sonarr/file?episodeFileId=${fileId}&instanceId=${instanceId}`;
+
+            const res = await fetch(endpoint, { method: 'DELETE' });
+            const data = await res.json();
+
+            if (data.success) {
+                toast.success(`${type === 'movie' ? 'Movie' : 'Episode'} file deleted successfully`);
+                fetchData(); // Refresh to update seen status and sizes
+            } else {
+                toast.error(`Failed to delete file: ${data.error || 'Unknown error'}`);
+            }
+        } catch (e) {
+            console.error(e);
+            toast.error('Error deleting file');
+        }
+    };
 
     const handleGenreToggle = (g: string) => {
         if (g === 'All') {
@@ -224,7 +286,13 @@ export default function SchedulerQueue() {
             }
             if (configRes.ok) {
                 const data = await configRes.json();
-                setSchedulerConfig({ enabled: data.enabled, interval: data.interval, batchSize: data.batchSize });
+                setSchedulerConfig({
+                    enabled: data.enabled,
+                    interval: data.interval,
+                    batchSize: data.batchSize,
+                    batchBehavior: data.batchBehavior || 'repeat',
+                    maxAttempts: data.maxAttempts || 3
+                });
                 if (data.nextRun) setNextRun(data.nextRun);
             }
             if (historyRes.ok) setSearchHistory(await historyRes.json());
@@ -746,6 +814,40 @@ export default function SchedulerQueue() {
                                     ))}
                                 </select>
                             </div>
+                            <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 flex-shrink-0">
+                                <label className="text-sm font-medium text-zinc-400">Behavior:</label>
+                                <select
+                                    value={schedulerConfig.batchBehavior}
+                                    onChange={e => {
+                                        const val = e.target.value;
+                                        const newConfig = { ...schedulerConfig, batchBehavior: val };
+                                        setSchedulerConfig(newConfig);
+                                        fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newConfig) });
+                                    }}
+                                    className="bg-transparent text-white text-sm font-bold outline-none cursor-pointer"
+                                >
+                                    <option value="repeat" className="bg-zinc-900">Repeat Until Extracted</option>
+                                    <option value="rotate" className="bg-zinc-900">Rotate After X Attempts</option>
+                                </select>
+                            </div>
+                            {schedulerConfig.batchBehavior === 'rotate' && (
+                                <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 flex-shrink-0">
+                                    <label className="text-sm font-medium text-zinc-400">Attempts:</label>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={100}
+                                        value={schedulerConfig.maxAttempts}
+                                        onChange={e => {
+                                            const val = Math.max(1, Number(e.target.value));
+                                            const newConfig = { ...schedulerConfig, maxAttempts: val };
+                                            setSchedulerConfig(newConfig);
+                                            fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newConfig) });
+                                        }}
+                                        className="w-10 bg-transparent text-white text-sm font-bold outline-none text-center"
+                                    />
+                                </div>
+                            )}
                             <div className="flex items-center justify-center gap-2 bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1.5 md:ml-auto flex-shrink-0">
                                 <div className="flex items-center gap-2 px-2 border-r border-zinc-800">
                                     <span className="text-sm font-medium text-zinc-400">Next Search:</span>
@@ -974,6 +1076,44 @@ export default function SchedulerQueue() {
                         </div>
                     </div>
                     <div className="flex items-center gap-6 flex-wrap bg-zinc-900/40 p-2 rounded-xl border border-zinc-800/80">
+                        {/* Batch Behavior */}
+                        <div className="flex items-center gap-3 pr-6 border-r border-zinc-800">
+                            <div className="flex flex-col">
+                                <span className="text-xs font-bold text-zinc-400 uppercase tracking-tighter">Batch Behavior</span>
+                                <div className="flex bg-zinc-950 p-1 rounded-lg border border-zinc-800 mt-1">
+                                    <button
+                                        onClick={() => updateSchedulerConfig({ batchBehavior: 'repeat' })}
+                                        className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${schedulerConfig.batchBehavior === 'repeat' ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                    >
+                                        REPEAT
+                                    </button>
+                                    <button
+                                        onClick={() => updateSchedulerConfig({ batchBehavior: 'rotate' })}
+                                        className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${schedulerConfig.batchBehavior === 'rotate' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                    >
+                                        ROTATE
+                                    </button>
+                                </div>
+                            </div>
+
+                            {schedulerConfig.batchBehavior === 'rotate' && (
+                                <div className="flex flex-col animate-in slide-in-from-left-2 duration-200">
+                                    <span className="text-xs font-bold text-zinc-400 uppercase tracking-tighter">Max Attempts</span>
+                                    <div className="flex items-center gap-2 mt-1">
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            max="10"
+                                            value={schedulerConfig.maxAttempts}
+                                            onChange={(e) => updateSchedulerConfig({ maxAttempts: parseInt(e.target.value) || 3 })}
+                                            className="w-12 bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1 text-xs font-bold text-indigo-400 focus:outline-none focus:border-indigo-500"
+                                        />
+                                        <span className="text-[10px] text-zinc-500 font-medium">per item</span>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
                         <label className="flex items-center cursor-pointer group">
                             <div className="relative">
                                 <input type="checkbox" className="sr-only" checked={showNextBatchOnly} onChange={() => setShowNextBatchOnly(!showNextBatchOnly)} />
@@ -1006,214 +1146,218 @@ export default function SchedulerQueue() {
                         >
                             <div className="grid grid-cols-1 gap-3">
                                 {displayItems.map((item) => {
-                                    const isToggled = searchToggles[item.idStr] !== false; // Default true
+                                    const isToggled = searchToggles[item.idStr] !== false;
+                                    const isExpanded = item.type === 'series' && expandedSeriesId === `${item.instanceId}-${item.id}`;
+
                                     return (
                                         <SortableItem key={item.idStr} id={item.idStr} isDraggable={profile === 'custom'}>
-                                            <div
-                                                onClick={(e) => item.type === 'series' && toggleExpandSeries(item, e)}
-                                                className={`flex items-center justify-between p-4 rounded-xl border transition-all ${isToggled ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-950 border-zinc-900 opacity-60'
-                                                    } ${item.type === 'series' ? 'cursor-pointer hover:bg-zinc-800' : ''}`}
-                                            >
-                                                <div className="flex items-center gap-4">
-                                                    <div className={`w-2 h-12 rounded-full ${item.instanceColor || (item.type === 'movie' ? 'bg-yellow-500' : 'bg-cyan-500')}`} />
-                                                    <div>
-                                                        <div className="flex items-center gap-2 mb-1">
-                                                            <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm ${item.type === 'movie' ? 'bg-yellow-500/20 text-yellow-500' : 'bg-cyan-500/20 text-cyan-500'
-                                                                }`}>
-                                                                {item.type}
-                                                            </span>
-                                                            <span
-                                                                className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm border border-zinc-700/50 opacity-80"
-                                                                style={{
-                                                                    backgroundColor: item.instanceColor?.startsWith('#') ? `${item.instanceColor}1a` : undefined, // 1a is ~10%
-                                                                    color: item.instanceColor?.startsWith('#') ? item.instanceColor : undefined,
-                                                                    borderColor: item.instanceColor?.startsWith('#') ? `${item.instanceColor}33` : undefined // 33 is ~20%
-                                                                }}
-                                                            >
-                                                                {item.instanceName}
-                                                            </span>
-                                                            {/* Show first two genres as tags if available */}
-                                                            {item.genres && item.genres.slice(0, 2).map((g: string) => (
-                                                                <span key={g} className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm bg-purple-500/20 text-purple-400">
-                                                                    {g}
+                                            <div className="flex-1 flex flex-col gap-1 w-full">
+                                                {/* Main Card */}
+                                                <div
+                                                    onClick={(e) => item.type === 'series' && toggleExpandSeries(item, e)}
+                                                    className={`flex items-center justify-between p-4 rounded-xl border transition-all ${isToggled ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-950 border-zinc-900 opacity-60'
+                                                        } ${item.type === 'series' ? 'cursor-pointer hover:bg-zinc-800' : ''}`}
+                                                >
+                                                    <div className="flex items-center gap-4">
+                                                        <div className={`w-2 h-12 rounded-full ${item.instanceColor || (item.type === 'movie' ? 'bg-yellow-500' : 'bg-cyan-500')}`} />
+                                                        <div>
+                                                            <div className="flex items-center gap-2 mb-1">
+                                                                <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm ${item.type === 'movie' ? 'bg-yellow-500/20 text-yellow-500' : 'bg-cyan-500/20 text-cyan-500'}`}>
+                                                                    {item.type}
                                                                 </span>
-                                                            ))}
-                                                        </div>
-                                                        <h3 className="text-lg font-medium text-white flex items-center gap-2">
-                                                            {item.title}
-                                                            {item.type === 'series' && (
-                                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`text-zinc-500 transition-transform ${expandedSeriesId === `${item.instanceId}-${item.id}` ? 'rotate-180' : ''}`}><polyline points="6 9 12 15 18 9"></polyline></svg>
-                                                            )}
-                                                        </h3>
-                                                        <div className="text-sm text-zinc-400 flex flex-wrap items-center gap-x-2 gap-y-1">
-                                                            {item.type === 'movie'
-                                                                ? (item.isDownloaded ? 'Downloaded' : 'Missing from Library')
-                                                                : (item.stats ? `${item.stats.episodeFileCount} / ${item.stats.episodeCount} Episodes (${Math.round(item.stats.percentOfEpisodes)}%)` : 'Unknown')}
-                                                            <span className="text-zinc-600">•</span>
-                                                            <span>Added {formatDistanceToNow(item.sortDate, { addSuffix: true })}</span>
-
-                                                            <div className="flex items-center gap-2 w-full mt-1">
-                                                                <div className="flex bg-zinc-900 border border-zinc-700/50 rounded-md overflow-hidden text-xs font-medium">
-                                                                    <div className="bg-zinc-800 px-2 py-0.5 text-zinc-400 border-r border-zinc-700/50">Target</div>
-                                                                    <div className="px-2 py-0.5 text-indigo-400 bg-indigo-500/10">
-                                                                        {item.targetQualityProfile}
-                                                                    </div>
-                                                                </div>
-
-                                                                {item.type === 'movie' && item.isDownloaded && (
-                                                                    <div className="flex bg-zinc-900 border border-zinc-700/50 rounded-md overflow-hidden text-xs font-medium">
-                                                                        <div className="bg-zinc-800 px-2 py-0.5 text-zinc-400 border-r border-zinc-700/50">Current</div>
-                                                                        <div className={`px-2 py-0.5 ${item.currentQualityScale >= 2160 ? 'text-emerald-400 bg-emerald-500/10' :
-                                                                            item.currentQualityScale >= 1080 ? 'text-blue-400 bg-blue-500/10' :
-                                                                                'text-yellow-400 bg-yellow-500/10'
-                                                                            }`}>
-                                                                            {item.currentQualityScale ? `${item.currentQualityScale}p` : 'Unknown'}
-                                                                        </div>
-                                                                    </div>
+                                                                {item.isDownloading && (
+                                                                    <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center gap-1 animate-pulse">
+                                                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                                                                        Downloading
+                                                                    </span>
                                                                 )}
+                                                                <span
+                                                                    className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm border border-zinc-700/50 opacity-80"
+                                                                    style={{
+                                                                        backgroundColor: item.instanceColor?.startsWith('#') ? `${item.instanceColor}1a` : undefined,
+                                                                        color: item.instanceColor?.startsWith('#') ? item.instanceColor : undefined,
+                                                                        borderColor: item.instanceColor?.startsWith('#') ? `${item.instanceColor}33` : undefined
+                                                                    }}
+                                                                >
+                                                                    {item.instanceName}
+                                                                </span>
+                                                            </div>
+                                                            <h3 className="text-lg font-medium text-white flex items-center gap-2">
+                                                                {item.title}
+                                                                {item.type === 'series' && (
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`text-zinc-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`}><polyline points="6 9 12 15 18 9"></polyline></svg>
+                                                                )}
+                                                            </h3>
+                                                            <div className="text-sm text-zinc-400 flex flex-wrap items-center gap-x-2 gap-y-1">
+                                                                {item.type === 'movie'
+                                                                    ? (item.isDownloaded ? 'Downloaded' : 'Missing from Library')
+                                                                    : (item.stats ? `${item.stats.episodeFileCount} / ${item.stats.episodeCount} Episodes (${Math.round(item.stats.percentOfEpisodes)}%)` : 'Unknown')}
+                                                                <span className="text-zinc-600">•</span>
+                                                                <span>Added {formatDistanceToNow(item.sortDate, { addSuffix: true })}</span>
+
+                                                                <div className="flex items-center gap-2 w-full mt-1">
+                                                                    <div className="flex bg-zinc-900 border border-zinc-700/50 rounded-md overflow-hidden text-xs font-medium">
+                                                                        <div className="bg-zinc-800 px-2 py-0.5 text-zinc-400 border-r border-zinc-700/50">Target</div>
+                                                                        <div className="px-2 py-0.5 text-indigo-400 bg-indigo-500/10">{item.targetQualityProfile}</div>
+                                                                    </div>
+
+                                                                    {item.type === 'movie' && item.isDownloaded && (
+                                                                        <>
+                                                                            <div className="flex bg-zinc-900 border border-zinc-700/50 rounded-md overflow-hidden text-xs font-medium">
+                                                                                <div className="bg-zinc-800 px-2 py-0.5 text-zinc-400 border-r border-zinc-700/50">Current</div>
+                                                                                <div className={`px-2 py-0.5 ${item.currentQualityScale >= 2160 ? 'text-emerald-400 bg-emerald-500/10' :
+                                                                                    item.currentQualityScale >= 1080 ? 'text-blue-400 bg-blue-500/10' : 'text-yellow-400 bg-yellow-500/10'}`}>
+                                                                                    {item.currentQualityScale ? `${item.currentQualityScale}p` : 'Unknown'}
+                                                                                </div>
+                                                                            </div>
+                                                                            {item.movieFile && (
+                                                                                <div className="flex bg-zinc-900 border border-zinc-700/50 rounded-md overflow-hidden text-xs font-medium">
+                                                                                    <div className="bg-zinc-800 px-2 py-0.5 text-zinc-400 border-r border-zinc-700/50">Size</div>
+                                                                                    <div className="px-2 py-0.5 text-zinc-300 bg-zinc-800/10">{formatSize(item.movieFile.size)}</div>
+                                                                                </div>
+                                                                            )}
+                                                                        </>
+                                                                    )}
+                                                                    {item.type === 'series' && item.stats && item.stats.sizeOnDisk > 0 && (
+                                                                        <div className="flex bg-zinc-900 border border-zinc-700/50 rounded-md overflow-hidden text-xs font-medium">
+                                                                            <div className="bg-zinc-800 px-2 py-0.5 text-zinc-400 border-r border-zinc-700/50">Total Size</div>
+                                                                            <div className="px-2 py-0.5 text-zinc-300 bg-zinc-800/10">{formatSize(item.stats.sizeOnDisk)}</div>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     </div>
-                                                </div>
 
-                                                <div className="flex items-center gap-4">
-                                                    {item.type === 'movie' && (
+                                                    <div className="flex items-center gap-2">
+                                                        {(item.type === 'movie' || item.type === 'series') && (
+                                                            <button
+                                                                className="text-xs bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 font-medium px-3 py-1.5 rounded-lg border border-indigo-500/30 transition-colors relative z-20 cursor-pointer flex items-center gap-1.5"
+                                                                onPointerDown={(e) => e.stopPropagation()}
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleInteractiveSearch(item.type === 'series' ? 'series' : 'movie', item.id, item.instanceId, item.title);
+                                                                }}
+                                                                title="Search specifically for this item across all indexers"
+                                                            >
+                                                                <Search size={14} />
+                                                                Interactive Search
+                                                            </button>
+                                                        )}
+
+                                                        {item.type === 'movie' && item.hasFile && item.movieFile && (
+                                                            <button
+                                                                className="text-xs bg-rose-600/20 text-rose-400 hover:bg-rose-600/30 font-medium px-2 py-1.5 rounded-lg border border-rose-500/30 transition-colors relative z-20 cursor-pointer"
+                                                                onPointerDown={(e) => e.stopPropagation()}
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleDeleteFile('movie', item.id, item.instanceId, item.movieFile.id);
+                                                                }}
+                                                                title="Delete movie file from disk"
+                                                            >
+                                                                <Trash2 size={14} />
+                                                            </button>
+                                                        )}
+
+                                                        {searchingItems[item.idStr] ? (
+                                                            <span className="text-xs font-semibold px-3 py-1.5 rounded-lg border bg-zinc-800/80 text-zinc-300 border-zinc-700 flex items-center gap-2">
+                                                                {searchingItems[item.idStr].isPolling && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>}
+                                                                {searchingItems[item.idStr].status}
+                                                            </span>
+                                                        ) : (
+                                                            <button
+                                                                className="text-xs bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 font-medium px-3 py-1.5 rounded-lg border border-emerald-500/30 transition-colors relative z-20 cursor-pointer flex items-center gap-1.5"
+                                                                onPointerDown={(e) => e.stopPropagation()}
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleForceSearch(item);
+                                                                }}
+                                                                title="Trigger automatic search"
+                                                            >
+                                                                <RefreshCw size={14} />
+                                                                Force Search {item.type === 'series' && '(All)'}
+                                                            </button>
+                                                        )}
+                                                        <span className="text-xs text-zinc-500 font-medium mr-2">Status: {isToggled ? 'Active' : 'Paused'}</span>
                                                         <button
-                                                            className="text-xs bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 font-medium px-3 py-1.5 rounded-lg border border-indigo-500/30 transition-colors mr-2 relative z-20 cursor-pointer"
                                                             onPointerDown={(e) => e.stopPropagation()}
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
-                                                                handleInteractiveSearch('movie', item.id, item.instanceId, item.title);
+                                                                toggleSearch(item.idStr);
                                                             }}
+                                                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-zinc-950 cursor-pointer z-50 ${isToggled ? 'bg-emerald-500' : 'bg-zinc-700'}`}
                                                         >
-                                                            Interactive Search
+                                                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isToggled ? 'translate-x-6' : 'translate-x-1'}`} />
                                                         </button>
-                                                    )}
-                                                    {searchingItems[item.idStr] ? (
-                                                        <span className="text-xs font-semibold px-3 py-1.5 rounded-lg border bg-zinc-800/80 text-zinc-300 border-zinc-700 mr-2 flex items-center gap-2">
-                                                            {searchingItems[item.idStr].isPolling && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>}
-                                                            {searchingItems[item.idStr].status}
-                                                        </span>
-                                                    ) : (
-                                                        <button
-                                                            className="text-xs bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 font-medium px-3 py-1.5 rounded-lg border border-emerald-500/30 transition-colors mr-2 relative z-20 cursor-pointer"
-                                                            onPointerDown={(e) => e.stopPropagation()}
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                handleForceSearch(item);
-                                                            }}
-                                                        >
-                                                            Force Search {item.type === 'series' && '(All)'}
-                                                        </button>
-                                                    )}
-                                                    <span className="text-xs text-zinc-500 font-medium mr-2">Status: {isToggled ? 'Active' : 'Paused'}</span>
-                                                    <button
-                                                        onPointerDown={(e) => e.stopPropagation()}
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            toggleSearch(item.idStr);
-                                                        }}
-                                                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-zinc-950 cursor-pointer z-50 ${isToggled ? 'bg-emerald-500' : 'bg-zinc-700'
-                                                            }`}
-                                                    >
-                                                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isToggled ? 'translate-x-6' : 'translate-x-1'
-                                                            }`} />
-                                                    </button>
+                                                    </div>
                                                 </div>
-                                            </div>
 
-                                            {/* Expanded Series Episodes Panel */}
-                                            {item.type === 'series' && expandedSeriesId === `${item.instanceId}-${item.id}` && (
-                                                <div className="ml-8 mt-1 mb-4 border-l-2 border-zinc-800 pl-4 py-2 space-y-2">
-                                                    {loadingEpisodes[`${item.instanceId}-${item.id}`] ? (
-                                                        <div className="text-sm text-zinc-500 flex items-center gap-2">
-                                                            <div className="w-4 h-4 rounded-full border-2 border-zinc-500 border-t-transparent animate-spin"></div>
-                                                            Loading episodes...
-                                                        </div>
-                                                    ) : seriesEpisodes[`${item.instanceId}-${item.id}`] ? (
-                                                        <div className="grid gap-2">
-                                                            {seriesEpisodes[`${item.instanceId}-${item.id}`]
-                                                                .filter((ep: any) => !hideUnmonitored || ep.monitored)
-                                                                .map((ep: any) => (
-                                                                    <div key={ep.id} className="bg-zinc-900/50 border border-zinc-800/80 rounded-lg p-3 flex items-center justify-between hover:bg-zinc-800/50 transition-colors">
-                                                                        <div>
-                                                                            <div className="flex items-center gap-2 mb-1">
-                                                                                <span className="text-xs font-mono text-zinc-400 bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">S{String(ep.seasonNumber).padStart(2, '0')}E{String(ep.episodeNumber).padStart(2, '0')}</span>
-                                                                                <h4 className="text-sm font-medium text-zinc-200">{ep.title}</h4>
-                                                                                {ep.hasFile ? (
-                                                                                    <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Downloaded</span>
-                                                                                ) : ep.monitored ? (
-                                                                                    <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">Missing</span>
-                                                                                ) : (
-                                                                                    <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-500 border border-zinc-700">Unmonitored</span>
-                                                                                )}
-                                                                            </div>
-                                                                            {ep.hasFile && ep.episodeFile && (
-                                                                                <div className="flex items-center gap-2 mt-1">
-                                                                                    <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded">{ep.episodeFile.quality?.quality?.name || 'Unknown Quality'}</span>
-                                                                                    {ep.episodeFile.mediaInfo?.subtitles && ep.episodeFile.mediaInfo.subtitles.length > 0 && (
-                                                                                        <span className="text-[10px] bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded flex items-center gap-1">
-                                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-                                                                                            Subtitles
-                                                                                        </span>
+                                                {/* Expanded Episodes */}
+                                                {isExpanded && (
+                                                    <div className="ml-8 mt-1 mb-4 border-l-2 border-zinc-800 pl-4 py-2 space-y-2">
+                                                        {loadingEpisodes[`${item.instanceId}-${item.id}`] ? (
+                                                            <div className="text-sm text-zinc-500 flex items-center gap-2 p-2">
+                                                                <div className="w-4 h-4 rounded-full border-2 border-zinc-500 border-t-transparent animate-spin"></div>
+                                                                Loading episodes...
+                                                            </div>
+                                                        ) : seriesEpisodes[`${item.instanceId}-${item.id}`] ? (
+                                                            <div className="grid gap-2">
+                                                                {seriesEpisodes[`${item.instanceId}-${item.id}`]
+                                                                    .filter((ep: any) => !hideUnmonitored || ep.monitored)
+                                                                    .map((ep: any) => (
+                                                                        <div key={ep.id} className="bg-zinc-900/50 border border-zinc-800/80 rounded-lg p-3 flex items-center justify-between hover:bg-zinc-800/50 transition-colors">
+                                                                            <div>
+                                                                                <div className="flex items-center gap-2 mb-1">
+                                                                                    <span className="text-xs font-mono text-zinc-400 bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">S{String(ep.seasonNumber).padStart(2, '0')}E{String(ep.episodeNumber).padStart(2, '0')}</span>
+                                                                                    <h4 className="text-sm font-medium text-zinc-200">{ep.title}</h4>
+                                                                                    {ep.hasFile ? (
+                                                                                        <div className="flex items-center gap-2">
+                                                                                            <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Downloaded</span>
+                                                                                            <button
+                                                                                                onClick={(e) => {
+                                                                                                    e.stopPropagation();
+                                                                                                    handleDeleteFile('episode', ep.id, item.instanceId, ep.episodeFileId);
+                                                                                                }}
+                                                                                                className="p-1 text-rose-500 hover:bg-rose-500/10 rounded-md transition-colors"
+                                                                                                title="Delete episode file"
+                                                                                            >
+                                                                                                <Trash2 size={12} />
+                                                                                            </button>
+                                                                                        </div>
+                                                                                    ) : ep.monitored ? (
+                                                                                        <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">Missing</span>
+                                                                                    ) : (
+                                                                                        <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-500 border border-zinc-700">Unmonitored</span>
                                                                                     )}
                                                                                 </div>
-                                                                            )}
-                                                                            {!ep.hasFile && ep.airDateUtc && new Date(ep.airDateUtc).getTime() > Date.now() && (
-                                                                                <p className="text-[10px] text-zinc-500 mt-1">Airs: {new Date(ep.airDateUtc).toLocaleDateString()}</p>
-                                                                            )}
-                                                                        </div>
-                                                                        <div>
-                                                                            {!ep.hasFile && ep.monitored && new Date(ep.airDateUtc).getTime() < Date.now() && (
-                                                                                <>
+                                                                                {ep.hasFile && ep.episodeFile && (
+                                                                                    <div className="flex items-center gap-2 mt-1">
+                                                                                        <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded">{ep.episodeFile.quality?.quality?.name || 'Unknown Quality'}</span>
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                            <div className="flex items-center gap-2">
+                                                                                {!ep.hasFile && ep.monitored && new Date(ep.airDateUtc).getTime() < Date.now() && (
                                                                                     <button
-                                                                                        id={`search-ep-${item.instanceId}-${ep.id}`}
-                                                                                        onPointerDown={(e) => e.stopPropagation()}
-                                                                                        onClick={(e) => {
-                                                                                            e.stopPropagation();
-                                                                                            // Trigger manual search for single episode
-                                                                                            fetch('/api/search/trigger', {
-                                                                                                method: 'POST',
-                                                                                                headers: { 'Content-Type': 'application/json' },
-                                                                                                body: JSON.stringify({ type: 'episode', mediaId: ep.id, instanceId: item.instanceId })
-                                                                                            });
-
-                                                                                            // Optimistic UX feedback override
-                                                                                            const btn = document.getElementById(`search-ep-${item.instanceId}-${ep.id}`);
-                                                                                            if (btn) {
-                                                                                                btn.innerText = 'Searching...';
-                                                                                                btn.classList.replace('text-emerald-400', 'text-amber-400');
-                                                                                                btn.classList.replace('bg-emerald-600/20', 'bg-amber-600/20');
-                                                                                            }
-
-                                                                                            // Inject into episode state so the logic knows
-                                                                                            setEpisodes(prev => prev.map(e => e.id === item.id && e.instanceId === item.instanceId ? { ...e, queuedEpisodeIds: [...(e.queuedEpisodeIds || []), ep.id] } : e));
-                                                                                        }}
-                                                                                        className="px-2 py-1 text-[10px] font-semibold bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 rounded border border-emerald-500/20 hover:border-emerald-500/40 transition-colors"
-                                                                                    >
-                                                                                        Search Episode
-                                                                                    </button>
-                                                                                    <button
-                                                                                        onPointerDown={(e) => e.stopPropagation()}
                                                                                         onClick={(e) => {
                                                                                             e.stopPropagation();
                                                                                             handleInteractiveSearch('episode', ep.id, item.instanceId, `${item.title} - S${String(ep.seasonNumber).padStart(2, '0')}E${String(ep.episodeNumber).padStart(2, '0')}`);
                                                                                         }}
-                                                                                        className="px-2 py-1 text-[10px] font-semibold bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 rounded border border-indigo-500/20 hover:border-indigo-500/40 transition-colors ml-2"
+                                                                                        className="px-2 py-1 text-[10px] font-semibold bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 rounded border border-indigo-500/20 hover:border-indigo-500/40 transition-colors"
                                                                                     >
                                                                                         Interactive Search
                                                                                     </button>
-                                                                                </>
-                                                                            )}
+                                                                                )}
+                                                                            </div>
                                                                         </div>
-                                                                    </div>
-                                                                ))}
-                                                        </div>
-                                                    ) : (
-                                                        <div className="text-sm text-zinc-500">No episodes found.</div>
-                                                    )}
-                                                </div>
-                                            )}
+                                                                    ))}
+                                                            </div>
+                                                        ) : (
+                                                            <div className="text-sm text-zinc-500 p-2">No episodes found.</div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
                                         </SortableItem>
                                     );
                                 })}
@@ -1224,88 +1368,91 @@ export default function SchedulerQueue() {
             </div>
 
             {/* Interactive Search Modal Overlay */}
-            {interactiveSearchItem && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                    <div className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-                        <div className="p-5 border-b border-zinc-800/60 bg-zinc-900/50 flex justify-between items-center">
-                            <div>
-                                <h2 className="text-xl font-bold text-white mb-1">Interactive Release Search</h2>
-                                <p className="text-sm text-zinc-400 font-medium">Top 10 highest scored releases for: <span className="text-indigo-400 font-bold">{interactiveSearchItem.title}</span></p>
+            {
+                interactiveSearchItem && (
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                        <div className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+                            <div className="p-5 border-b border-zinc-800/60 bg-zinc-900/50 flex justify-between items-center">
+                                <div>
+                                    <h2 className="text-xl font-bold text-white mb-1">Interactive Release Search</h2>
+                                    <p className="text-sm text-zinc-400 font-medium">Top 10 highest scored releases for: <span className="text-indigo-400 font-bold">{interactiveSearchItem?.title}</span></p>
+
+                                </div>
+                                <button
+                                    onClick={() => setInteractiveSearchItem(null)}
+                                    className="text-zinc-500 hover:text-white p-2 bg-zinc-900 rounded-full hover:bg-zinc-800 border border-zinc-800 transition-colors"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                                </button>
                             </div>
-                            <button
-                                onClick={() => setInteractiveSearchItem(null)}
-                                className="text-zinc-500 hover:text-white p-2 bg-zinc-900 rounded-full hover:bg-zinc-800 border border-zinc-800 transition-colors"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                            </button>
-                        </div>
-                        <div className="flex-1 overflow-y-auto p-5">
-                            {loadingReleases ? (
-                                <div className="flex flex-col items-center justify-center py-20">
-                                    <div className="w-10 h-10 rounded-full border-4 border-indigo-500 border-t-transparent animate-spin mb-4"></div>
-                                    <p className="text-zinc-400 font-medium animate-pulse">Querying indexers for live releases...</p>
-                                </div>
-                            ) : interactiveReleases.length === 0 ? (
-                                <div className="flex flex-col items-center justify-center py-20 bg-zinc-900/30 rounded-xl border border-dashed border-zinc-800">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="text-zinc-600 mb-4"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                                    <h3 className="text-lg font-bold text-zinc-300">No Releases Found</h3>
-                                    <p className="text-sm text-zinc-500 mt-1 max-w-sm text-center">Your indexers could not find any active releases for this item matching its quality profile.</p>
-                                </div>
-                            ) : (
-                                <div className="space-y-3">
-                                    {interactiveReleases.map((release, idx) => (
-                                        <div key={release.guid} className="bg-zinc-900 border border-zinc-800 hover:border-indigo-500/50 transition-colors p-4 rounded-xl flex flex-col md:flex-row gap-4 items-start md:items-center justify-between group">
-                                            <div className="flex-1 min-w-0 pr-4">
-                                                <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                                                    <span className="flex items-center justify-center w-6 h-6 rounded bg-zinc-800 text-zinc-400 text-xs font-bold ring-1 ring-zinc-700">#{idx + 1}</span>
-                                                    <span className={`text-xs font-bold px-2 py-0.5 rounded ${release.customFormatScore > 0 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-zinc-800 text-zinc-400 border border-zinc-700'}`}>Score: {release.customFormatScore}</span>
-                                                    <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border border-blue-500/20 bg-blue-500/10 text-blue-400">{release.quality || 'Unknown'}</span>
-                                                    {release.rejected && (
-                                                        <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded border border-rose-500/20 bg-rose-500/10 text-rose-400">Rejected</span>
-                                                    )}
-                                                </div>
-                                                <h4 className="text-sm font-medium text-zinc-200 break-words leading-snug group-hover:text-white transition-colors">
-                                                    {release.title}
-                                                </h4>
-                                                <div className="flex items-center gap-3 mt-2 text-xs font-medium text-zinc-500">
-                                                    <span className="flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg> {(release.size / 1024 / 1024 / 1024).toFixed(2)} GB</span>
-                                                    <span className="text-zinc-700">•</span>
-                                                    <span>{release.indexer}</span>
-                                                    <span className="text-zinc-700">•</span>
-                                                    <span className="uppercase text-[10px] tracking-wider">{release.protocol}</span>
-                                                </div>
-                                                {release.rejected && release.rejections && release.rejections.length > 0 && (
-                                                    <div className="mt-2 text-xs text-rose-400/80 bg-rose-500/5 p-2 rounded border border-rose-500/10 hidden group-hover:block transition-all">
-                                                        Warning: {release.rejections.join(', ')}
+                            <div className="flex-1 overflow-y-auto p-5">
+                                {loadingReleases ? (
+                                    <div className="flex flex-col items-center justify-center py-20">
+                                        <div className="w-10 h-10 rounded-full border-4 border-indigo-500 border-t-transparent animate-spin mb-4"></div>
+                                        <p className="text-zinc-400 font-medium animate-pulse">Querying indexers for live releases...</p>
+                                    </div>
+                                ) : interactiveReleases.length === 0 ? (
+                                    <div className="flex flex-col items-center justify-center py-20 bg-zinc-900/30 rounded-xl border border-dashed border-zinc-800">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="text-zinc-600 mb-4"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                                        <h3 className="text-lg font-bold text-zinc-300">No Releases Found</h3>
+                                        <p className="text-sm text-zinc-500 mt-1 max-w-sm text-center">Your indexers could not find any active releases for this item matching its quality profile.</p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-3">
+                                        {interactiveReleases.map((release, idx) => (
+                                            <div key={release.guid} className="bg-zinc-900 border border-zinc-800 hover:border-indigo-500/50 transition-colors p-4 rounded-xl flex flex-col md:flex-row gap-4 items-start md:items-center justify-between group">
+                                                <div className="flex-1 min-w-0 pr-4">
+                                                    <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                                                        <span className="flex items-center justify-center w-6 h-6 rounded bg-zinc-800 text-zinc-400 text-xs font-bold ring-1 ring-zinc-700">#{idx + 1}</span>
+                                                        <span className={`text-xs font-bold px-2 py-0.5 rounded ${release.customFormatScore > 0 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-zinc-800 text-zinc-400 border border-zinc-700'}`}>Score: {release.customFormatScore}</span>
+                                                        <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border border-blue-500/20 bg-blue-500/10 text-blue-400">{release.quality || 'Unknown'}</span>
+                                                        {release.rejected && (
+                                                            <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded border border-rose-500/20 bg-rose-500/10 text-rose-400">Rejected</span>
+                                                        )}
                                                     </div>
-                                                )}
-                                            </div>
-                                            <div className="flex-shrink-0 mt-3 md:mt-0 w-full md:w-auto">
-                                                <button
-                                                    onClick={() => triggerInteractiveDownload(release.guid, release.indexerId)}
-                                                    disabled={triggeringReleaseGuid !== null}
-                                                    className={`w-full md:w-auto flex items-center justify-center gap-2 px-6 py-2.5 text-sm font-bold rounded-lg border transition-all ${triggeringReleaseGuid === release.guid
-                                                        ? 'bg-amber-500/20 text-amber-400 border-amber-500/30 cursor-wait'
-                                                        : triggeringReleaseGuid
-                                                            ? 'bg-zinc-800 text-zinc-600 border-zinc-700 cursor-not-allowed'
-                                                            : 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500 shadow-lg shadow-indigo-500/20 hover:scale-[1.02] active:scale-[0.98]'
-                                                        }`}
-                                                >
-                                                    {triggeringReleaseGuid === release.guid ? (
-                                                        <><div className="w-4 h-4 rounded-full border-2 border-amber-500 border-t-transparent animate-spin"></div> Grabbing...</>
-                                                    ) : (
-                                                        <><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> Download</>
+                                                    <h4 className="text-sm font-medium text-zinc-200 break-words leading-snug group-hover:text-white transition-colors">
+                                                        {release.title}
+                                                    </h4>
+                                                    <div className="flex items-center gap-3 mt-2 text-xs font-medium text-zinc-500">
+                                                        <span className="flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg> {(release.size / 1024 / 1024 / 1024).toFixed(2)} GB</span>
+                                                        <span className="text-zinc-700">•</span>
+                                                        <span>{release.indexer}</span>
+                                                        <span className="text-zinc-700">•</span>
+                                                        <span className="uppercase text-[10px] tracking-wider">{release.protocol}</span>
+                                                    </div>
+                                                    {release.rejected && release.rejections && release.rejections.length > 0 && (
+                                                        <div className="mt-2 text-xs text-rose-400/80 bg-rose-500/5 p-2 rounded border border-rose-500/10 hidden group-hover:block transition-all">
+                                                            Warning: {release.rejections.join(', ')}
+                                                        </div>
                                                     )}
-                                                </button>
+                                                </div>
+                                                <div className="flex-shrink-0 mt-3 md:mt-0 w-full md:w-auto">
+                                                    <button
+                                                        onClick={() => triggerInteractiveDownload(release.guid, release.indexerId)}
+                                                        disabled={triggeringReleaseGuid !== null}
+                                                        className={`w-full md:w-auto flex items-center justify-center gap-2 px-6 py-2.5 text-sm font-bold rounded-lg border transition-all ${triggeringReleaseGuid === release.guid
+                                                            ? 'bg-amber-500/20 text-amber-400 border-amber-500/30 cursor-wait'
+                                                            : triggeringReleaseGuid
+                                                                ? 'bg-zinc-800 text-zinc-600 border-zinc-700 cursor-not-allowed'
+                                                                : 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500 shadow-lg shadow-indigo-500/20 hover:scale-[1.02] active:scale-[0.98]'
+                                                            }`}
+                                                    >
+                                                        {triggeringReleaseGuid === release.guid ? (
+                                                            <><div className="w-4 h-4 rounded-full border-2 border-amber-500 border-t-transparent animate-spin"></div> Grabbing...</>
+                                                        ) : (
+                                                            <><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> Download</>
+                                                        )}
+                                                    </button>
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
         </div >
     );
 }

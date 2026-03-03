@@ -206,3 +206,15 @@ export const deleteFromQueue = async (url: string, apiKey: string, queueId: numb
         return false;
     }
 };
+// Function to delete an episode file
+export const deleteEpisodeFile = async (url: string, apiKey: string, episodeFileId: number): Promise<boolean> => {
+    try {
+        const response = await axios.delete(`${url}/api/v3/episodefile/${episodeFileId}`, {
+            headers: { 'X-Api-Key': apiKey }
+        });
+        return response.status === 200;
+    } catch (error) {
+        console.error(`Error deleting episode file from Sonarr (${url}):`, error);
+        return false;
+    }
+};

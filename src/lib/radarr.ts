@@ -170,3 +170,15 @@ export const deleteFromQueue = async (url: string, apiKey: string, queueId: numb
         return false;
     }
 };
+// Function to delete a movie file
+export const deleteMovieFile = async (url: string, apiKey: string, movieFileId: number): Promise<boolean> => {
+    try {
+        const response = await axios.delete(`${url}/api/v3/moviefile/${movieFileId}`, {
+            headers: { 'X-Api-Key': apiKey }
+        });
+        return response.status === 200;
+    } catch (error) {
+        console.error(`Error deleting movie file from Radarr (${url}):`, error);
+        return false;
+    }
+};

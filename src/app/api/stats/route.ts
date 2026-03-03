@@ -131,12 +131,15 @@ export async function GET() {
                             if (isImport) status = 'Finalized';
                             if (isFailed) status = 'Failed';
 
+                            // Calculate size
+                            const sizeBytes = record.movieFile?.size || record.episodeFile?.size || 0;
+
                             allRecentRecords.push({
                                 title,
                                 date: record.date,
                                 instanceId: id,
                                 status,
-                                size: record.movieFile?.size || record.episodeFile?.size
+                                size: sizeBytes
                             });
                         }
                     }
