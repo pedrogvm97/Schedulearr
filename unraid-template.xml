@@ -11,7 +11,7 @@
   <Overview>Schedulearr is a localized Next.js web application that acts as an intelligent scheduler and orchestrator for Radarr, Sonarr, and Prowlarr.</Overview>
   <Category>MediaApp:Video MediaApp:Music Other:</Category>
   <WebUI>http://[IP]:[PORT:3010]</WebUI>
-  <TemplateURL/>
+  <TemplateURL>https://raw.githubusercontent.com/pedrogvm97/Schedulearr/templates/unraid-template.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/pedrogvm97/Schedulearr/main/public/icon-square.png</Icon>
   <ExtraParams/>
   <PostArgs/>
