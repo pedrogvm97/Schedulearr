@@ -25,6 +25,7 @@ interface Indexer {
     status: number;
     prowlarr_name: string;
     prowlarr_instance_id: string;
+    prowlarr_color?: string;
     rule: IndexerRule | null;
 }
 
@@ -116,6 +117,37 @@ export default function IndexersPage() {
         }
     };
 
+    const applyToAllRules = async () => {
+        if (!selectedIndexer) return;
+
+        try {
+            const max_snatches = formSnatches ? parseInt(formSnatches) : null;
+            const max_size_bytes = formSizeGB ? parseFloat(formSizeGB) * (1024 ** 3) : null;
+
+            const targetIndexers = indexers.filter(i => i.prowlarr_instance_id === selectedIndexer.prowlarr_instance_id);
+
+            const promises = targetIndexers.map(ind =>
+                axios.post('/api/prowlarr/rules', {
+                    id: ind.rule?.id,
+                    indexer_id: ind.id,
+                    prowlarr_instance_id: ind.prowlarr_instance_id,
+                    name: ind.name,
+                    max_snatches,
+                    max_size_bytes,
+                    interval: formInterval
+                })
+            );
+
+            await Promise.all(promises);
+
+            toast.success(`Rules applied to all indexers for ${selectedIndexer.prowlarr_name}`);
+            setShowModal(false);
+            fetchIndexers();
+        } catch (e) {
+            toast.error('Failed to apply rules to all indexers');
+        }
+    };
+
     const deleteRule = async () => {
         if (!selectedIndexer?.rule) return;
         try {
@@ -153,7 +185,11 @@ export default function IndexersPage() {
                             {/* Toggle Switch */}
                             <button
                                 onClick={() => toggleIndexer(ind)}
-                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-zinc-900 ${ind.enable ? 'bg-emerald-500' : 'bg-zinc-700'}`}
+                                style={{
+                                    backgroundColor: ind.enable ? (ind.prowlarr_color || '#10b981') : '',
+                                    boxShadow: ind.enable ? `0 0 0 2px transparent, 0 0 0 4px ${ind.prowlarr_color || '#10b981'}40` : ''
+                                }}
+                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${ind.enable ? '' : 'bg-zinc-700'}`}
                             >
                                 <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${ind.enable ? 'translate-x-6' : 'translate-x-1'}`} />
                             </button>
@@ -169,7 +205,7 @@ export default function IndexersPage() {
                                     </span>
                                 </div>
                                 <div className="flex justify-between">
-                                    <span className="text-zinc-400">Hits Used</span>
+                                    <span className="text-zinc-400">Snatches (Pulls)</span>
                                     <span className="text-white font-medium">
                                         {ind.rule.current_snatches}
                                         {ind.rule.max_snatches && ` / ${ind.rule.max_snatches}`}
@@ -185,7 +221,8 @@ export default function IndexersPage() {
                         <div className="mt-auto">
                             <button
                                 onClick={() => openConfigModal(ind)}
-                                className="w-full text-sm font-medium text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 py-2 rounded-lg transition"
+                                style={{ color: ind.prowlarr_color || '#34d399', backgroundColor: ind.prowlarr_color ? `${ind.prowlarr_color}1A` : 'rgba(16, 185, 129, 0.1)' }}
+                                className="w-full text-sm font-medium hover:brightness-125 py-2 rounded-lg transition"
                             >
                                 {ind.rule ? 'Edit Rules' : 'Configure Rules'}
                             </button>
@@ -221,7 +258,7 @@ export default function IndexersPage() {
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-zinc-400 mb-1">Max Grabs (Hits)</label>
+                                <label className="block text-sm font-medium text-zinc-400 mb-1">Max Snatches (Pulls)</label>
                                 <input
                                     type="number"
                                     value={formSnatches}
@@ -254,6 +291,13 @@ export default function IndexersPage() {
                                     Remove Rule
                                 </button>
                             )}
+                            <button
+                                onClick={applyToAllRules}
+                                className="px-4 py-2 text-sm font-medium text-indigo-400 hover:text-indigo-300 hover:bg-indigo-400/10 rounded-lg transition mr-auto"
+                                title="Apply these exact settings to all active indexers for this App instance"
+                            >
+                                Apply to All
+                            </button>
                             <button
                                 onClick={() => setShowModal(false)}
                                 className="px-4 py-2 text-sm font-medium text-zinc-400 hover:text-white transition"

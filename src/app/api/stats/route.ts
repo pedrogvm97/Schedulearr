@@ -55,6 +55,7 @@ export async function GET() {
         }
 
         const instanceMetadata: Record<string, { name: string, color: string, type: string }> = {};
+        const allRecentRecords: { title: string, date: string, instanceId: string }[] = [];
 
         // Fetch history across all instances concurrently
         const fetchPromises = instances.map(async (instance: Instance) => {
@@ -92,6 +93,12 @@ export async function GET() {
                             }
 
                             dailyStats[dateStr][id].push(title);
+
+                            allRecentRecords.push({
+                                title,
+                                date: record.date,
+                                instanceId: id
+                            });
                         }
                     }
                 });
@@ -113,7 +120,10 @@ export async function GET() {
             return dayObj;
         });
 
-        return NextResponse.json({ data: chartData, instances: instanceMetadata });
+        allRecentRecords.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        const recentDownloads = allRecentRecords.slice(0, 15);
+
+        return NextResponse.json({ data: chartData, instances: instanceMetadata, recentDownloads });
     } catch (error) {
         console.error('API /stats error:', error);
         return NextResponse.json({ error: 'Failed to generate statistics' }, { status: 500 });

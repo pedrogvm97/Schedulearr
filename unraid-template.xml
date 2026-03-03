@@ -12,7 +12,7 @@
   <Category>MediaApp:Video MediaApp:Music Other:</Category>
   <WebUI>http://[IP]:[PORT:3010]</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/pedrogvm97/Schedulearr/templates/unraid-template.xml</TemplateURL>
-  <Icon>https://raw.githubusercontent.com/pedrogvm97/Schedulearr/main/public/icon-square.png</Icon>
+  <Icon>https://raw.githubusercontent.com/pedrogvm97/Schedulearr/main/public/icon.png</Icon>
   <ExtraParams/>
   <PostArgs/>
   <CPUset/>

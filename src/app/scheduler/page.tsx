@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { formatDistanceToNow } from 'date-fns';
+import { toast } from 'sonner';
 import {
     DndContext,
     closestCenter,
@@ -135,7 +136,7 @@ export default function SchedulerQueue() {
         setTriggeringReleaseGuid(guid);
         try {
             const endpoint = interactiveSearchItem.type === 'movie' ? '/api/radarr/releases' : '/api/sonarr/releases';
-            await fetch(endpoint, {
+            const res = await fetch(endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -144,12 +145,38 @@ export default function SchedulerQueue() {
                     instanceId: interactiveSearchItem.instanceId
                 })
             });
+
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.error || 'Failed to trigger download');
+            }
+
+            toast.success('Successfully sent release to download client!');
+
+            // Optimistically update the main data array so it re-filters instantly
+            if (interactiveSearchItem.type === 'movie') {
+                setMovies(prev => prev.map(m => m.id === interactiveSearchItem.id && m.instanceId === interactiveSearchItem.instanceId ? { ...m, isDownloading: true } : m));
+            } else if (interactiveSearchItem.type === 'episode') {
+                // If it's an episode, we need to find the series it belongs to and add the episode ID to queuedEpisodeIds
+                setEpisodes(prev => prev.map(e => {
+                    if (e.instanceId === interactiveSearchItem.instanceId && e.episodes?.some((ep: any) => ep.id === interactiveSearchItem.id)) {
+                        return { ...e, queuedEpisodeIds: [...(e.queuedEpisodeIds || []), interactiveSearchItem.id] };
+                    }
+                    return e;
+                }));
+            } else {
+                // Series level (season pack)
+                setEpisodes(prev => prev.map(e => e.id === interactiveSearchItem.id && e.instanceId === interactiveSearchItem.instanceId ? { ...e, queuedEpisodeIds: [...(e.queuedEpisodeIds || []), ...e.episodes?.map((ep: any) => ep.id) || []] } : e));
+            }
+
             // Auto close modal on success
             setInteractiveSearchItem(null);
-            // Optionally we can trigger a refresh here, or just let background task pick it up
+
+            // Re-fetch to eventually sync with reality
             fetchData();
-        } catch (e) {
+        } catch (e: any) {
             console.error(e);
+            toast.error(e.message || 'Failed to send release to download client.');
         } finally {
             setTriggeringReleaseGuid(null);
         }

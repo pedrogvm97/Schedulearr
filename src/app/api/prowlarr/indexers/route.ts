@@ -20,6 +20,7 @@ export async function GET() {
                     ...ind,
                     prowlarr_name: prowlarr.name,
                     prowlarr_instance_id: prowlarr.id,
+                    prowlarr_color: prowlarr.color || '#10b981', // emerald-500 fallback
                     rule: existingRule || null
                 };
             });

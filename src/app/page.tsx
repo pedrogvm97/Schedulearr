@@ -15,6 +15,7 @@ export default function Dashboard() {
   const [isTriggering, setIsTriggering] = useState(false);
   const [chartData, setChartData] = useState<any[]>([]);
   const [instances, setInstances] = useState<Record<string, { name: string, color: string, type: string }>>({});
+  const [recentDownloads, setRecentDownloads] = useState<any[]>([]);
   const [loadingStats, setLoadingStats] = useState(true);
 
   const [prowlarrHealth, setProwlarrHealth] = useState<any[]>([]);
@@ -38,6 +39,7 @@ export default function Dashboard() {
           const json = await res.json();
           setChartData(json.data || []);
           setInstances(json.instances || {});
+          if (json.recentDownloads) setRecentDownloads(json.recentDownloads);
         }
       } catch (e) {
         console.error("Failed to load stats", e);
@@ -179,48 +181,81 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Prowlarr Indexers Health */}
-      {!loadingProwlarr && prowlarrHealth.length > 0 && (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 mb-8">
-          <h2 className="text-xl font-bold text-white mb-6">Prowlarr Indexer Health</h2>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {prowlarrHealth.map((prowlarrInst) => (
-              <div key={prowlarrInst.id} className="bg-zinc-950 border border-zinc-800 rounded-xl p-5">
-                <div className="flex items-center justify-between mb-4 border-b border-zinc-800 pb-3">
-                  <div className="flex items-center gap-3">
-                    <span className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <h3 className="text-lg font-bold text-white">{prowlarrInst.name}</h3>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8 items-stretch">
+        {/* Prowlarr Indexers Health */}
+        {!loadingProwlarr && prowlarrHealth.length > 0 && (
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col max-h-[500px]">
+            <h2 className="text-xl font-bold text-white mb-6">Prowlarr Indexer Health</h2>
+            <div className="flex flex-col gap-6 overflow-y-auto pr-2 custom-scrollbar">
+              {prowlarrHealth.map((prowlarrInst) => (
+                <div key={prowlarrInst.id} className="bg-zinc-950 border border-zinc-800 rounded-xl p-5 flex-shrink-0">
+                  <div className="flex items-center justify-between mb-4 border-b border-zinc-800 pb-3">
+                    <div className="flex items-center gap-3">
+                      <span className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></span>
+                      <h3 className="text-lg font-bold text-white">{prowlarrInst.name}</h3>
+                    </div>
+                    <div className="text-sm text-zinc-400 font-medium">
+                      {prowlarrInst.health?.indexers?.length || 0} Enabled Indexers
+                    </div>
                   </div>
-                  <div className="text-sm text-zinc-400 font-medium">
-                    {prowlarrInst.health?.indexers?.length || 0} Enabled Indexers
-                  </div>
-                </div>
 
-                {(!prowlarrInst.health?.indexers || prowlarrInst.health.indexers.length === 0) ? (
-                  <div className="text-zinc-500 italic text-sm py-2">No indexers enabled or accessible.</div>
-                ) : (
-                  <div className="grid grid-cols-2 gap-2">
-                    {prowlarrInst.health.indexers.map((indexer: any) => {
-                      const isHealthy = indexer.status === 1;
-                      return (
-                        <div key={indexer.id} className="flex items-center gap-2 p-2 rounded-lg bg-zinc-900 border border-zinc-800">
-                          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isHealthy ? 'bg-emerald-500' : 'bg-red-500'}`} />
-                          <div className="flex flex-col min-w-0">
-                            <span className="text-xs font-semibold text-zinc-300 truncate" title={indexer.name}>{indexer.name}</span>
-                            <span className={`text-[10px] uppercase font-bold tracking-wider ${isHealthy ? 'text-emerald-500/70' : 'text-red-500/70'}`}>
-                              {isHealthy ? 'Healthy' : 'Failing'}
-                            </span>
+                  {(!prowlarrInst.health?.indexers || prowlarrInst.health.indexers.length === 0) ? (
+                    <div className="text-zinc-500 italic text-sm py-2">No indexers enabled or accessible.</div>
+                  ) : (
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-2">
+                      {prowlarrInst.health.indexers.map((indexer: any) => {
+                        const isHealthy = indexer.status === 1;
+                        return (
+                          <div key={indexer.id} className="flex items-center gap-2 p-2 rounded-lg bg-zinc-900 border border-zinc-800">
+                            <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isHealthy ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                            <div className="flex flex-col min-w-0">
+                              <span className="text-xs font-semibold text-zinc-300 truncate" title={indexer.name}>{indexer.name}</span>
+                              <span className={`text-[10px] uppercase font-bold tracking-wider ${isHealthy ? 'text-emerald-500/70' : 'text-red-500/70'}`}>
+                                {isHealthy ? 'Healthy' : 'Failing'}
+                              </span>
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Recent Downloads */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col max-h-[500px]">
+          <h2 className="text-xl font-bold text-white mb-6">Recent Downloads</h2>
+          <div className="flex flex-col gap-3 overflow-y-auto pr-2 custom-scrollbar">
+            {loadingStats && (
+              <div className="text-zinc-500 text-sm italic py-2">Loading recent downloads...</div>
+            )}
+            {!loadingStats && recentDownloads.length === 0 && (
+              <div className="text-zinc-500 text-sm py-2 flex items-center justify-center p-8 bg-zinc-950/50 rounded-xl border border-zinc-800/50 border-dashed">
+                No downloads grabbed yet.
               </div>
-            ))}
+            )}
+            {!loadingStats && recentDownloads.map((dl, idx) => {
+              const inst = instances[dl.instanceId];
+              return (
+                <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-zinc-950 border border-zinc-800 flex-shrink-0 transition hover:border-zinc-700">
+                  <div className="flex flex-col min-w-0 pr-4">
+                    <span className="text-sm font-semibold text-zinc-200 truncate" title={dl.title}>{dl.title}</span>
+                    <span className="text-xs text-zinc-500 font-medium mt-0.5">{new Date(dl.date).toLocaleString()}</span>
+                  </div>
+                  {inst && (
+                    <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded-md border flex-shrink-0" style={{ color: inst.color, borderColor: `${inst.color}40`, backgroundColor: `${inst.color}10` }}>
+                      {inst.name}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
-      )}
+      </div>
 
       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
         <HistoryLedger />
