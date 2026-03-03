@@ -21,7 +21,8 @@ export async function GET() {
                 const tagged = torrents.map(t => ({
                     ...t,
                     instanceId: instance.id,
-                    instanceName: instance.name
+                    instanceName: instance.name,
+                    instanceColor: instance.color || 'bg-emerald-500'
                 }));
                 allTorrents = [...allTorrents, ...tagged];
             } catch (instError) {

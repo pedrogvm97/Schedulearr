@@ -93,7 +93,7 @@ export default function Downloads() {
                         <div key={torrent.hash} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 mb-1">
-                                    <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-sm bg-emerald-500/20 text-emerald-500">
+                                    <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-sm bg-opacity-20 text-white ${torrent.instanceColor}`}>
                                         {torrent.instanceName || 'qBittorrent'}
                                     </span>
                                     {torrent.state.includes('stalled') && (
@@ -115,7 +115,7 @@ export default function Downloads() {
                                             <span>{(torrent.progress * 100).toFixed(1)}%</span>
                                             <div className="w-16 h-1.5 bg-zinc-800 rounded-full overflow-hidden hidden sm:block">
                                                 <div
-                                                    className="h-full bg-emerald-500"
+                                                    className={`h-full ${torrent.instanceColor}`}
                                                     style={{ width: `${torrent.progress * 100}%` }}
                                                 />
                                             </div>

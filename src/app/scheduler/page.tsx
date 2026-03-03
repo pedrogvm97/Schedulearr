@@ -68,6 +68,7 @@ export default function SchedulerQueue() {
     const [profile, setProfile] = useState('recently_added');
     const [orderedIds, setOrderedIds] = useState<string[]>([]);
     const [showActiveOnly, setShowActiveOnly] = useState(false);
+    const [hideUnmonitored, setHideUnmonitored] = useState(false);
     const [showNextBatchOnly, setShowNextBatchOnly] = useState(false);
     const [searchingItems, setSearchingItems] = useState<Record<string, { status: string, isPolling: boolean }>>({});
 
@@ -200,6 +201,7 @@ export default function SchedulerQueue() {
                 }
                 if (settingsData.ui_genre_logic) setGenreLogic(settingsData.ui_genre_logic);
                 if (settingsData.ui_active_only !== undefined) setShowActiveOnly(settingsData.ui_active_only === 'true');
+                if (settingsData.ui_hide_unmonitored !== undefined) setHideUnmonitored(settingsData.ui_hide_unmonitored === 'true');
             }
         } catch (e) {
             console.error("Failed to load data", e);
@@ -240,6 +242,7 @@ export default function SchedulerQueue() {
                 if (parsed.instanceFilters) setInstanceFilters(parsed.instanceFilters);
                 if (parsed.qualityFilter) setQualityFilter(parsed.qualityFilter);
                 if (parsed.showActiveOnly !== undefined) setShowActiveOnly(parsed.showActiveOnly);
+                if (parsed.hideUnmonitored !== undefined) setHideUnmonitored(parsed.hideUnmonitored);
                 if (parsed.showNextBatchOnly !== undefined) setShowNextBatchOnly(parsed.showNextBatchOnly);
                 if (parsed.genreLogic) setGenreLogic(parsed.genreLogic);
             } catch (e) {
@@ -255,6 +258,7 @@ export default function SchedulerQueue() {
             instanceFilters,
             qualityFilter,
             showActiveOnly,
+            hideUnmonitored,
             showNextBatchOnly,
             genreLogic
         };
@@ -262,7 +266,7 @@ export default function SchedulerQueue() {
         if (!loading && movies.length > 0) {
             setHasUnsavedChanges(true);
         }
-    }, [selectedGenres, instanceFilters, qualityFilter, showActiveOnly, showNextBatchOnly, genreLogic, searchToggles]);
+    }, [selectedGenres, instanceFilters, qualityFilter, showActiveOnly, hideUnmonitored, showNextBatchOnly, genreLogic, searchToggles]);
 
     const handleSaveConfiguration = async () => {
         setIsSaving(true);
@@ -273,6 +277,7 @@ export default function SchedulerQueue() {
                 fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'ui_genre_logic', value: genreLogic }) }),
                 fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'ui_instance_filters', value: JSON.stringify(instanceFilters) }) }),
                 fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'ui_active_only', value: showActiveOnly ? 'true' : 'false' }) }),
+                fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'ui_hide_unmonitored', value: hideUnmonitored ? 'true' : 'false' }) }),
                 fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'ui_search_toggles', value: JSON.stringify(searchToggles) }) })
             ]);
             setSaveSuccess(true);
@@ -497,6 +502,13 @@ export default function SchedulerQueue() {
     let displayItems = combined;
     if (showActiveOnly) {
         displayItems = displayItems.filter(item => searchToggles[item.idStr] !== false);
+    }
+    if (hideUnmonitored) {
+        displayItems = displayItems.filter(item => {
+            // For seasons/shows with 0 monitored episodes, the item.monitored flag handles it on the core object,
+            // but Radarr/Sonarr `monitored` flag true/false is exactly what we need.
+            return item.monitored === true;
+        });
     }
 
     // Apply Profile Sorting System so UI matches backend expectations
@@ -844,7 +856,16 @@ export default function SchedulerQueue() {
                                             <div className={`block w-10 h-6 rounded-full transition-colors ${showActiveOnly ? 'bg-purple-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
                                             <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${showActiveOnly ? 'translate-x-4' : ''}`}></div>
                                         </div>
-                                        <span className="text-sm font-medium text-zinc-300 ml-3 hidden sm:inline-block">Show active media only</span>
+                                        <span className="text-sm font-medium text-zinc-300 ml-3 hidden xl:inline-block">Show active only</span>
+                                    </label>
+                                    <div className="w-px h-6 bg-zinc-700 mx-2 hidden md:block"></div>
+                                    <label className="flex items-center cursor-pointer group">
+                                        <div className="relative">
+                                            <input type="checkbox" className="sr-only" checked={hideUnmonitored} onChange={() => setHideUnmonitored(!hideUnmonitored)} />
+                                            <div className={`block w-10 h-6 rounded-full transition-colors ${hideUnmonitored ? 'bg-emerald-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
+                                            <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${hideUnmonitored ? 'translate-x-4' : ''}`}></div>
+                                        </div>
+                                        <span className="text-sm font-medium text-zinc-300 ml-3 hidden xl:inline-block">Hide Unmonitored</span>
                                     </label>
                                 </div>
                             )}
