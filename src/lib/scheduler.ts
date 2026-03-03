@@ -2,6 +2,7 @@ import { getInstances, getSetting, logSearchHistory, getSchedulerConfig } from '
 import { getAllMovies, triggerMovieSearch, RadarrMovie, getQueue as getRadarrQueue } from '@/lib/radarr';
 import { getAllSeries, triggerEpisodeSearch, SonarrSeries, getQueue as getSonarrQueue } from '@/lib/sonarr';
 import { getIndexerHealth } from '@/lib/prowlarr';
+import { evaluateIndexerRules } from '@/lib/indexerAutomations';
 
 // Prevent multiple scheduler instances from running in dev mode HMR
 declare global {
@@ -23,6 +24,7 @@ if (!global.globalSchedulerRunning) {
             const now = new Date().toISOString();
             console.log(`[${now}] 🕒 Schedulearr running automated batch...`);
             try {
+                await evaluateIndexerRules();
                 await runBatchSearch();
             } catch (error) {
                 console.error('❌ Scheduler error:', error);

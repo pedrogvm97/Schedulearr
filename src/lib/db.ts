@@ -39,6 +39,21 @@ db.exec(`
     episodes_searched TEXT,
     reason TEXT
   );
+
+  CREATE TABLE IF NOT EXISTS prowlarr_indexer_rules (
+    id TEXT PRIMARY KEY,
+    indexer_id INTEGER NOT NULL,
+    prowlarr_instance_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    max_snatches INTEGER,
+    max_size_bytes INTEGER,
+    interval TEXT DEFAULT 'monthly', -- 'daily', 'weekly', 'monthly'
+    current_snatches INTEGER DEFAULT 0,
+    current_size_bytes INTEGER DEFAULT 0,
+    last_reset DATETIME DEFAULT CURRENT_TIMESTAMP,
+    auto_manage INTEGER DEFAULT 1,
+    UNIQUE(indexer_id, prowlarr_instance_id)
+  );
 `);
 
 // Simple schema migrations for existing databases
@@ -138,13 +153,80 @@ export const logSearchHistory = (profile: string, movies: string[], episodes: st
     );
 };
 
-export const getSearchHistory = (limit: number = 50) => {
-    const stmt = db.prepare('SELECT * FROM search_history ORDER BY timestamp DESC LIMIT ?');
-    return stmt.all(limit).map((row: any) => ({
-        ...row,
-        movies_searched: JSON.parse(row.movies_searched),
-        episodes_searched: JSON.parse(row.episodes_searched)
+return stmt.all(limit).map((row: any) => ({
+    ...row,
+    movies_searched: JSON.parse(row.movies_searched),
+    episodes_searched: JSON.parse(row.episodes_searched)
+}));
+};
+
+// --- Prowlarr Indexer Rules ---
+export interface ProwlarrIndexerRule {
+    id: string;
+    indexer_id: number;
+    prowlarr_instance_id: string;
+    name: string;
+    max_snatches: number | null;
+    max_size_bytes: number | null;
+    interval: 'daily' | 'weekly' | 'monthly';
+    current_snatches: number;
+    current_size_bytes: number;
+    last_reset: string;
+    auto_manage: boolean;
+}
+
+export const getIndexerRules = (): ProwlarrIndexerRule[] => {
+    const stmt = db.prepare('SELECT * FROM prowlarr_indexer_rules');
+    return stmt.all().map((r: any) => ({
+        ...r,
+        auto_manage: r.auto_manage === 1
     }));
+};
+
+export const getIndexerRule = (indexerId: number, instanceId: string): ProwlarrIndexerRule | undefined => {
+    const stmt = db.prepare('SELECT * FROM prowlarr_indexer_rules WHERE indexer_id = ? AND prowlarr_instance_id = ?');
+    const result: any = stmt.get(indexerId, instanceId);
+    if (!result) return undefined;
+    return {
+        ...result,
+        auto_manage: result.auto_manage === 1
+    };
+};
+
+export const saveIndexerRule = (rule: ProwlarrIndexerRule) => {
+    const stmt = db.prepare(`
+        INSERT OR REPLACE INTO prowlarr_indexer_rules 
+        (id, indexer_id, prowlarr_instance_id, name, max_snatches, max_size_bytes, interval, current_snatches, current_size_bytes, last_reset, auto_manage)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+        rule.id || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        rule.indexer_id,
+        rule.prowlarr_instance_id,
+        rule.name,
+        rule.max_snatches,
+        rule.max_size_bytes,
+        rule.interval,
+        rule.current_snatches,
+        rule.current_size_bytes,
+        rule.last_reset,
+        rule.auto_manage ? 1 : 0
+    );
+};
+
+export const deleteIndexerRule = (id: string) => {
+    const stmt = db.prepare('DELETE FROM prowlarr_indexer_rules WHERE id = ?');
+    stmt.run(id);
+};
+
+export const updateIndexerRuleMetrics = (id: string, newSnatches: number, newBytes: number, resetDate?: string) => {
+    if (resetDate) {
+        const stmt = db.prepare('UPDATE prowlarr_indexer_rules SET current_snatches = ?, current_size_bytes = ?, last_reset = ? WHERE id = ?');
+        stmt.run(newSnatches, newBytes, resetDate, id);
+    } else {
+        const stmt = db.prepare('UPDATE prowlarr_indexer_rules SET current_snatches = ?, current_size_bytes = ? WHERE id = ?');
+        stmt.run(newSnatches, newBytes, id);
+    }
 };
 
 export default db;
