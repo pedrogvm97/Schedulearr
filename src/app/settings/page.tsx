@@ -241,11 +241,7 @@ export default function Settings() {
                                         <div className="flex justify-between items-start mb-2">
                                             <div className="flex items-center gap-2">
                                                 {inst.color && <div className={`w-3 h-3 rounded-full ${inst.color}`} title="Instance Color"></div>}
-                                                <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-sm ${inst.type === 'radarr' ? 'bg-yellow-500/20 text-yellow-500' :
-                                                    inst.type === 'sonarr' ? 'bg-cyan-500/20 text-cyan-500' :
-                                                        inst.type === 'qbittorrent' ? 'bg-emerald-500/20 text-emerald-500' :
-                                                            'bg-purple-500/20 text-purple-500'
-                                                    }`}>
+                                                <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-sm" style={{ color: borderColorHex, backgroundColor: `${borderColorHex}33` }}>
                                                     {inst.type}
                                                 </span>
                                             </div>
