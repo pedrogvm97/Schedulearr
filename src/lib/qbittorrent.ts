@@ -95,12 +95,14 @@ export const getActiveTorrents = async (url: string, cookie: string): Promise<Qb
  */
 export const deleteTorrents = async (url: string, cookie: string, hashes: string[], deleteFiles: boolean = false): Promise<void> => {
     try {
-        const hashesString = hashes.join('|');
-        const endpoint = `/api/v2/torrents/delete?hashes=${encodeURIComponent(hashesString)}&deleteFiles=${deleteFiles}`;
+        const params = new URLSearchParams();
+        params.append('hashes', hashes.join('|'));
+        params.append('deleteFiles', deleteFiles.toString());
 
-        await axios.get(`${url}${endpoint}`, {
+        await axios.post(`${url}/api/v2/torrents/delete`, params, {
             headers: {
-                'Cookie': cookie
+                'Cookie': cookie,
+                'Content-Type': 'application/x-www-form-urlencoded'
             }
         });
     } catch (error) {
