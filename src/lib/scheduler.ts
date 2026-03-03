@@ -17,11 +17,11 @@ if (!global.globalSchedulerRunning) {
     // a `setInterval` initialized on startup is the simplest MVP approach.
 
     const startScheduler = () => {
-        console.log('🏁 Arr Scheduler background orchestrator started.');
+        console.log('🏁 Schedulearr background orchestrator started.');
 
         const runCycle = async () => {
             const now = new Date().toISOString();
-            console.log(`[${now}] 🕒 Arr Scheduler running automated batch...`);
+            console.log(`[${now}] 🕒 Schedulearr running automated batch...`);
             try {
                 await runBatchSearch();
             } catch (error) {

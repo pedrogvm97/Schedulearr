@@ -18,9 +18,9 @@ export function Navigation() {
                 <div className="flex items-center gap-8">
                     <Link href="/" className="flex items-center gap-2 group">
                         <div className="w-8 h-8 flex items-center justify-center transition-transform group-hover:scale-105">
-                            <img src="/icon.png" alt="Arr Scheduler Logo" className="w-full h-full object-contain" />
+                            <img src="/icon.png" alt="Schedulearr Logo" className="w-full h-full object-contain" />
                         </div>
-                        <span className="font-bold text-white tracking-tight">Arr Scheduler</span>
+                        <span className="font-bold text-white tracking-tight">Schedulearr</span>
                     </Link>
                     <div className="hidden md:flex items-center gap-1">
                         <Link href="/scheduler" className={isActive('/scheduler')}>Media Search</Link>

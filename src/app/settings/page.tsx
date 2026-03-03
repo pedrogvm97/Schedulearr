@@ -310,6 +310,21 @@ export default function Settings() {
                     </div>
                 </div>
             </div>
+
+            {/* About / Support Section */}
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 flex flex-col md:flex-row items-center justify-between text-sm">
+                <div className="flex flex-col md:flex-row items-center gap-4 mb-4 md:mb-0 text-center md:text-left">
+                    <img src="/author.png" alt="Author" className="w-14 h-14 rounded-full object-cover grayscale hover:grayscale-0 transition-all border-2 border-zinc-800 shadow-xl" />
+                    <div>
+                        <p className="font-medium text-zinc-300 text-base">Schedulearr is free and unlocked forever.</p>
+                        <p className="text-zinc-500 mt-1">If this app saved you time, <a href="https://ko-fi.com/flash4k" target="_blank" rel="noopener noreferrer" className="text-emerald-500 hover:text-emerald-400 font-semibold underline underline-offset-2 transition-colors">you can buy me a coffee here!</a> ☕</p>
+                    </div>
+                </div>
+                <div className="text-zinc-600 text-xs text-center md:text-right">
+                    &copy; {new Date().getFullYear()} Flash4K<br />
+                    <span className="opacity-50 mt-1 inline-block">v1.0.0</span>
+                </div>
+            </div>
         </div>
     );
 }

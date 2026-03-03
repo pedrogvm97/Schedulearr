@@ -845,7 +845,7 @@ export default function SchedulerQueue() {
                     <div className="flex flex-col gap-3">
                         <div className="flex items-center gap-4">
                             <h2 className="text-2xl font-bold text-white tracking-tight">Media</h2>
-                            {!loading && totalItems > 0 && (
+                            {!loading && combined.length > 0 && (
                                 <div className="flex items-center gap-2">
                                     <button onClick={() => handleSelectAll(targetItemsForBulkActions)} className="px-3 py-1.5 text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md border border-zinc-700 transition-colors shadow-sm">Activate all</button>
                                     <button onClick={() => handleDeselectAll(targetItemsForBulkActions)} className="px-3 py-1.5 text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md border border-zinc-700 transition-colors shadow-sm">Deactivate all</button>
