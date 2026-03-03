@@ -16,6 +16,9 @@ export async function GET() {
         const stagnationMin = parseInt(getSetting('qbit_cleanup_stagnation_min') || '60');
         const deleteFiles = getSetting('qbit_cleanup_delete_files') !== 'false'; // default true
         const blacklist = getSetting('qbit_cleanup_blacklist') !== 'false'; // default true
+        const sizeCleanupEnabled = getSetting('qbit_cleanup_max_size_enabled') === 'true';
+        const maxSizeGb = parseInt(getSetting('qbit_cleanup_max_size_gb') || '100');
+        const maxSizeBytes = maxSizeGb * 1024 * 1024 * 1024;
 
         const qbInstances = getInstances('qbittorrent', true);
         if (qbInstances.length === 0) {
@@ -49,8 +52,12 @@ export async function GET() {
                 const cookie = await authenticateQbittorrent(qb.url, qb.api_key);
                 const torrents = await getActiveTorrents(qb.url, cookie);
 
-                // Identify stalled torrents
-                const stalled = torrents.filter(t => {
+                // Identify items to remove (stalled or oversized)
+                const toRemove = torrents.filter(t => {
+                    if (sizeCleanupEnabled && t.size > maxSizeBytes) {
+                        return true;
+                    }
+
                     const isStalled = t.state.toLowerCase().includes('stalled');
                     if (!isStalled) return false;
 
@@ -59,8 +66,8 @@ export async function GET() {
                     return minutesSinceAdded >= stagnationMin;
                 });
 
-                if (stalled.length > 0) {
-                    let unhandledHashes = stalled.map(t => t.hash.toLowerCase());
+                if (toRemove.length > 0) {
+                    let unhandledHashes = toRemove.map(t => t.hash.toLowerCase());
 
                     if (blacklist) {
                         const hashesToProcess = [...unhandledHashes];

@@ -19,6 +19,9 @@ export default function Settings() {
     const [qbitDeleteFiles, setQbitDeleteFiles] = useState(true);
     const [qbitBlacklist, setQbitBlacklist] = useState(true);
 
+    const [qbitSizeCleanupEnabled, setQbitSizeCleanupEnabled] = useState(false);
+    const [qbitMaxSizeGb, setQbitMaxSizeGb] = useState(100);
+
     const predefinedColors = [
         'bg-red-500', 'bg-orange-500', 'bg-amber-500', 'bg-yellow-500', 'bg-lime-500',
         'bg-green-500', 'bg-emerald-500', 'bg-teal-500', 'bg-cyan-500', 'bg-sky-500',
@@ -48,6 +51,9 @@ export default function Settings() {
                 if (data.qbit_cleanup_stagnation_min) setQbitStagnationMin(parseInt(data.qbit_cleanup_stagnation_min));
                 if (data.qbit_cleanup_delete_files === 'false') setQbitDeleteFiles(false);
                 if (data.qbit_cleanup_blacklist === 'false') setQbitBlacklist(false);
+
+                if (data.qbit_cleanup_max_size_enabled === 'true') setQbitSizeCleanupEnabled(true);
+                if (data.qbit_cleanup_max_size_gb) setQbitMaxSizeGb(parseInt(data.qbit_cleanup_max_size_gb));
             } catch (e) {
                 console.error(e);
             }
@@ -267,7 +273,7 @@ export default function Settings() {
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-500"><path d="M21 2v6h-6"></path><path d="M21 13a9 9 0 1 1-3-7.7L21 8"></path></svg>
                     qBittorrent Auto-Cleanup
                 </h2>
-                <p className="text-sm text-zinc-400 mb-6">Automatically groom stalled torrents based on stagnation time.</p>
+                <p className="text-sm text-zinc-400 mb-6">Automatically groom stalled torrents or large items to keep your instances clean.</p>
 
                 <div className="space-y-6">
                     <div className="flex items-center justify-between">
@@ -303,7 +309,40 @@ export default function Settings() {
                         />
                     </div>
 
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between pt-4 border-t border-zinc-800/50">
+                        <div>
+                            <div className="text-white font-medium">Enable Max Size Limit Cleanup</div>
+                            <div className="text-sm text-zinc-400">Remove torrents that exceed a specific GB threshold</div>
+                        </div>
+                        <button
+                            onClick={() => {
+                                const next = !qbitSizeCleanupEnabled;
+                                setQbitSizeCleanupEnabled(next);
+                                updateSetting('qbit_cleanup_max_size_enabled', next);
+                            }}
+                            className={`w-12 h-6 rounded-full transition-colors relative ${qbitSizeCleanupEnabled ? 'bg-emerald-500' : 'bg-zinc-700'}`}
+                        >
+                            <div className={`w-4 h-4 rounded-full bg-white absolute top-1 transition-transform ${qbitSizeCleanupEnabled ? 'left-7' : 'left-1'}`} />
+                        </button>
+                    </div>
+
+                    <div className="space-y-2">
+                        <label className="text-white font-medium block">Maximum Authorized Size (GB)</label>
+                        <p className="text-sm text-zinc-400">Torrents larger than this metric will be removed and blacklisted to grab an alternate release.</p>
+                        <input
+                            type="number"
+                            min="1"
+                            value={qbitMaxSizeGb}
+                            onChange={e => {
+                                const val = parseInt(e.target.value) || 100;
+                                setQbitMaxSizeGb(val);
+                                updateSetting('qbit_cleanup_max_size_gb', val);
+                            }}
+                            className="bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-2 text-white outline-none w-32 focus:border-emerald-500"
+                        />
+                    </div>
+
+                    <div className="flex items-center justify-between pt-4 border-t border-zinc-800/50">
                         <div>
                             <div className="text-white font-medium">Delete Downloaded Files</div>
                             <div className="text-sm text-zinc-400">Remove data payload alongside the torrent</div>
