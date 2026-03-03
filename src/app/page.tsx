@@ -73,34 +73,29 @@ export default function Dashboard() {
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
+      const allTitles = payload.flatMap((entry: any) => {
+        const titles = entry.payload[`${entry.dataKey}_titles`] || [];
+        return titles.map((t: string) => ({
+          title: t,
+          color: entry.fill
+        }));
+      });
+
+      if (allTitles.length === 0) return null;
+
       return (
-        <div className="bg-zinc-900 border border-zinc-800 p-3 rounded-lg shadow-xl max-w-sm">
-          <p className="text-zinc-400 text-xs mb-2 font-semibold">
-            {new Date(label).toDateString()}
+        <div className="bg-zinc-900 border border-zinc-800 p-3 rounded-lg shadow-xl max-w-lg">
+          <p className="text-zinc-400 text-xs mb-2 font-semibold border-b border-zinc-800 pb-2">
+            {new Date(label).toDateString()} (Total: {allTitles.length})
           </p>
 
-          <div className="space-y-3">
-            {payload.map((entry: any, index: number) => {
-              const titles = entry.payload[`${entry.dataKey}_titles`] || [];
-              if (titles.length === 0) return null;
-
-              return (
-                <div key={index}>
-                  <div className="flex items-center gap-2 mb-1">
-                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.fill }} />
-                    <span className="text-xs font-bold" style={{ color: entry.fill }}>
-                      {instances[entry.dataKey]?.name || entry.name} ({entry.value})
-                    </span>
-                  </div>
-                  <ul className="pl-4 list-disc text-zinc-300 text-xs space-y-0.5 max-h-32 overflow-y-auto">
-                    {titles.map((t: string, i: number) => (
-                      <li key={i} className="truncate" title={t}>{t}</li>
-                    ))}
-                  </ul>
-                </div>
-              );
-            })}
-          </div>
+          <ul className="text-sm space-y-1 max-h-48 overflow-y-auto pr-2">
+            {allTitles.map((item: any, i: number) => (
+              <li key={i} className="truncate font-semibold" style={{ color: item.color }} title={item.title}>
+                {item.title}
+              </li>
+            ))}
+          </ul>
         </div>
       );
     }
