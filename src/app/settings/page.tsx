@@ -202,33 +202,61 @@ export default function Settings() {
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {instances.map(inst => (
-                            <div key={inst.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex flex-col justify-between">
-                                <div>
-                                    <div className="flex justify-between items-start mb-2">
-                                        <div className="flex items-center gap-2">
-                                            {inst.color && <div className={`w-3 h-3 rounded-full ${inst.color}`} title="Instance Color"></div>}
-                                            <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-sm ${inst.type === 'radarr' ? 'bg-yellow-500/20 text-yellow-500' :
-                                                inst.type === 'sonarr' ? 'bg-cyan-500/20 text-cyan-500' :
-                                                    inst.type === 'qbittorrent' ? 'bg-emerald-500/20 text-emerald-500' :
-                                                        'bg-purple-500/20 text-purple-500'
-                                                }`}>
-                                                {inst.type}
-                                            </span>
+                        {instances.map(inst => {
+                            // Convert standard "bg-red-500" into a Hex for the border or "border-red-500" equivalent
+                            let borderColorHex = '#27272a'; // default zinc-800
+                            const twClass = inst.color || '';
+                            if (twClass.includes('slate')) borderColorHex = '#64748b';
+                            else if (twClass.includes('gray')) borderColorHex = '#6b7280';
+                            else if (twClass.includes('zinc')) borderColorHex = '#71717a';
+                            else if (twClass.includes('neutral')) borderColorHex = '#737373';
+                            else if (twClass.includes('stone')) borderColorHex = '#78716c';
+                            else if (twClass.includes('red')) borderColorHex = '#ef4444';
+                            else if (twClass.includes('orange')) borderColorHex = '#f97316';
+                            else if (twClass.includes('amber')) borderColorHex = '#f59e0b';
+                            else if (twClass.includes('yellow')) borderColorHex = '#eab308';
+                            else if (twClass.includes('lime')) borderColorHex = '#84cc16';
+                            else if (twClass.includes('green')) borderColorHex = '#22c55e';
+                            else if (twClass.includes('emerald')) borderColorHex = '#10b981';
+                            else if (twClass.includes('teal')) borderColorHex = '#14b8a6';
+                            else if (twClass.includes('cyan')) borderColorHex = '#06b6d4';
+                            else if (twClass.includes('sky')) borderColorHex = '#0ea5e9';
+                            else if (twClass.includes('blue')) borderColorHex = '#3b82f6';
+                            else if (twClass.includes('indigo')) borderColorHex = '#6366f1';
+                            else if (twClass.includes('violet')) borderColorHex = '#8b5cf6';
+                            else if (twClass.includes('purple')) borderColorHex = '#a855f7';
+                            else if (twClass.includes('fuchsia')) borderColorHex = '#d946ef';
+                            else if (twClass.includes('pink')) borderColorHex = '#ec4899';
+                            else if (twClass.includes('rose')) borderColorHex = '#f43f5e';
+
+                            return (
+                                <div key={inst.id} className="bg-zinc-900 rounded-xl p-4 flex flex-col justify-between" style={{ border: `1px solid ${borderColorHex}80` }}>
+                                    <div>
+                                        <div className="flex justify-between items-start mb-2">
+                                            <div className="flex items-center gap-2">
+                                                {inst.color && <div className={`w-3 h-3 rounded-full ${inst.color}`} title="Instance Color"></div>}
+                                                <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-sm ${inst.type === 'radarr' ? 'bg-yellow-500/20 text-yellow-500' :
+                                                    inst.type === 'sonarr' ? 'bg-cyan-500/20 text-cyan-500' :
+                                                        inst.type === 'qbittorrent' ? 'bg-emerald-500/20 text-emerald-500' :
+                                                            'bg-purple-500/20 text-purple-500'
+                                                    }`}>
+                                                    {inst.type}
+                                                </span>
+                                            </div>
+                                            <button
+                                                onClick={() => handleDelete(inst.id)}
+                                                className="text-zinc-500 hover:text-red-400 p-1"
+                                                title="Delete instance"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+                                            </button>
                                         </div>
-                                        <button
-                                            onClick={() => handleDelete(inst.id)}
-                                            className="text-zinc-500 hover:text-red-400 p-1"
-                                            title="Delete instance"
-                                        >
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
-                                        </button>
+                                        <h3 className="text-lg font-medium text-white truncate" title={inst.name}>{inst.name}</h3>
+                                        <p className="text-sm text-zinc-400 mt-1 truncate" title={inst.url}>{inst.url}</p>
                                     </div>
-                                    <h3 className="text-lg font-medium text-white truncate" title={inst.name}>{inst.name}</h3>
-                                    <p className="text-sm text-zinc-400 mt-1 truncate" title={inst.url}>{inst.url}</p>
                                 </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 )}
             </div>
