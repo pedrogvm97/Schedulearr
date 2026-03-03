@@ -1085,80 +1085,82 @@ export default function SchedulerQueue() {
                                                         </div>
                                                     ) : seriesEpisodes[`${item.instanceId}-${item.id}`] ? (
                                                         <div className="grid gap-2">
-                                                            {seriesEpisodes[`${item.instanceId}-${item.id}`].map((ep: any) => (
-                                                                <div key={ep.id} className="bg-zinc-900/50 border border-zinc-800/80 rounded-lg p-3 flex items-center justify-between hover:bg-zinc-800/50 transition-colors">
-                                                                    <div>
-                                                                        <div className="flex items-center gap-2 mb-1">
-                                                                            <span className="text-xs font-mono text-zinc-400 bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">S{String(ep.seasonNumber).padStart(2, '0')}E{String(ep.episodeNumber).padStart(2, '0')}</span>
-                                                                            <h4 className="text-sm font-medium text-zinc-200">{ep.title}</h4>
-                                                                            {ep.hasFile ? (
-                                                                                <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Downloaded</span>
-                                                                            ) : ep.monitored ? (
-                                                                                <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">Missing</span>
-                                                                            ) : (
-                                                                                <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-500 border border-zinc-700">Unmonitored</span>
-                                                                            )}
-                                                                        </div>
-                                                                        {ep.hasFile && ep.episodeFile && (
-                                                                            <div className="flex items-center gap-2 mt-1">
-                                                                                <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded">{ep.episodeFile.quality?.quality?.name || 'Unknown Quality'}</span>
-                                                                                {ep.episodeFile.mediaInfo?.subtitles && ep.episodeFile.mediaInfo.subtitles.length > 0 && (
-                                                                                    <span className="text-[10px] bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded flex items-center gap-1">
-                                                                                        <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-                                                                                        Subtitles
-                                                                                    </span>
+                                                            {seriesEpisodes[`${item.instanceId}-${item.id}`]
+                                                                .filter((ep: any) => !hideUnmonitored || ep.monitored)
+                                                                .map((ep: any) => (
+                                                                    <div key={ep.id} className="bg-zinc-900/50 border border-zinc-800/80 rounded-lg p-3 flex items-center justify-between hover:bg-zinc-800/50 transition-colors">
+                                                                        <div>
+                                                                            <div className="flex items-center gap-2 mb-1">
+                                                                                <span className="text-xs font-mono text-zinc-400 bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">S{String(ep.seasonNumber).padStart(2, '0')}E{String(ep.episodeNumber).padStart(2, '0')}</span>
+                                                                                <h4 className="text-sm font-medium text-zinc-200">{ep.title}</h4>
+                                                                                {ep.hasFile ? (
+                                                                                    <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Downloaded</span>
+                                                                                ) : ep.monitored ? (
+                                                                                    <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">Missing</span>
+                                                                                ) : (
+                                                                                    <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-500 border border-zinc-700">Unmonitored</span>
                                                                                 )}
                                                                             </div>
-                                                                        )}
-                                                                        {!ep.hasFile && ep.airDateUtc && new Date(ep.airDateUtc).getTime() > Date.now() && (
-                                                                            <p className="text-[10px] text-zinc-500 mt-1">Airs: {new Date(ep.airDateUtc).toLocaleDateString()}</p>
-                                                                        )}
-                                                                    </div>
-                                                                    <div>
-                                                                        {!ep.hasFile && ep.monitored && new Date(ep.airDateUtc).getTime() < Date.now() && (
-                                                                            <>
-                                                                                <button
-                                                                                    id={`search-ep-${item.instanceId}-${ep.id}`}
-                                                                                    onPointerDown={(e) => e.stopPropagation()}
-                                                                                    onClick={(e) => {
-                                                                                        e.stopPropagation();
-                                                                                        // Trigger manual search for single episode
-                                                                                        fetch('/api/search/trigger', {
-                                                                                            method: 'POST',
-                                                                                            headers: { 'Content-Type': 'application/json' },
-                                                                                            body: JSON.stringify({ type: 'episode', mediaId: ep.id, instanceId: item.instanceId })
-                                                                                        });
+                                                                            {ep.hasFile && ep.episodeFile && (
+                                                                                <div className="flex items-center gap-2 mt-1">
+                                                                                    <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded">{ep.episodeFile.quality?.quality?.name || 'Unknown Quality'}</span>
+                                                                                    {ep.episodeFile.mediaInfo?.subtitles && ep.episodeFile.mediaInfo.subtitles.length > 0 && (
+                                                                                        <span className="text-[10px] bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                                                                                            Subtitles
+                                                                                        </span>
+                                                                                    )}
+                                                                                </div>
+                                                                            )}
+                                                                            {!ep.hasFile && ep.airDateUtc && new Date(ep.airDateUtc).getTime() > Date.now() && (
+                                                                                <p className="text-[10px] text-zinc-500 mt-1">Airs: {new Date(ep.airDateUtc).toLocaleDateString()}</p>
+                                                                            )}
+                                                                        </div>
+                                                                        <div>
+                                                                            {!ep.hasFile && ep.monitored && new Date(ep.airDateUtc).getTime() < Date.now() && (
+                                                                                <>
+                                                                                    <button
+                                                                                        id={`search-ep-${item.instanceId}-${ep.id}`}
+                                                                                        onPointerDown={(e) => e.stopPropagation()}
+                                                                                        onClick={(e) => {
+                                                                                            e.stopPropagation();
+                                                                                            // Trigger manual search for single episode
+                                                                                            fetch('/api/search/trigger', {
+                                                                                                method: 'POST',
+                                                                                                headers: { 'Content-Type': 'application/json' },
+                                                                                                body: JSON.stringify({ type: 'episode', mediaId: ep.id, instanceId: item.instanceId })
+                                                                                            });
 
-                                                                                        // Optimistic UX feedback override
-                                                                                        const btn = document.getElementById(`search-ep-${item.instanceId}-${ep.id}`);
-                                                                                        if (btn) {
-                                                                                            btn.innerText = 'Searching...';
-                                                                                            btn.classList.replace('text-emerald-400', 'text-amber-400');
-                                                                                            btn.classList.replace('bg-emerald-600/20', 'bg-amber-600/20');
-                                                                                        }
+                                                                                            // Optimistic UX feedback override
+                                                                                            const btn = document.getElementById(`search-ep-${item.instanceId}-${ep.id}`);
+                                                                                            if (btn) {
+                                                                                                btn.innerText = 'Searching...';
+                                                                                                btn.classList.replace('text-emerald-400', 'text-amber-400');
+                                                                                                btn.classList.replace('bg-emerald-600/20', 'bg-amber-600/20');
+                                                                                            }
 
-                                                                                        // Inject into episode state so the logic knows
-                                                                                        setEpisodes(prev => prev.map(e => e.id === item.id && e.instanceId === item.instanceId ? { ...e, queuedEpisodeIds: [...(e.queuedEpisodeIds || []), ep.id] } : e));
-                                                                                    }}
-                                                                                    className="px-2 py-1 text-[10px] font-semibold bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 rounded border border-emerald-500/20 hover:border-emerald-500/40 transition-colors"
-                                                                                >
-                                                                                    Search Episode
-                                                                                </button>
-                                                                                <button
-                                                                                    onPointerDown={(e) => e.stopPropagation()}
-                                                                                    onClick={(e) => {
-                                                                                        e.stopPropagation();
-                                                                                        handleInteractiveSearch('episode', ep.id, item.instanceId, `${item.title} - S${String(ep.seasonNumber).padStart(2, '0')}E${String(ep.episodeNumber).padStart(2, '0')}`);
-                                                                                    }}
-                                                                                    className="px-2 py-1 text-[10px] font-semibold bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 rounded border border-indigo-500/20 hover:border-indigo-500/40 transition-colors ml-2"
-                                                                                >
-                                                                                    Interactive Search
-                                                                                </button>
-                                                                            </>
-                                                                        )}
+                                                                                            // Inject into episode state so the logic knows
+                                                                                            setEpisodes(prev => prev.map(e => e.id === item.id && e.instanceId === item.instanceId ? { ...e, queuedEpisodeIds: [...(e.queuedEpisodeIds || []), ep.id] } : e));
+                                                                                        }}
+                                                                                        className="px-2 py-1 text-[10px] font-semibold bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 rounded border border-emerald-500/20 hover:border-emerald-500/40 transition-colors"
+                                                                                    >
+                                                                                        Search Episode
+                                                                                    </button>
+                                                                                    <button
+                                                                                        onPointerDown={(e) => e.stopPropagation()}
+                                                                                        onClick={(e) => {
+                                                                                            e.stopPropagation();
+                                                                                            handleInteractiveSearch('episode', ep.id, item.instanceId, `${item.title} - S${String(ep.seasonNumber).padStart(2, '0')}E${String(ep.episodeNumber).padStart(2, '0')}`);
+                                                                                        }}
+                                                                                        className="px-2 py-1 text-[10px] font-semibold bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 rounded border border-indigo-500/20 hover:border-indigo-500/40 transition-colors ml-2"
+                                                                                    >
+                                                                                        Interactive Search
+                                                                                    </button>
+                                                                                </>
+                                                                            )}
+                                                                        </div>
                                                                     </div>
-                                                                </div>
-                                                            ))}
+                                                                ))}
                                                         </div>
                                                     ) : (
                                                         <div className="text-sm text-zinc-500">No episodes found.</div>
