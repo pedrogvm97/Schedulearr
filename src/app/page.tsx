@@ -22,6 +22,7 @@ export default function Dashboard() {
   const [loadingProwlarr, setLoadingProwlarr] = useState(true);
 
   const [showWelcome, setShowWelcome] = useState(false);
+  const [chartType, setChartType] = useState<'grabbed' | 'imported' | 'sizeGB'>('grabbed');
 
   useEffect(() => {
     // Check if user has seen welcome splash
@@ -123,6 +124,26 @@ export default function Dashboard() {
         </div>
 
         <div className="flex gap-2 items-center">
+          <div className="flex bg-zinc-900 border border-zinc-800 rounded-lg p-1 mr-4">
+            <button
+              onClick={() => setChartType('grabbed')}
+              className={`px-3 py-1 text-xs font-bold rounded-md transition ${chartType === 'grabbed' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+            >
+              Grabs
+            </button>
+            <button
+              onClick={() => setChartType('imported')}
+              className={`px-3 py-1 text-xs font-bold rounded-md transition ${chartType === 'imported' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+            >
+              Finalized
+            </button>
+            <button
+              onClick={() => setChartType('sizeGB')}
+              className={`px-3 py-1 text-xs font-bold rounded-md transition ${chartType === 'sizeGB' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+            >
+              Data (GB)
+            </button>
+          </div>
           <button
             onClick={handleManualTrigger}
             disabled={isTriggering}
@@ -168,7 +189,7 @@ export default function Dashboard() {
                 {Object.keys(instances).map(id => (
                   <Bar
                     key={id}
-                    dataKey={id}
+                    dataKey={`${id}_${chartType}`}
                     name={id}
                     stackId="a"
                     fill={instances[id].color}
@@ -243,7 +264,15 @@ export default function Dashboard() {
                 <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-zinc-950 border border-zinc-800 flex-shrink-0 transition hover:border-zinc-700">
                   <div className="flex flex-col min-w-0 pr-4">
                     <span className="text-sm font-semibold text-zinc-200 truncate" title={dl.title}>{dl.title}</span>
-                    <span className="text-xs text-zinc-500 font-medium mt-0.5">{new Date(dl.date).toLocaleString()}</span>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-xs text-zinc-500 font-medium">{new Date(dl.date).toLocaleString()}</span>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${dl.status === 'Finalized' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' :
+                          dl.status === 'Failed' ? 'bg-red-500/10 text-red-500 border border-red-500/20' :
+                            'bg-blue-500/10 text-blue-500 border border-blue-500/20'
+                        }`}>
+                        {dl.status}
+                      </span>
+                    </div>
                   </div>
                   {inst && (
                     <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded-md border flex-shrink-0" style={{ color: inst.color, borderColor: `${inst.color}40`, backgroundColor: `${inst.color}10` }}>

@@ -42,6 +42,7 @@ export async function GET(req: Request) {
             protocol: r.protocol,
             customFormatScore: r.customFormatScore || 0,
             indexer: r.indexer,
+            indexerId: r.indexerId, // Added for robust grab
             rejected: r.rejected,
             rejections: r.rejections,
             quality: r.quality?.quality?.name

@@ -34,6 +34,7 @@ export default function IndexersPage() {
     const [loading, setLoading] = useState(true);
     const [selectedIndexer, setSelectedIndexer] = useState<Indexer | null>(null);
     const [showModal, setShowModal] = useState(false);
+    const [isGlobalMode, setIsGlobalMode] = useState(false);
 
     // Form State
     const [formSnatches, setFormSnatches] = useState<string>('');
@@ -78,7 +79,18 @@ export default function IndexersPage() {
         }
     };
 
-    const openConfigModal = (indexer: Indexer) => {
+    const openConfigModal = (indexer: Indexer | 'global') => {
+        if (indexer === 'global') {
+            setIsGlobalMode(true);
+            setSelectedIndexer(null);
+            setFormSnatches('');
+            setFormSizeGB('');
+            setFormInterval('monthly');
+            setShowModal(true);
+            return;
+        }
+
+        setIsGlobalMode(false);
         setSelectedIndexer(indexer);
         if (indexer.rule) {
             setFormSnatches(indexer.rule.max_snatches ? indexer.rule.max_snatches.toString() : '');
@@ -148,6 +160,33 @@ export default function IndexersPage() {
         }
     };
 
+    const applyGlobalToAbsolutelyAll = async () => {
+        try {
+            const max_snatches = formSnatches ? parseInt(formSnatches) : null;
+            const max_size_bytes = formSizeGB ? parseFloat(formSizeGB) * (1024 ** 3) : null;
+
+            const promises = indexers.map(ind =>
+                axios.post('/api/prowlarr/rules', {
+                    id: ind.rule?.id,
+                    indexer_id: ind.id,
+                    prowlarr_instance_id: ind.prowlarr_instance_id,
+                    name: ind.name,
+                    max_snatches,
+                    max_size_bytes,
+                    interval: formInterval
+                })
+            );
+
+            await Promise.all(promises);
+
+            toast.success(`Global rules applied to ALL indexers successfully!`);
+            setShowModal(false);
+            fetchIndexers();
+        } catch (e) {
+            toast.error('Failed to apply global rules to all indexers');
+        }
+    };
+
     const deleteRule = async () => {
         if (!selectedIndexer?.rule) return;
         try {
@@ -164,9 +203,20 @@ export default function IndexersPage() {
 
     return (
         <div className="max-w-7xl mx-auto px-6 py-8">
-            <div className="mb-8">
-                <h1 className="text-3xl font-bold text-white tracking-tight mb-2">Prowlarr Indexers</h1>
-                <p className="text-zinc-400">Manage individual indexer states and set automation quotas to prevent indexing bans.</p>
+            <div className="mb-8 flex justify-between items-start">
+                <div>
+                    <h1 className="text-3xl font-bold text-white tracking-tight mb-2">Prowlarr Indexers</h1>
+                    <p className="text-zinc-400">Manage individual indexer states and set automation quotas to prevent indexing bans.</p>
+                </div>
+                {indexers.length > 0 && (
+                    <button
+                        onClick={() => openConfigModal('global')}
+                        className="bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2 px-6 rounded-lg transition-colors flex items-center gap-2 shadow-lg shadow-indigo-500/20"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"></path><path d="M2 12h20"></path></svg>
+                        Global Defaults
+                    </button>
+                )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -185,13 +235,14 @@ export default function IndexersPage() {
                             {/* Toggle Switch */}
                             <button
                                 onClick={() => toggleIndexer(ind)}
-                                style={{
-                                    backgroundColor: ind.enable ? (ind.prowlarr_color || '#10b981') : '',
-                                    boxShadow: ind.enable ? `0 0 0 2px transparent, 0 0 0 4px ${ind.prowlarr_color || '#10b981'}40` : ''
-                                }}
-                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${ind.enable ? '' : 'bg-zinc-700'}`}
+                                style={ind.enable ? {
+                                    backgroundColor: ind.prowlarr_color || '#10b981',
+                                    boxShadow: `0 0 0 2px transparent, 0 0 0 4px ${ind.prowlarr_color || '#10b981'}40`
+                                } : {}}
+                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${ind.enable ? '' : 'bg-red-500/20 border border-red-500/50'}`}
+                                title={ind.enable ? "Enabled" : "Disabled"}
                             >
-                                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${ind.enable ? 'translate-x-6' : 'translate-x-1'}`} />
+                                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${ind.enable ? 'translate-x-6' : 'translate-x-1 bg-red-400'}`} />
                             </button>
                         </div>
 
@@ -237,11 +288,16 @@ export default function IndexersPage() {
             </div>
 
             {/* Rule Config Modal */}
-            {showModal && selectedIndexer && (
+            {showModal && (
                 <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
                     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
                         <div className="p-6 border-b border-zinc-800">
-                            <h3 className="text-xl font-bold text-white">Configure: {selectedIndexer.name}</h3>
+                            <h3 className="text-xl font-bold text-white">
+                                {isGlobalMode ? 'Global Indexer Rules' : `Configure: ${selectedIndexer?.name}`}
+                            </h3>
+                            {isGlobalMode && (
+                                <p className="text-sm text-indigo-400 mt-1">Applying these rules will explicitly overwrite the limits of strictly ALL indexers across all instances.</p>
+                            )}
                         </div>
 
                         <div className="p-6 space-y-4">
@@ -283,33 +339,54 @@ export default function IndexersPage() {
                         </div>
 
                         <div className="p-6 border-t border-zinc-800 flex gap-3 justify-end bg-zinc-950/50">
-                            {selectedIndexer.rule && (
+                            {!isGlobalMode && selectedIndexer?.rule && (
                                 <button
                                     onClick={deleteRule}
-                                    className="px-4 py-2 text-sm font-medium text-red-400 hover:text-red-300 mr-auto"
+                                    className="px-4 py-2 text-sm font-medium text-red-400 hover:text-red-300 mr-auto flex-shrink-0"
                                 >
                                     Remove Rule
                                 </button>
                             )}
-                            <button
-                                onClick={applyToAllRules}
-                                className="px-4 py-2 text-sm font-medium text-indigo-400 hover:text-indigo-300 hover:bg-indigo-400/10 rounded-lg transition mr-auto"
-                                title="Apply these exact settings to all active indexers for this App instance"
-                            >
-                                Apply to All
-                            </button>
-                            <button
-                                onClick={() => setShowModal(false)}
-                                className="px-4 py-2 text-sm font-medium text-zinc-400 hover:text-white transition"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={saveRule}
-                                className="px-6 py-2 bg-emerald-500 hover:bg-emerald-600 text-white font-medium rounded-lg shadow-lg hover:shadow-emerald-500/20 transition disabled:opacity-50"
-                            >
-                                Save
-                            </button>
+
+                            {!isGlobalMode ? (
+                                <>
+                                    <button
+                                        onClick={applyToAllRules}
+                                        className="px-4 py-2 text-sm font-medium text-indigo-400 hover:text-indigo-300 hover:bg-indigo-400/10 rounded-lg transition mr-auto"
+                                        title="Apply these exact settings to all active indexers for this App instance"
+                                    >
+                                        Apply to All Instance
+                                    </button>
+                                    <button
+                                        onClick={() => setShowModal(false)}
+                                        className="px-4 py-2 text-sm font-medium text-zinc-400 hover:text-white transition"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={saveRule}
+                                        className="px-6 py-2 bg-emerald-500 hover:bg-emerald-600 text-white font-medium rounded-lg shadow-lg hover:shadow-emerald-500/20 transition disabled:opacity-50"
+                                    >
+                                        Save
+                                    </button>
+                                </>
+                            ) : (
+                                <>
+                                    <button
+                                        onClick={() => setShowModal(false)}
+                                        className="px-4 py-2 text-sm font-medium text-zinc-400 hover:text-white transition mt-auto"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={applyGlobalToAbsolutelyAll}
+                                        className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg shadow-lg hover:shadow-indigo-500/20 transition disabled:opacity-50 flex items-center gap-2"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
+                                        Save & Apply to EVERY Indexer
+                                    </button>
+                                </>
+                            )}
                         </div>
                     </div>
                 </div>

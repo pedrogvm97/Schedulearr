@@ -55,7 +55,14 @@ export async function GET() {
         }
 
         const instanceMetadata: Record<string, { name: string, color: string, type: string }> = {};
-        const allRecentRecords: { title: string, date: string, instanceId: string }[] = [];
+        const allRecentRecords: { title: string, date: string, instanceId: string, status: string, size?: number }[] = [];
+
+        // Track stats by type: grabbed, imported, failed, size
+        const statsSummary: Record<string, Record<string, { grabbed: number, imported: number, failed: number, sizeBytes: number }>> = {};
+        // Initialize summary structure
+        Object.keys(dailyStats).forEach(date => {
+            statsSummary[date] = {};
+        });
 
         // Fetch history across all instances concurrently
         const fetchPromises = instances.map(async (instance: Instance) => {
@@ -65,6 +72,11 @@ export async function GET() {
                 color: tailwindToHex(instance.color || ''),
                 type: instance.type
             };
+
+            // Initialize summary for this instance
+            Object.keys(statsSummary).forEach(date => {
+                statsSummary[date][id] = { grabbed: 0, imported: 0, failed: 0, sizeBytes: 0 };
+            });
 
             try {
                 let records: any[] = [];
@@ -79,6 +91,24 @@ export async function GET() {
                     if (recordDate >= thirtyDaysAgo && recordDate <= now) {
                         const dateStr = recordDate.toISOString().split('T')[0];
                         if (dailyStats[dateStr]) {
+                            // Event Types: 1=Grabbed, 3=Imported (Radarr), 4=Failed, 7=Imported (Sonarr)
+                            const eventType = record.eventType;
+                            const isImport = eventType === 'movieFileImported' || eventType === 'episodeFileImported' || record.eventType === 3 || record.eventType === 7;
+                            const isGrab = eventType === 'grabbed' || record.eventType === 1;
+                            const isFailed = eventType === 'downloadFailed' || record.eventType === 4;
+
+                            // Update numerical stats
+                            if (statsSummary[dateStr][id]) {
+                                if (isGrab) statsSummary[dateStr][id].grabbed++;
+                                if (isImport) {
+                                    statsSummary[dateStr][id].imported++;
+                                    // Try to get size
+                                    const size = record.movieFile?.size || record.episodeFile?.size || 0;
+                                    statsSummary[dateStr][id].sizeBytes += size;
+                                }
+                                if (isFailed) statsSummary[dateStr][id].failed++;
+                            }
+
                             if (!dailyStats[dateStr][id]) dailyStats[dateStr][id] = [];
 
                             // Try to extract clean title, fallback to sourceTitle
@@ -92,12 +122,21 @@ export async function GET() {
                                 title = `${record.series.title}${epInfo} (Series)`;
                             }
 
-                            dailyStats[dateStr][id].push(title);
+                            if (!dailyStats[dateStr][id].includes(title)) {
+                                dailyStats[dateStr][id].push(title);
+                            }
+
+                            // Determine status for the record list
+                            let status = 'Grabbed';
+                            if (isImport) status = 'Finalized';
+                            if (isFailed) status = 'Failed';
 
                             allRecentRecords.push({
                                 title,
                                 date: record.date,
-                                instanceId: id
+                                instanceId: id,
+                                status,
+                                size: record.movieFile?.size || record.episodeFile?.size
                             });
                         }
                     }
@@ -113,15 +152,28 @@ export async function GET() {
         const chartData = Object.keys(dailyStats).sort().map(date => {
             const dayObj: any = { date };
             Object.keys(instanceMetadata).forEach(instanceId => {
-                const titles = dailyStats[date][instanceId] || [];
-                dayObj[instanceId] = titles.length;
-                dayObj[`${instanceId}_titles`] = titles;
+                const summary = statsSummary[date][instanceId];
+                dayObj[`${instanceId}_grabbed`] = summary.grabbed;
+                dayObj[`${instanceId}_imported`] = summary.imported;
+                dayObj[`${instanceId}_failed`] = summary.failed;
+                dayObj[`${instanceId}_sizeGB`] = parseFloat((summary.sizeBytes / (1024 ** 3)).toFixed(2));
+
+                // Legacy support/Titles
+                dayObj[instanceId] = summary.grabbed; // default to grabbed for main chart
+                dayObj[`${instanceId}_titles`] = dailyStats[date][instanceId] || [];
             });
             return dayObj;
         });
 
         allRecentRecords.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        const recentDownloads = allRecentRecords.slice(0, 15);
+        // Filter out duplicate titles within short time to avoid history bloat if multiple events exist
+        const seen = new Set();
+        const recentDownloads = allRecentRecords.filter(r => {
+            const key = `${r.title}-${r.status}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        }).slice(0, 20);
 
         return NextResponse.json({ data: chartData, instances: instanceMetadata, recentDownloads });
     } catch (error) {

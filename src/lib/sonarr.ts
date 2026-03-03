@@ -64,7 +64,7 @@ export const getQueue = async (url: string, apiKey: string): Promise<any[]> => {
     }
 };
 
-// Function to fetch download grab history
+// Function to fetch download grab history (includes Grabs, Imports, and Failures for rich status)
 export const getGrabHistory = async (url: string, apiKey: string, limit: number = 500): Promise<any[]> => {
     try {
         const response = await axios.get(`${url}/api/v3/history`, {
@@ -73,8 +73,8 @@ export const getGrabHistory = async (url: string, apiKey: string, limit: number 
                 page: 1,
                 pageSize: limit,
                 sortKey: 'date',
-                sortDirection: 'descending',
-                eventType: 1 // 1 = Grabbed
+                sortDirection: 'descending'
+                // Removed eventType: 1 to fetch all (Grabs, Imports, etc.)
             }
         });
         return response.data.records || [];
