@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getInstances, Instance } from '@/lib/db';
-import { getGrabHistory as getRadarrHistory } from '@/lib/radarr';
-import { getGrabHistory as getSonarrHistory } from '@/lib/sonarr';
+import { getGrabHistory as getRadarrHistory, RadarrHistoryRecord } from '@/lib/radarr';
+import { getGrabHistory as getSonarrHistory, SonarrHistoryRecord } from '@/lib/sonarr';
 
 const tailwindToHex = (twClass: string) => {
     if (!twClass) return '#3b82f6';
@@ -31,6 +31,38 @@ const tailwindToHex = (twClass: string) => {
     return '#3b82f6'; // fallback blue
 };
 
+// --- Interfaces ---
+interface HistoryRecord {
+    date: string;
+    eventType: number | string;
+    sourceTitle?: string;
+    movie?: { title: string };
+    series?: { title: string };
+    episode?: { seasonNumber: number, episodeNumber: number };
+    data?: {
+        importedSize?: string;
+        size?: string;
+        message?: string;
+        reason?: string;
+    };
+    movieFile?: { size: string | number };
+    episodeFile?: { size: string | number };
+    size?: string | number;
+}
+
+interface QueueItem {
+    title?: string;
+    size?: number;
+    movie?: { title: string };
+    series?: { title: string };
+    episode?: { seasonNumber: number, episodeNumber: number };
+}
+
+interface ChartDay {
+    date: string;
+    [key: string]: string | number | string[];
+}
+
 export async function GET() {
     try {
         const allInstances = getInstances();
@@ -55,7 +87,14 @@ export async function GET() {
         }
 
         const instanceMetadata: Record<string, { name: string, color: string, type: string }> = {};
-        const allRecentRecords: { title: string, date: string, instanceId: string, status: string, size?: number }[] = [];
+        const allRecentRecords: {
+            title: string,
+            date: string,
+            instanceId: string,
+            status: string,
+            size?: number,
+            failureReason?: string
+        }[] = [];
 
         // Track stats by type: grabbed, imported, failed, size
         const statsSummary: Record<string, Record<string, { grabbed: number, imported: number, failed: number, sizeBytes: number, downloading: number }>> = {};
@@ -79,8 +118,8 @@ export async function GET() {
             });
 
             try {
-                let records: any[] = [];
-                let queue: any[] = [];
+                let records: (RadarrHistoryRecord | SonarrHistoryRecord)[] = [];
+                let queue: QueueItem[] = [];
                 if (instance.type === 'radarr') {
                     const [historyRes, queueRes] = await Promise.all([
                         getRadarrHistory(instance.url, instance.api_key, 1000),
@@ -141,11 +180,11 @@ export async function GET() {
                                     statsSummary[dateStr][id].imported++;
                                     // Extract size from data property (bytes as string) or nested objects
                                     let size = 0;
-                                    if (record.data?.importedSize) size = parseInt(record.data.importedSize, 10);
-                                    else if (record.data?.size) size = parseInt(record.data.size, 10);
-                                    else if (record.movieFile?.size) size = parseInt(record.movieFile.size, 10);
-                                    else if (record.episodeFile?.size) size = parseInt(record.episodeFile.size, 10);
-                                    else if (record.size) size = parseInt(record.size, 10);
+                                    if (record.data?.importedSize) size = parseInt(String(record.data.importedSize), 10);
+                                    else if (record.data?.size) size = parseInt(String(record.data.size), 10);
+                                    else if (record.movieFile?.size) size = parseInt(String(record.movieFile.size), 10);
+                                    else if (record.episodeFile?.size) size = parseInt(String(record.episodeFile.size), 10);
+                                    else if (record.size) size = parseInt(String(record.size), 10);
 
                                     if (isNaN(size) || !size) size = 0;
                                     statsSummary[dateStr][id].sizeBytes += size;
@@ -184,11 +223,11 @@ export async function GET() {
 
                             // Calculate size for the record list
                             let sizeBytes = 0;
-                            if (record.data?.importedSize) sizeBytes = parseInt(record.data.importedSize, 10);
-                            else if (record.data?.size) sizeBytes = parseInt(record.data.size, 10);
-                            else if (record.movieFile?.size) sizeBytes = parseInt(record.movieFile.size, 10);
-                            else if (record.episodeFile?.size) sizeBytes = parseInt(record.episodeFile.size, 10);
-                            else if (record.size) sizeBytes = parseInt(record.size, 10);
+                            if (record.data?.importedSize) sizeBytes = parseInt(String(record.data.importedSize), 10);
+                            else if (record.data?.size) sizeBytes = parseInt(String(record.data.size), 10);
+                            else if (record.movieFile?.size) sizeBytes = parseInt(String(record.movieFile.size), 10);
+                            else if (record.episodeFile?.size) sizeBytes = parseInt(String(record.episodeFile.size), 10);
+                            else if (record.size) sizeBytes = parseInt(String(record.size), 10);
 
                             if (isNaN(sizeBytes) || !sizeBytes) sizeBytes = 0;
 
@@ -213,7 +252,7 @@ export async function GET() {
 
         // Convert the map to an array for recharts
         const chartData = Object.keys(dailyStats).sort().map(date => {
-            const dayObj: any = { date };
+            const dayObj: ChartDay = { date };
             Object.keys(instanceMetadata).forEach(instanceId => {
                 const summary = statsSummary[date][instanceId];
                 dayObj[`${instanceId}_grabbed`] = summary.grabbed;

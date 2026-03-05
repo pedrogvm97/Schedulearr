@@ -36,6 +36,81 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { SortableItem } from '@/components/SortableItem';
 
+// --- Interfaces ---
+
+interface SchedulerConfig {
+    enabled: boolean;
+    interval: number;
+    batchSize: number;
+    batchBehavior: 'repeat' | 'rotate' | string;
+    maxAttempts: number;
+}
+
+interface Movie {
+    id: number;
+    idStr?: string; // Synthesized ID for UI
+    type: 'movie';
+    title: string;
+    year: number;
+    instanceId: string;
+    sizeOnDisk: number;
+    hasFile: boolean;
+    isDownloading?: boolean;
+    genres?: string[];
+    monitored: boolean;
+    status: string;
+    isPinned?: boolean;
+}
+
+interface Episode {
+    id: number;
+    idStr?: string;
+    type: 'episode';
+    title: string;
+    instanceId: string;
+    seriesId: number;
+    seasonNumber: number;
+    episodeNumber: number;
+    hasFile: boolean;
+    monitored: boolean;
+}
+
+interface SeriesItem {
+    id: number;
+    idStr: string;
+    type: 'series' | 'episode';
+    title: string;
+    instanceId: string;
+    episodes?: Episode[];
+    queuedEpisodeIds?: number[];
+    isPinned?: boolean;
+    genres?: string[];
+    monitored: boolean;
+    status: string;
+}
+
+interface SearchHistory {
+    id: string;
+    title: string;
+    status: 'Grabbed' | 'Finalized' | 'Failed' | 'Downloading';
+    timestamp: string;
+    message?: string;
+    trigger?: string;
+}
+
+interface Release {
+    guid: string;
+    title: string;
+    size: number;
+    indexerId: number;
+    indexer: string;
+    seeders: number;
+    leechers: number;
+    downloadUrl: string;
+    infoUrl?: string;
+    rejections?: string[];
+}
+
 const CountdownTimer = ({ nextRun, enabled }: { nextRun: number | null, enabled: boolean }) => {
     const [countdown, setCountdown] = useState<string>('');
 
@@ -67,12 +142,12 @@ const CountdownTimer = ({ nextRun, enabled }: { nextRun: number | null, enabled:
 };
 
 export default function SchedulerQueue() {
-    const [movies, setMovies] = useState<any[]>([]);
-    const [episodes, setEpisodes] = useState<any[]>([]);
+    const [movies, setMovies] = useState<Movie[]>([]);
+    const [episodes, setEpisodes] = useState<SeriesItem[]>([]);
     const [profiles, setProfiles] = useState<Record<string, Record<number, string>>>({});
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [schedulerConfig, setSchedulerConfig] = useState<{ enabled: boolean, interval: number, batchSize: number, batchBehavior: string, maxAttempts: number }>({
+    const [schedulerConfig, setSchedulerConfig] = useState<SchedulerConfig>({
         enabled: true,
         interval: 30,
         batchSize: 10,
@@ -80,8 +155,8 @@ export default function SchedulerQueue() {
         maxAttempts: 3
     });
 
-    const updateSchedulerConfig = async (updates: Partial<typeof schedulerConfig>) => {
-        const newConfig = { ...schedulerConfig, ...updates } as any;
+    const updateSchedulerConfig = async (updates: Partial<SchedulerConfig>) => {
+        const newConfig = { ...schedulerConfig, ...updates };
         setSchedulerConfig(newConfig);
         try {
             await axios.post('/api/scheduler/config', newConfig);
@@ -91,7 +166,7 @@ export default function SchedulerQueue() {
     };
 
     const [nextRun, setNextRun] = useState<number | null>(null);
-    const [searchHistory, setSearchHistory] = useState<any[]>([]);
+    const [searchHistory, setSearchHistory] = useState<SearchHistory[]>([]);
     const [searchToggles, setSearchToggles] = useState<Record<string, boolean>>({});
     const [selectedGenres, setSelectedGenres] = useState<string[]>(['All']);
     const [instanceFilters, setInstanceFilters] = useState<Record<string, boolean>>({});
@@ -109,7 +184,7 @@ export default function SchedulerQueue() {
     // New Feature States
     const [genreLogic, setGenreLogic] = useState<'OR' | 'AND' | 'EXCLUDE'>('OR');
     const [expandedSeriesId, setExpandedSeriesId] = useState<string | null>(null);
-    const [seriesEpisodes, setSeriesEpisodes] = useState<Record<string, any[]>>({});
+    const [seriesEpisodes, setSeriesEpisodes] = useState<Record<string, Episode[]>>({});
     const [loadingEpisodes, setLoadingEpisodes] = useState<Record<string, boolean>>({});
 
     const [isSaving, setIsSaving] = useState(false);
@@ -118,7 +193,7 @@ export default function SchedulerQueue() {
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
     const [interactiveSearchItem, setInteractiveSearchItem] = useState<{ type: 'movie' | 'series' | 'episode', id: number, instanceId: string, title: string } | null>(null);
-    const [interactiveReleases, setInteractiveReleases] = useState<any[]>([]);
+    const [interactiveReleases, setInteractiveReleases] = useState<Release[]>([]);
     const [loadingReleases, setLoadingReleases] = useState(false);
     const [triggeringReleaseGuid, setTriggeringReleaseGuid] = useState<string | null>(null);
 
@@ -165,9 +240,9 @@ export default function SchedulerQueue() {
             setSelectedGenres(['All']);
             return;
         }
-        setSelectedGenres(prev => {
+        setSelectedGenres((prev: string[]) => {
             const isSelected = prev.includes(g);
-            const next = isSelected ? prev.filter(x => x !== g && x !== 'All') : [...prev.filter(x => x !== 'All'), g];
+            const next = isSelected ? prev.filter((x: string) => x !== g && x !== 'All') : [...prev.filter((x: string) => x !== 'All'), g];
             return next.length === 0 ? ['All'] : next;
         });
     };
@@ -217,20 +292,17 @@ export default function SchedulerQueue() {
 
             toast.success('Successfully sent release to download client!');
 
-            // Optimistically update the main data array so it re-filters instantly
             if (interactiveSearchItem.type === 'movie') {
-                setMovies(prev => prev.map(m => m.id === interactiveSearchItem.id && m.instanceId === interactiveSearchItem.instanceId ? { ...m, isDownloading: true } : m));
+                setMovies((prev: Movie[]) => prev.map((m: Movie) => m.id === interactiveSearchItem.id && m.instanceId === interactiveSearchItem.instanceId ? { ...m, isDownloading: true } : m));
             } else if (interactiveSearchItem.type === 'episode') {
-                // If it's an episode, we need to find the series it belongs to and add the episode ID to queuedEpisodeIds
-                setEpisodes(prev => prev.map(e => {
-                    if (e.instanceId === interactiveSearchItem.instanceId && e.episodes?.some((ep: any) => ep.id === interactiveSearchItem.id)) {
+                setEpisodes((prev: SeriesItem[]) => prev.map((e: SeriesItem) => {
+                    if (e.instanceId === interactiveSearchItem.instanceId && e.episodes?.some((ep: Episode) => ep.id === interactiveSearchItem.id)) {
                         return { ...e, queuedEpisodeIds: [...(e.queuedEpisodeIds || []), interactiveSearchItem.id] };
                     }
                     return e;
                 }));
             } else {
-                // Series level (season pack)
-                setEpisodes(prev => prev.map(e => e.id === interactiveSearchItem.id && e.instanceId === interactiveSearchItem.instanceId ? { ...e, queuedEpisodeIds: [...(e.queuedEpisodeIds || []), ...e.episodes?.map((ep: any) => ep.id) || []] } : e));
+                setEpisodes((prev: SeriesItem[]) => prev.map((e: SeriesItem) => e.id === interactiveSearchItem.id && e.instanceId === interactiveSearchItem.instanceId ? { ...e, queuedEpisodeIds: [...(e.queuedEpisodeIds || []), ...e.episodes?.map((ep: Episode) => ep.id) || []] } : e));
             }
 
             // Auto close modal on success
@@ -244,18 +316,18 @@ export default function SchedulerQueue() {
 
             // Revert optimistic updates on failure
             if (interactiveSearchItem.type === 'movie') {
-                setMovies(prev => prev.map(m => m.id === interactiveSearchItem.id && m.instanceId === interactiveSearchItem.instanceId ? { ...m, isDownloading: false } : m));
+                setMovies((prev: Movie[]) => prev.map((m: Movie) => m.id === interactiveSearchItem.id && m.instanceId === interactiveSearchItem.instanceId ? { ...m, isDownloading: false } : m));
             } else if (interactiveSearchItem.type === 'episode') {
-                setEpisodes(prev => prev.map(e => {
-                    if (e.instanceId === interactiveSearchItem.instanceId && e.episodes?.some((ep: any) => ep.id === interactiveSearchItem.id)) {
+                setEpisodes((prev: SeriesItem[]) => prev.map((e: SeriesItem) => {
+                    if (e.instanceId === interactiveSearchItem.instanceId && e.episodes?.some((ep: Episode) => ep.id === interactiveSearchItem.id)) {
                         return { ...e, queuedEpisodeIds: (e.queuedEpisodeIds || []).filter((id: number) => id !== interactiveSearchItem.id) };
                     }
                     return e;
                 }));
             } else {
-                setEpisodes(prev => prev.map(e => {
+                setEpisodes((prev: SeriesItem[]) => prev.map((e: SeriesItem) => {
                     if (e.id === interactiveSearchItem.id && e.instanceId === interactiveSearchItem.instanceId) {
-                        const epIdsToRemove = new Set(e.episodes?.map((ep: any) => ep.id) || []);
+                        const epIdsToRemove = new Set(e.episodes?.map((ep: Episode) => ep.id) || []);
                         return { ...e, queuedEpisodeIds: (e.queuedEpisodeIds || []).filter((id: number) => !epIdsToRemove.has(id)) };
                     }
                     return e;
@@ -406,36 +478,36 @@ export default function SchedulerQueue() {
         setIsSaving(false);
     };
 
-    const handleSelectAll = (filteredItems: any[]) => {
+    const handleSelectAll = (filteredItems: (Movie | SeriesItem)[]) => {
         const updates: Record<string, boolean> = {};
-        filteredItems.forEach(item => { updates[item.idStr] = true; });
-        setSearchToggles(prev => ({ ...prev, ...updates }));
+        filteredItems.forEach(item => { updates[item.idStr || `${item.instanceId}-${item.id}`] = true; });
+        setSearchToggles((prev: Record<string, boolean>) => ({ ...prev, ...updates }));
     };
 
-    const handleDeselectAll = (filteredItems: any[]) => {
+    const handleDeselectAll = (filteredItems: (Movie | SeriesItem)[]) => {
         const updates: Record<string, boolean> = {};
-        filteredItems.forEach(item => { updates[item.idStr] = false; });
-        setSearchToggles(prev => ({ ...prev, ...updates }));
+        filteredItems.forEach(item => { updates[item.idStr || `${item.instanceId}-${item.id}`] = false; });
+        setSearchToggles((prev: Record<string, boolean>) => ({ ...prev, ...updates }));
     };
 
     const fetchSeriesEpisodes = async (instanceId: string, seriesId: number) => {
         const cacheKey = `${instanceId}-${seriesId}`;
         if (seriesEpisodes[cacheKey]) return; // already loaded
 
-        setLoadingEpisodes(prev => ({ ...prev, [cacheKey]: true }));
+        setLoadingEpisodes((prev: Record<string, boolean>) => ({ ...prev, [cacheKey]: true }));
         try {
             const res = await fetch(`/api/sonarr/episodes?instanceId=${instanceId}&seriesId=${seriesId}`);
             if (res.ok) {
                 const data = await res.json();
-                setSeriesEpisodes(prev => ({ ...prev, [cacheKey]: data }));
+                setSeriesEpisodes((prev: Record<string, Episode[]>) => ({ ...prev, [cacheKey]: data }));
             }
         } catch (e) {
             console.error('Failed to load episodes', e);
         }
-        setLoadingEpisodes(prev => ({ ...prev, [cacheKey]: false }));
+        setLoadingEpisodes((prev: Record<string, boolean>) => ({ ...prev, [cacheKey]: false }));
     };
 
-    const toggleExpandSeries = (item: any, e: React.MouseEvent) => {
+    const toggleExpandSeries = async (item: SeriesItem, e: React.MouseEvent) => {
         e.stopPropagation();
         if (item.type !== 'series') return;
 
@@ -449,14 +521,15 @@ export default function SchedulerQueue() {
     };
 
     const toggleSearch = (id: string) => {
-        setSearchToggles(prev => ({
+        setSearchToggles((prev: Record<string, boolean>) => ({
             ...prev,
             [id]: !prev[id]
         }));
     };
 
-    const handleForceSearch = async (item: any) => {
-        setSearchingItems(prev => ({ ...prev, [item.idStr]: { status: 'Triggering...', isPolling: true } }));
+    const handleForceSearch = async (item: Movie | SeriesItem | Episode) => {
+        const idStr = item.idStr || `${item.instanceId}-${item.id}`;
+        setSearchingItems((prev: Record<string, any>) => ({ ...prev, [idStr]: { status: 'Triggering...', isPolling: true } }));
 
         try {
             const res = await fetch('/api/search/trigger', {
@@ -467,7 +540,7 @@ export default function SchedulerQueue() {
 
             if (!res.ok) throw new Error('Trigger failed');
 
-            setSearchingItems(prev => ({ ...prev, [item.idStr]: { status: 'Searching indexers...', isPolling: true } }));
+            setSearchingItems((prev: Record<string, any>) => ({ ...prev, [idStr]: { status: 'Searching indexers...', isPolling: true } }));
 
             let tries = 0;
             const maxTries = 10;
@@ -479,20 +552,20 @@ export default function SchedulerQueue() {
                     if (statusRes.ok) {
                         const data = await statusRes.json();
                         if (data.status !== 'Not in queue') {
-                            setSearchingItems(prev => ({ ...prev, [item.idStr]: { status: `Grabbed (${data.status})`, isPolling: false } }));
+                            setSearchingItems((prev: Record<string, any>) => ({ ...prev, [idStr]: { status: `Grabbed (${data.status})`, isPolling: false } }));
 
                             // Optimistically update the main data array so it re-filters instantly
                             if (item.type === 'movie') {
-                                setMovies(prev => prev.map(m => m.id === item.id && m.instanceId === item.instanceId ? { ...m, isDownloading: true } : m));
+                                setMovies((prev: Movie[]) => prev.map(m => m.id === item.id && m.instanceId === item.instanceId ? { ...m, isDownloading: true } : m));
                             } else if (item.type === 'episode') {
-                                setEpisodes(prev => prev.map(e => {
-                                    if (e.instanceId === item.instanceId && e.episodes?.some((ep: any) => ep.id === item.id)) {
+                                setEpisodes((prev: SeriesItem[]) => prev.map(e => {
+                                    if (e.instanceId === item.instanceId && e.episodes?.some((ep: Episode) => ep.id === item.id)) {
                                         return { ...e, queuedEpisodeIds: [...(e.queuedEpisodeIds || []), item.id] };
                                     }
                                     return e;
                                 }));
                             } else {
-                                setEpisodes(prev => prev.map(e => e.id === item.id && e.instanceId === item.instanceId ? { ...e, queuedEpisodeIds: [...(e.queuedEpisodeIds || []), ...e.episodes?.map((ep: any) => ep.id) || []] } : e));
+                                setEpisodes((prev: SeriesItem[]) => prev.map(e => e.id === item.id && e.instanceId === item.instanceId ? { ...e, queuedEpisodeIds: [...(e.queuedEpisodeIds || []), ...e.episodes?.map((ep: Episode) => ep.id) || []] } : e));
                             }
 
                             clearInterval(pollInterval);
@@ -504,14 +577,14 @@ export default function SchedulerQueue() {
                 }
 
                 if (tries >= maxTries) {
-                    setSearchingItems(prev => ({ ...prev, [item.idStr]: { status: 'Finished (Not found)', isPolling: false } }));
+                    setSearchingItems((prev: Record<string, any>) => ({ ...prev, [idStr]: { status: 'Finished (Not found)', isPolling: false } }));
                     clearInterval(pollInterval);
                 }
             }, 3000);
 
         } catch (err) {
             console.error(err);
-            setSearchingItems(prev => ({ ...prev, [item.idStr]: { status: 'Error', isPolling: false } }));
+            setSearchingItems((prev: Record<string, any>) => ({ ...prev, [idStr]: { status: 'Error', isPolling: false } }));
         }
     };
 
@@ -747,7 +820,7 @@ export default function SchedulerQueue() {
         const { active, over } = event;
 
         if (over && active.id !== over.id) {
-            setOrderedIds((items) => {
+            setOrderedIds((items: string[]) => {
                 const oldIndex = items.indexOf(active.id as string);
                 const newIndex = items.indexOf(over.id as string);
                 return arrayMove(items, oldIndex, newIndex);

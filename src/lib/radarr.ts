@@ -31,6 +31,21 @@ export interface RadarrQualityProfile {
     name: string;
 }
 
+export interface RadarrHistoryRecord {
+    date: string;
+    eventType: number | string;
+    sourceTitle?: string;
+    movie?: { title: string };
+    data?: {
+        importedSize?: string;
+        size?: string;
+        message?: string;
+        reason?: string;
+    };
+    movieFile?: { size: string | number };
+    [key: string]: any;
+}
+
 // Function to fetch all movies
 export const getAllMovies = async (url: string, apiKey: string): Promise<RadarrMovie[]> => {
     try {
@@ -69,7 +84,7 @@ export const getMissingMovies = async (url: string, apiKey: string): Promise<Rad
 };
 
 // Function to fetch active queue (downloading/importing)
-export const getQueue = async (url: string, apiKey: string): Promise<any[]> => {
+export const getQueue = async (url: string, apiKey: string): Promise<Record<string, any>[]> => {
     try {
         const response = await axios.get(`${url}/api/v3/queue`, {
             headers: { 'X-Api-Key': apiKey }
@@ -82,7 +97,7 @@ export const getQueue = async (url: string, apiKey: string): Promise<any[]> => {
 };
 
 // Function to fetch download grab history (includes Grabs, Imports, and Failures for rich status)
-export const getGrabHistory = async (url: string, apiKey: string, limit: number = 500): Promise<any[]> => {
+export const getGrabHistory = async (url: string, apiKey: string, limit: number = 500): Promise<RadarrHistoryRecord[]> => {
     try {
         const response = await axios.get(`${url}/api/v3/history`, {
             headers: { 'X-Api-Key': apiKey },

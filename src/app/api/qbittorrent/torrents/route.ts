@@ -2,6 +2,20 @@ import { NextResponse } from 'next/server';
 import { getInstances } from '@/lib/db';
 import { authenticateQbittorrent, getActiveTorrents } from '@/lib/qbittorrent';
 
+interface QBitTorrent {
+    hash: string;
+    name: string;
+    size: number;
+    progress: number;
+    dlspeed: number;
+    upspeed: number;
+    state: string;
+    instanceId?: number;
+    instanceName?: string;
+    instanceColor?: string;
+    [key: string]: any;
+}
+
 export async function GET() {
     try {
         const instances = getInstances('qbittorrent', true);
@@ -10,7 +24,7 @@ export async function GET() {
         }
 
         // Support multiple qBit instances by aggregating them
-        let allTorrents: any[] = [];
+        let allTorrents: QBitTorrent[] = [];
 
         for (const instance of instances) {
             try {
@@ -18,7 +32,7 @@ export async function GET() {
                 const torrents = await getActiveTorrents(instance.url, cookie);
 
                 // Inject instance info for UI grouping
-                const tagged = torrents.map(t => ({
+                const tagged = torrents.map((t: any) => ({
                     ...t,
                     instanceId: instance.id,
                     instanceName: instance.name,

@@ -38,6 +38,22 @@ export interface SonarrQualityProfile {
     name: string;
 }
 
+export interface SonarrHistoryRecord {
+    date: string;
+    eventType: number | string;
+    sourceTitle?: string;
+    series?: { title: string };
+    episode?: { seasonNumber: number, episodeNumber: number };
+    data?: {
+        importedSize?: string;
+        size?: string;
+        message?: string;
+        reason?: string;
+    };
+    episodeFile?: { size: string | number };
+    [key: string]: any;
+}
+
 // Fetch all series with their statistics
 export const getAllSeries = async (url: string, apiKey: string): Promise<SonarrSeries[]> => {
     try {
@@ -52,7 +68,7 @@ export const getAllSeries = async (url: string, apiKey: string): Promise<SonarrS
 };
 
 // Fetch all missing episodes and map them to their series titles
-export const getQueue = async (url: string, apiKey: string): Promise<any[]> => {
+export const getQueue = async (url: string, apiKey: string): Promise<Record<string, any>[]> => {
     try {
         const response = await axios.get(`${url}/api/v3/queue`, {
             headers: { 'X-Api-Key': apiKey }
@@ -65,7 +81,7 @@ export const getQueue = async (url: string, apiKey: string): Promise<any[]> => {
 };
 
 // Function to fetch download grab history (includes Grabs, Imports, and Failures for rich status)
-export const getGrabHistory = async (url: string, apiKey: string, limit: number = 500): Promise<any[]> => {
+export const getGrabHistory = async (url: string, apiKey: string, limit: number = 500): Promise<SonarrHistoryRecord[]> => {
     try {
         const response = await axios.get(`${url}/api/v3/history`, {
             headers: { 'X-Api-Key': apiKey },

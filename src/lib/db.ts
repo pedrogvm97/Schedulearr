@@ -146,9 +146,9 @@ export const getInstances = (type?: string, activeOnly: boolean = false): Instan
         }
     }
 
-    return raw.map((r: any) => ({
+    return raw.map((r: Instance) => ({
         ...r,
-        enabled: r.enabled === 1
+        enabled: Number(r.enabled) === 1
     })) as Instance[];
 };
 
@@ -213,8 +213,8 @@ export const getSearchHistory = (limit: number = 50) => {
     const stmt = db.prepare('SELECT * FROM search_history ORDER BY timestamp DESC LIMIT ?');
     return stmt.all(limit).map((row: any) => ({
         ...row,
-        movies_searched: JSON.parse(row.movies_searched),
-        episodes_searched: JSON.parse(row.episodes_searched)
+        movies_searched: row.movies_searched ? JSON.parse(row.movies_searched) : [],
+        episodes_searched: row.episodes_searched ? JSON.parse(row.episodes_searched) : []
     }));
 };
 
@@ -237,7 +237,7 @@ export const getIndexerRules = (): ProwlarrIndexerRule[] => {
     const stmt = db.prepare('SELECT * FROM prowlarr_indexer_rules');
     return stmt.all().map((r: any) => ({
         ...r,
-        auto_manage: r.auto_manage === 1
+        auto_manage: Number(r.auto_manage) === 1
     }));
 };
 
@@ -247,7 +247,7 @@ export const getIndexerRule = (indexerId: number, instanceId: string): ProwlarrI
     if (!result) return undefined;
     return {
         ...result,
-        auto_manage: result.auto_manage === 1
+        auto_manage: Number(result.auto_manage) === 1
     };
 };
 

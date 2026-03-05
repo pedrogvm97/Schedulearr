@@ -4,6 +4,35 @@ import { useState, useEffect } from "react";
 import HistoryLedger from "@/components/HistoryLedger";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 
+// --- Interfaces ---
+interface RecentDownload {
+  title: string;
+  date: string;
+  instanceId: string;
+  status: string;
+  size: number;
+  failureReason?: string;
+}
+
+interface IndexerHealth {
+  id: number;
+  name: string;
+  status: number;
+}
+
+interface ProwlarrInstance {
+  id: string | number;
+  name: string;
+  health?: {
+    indexers?: IndexerHealth[];
+  };
+}
+
+interface ChartData {
+  date: string;
+  [key: string]: string | number | string[];
+}
+
 export default function Dashboard() {
   const [triggerResult, setTriggerResult] = useState<{
     show: boolean,
@@ -13,12 +42,12 @@ export default function Dashboard() {
     episodes?: string[]
   }>({ show: false });
   const [isTriggering, setIsTriggering] = useState(false);
-  const [chartData, setChartData] = useState<any[]>([]);
+  const [chartData, setChartData] = useState<ChartData[]>([]);
   const [instances, setInstances] = useState<Record<string, { name: string, color: string, type: string }>>({});
-  const [recentDownloads, setRecentDownloads] = useState<any[]>([]);
+  const [recentDownloads, setRecentDownloads] = useState<RecentDownload[]>([]);
   const [loadingStats, setLoadingStats] = useState(true);
 
-  const [prowlarrHealth, setProwlarrHealth] = useState<any[]>([]);
+  const [prowlarrHealth, setProwlarrHealth] = useState<ProwlarrInstance[]>([]);
   const [loadingProwlarr, setLoadingProwlarr] = useState(true);
 
   const [showWelcome, setShowWelcome] = useState(false);
@@ -26,7 +55,7 @@ export default function Dashboard() {
   const [recentDownloadFilters, setRecentDownloadFilters] = useState<Record<string, boolean>>({});
 
   const toggleRecentFilter = (id: string) => {
-    setRecentDownloadFilters(prev => ({
+    setRecentDownloadFilters((prev: Record<string, boolean>) => ({
       ...prev,
       [id]: !prev[id]
     }));
@@ -115,9 +144,9 @@ export default function Dashboard() {
     setIsTriggering(false);
   };
 
-  const CustomTooltip = ({ active, payload, label }: any) => {
+  const CustomTooltip = ({ active, payload, label }: { active?: boolean, payload?: any[], label?: string }) => {
     if (active && payload && payload.length) {
-      const allTitles = payload.flatMap((entry: any) => {
+      const allTitles = payload.flatMap((entry: { payload: any, dataKey: string, fill: string }) => {
         const titles = entry.payload[`${entry.dataKey}_titles`] || [];
         return titles.map((t: string) => ({
           title: t,
@@ -130,11 +159,11 @@ export default function Dashboard() {
       return (
         <div className="bg-zinc-900 border border-zinc-800 p-3 rounded-lg shadow-xl max-w-lg">
           <p className="text-zinc-400 text-xs mb-2 font-semibold border-b border-zinc-800 pb-2">
-            {new Date(label).toDateString()} (Total: {allTitles.length})
+            {label ? new Date(String(label)).toDateString() : ''} (Total: {allTitles.length})
           </p>
 
           <ul className="text-sm space-y-1 max-h-48 overflow-y-auto pr-2">
-            {allTitles.map((item: any, i: number) => (
+            {allTitles.map((item: { title: string, color: string }, i: number) => (
               <li key={i} className="truncate font-semibold" style={{ color: item.color }} title={item.title}>
                 {item.title}
               </li>
@@ -212,8 +241,8 @@ export default function Dashboard() {
                 />
                 <Legend
                   wrapperStyle={{ paddingTop: '20px', fontSize: '12px' }}
-                  formatter={(value) => {
-                    const inst = instances[value];
+                  formatter={(value: string) => {
+                    const inst = (instances as Record<string, any>)[value];
                     return inst ? inst.name : value;
                   }}
                 />
@@ -331,9 +360,9 @@ export default function Dashboard() {
                       <span
                         title={dl.failureReason || (dl.status === 'Finalized' ? 'Download imported and completed' : dl.status === 'Grabbed' ? 'Sent to download client' : 'Currently in download queue')}
                         className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider cursor-help ${dl.status === 'Finalized' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' :
-                            dl.status === 'Failed' ? 'bg-red-500/10 text-red-500 border border-red-500/20' :
-                              dl.status === 'Downloading' ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20' :
-                                'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
+                          dl.status === 'Failed' ? 'bg-red-500/10 text-red-500 border border-red-500/20' :
+                            dl.status === 'Downloading' ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20' :
+                              'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
                           }`}>
                         {dl.status}
                       </span>

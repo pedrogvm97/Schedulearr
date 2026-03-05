@@ -3,8 +3,23 @@
 import { useState, useEffect, useMemo } from "react";
 import { formatDistanceToNow } from "date-fns";
 
+// --- Interfaces ---
+interface Torrent {
+    hash: string;
+    name: string;
+    size: number;
+    progress: number;
+    dlspeed: number;
+    upspeed: number;
+    state: string;
+    instanceId: string;
+    instanceName: string;
+    instanceColor: string;
+    [key: string]: any; // Allow for dynamic field access during sorting
+}
+
 export default function Downloads() {
-    const [torrents, setTorrents] = useState<any[]>([]);
+    const [torrents, setTorrents] = useState<Torrent[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -12,6 +27,8 @@ export default function Downloads() {
     // Modal state for delete options
     const [deleteModalOpen, setDeleteModalOpen] = useState(false);
     const [selectedHash, setSelectedHash] = useState<{ hash: string, name: string, instanceId: string } | null>(null);
+
+    const [sortField, setSortField] = useState<'name' | 'size' | 'progress' | 'dlspeed'>('name');
 
     const [deleteFiles, setDeleteFiles] = useState(true);
     const [blacklistRelease, setBlacklistRelease] = useState(true);
@@ -35,8 +52,8 @@ export default function Downloads() {
             const data = await res.json();
             setTorrents(data.torrents || []);
             setError(null);
-        } catch (e: any) {
-            setError(e.message);
+        } catch (e: unknown) {
+            setError(e instanceof Error ? e.message : 'An unknown error occurred');
         } finally {
             setLoading(false);
         }
@@ -60,7 +77,7 @@ export default function Downloads() {
         }
     };
 
-    const updateSetting = async (key: string, value: any) => {
+    const updateSetting = async (key: string, value: string | number | boolean) => {
         try {
             await fetch('/api/settings', {
                 method: 'POST',
