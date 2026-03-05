@@ -1,6 +1,12 @@
 # Schedulearr
 
-Intelligent orchestrator and scheduler for Radarr, Sonarr, and Prowlarr.
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://opensource.org/licenses/AGPL-3.0)
+
+Schedulearr is an automated scheduler for the *arr suite (Radarr, Sonarr, Prowlarr).
+
+## License
+
+This project is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**. See the [LICENSE](LICENSE) file for details.
 
 ## Overview
 Schedulearr acts as a localized bridge for your media automation stack. It prevents API bans from private trackers by managing download quotas and intelligently triggers searches for missing media based on custom schedules.
