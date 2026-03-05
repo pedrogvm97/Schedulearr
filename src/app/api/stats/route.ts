@@ -60,7 +60,7 @@ interface QueueItem {
 
 interface ChartDay {
     date: string;
-    [key: string]: string | number | string[];
+    [key: string]: string | number | string[] | any;
 }
 
 export async function GET() {
@@ -76,8 +76,8 @@ export async function GET() {
         const now = new Date();
         const thirtyDaysAgo = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
 
-        // Prepare data map: YYYY-MM-DD -> { [instanceId]: string[] } (array of titles)
-        const dailyStats: Record<string, Record<string, string[]>> = {};
+        // Prepare data map: YYYY-MM-DD -> instanceId -> { status -> titles[] }
+        const dailyStats: Record<string, Record<string, Record<string, string[]>>> = {};
 
         // Initialize 30 days of empty maps
         for (let i = 29; i >= 0; i--) {
@@ -93,7 +93,8 @@ export async function GET() {
             instanceId: string,
             status: string,
             size?: number,
-            failureReason?: string
+            failureReason?: string,
+            indexer?: string
         }[] = [];
 
         // Track stats by type: grabbed, imported, failed, size
@@ -115,6 +116,9 @@ export async function GET() {
             // Initialize summary for this instance
             Object.keys(statsSummary).forEach(date => {
                 statsSummary[date][id] = { grabbed: 0, imported: 0, failed: 0, sizeBytes: 0, downloading: 0 };
+                if (!dailyStats[date][id]) {
+                    dailyStats[date][id] = { grabbed: [], imported: [], failed: [], downloading: [] };
+                }
             });
 
             try {
@@ -158,8 +162,18 @@ export async function GET() {
                         date: new Date().toISOString(), // Use current date for queue items
                         instanceId: id,
                         status: 'Downloading',
-                        size: item.size || 0
+                        size: item.size || 0,
+                        indexer: (item as any).indexer || 'Unknown'
                     });
+
+                    // Add to chart stats for "today"
+                    const todayStr = new Date().toISOString().split('T')[0];
+                    if (statsSummary[todayStr] && statsSummary[todayStr][id]) {
+                        statsSummary[todayStr][id].downloading++;
+                        if (!dailyStats[todayStr][id].downloading.includes(title)) {
+                            dailyStats[todayStr][id].downloading.push(title);
+                        }
+                    }
                 });
 
                 records.forEach(record => {
@@ -193,7 +207,9 @@ export async function GET() {
                                 if (isFailed) statsSummary[dateStr][id].failed++;
                             }
 
-                            if (!dailyStats[dateStr][id]) dailyStats[dateStr][id] = [];
+                            if (!dailyStats[dateStr][id]) {
+                                dailyStats[dateStr][id] = { grabbed: [], imported: [], failed: [], downloading: [] };
+                            }
 
                             // Try to extract clean title, fallback to sourceTitle
                             let title = record.sourceTitle || 'Unknown Release';
@@ -206,8 +222,14 @@ export async function GET() {
                                 title = `${record.series.title}${epInfo} (Series)`;
                             }
 
-                            if (!dailyStats[dateStr][id].includes(title)) {
-                                dailyStats[dateStr][id].push(title);
+                            if (isGrab && !dailyStats[dateStr][id].grabbed.includes(title)) {
+                                dailyStats[dateStr][id].grabbed.push(title);
+                            }
+                            if (isImport && !dailyStats[dateStr][id].imported.includes(title)) {
+                                dailyStats[dateStr][id].imported.push(title);
+                            }
+                            if (isFailed && !dailyStats[dateStr][id].failed.includes(title)) {
+                                dailyStats[dateStr][id].failed.push(title);
                             }
 
                             // Determine status for the record list
@@ -238,7 +260,8 @@ export async function GET() {
                                 instanceId: id,
                                 status,
                                 size: sizeBytes,
-                                failureReason
+                                failureReason,
+                                indexer: (record.data as any)?.indexer || 'Unknown'
                             });
                         }
                     }
@@ -258,11 +281,24 @@ export async function GET() {
                 dayObj[`${instanceId}_grabbed`] = summary.grabbed;
                 dayObj[`${instanceId}_imported`] = summary.imported;
                 dayObj[`${instanceId}_failed`] = summary.failed;
+                dayObj[`${instanceId}_downloading`] = summary.downloading;
                 dayObj[`${instanceId}_sizeGB`] = parseFloat((summary.sizeBytes / (1024 ** 3)).toFixed(2));
+
+                // Granular labels for tooltips
+                const titles = dailyStats[date][instanceId];
+                dayObj[`${instanceId}_grabbed_titles`] = titles?.grabbed || [];
+                dayObj[`${instanceId}_imported_titles`] = titles?.imported || [];
+                dayObj[`${instanceId}_failed_titles`] = titles?.failed || [];
+                dayObj[`${instanceId}_downloading_titles`] = titles?.downloading || [];
 
                 // Legacy support/Titles
                 dayObj[instanceId] = summary.grabbed; // default to grabbed for main chart
-                dayObj[`${instanceId}_titles`] = dailyStats[date][instanceId] || [];
+                dayObj[`${instanceId}_titles`] = Array.from(new Set([
+                    ...(titles?.grabbed || []),
+                    ...(titles?.imported || []),
+                    ...(titles?.failed || []),
+                    ...(titles?.downloading || [])
+                ]));
             });
             return dayObj;
         });

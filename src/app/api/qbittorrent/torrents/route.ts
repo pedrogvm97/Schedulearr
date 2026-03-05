@@ -23,7 +23,29 @@ export async function GET() {
             return NextResponse.json({ error: 'No active qBittorrent instances configured.' }, { status: 404 });
         }
 
-        // Support multiple qBit instances by aggregating them
+        // 1. Fetch Radarr/Sonarr queues to build a hash -> indexer map
+        const hashToIndexer: Record<string, string> = {};
+        const radarrInstances = getInstances('radarr', true);
+        const sonarrInstances = getInstances('sonarr', true);
+
+        const arrPromises = [
+            ...radarrInstances.map(inst => fetch(`${inst.url}/api/v3/queue?apiKey=${inst.api_key}`).then(r => r.json()).catch(() => ({ records: [] }))),
+            ...sonarrInstances.map(inst => fetch(`${inst.url}/api/v3/queue?apiKey=${inst.api_key}`).then(r => r.json()).catch(() => ({ records: [] })))
+        ];
+
+        const arrResults = await Promise.all(arrPromises);
+        arrResults.forEach(data => {
+            if (data && data.records) {
+                data.records.forEach((record: any) => {
+                    const hash = record.downloadId?.toLowerCase();
+                    if (hash && record.indexer) {
+                        hashToIndexer[hash] = record.indexer;
+                    }
+                });
+            }
+        });
+
+        // 2. Support multiple qBit instances by aggregating them
         let allTorrents: QBitTorrent[] = [];
 
         for (const instance of instances) {
@@ -31,17 +53,17 @@ export async function GET() {
                 const cookie = await authenticateQbittorrent(instance.url, instance.api_key);
                 const torrents = await getActiveTorrents(instance.url, cookie);
 
-                // Inject instance info for UI grouping
+                // Inject instance info and indexer info for UI
                 const tagged = torrents.map((t: any) => ({
                     ...t,
                     instanceId: instance.id,
                     instanceName: instance.name,
-                    instanceColor: instance.color || 'bg-emerald-500'
+                    instanceColor: instance.color || 'bg-emerald-500',
+                    indexer: hashToIndexer[t.hash.toLowerCase()] || 'Unknown'
                 }));
                 allTorrents = [...allTorrents, ...tagged];
             } catch (instError) {
                 console.error(`Failed to fetch from ${instance.name}:`, instError);
-                // Keep trying other instances if one fails
             }
         }
 

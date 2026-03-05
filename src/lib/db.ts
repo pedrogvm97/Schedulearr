@@ -63,6 +63,12 @@ db.exec(`
     last_search DATETIME DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY(media_id, instance_id, type)
   );
+
+  CREATE TABLE IF NOT EXISTS torrent_activity (
+    hash TEXT PRIMARY KEY,
+    last_progress REAL NOT NULL,
+    last_change DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 // Simple schema migrations for existing databases
@@ -275,6 +281,33 @@ export const saveIndexerRule = (rule: ProwlarrIndexerRule) => {
 export const deleteIndexerRule = (id: string) => {
     const stmt = db.prepare('DELETE FROM prowlarr_indexer_rules WHERE id = ?');
     stmt.run(id);
+};
+
+// --- Torrent Activity Tracking ---
+export const getTorrentActivity = (hash: string) => {
+    const stmt = db.prepare('SELECT * FROM torrent_activity WHERE hash = ?');
+    return stmt.get(hash) as { hash: string, last_progress: number, last_change: string } | undefined;
+};
+
+export const updateTorrentActivity = (hash: string, progress: number, resetChange: boolean = false) => {
+    if (resetChange) {
+        const stmt = db.prepare(`
+            INSERT OR REPLACE INTO torrent_activity (hash, last_progress, last_change)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+        `);
+        stmt.run(hash, progress);
+    } else {
+        const stmt = db.prepare(`
+            INSERT OR REPLACE INTO torrent_activity (hash, last_progress, last_change)
+            VALUES (?, ?, (SELECT last_change FROM torrent_activity WHERE hash = ?))
+        `);
+        stmt.run(hash, progress, hash);
+    }
+};
+
+export const deleteTorrentActivity = (hash: string) => {
+    const stmt = db.prepare('DELETE FROM torrent_activity WHERE hash = ?');
+    stmt.run(hash);
 };
 
 export const updateIndexerRuleMetrics = (id: string, newSnatches: number, newBytes: number, resetDate?: string) => {

@@ -1,4 +1,4 @@
-import { getInstances, getSetting } from '@/lib/db';
+import { getInstances, getSetting, getTorrentActivity, updateTorrentActivity, deleteTorrentActivity } from '@/lib/db';
 import { authenticateQbittorrent, getActiveTorrents, deleteTorrents } from '@/lib/qbittorrent';
 import { getQueue as getRadarrQueue, deleteFromQueue as deleteFromRadarrQueue } from '@/lib/radarr';
 import { getQueue as getSonarrQueue, deleteFromQueue as deleteFromSonarrQueue } from '@/lib/sonarr';
@@ -48,24 +48,46 @@ export async function runAutoCleanup() {
             const cookie = await authenticateQbittorrent(qb.url, qb.api_key);
             const torrents = await getActiveTorrents(qb.url, cookie);
 
-            // Identify items to remove (stalled, oversized, or stuck at 0%)
+            // Identify items to remove (stalled, oversized, or stagnant progress)
             const toRemove = torrents.filter(t => {
+                // 1. Max Size Check
                 if (sizeCleanupEnabled && t.size > maxSizeBytes) {
                     return true;
                 }
 
-                // Standard stalled check
-                const isStalled = t.state.toLowerCase().includes('stalled');
+                // 2. Filter states: only consider downloading/stalled/meta states
+                const monitoringStates = ['downloading', 'stalleddl', 'metadl', 'forceddl'];
+                const currentState = t.state.toLowerCase();
+                const isMonitoring = monitoringStates.some(s => currentState.includes(s));
 
-                // Extra "stuck" check: 0% progress and no activity for stagnation period
-                // progress: 0.0 to 1.0. num_leechs/num_seeds: active peers
-                const isStuck = t.progress === 0 && t.num_seeds === 0 && t.num_leechs === 0;
+                if (!isMonitoring) {
+                    // Item is seeding, paused, or completed - ignore for stagnation
+                    // Also delete tracking info to save space
+                    deleteTorrentActivity(t.hash);
+                    return false;
+                }
 
-                if (!isStalled && !isStuck) return false;
+                // 3. Progress Tracking
+                const activity = getTorrentActivity(t.hash);
+                const currentProgress = t.progress;
 
-                const addedTimeMs = t.added_on * 1000;
-                const minutesSinceAdded = (Date.now() - addedTimeMs) / (1000 * 60);
-                return minutesSinceAdded >= stagnationMin;
+                if (!activity) {
+                    // First time seeing this torrent, start tracking
+                    updateTorrentActivity(t.hash, currentProgress, true); // initial timestamp
+                    return false;
+                }
+
+                // If progress has changed, update tracking and reset timestamp
+                if (currentProgress > activity.last_progress) {
+                    updateTorrentActivity(t.hash, currentProgress, true);
+                    return false;
+                }
+
+                // Progress hasn't changed. Check how long it's been since the last change.
+                const lastChangeMs = new Date(activity.last_change + 'Z').getTime(); // Add Z for UTF
+                const minutesSinceChange = (Date.now() - lastChangeMs) / (1000 * 60);
+
+                return minutesSinceChange >= stagnationMin;
             });
 
             if (toRemove.length > 0) {

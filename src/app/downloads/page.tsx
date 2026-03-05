@@ -15,6 +15,7 @@ interface Torrent {
     instanceId: string;
     instanceName: string;
     instanceColor: string;
+    indexer?: string;
     [key: string]: any; // Allow for dynamic field access during sorting
 }
 
@@ -219,7 +220,7 @@ export default function Downloads() {
                                 </button>
                             </div>
 
-                            <div className="space-y-3">
+                            <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-3">
                                 <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Interval (Minutes)</label>
                                 <input
                                     type="number"
@@ -230,14 +231,14 @@ export default function Downloads() {
                                         setQbitCleanupIntervalMin(val);
                                         updateSetting('qbit_cleanup_interval_min', val);
                                     }}
-                                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all"
+                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all"
                                 />
                                 <p className="text-[10px] text-zinc-500 font-medium leading-relaxed">How often the background process scans your download client.</p>
                             </div>
                         </div>
 
                         <div className="space-y-6">
-                            <div className="space-y-3">
+                            <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-3">
                                 <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Stagnation (Minutes)</label>
                                 <input
                                     type="number"
@@ -248,9 +249,9 @@ export default function Downloads() {
                                         setQbitStagnationMin(val);
                                         updateSetting('qbit_cleanup_stagnation_min', val);
                                     }}
-                                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all"
+                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all"
                                 />
-                                <p className="text-[10px] text-zinc-500 font-medium leading-relaxed">Items stalled or stuck at 0% longer than this will be purged.</p>
+                                <p className="text-[10px] text-zinc-500 font-medium leading-relaxed">Items with no progress changes for longer than this will be purged.</p>
                             </div>
 
                             <div className="flex items-center justify-between p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50">
@@ -289,7 +290,7 @@ export default function Downloads() {
                                 </button>
                             </div>
 
-                            <div className="space-y-4">
+                            <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-4">
                                 <div className="flex items-center justify-between">
                                     <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Max Size (GB)</label>
                                     <button
@@ -313,7 +314,7 @@ export default function Downloads() {
                                         setQbitMaxSizeGb(val);
                                         updateSetting('qbit_cleanup_max_size_gb', val);
                                     }}
-                                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all disabled:opacity-30"
+                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all disabled:opacity-30"
                                 />
                                 <p className="text-[10px] text-zinc-500 font-medium leading-relaxed">Releases larger than this will be rejected and purged.</p>
                             </div>
@@ -344,7 +345,7 @@ export default function Downloads() {
             ) : (
                 <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden shadow-lg">
                     {/* Headers */}
-                    <div className="hidden md:grid grid-cols-[2.5fr_1fr_1fr_1fr_auto] gap-4 p-4 border-b border-zinc-800 bg-zinc-950/50 text-xs font-semibold text-zinc-500 uppercase tracking-wider items-center select-none">
+                    <div className="hidden md:grid grid-cols-[2fr_0.8fr_1fr_1fr_1fr_auto] gap-4 p-4 border-b border-zinc-800 bg-zinc-950/50 text-xs font-semibold text-zinc-500 uppercase tracking-wider items-center select-none">
                         <button onClick={() => toggleSort('name')} className="text-left flex items-center gap-1 hover:text-zinc-300 transition-colors">
                             Name {sortField === 'name' && (sortDirection === 'asc' ? '↑' : '↓')}
                         </button>
@@ -357,13 +358,14 @@ export default function Downloads() {
                         <button onClick={() => toggleSort('dlspeed')} className="text-left flex items-center gap-1 hover:text-zinc-300 transition-colors">
                             Speed {sortField === 'dlspeed' && (sortDirection === 'asc' ? '↑' : '↓')}
                         </button>
+                        <div className="text-left">Indexer</div>
                         <div className="w-8 text-center"></div>
                     </div>
 
                     {/* Rows */}
                     <div className="divide-y divide-zinc-800/50">
                         {sortedTorrents.map(torrent => (
-                            <div key={torrent.hash} className="p-3 md:px-4 md:py-3 hover:bg-zinc-800/40 transition-colors flex flex-col md:grid md:grid-cols-[2.5fr_1fr_1fr_1fr_auto] gap-3 md:gap-4 md:items-center relative group">
+                            <div key={torrent.hash} className="p-3 md:px-4 md:py-3 hover:bg-zinc-800/40 transition-colors flex flex-col md:grid md:grid-cols-[2fr_0.8fr_1fr_1fr_1fr_auto] gap-3 md:gap-4 md:items-center relative group">
                                 <div className="min-w-0 pr-8 md:pr-0">
                                     <div className="flex flex-wrap items-center gap-2 mb-1">
                                         <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded-sm bg-opacity-20 text-white truncate max-w-[120px] ${torrent.instanceColor}`}>
@@ -400,6 +402,13 @@ export default function Downloads() {
                                         <span className="text-emerald-400 font-mono w-1/2 md:w-auto" title="Download Speed">↓{formatSpeed(torrent.dlspeed)}</span>
                                         <span className="text-sky-400 font-mono w-1/2 md:w-auto" title="Upload Speed">↑{formatSpeed(torrent.upspeed)}</span>
                                     </div>
+                                </div>
+
+                                <div className="text-xs font-bold text-zinc-500 md:text-zinc-400 uppercase tracking-wide">
+                                    <span className="md:hidden text-xs text-zinc-500 uppercase font-semibold mr-2 w-16 inline-block">Indexer:</span>
+                                    <span className={torrent.indexer && torrent.indexer !== 'Unknown' ? 'bg-zinc-800/80 px-2 py-1 rounded text-zinc-300 border border-zinc-700/50' : 'text-zinc-600'}>
+                                        {torrent.indexer || 'Unknown'}
+                                    </span>
                                 </div>
 
                                 <div className="absolute top-3 right-3 md:relative md:top-auto md:right-auto flex-shrink-0 flex items-center justify-center">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import HistoryLedger from "@/components/HistoryLedger";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 
@@ -146,33 +146,67 @@ export default function Dashboard() {
 
   const CustomTooltip = ({ active, payload, label }: { active?: boolean, payload?: any[], label?: string }) => {
     if (active && payload && payload.length) {
-      const allTitles = payload.flatMap((entry: { payload: any, dataKey: string, fill: string }) => {
-        const titles = entry.payload[`${entry.dataKey}_titles`] || [];
-        return titles.map((t: string) => ({
-          title: t,
-          color: entry.fill
-        }));
+      // Group titles by dataKey to avoid duplicates and show status-specific info
+      const groups = payload.filter(p => p.value > 0).map(entry => {
+        const dataKey = entry.dataKey as string;
+        const titlesKey = `${dataKey}_titles`;
+        const itemTitles = entry.payload[titlesKey] || [];
+
+        return {
+          dataKey,
+          name: entry.name,
+          value: entry.value,
+          fill: entry.fill,
+          titles: itemTitles
+        };
       });
 
-      if (allTitles.length === 0) return null;
+      if (groups.length === 0) return null;
 
       return (
-        <div className="bg-zinc-900 border border-zinc-800 p-3 rounded-lg shadow-xl max-w-lg">
-          <p className="text-zinc-400 text-xs mb-2 font-semibold border-b border-zinc-800 pb-2">
-            {label ? new Date(String(label)).toDateString() : ''} (Total: {allTitles.length})
+        <div className="bg-zinc-950/95 border border-zinc-800 p-4 rounded-xl shadow-2xl backdrop-blur-md min-w-[260px] max-w-[400px]">
+          <p className="text-zinc-400 text-[10px] font-bold uppercase tracking-widest mb-3 border-b border-zinc-800 pb-2">
+            {label ? new Date(String(label)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
           </p>
 
-          <ul className="text-sm space-y-1 max-h-48 overflow-y-auto pr-2">
-            {allTitles.map((item: { title: string, color: string }, i: number) => (
-              <li key={i} className="truncate font-semibold" style={{ color: item.color }} title={item.title}>
-                {item.title}
-              </li>
+          <div className="space-y-4">
+            {groups.map((group, index) => (
+              <div key={index} className="space-y-2">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: group.fill, opacity: entryOpacity(group.dataKey) }} />
+                    <span className="text-zinc-200 text-sm font-semibold">{group.name}</span>
+                  </div>
+                  <span className="text-white text-sm font-black">{group.value}</span>
+                </div>
+
+                {group.titles.length > 0 && (
+                  <div className="pl-4 border-l-2 border-zinc-800/50 space-y-1.5 ml-1">
+                    {group.titles.slice(0, 8).map((t: string, i: number) => (
+                      <p key={i} className="text-zinc-500 text-[11px] leading-tight truncate font-medium">
+                        • {t}
+                      </p>
+                    ))}
+                    {group.titles.length > 8 && (
+                      <p className="text-zinc-600 text-[10px] italic pl-2 pt-0.5">
+                        +{group.titles.length - 8} more releases...
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
             ))}
-          </ul>
+          </div>
         </div>
       );
     }
     return null;
+  };
+
+  const entryOpacity = (key: string) => {
+    if (key.includes('_downloading')) return 0.4;
+    if (key.includes('_grabbed')) return 0.8;
+    return 1;
   };
 
   return (
@@ -240,33 +274,45 @@ export default function Dashboard() {
                   content={<CustomTooltip />}
                 />
                 <Legend
-                  wrapperStyle={{ paddingTop: '20px', fontSize: '12px' }}
+                  wrapperStyle={{ paddingTop: '20px', fontSize: '11px' }}
                   formatter={(value: string) => {
-                    const inst = (instances as Record<string, any>)[value];
-                    return inst ? inst.name : value;
+                    // "value" here is what's passed as "name" to the Bar
+                    // If we pass instance name already, just return it.
+                    // But if it has tags like (Grabbed), we keep them unless it's a duplicate.
+                    return <span className="text-zinc-400 font-medium">{value}</span>;
                   }}
                 />
-                {Object.keys(instances).map(id => (
-                  <>
+                {Object.keys(instances).map((id, idx) => (
+                  <React.Fragment key={id}>
                     <Bar
-                      key={`${id}_grabbed`}
                       dataKey={`${id}_grabbed`}
-                      name={`${instances[id].name} (Grabbed)`}
+                      name={`${instances[id].name}`}
                       stackId="a"
                       fill={instances[id].color}
                       opacity={0.8}
                       radius={[0, 0, 0, 0]}
+                      // Only show the first bar of an instance in the legend to avoid doubling
+                      legendType={idx === 0 || true ? 'rect' : 'none'}
                     />
                     <Bar
-                      key={`${id}_downloading`}
                       dataKey={`${id}_downloading`}
                       name={`${instances[id].name} (Downloading)`}
                       stackId="a"
                       fill={instances[id].color}
                       opacity={0.4}
                       radius={[2, 2, 0, 0]}
+                      legendType="none"
                     />
-                  </>
+                    <Bar
+                      dataKey={`${id}_imported`}
+                      name={`${instances[id].name} (Finalized)`}
+                      stackId="a"
+                      fill={instances[id].color}
+                      opacity={1}
+                      radius={[0, 0, 0, 0]}
+                      legendType="none"
+                    />
+                  </React.Fragment>
                 ))}
               </BarChart>
             </ResponsiveContainer>
@@ -366,6 +412,11 @@ export default function Dashboard() {
                           }`}>
                         {dl.status}
                       </span>
+                      {dl.indexer && dl.indexer !== 'Unknown' && (
+                        <span className="text-[10px] font-bold text-zinc-500 bg-zinc-800/50 px-1.5 py-0.5 rounded border border-zinc-700/50">
+                          {dl.indexer}
+                        </span>
+                      )}
                       {dl.size > 0 && (
                         <span className="text-[10px] font-bold text-zinc-600 bg-zinc-900 px-1.5 py-0.5 rounded">
                           {(dl.size / (1024 ** 3)).toFixed(2)} GB
