@@ -792,8 +792,8 @@ export default function SchedulerQueue() {
                 </div>
 
                 {/* Scheduler Controls - Moved Below Header and Styled */}
-                <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-5 mb-6 shadow-sm w-full">
-                    <div className="flex flex-wrap items-center gap-4">
+                <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-5 mb-6 shadow-sm w-full overflow-x-auto">
+                    <div className="flex flex-nowrap items-center gap-4 min-w-max">
                         <div className="flex items-center gap-3 mr-4">
                             <span className="text-sm font-semibold text-zinc-300 flex-shrink-0">Scheduler:</span>
                             <button
@@ -808,7 +808,7 @@ export default function SchedulerQueue() {
                             </button>
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-3">
+                        <div className="flex flex-nowrap items-center gap-2">
                             <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 flex-shrink-0">
                                 <label className="text-sm font-medium text-zinc-400">Interval (m):</label>
                                 <input

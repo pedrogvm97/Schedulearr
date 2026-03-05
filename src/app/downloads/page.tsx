@@ -16,9 +16,17 @@ export default function Downloads() {
     const [deleteFiles, setDeleteFiles] = useState(true);
     const [blacklistRelease, setBlacklistRelease] = useState(true);
 
-    // Sorting state
-    const [sortField, setSortField] = useState<'name' | 'size' | 'progress' | 'dlspeed'>('added_on'); // Default sort added_on usually nice, but let's default 'progress'
     const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+
+    // Auto-Cleanup State
+    const [qbitCleanupEnabled, setQbitCleanupEnabled] = useState(false);
+    const [qbitCleanupIntervalMin, setQbitCleanupIntervalMin] = useState(15);
+    const [qbitStagnationMin, setQbitStagnationMin] = useState(60);
+    const [qbitDeleteFiles, setQbitDeleteFiles] = useState(true);
+    const [qbitBlacklist, setQbitBlacklist] = useState(true);
+    const [qbitSizeCleanupEnabled, setQbitSizeCleanupEnabled] = useState(false);
+    const [qbitMaxSizeGb, setQbitMaxSizeGb] = useState(100);
+    const [isCleanupSettingsOpen, setIsCleanupSettingsOpen] = useState(false);
 
     const fetchTorrents = async () => {
         try {
@@ -34,8 +42,39 @@ export default function Downloads() {
         }
     };
 
+    const fetchSettings = async () => {
+        try {
+            const res = await fetch('/api/settings');
+            const data = await res.json();
+
+            if (data.qbit_cleanup_enabled === 'true') setQbitCleanupEnabled(true);
+            if (data.qbit_cleanup_interval_min) setQbitCleanupIntervalMin(parseInt(data.qbit_cleanup_interval_min));
+            if (data.qbit_cleanup_stagnation_min) setQbitStagnationMin(parseInt(data.qbit_cleanup_stagnation_min));
+            if (data.qbit_cleanup_delete_files === 'false') setQbitDeleteFiles(false);
+            if (data.qbit_cleanup_blacklist === 'false') setQbitBlacklist(false);
+
+            if (data.qbit_cleanup_max_size_enabled === 'true') setQbitSizeCleanupEnabled(true);
+            if (data.qbit_cleanup_max_size_gb) setQbitMaxSizeGb(parseInt(data.qbit_cleanup_max_size_gb));
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
+    const updateSetting = async (key: string, value: any) => {
+        try {
+            await fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ key, value: String(value) })
+            });
+        } catch (e) {
+            console.error('Failed to update setting', key, e);
+        }
+    };
+
     useEffect(() => {
         fetchTorrents();
+        fetchSettings();
         const interval = setInterval(fetchTorrents, 5000); // Poll every 5 seconds
         return () => clearInterval(interval);
     }, []);
@@ -105,6 +144,165 @@ export default function Downloads() {
             <div>
                 <h1 className="text-3xl font-bold text-white mb-2">Active Downloads</h1>
                 <p className="text-zinc-400">Monitor and manage your active qBittorrent transfers.</p>
+            </div>
+
+            {/* qBittorrent Auto-Cleanup Panel */}
+            <div className={`bg-zinc-900 border ${isCleanupSettingsOpen ? 'border-emerald-500/30' : 'border-zinc-800'} rounded-2xl transition-all overflow-hidden`}>
+                <button
+                    onClick={() => setIsCleanupSettingsOpen(!isCleanupSettingsOpen)}
+                    className="w-full flex items-center justify-between p-5 hover:bg-zinc-800/50 transition-colors"
+                >
+                    <div className="flex items-center gap-4">
+                        <div className={`p-2.5 rounded-xl ${qbitCleanupEnabled ? 'bg-emerald-500/10 text-emerald-400' : 'bg-zinc-800 text-zinc-500'}`}>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2v6h-6"></path><path d="M21 13a9 9 0 1 1-3-7.7L21 8"></path></svg>
+                        </div>
+                        <div className="text-left">
+                            <h2 className="text-base font-bold text-white tracking-tight">Auto-Cleanup Settings</h2>
+                            <p className="text-xs text-zinc-500 font-medium">Automatically remove stalled or oversized torrents from your client.</p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <div className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${qbitCleanupEnabled ? 'bg-emerald-500/20 text-emerald-400' : 'bg-zinc-800 text-zinc-500'}`}>
+                            {qbitCleanupEnabled ? 'Active' : 'Disabled'}
+                        </div>
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className={`text-zinc-500 transition-transform duration-300 ${isCleanupSettingsOpen ? 'rotate-180' : ''}`}
+                        >
+                            <path d="m6 9 6 6 6-6" />
+                        </svg>
+                    </div>
+                </button>
+
+                {isCleanupSettingsOpen && (
+                    <div className="p-6 pt-0 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 border-t border-zinc-800/50 animate-in fade-in slide-in-from-top-4 duration-300">
+                        <div className="space-y-6">
+                            <div className="flex items-center justify-between p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50">
+                                <div>
+                                    <div className="text-sm font-bold text-zinc-200">Enable Cleaner</div>
+                                    <p className="text-[10px] text-zinc-500 font-medium">Run background health checks</p>
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        const next = !qbitCleanupEnabled;
+                                        setQbitCleanupEnabled(next);
+                                        updateSetting('qbit_cleanup_enabled', next);
+                                    }}
+                                    className={`w-10 h-5 rounded-full transition-all relative ${qbitCleanupEnabled ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-zinc-700'}`}
+                                >
+                                    <div className={`w-3 h-3 rounded-full bg-white absolute top-1 transition-all ${qbitCleanupEnabled ? 'left-6' : 'left-1'}`} />
+                                </button>
+                            </div>
+
+                            <div className="space-y-3">
+                                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Interval (Minutes)</label>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    value={qbitCleanupIntervalMin}
+                                    onChange={e => {
+                                        const val = parseInt(e.target.value) || 15;
+                                        setQbitCleanupIntervalMin(val);
+                                        updateSetting('qbit_cleanup_interval_min', val);
+                                    }}
+                                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all"
+                                />
+                                <p className="text-[10px] text-zinc-500 font-medium leading-relaxed">How often the background process scans your download client.</p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-6">
+                            <div className="space-y-3">
+                                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Stagnation (Minutes)</label>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    value={qbitStagnationMin}
+                                    onChange={e => {
+                                        const val = parseInt(e.target.value) || 60;
+                                        setQbitStagnationMin(val);
+                                        updateSetting('qbit_cleanup_stagnation_min', val);
+                                    }}
+                                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all"
+                                />
+                                <p className="text-[10px] text-zinc-500 font-medium leading-relaxed">Items stalled or stuck at 0% longer than this will be purged.</p>
+                            </div>
+
+                            <div className="flex items-center justify-between p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50">
+                                <div>
+                                    <div className="text-sm font-bold text-zinc-200">Delete Files</div>
+                                    <p className="text-[10px] text-zinc-500 font-medium">Remove data from disk</p>
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        const next = !qbitDeleteFiles;
+                                        setQbitDeleteFiles(next);
+                                        updateSetting('qbit_cleanup_delete_files', next);
+                                    }}
+                                    className={`w-10 h-5 rounded-full transition-all relative ${qbitDeleteFiles ? 'bg-emerald-500' : 'bg-zinc-700'}`}
+                                >
+                                    <div className={`w-3 h-3 rounded-full bg-white absolute top-1 transition-all ${qbitDeleteFiles ? 'left-6' : 'left-1'}`} />
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="space-y-6">
+                            <div className="flex items-center justify-between p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50">
+                                <div>
+                                    <div className="text-sm font-bold text-zinc-200">Blacklist Failed</div>
+                                    <p className="text-[10px] text-zinc-500 font-medium">Prevent re-grabbing same release</p>
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        const next = !qbitBlacklist;
+                                        setQbitBlacklist(next);
+                                        updateSetting('qbit_cleanup_blacklist', next);
+                                    }}
+                                    className={`w-10 h-5 rounded-full transition-all relative ${qbitBlacklist ? 'bg-emerald-500' : 'bg-zinc-700'}`}
+                                >
+                                    <div className={`w-3 h-3 rounded-full bg-white absolute top-1 transition-all ${qbitBlacklist ? 'left-6' : 'left-1'}`} />
+                                </button>
+                            </div>
+
+                            <div className="space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Max Size (GB)</label>
+                                    <button
+                                        onClick={() => {
+                                            const next = !qbitSizeCleanupEnabled;
+                                            setQbitSizeCleanupEnabled(next);
+                                            updateSetting('qbit_cleanup_max_size_enabled', next);
+                                        }}
+                                        className={`w-10 h-5 rounded-full transition-all relative ${qbitSizeCleanupEnabled ? 'bg-emerald-500' : 'bg-zinc-700'}`}
+                                    >
+                                        <div className={`w-3 h-3 rounded-full bg-white absolute top-1 transition-all ${qbitSizeCleanupEnabled ? 'left-6' : 'left-1'}`} />
+                                    </button>
+                                </div>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    disabled={!qbitSizeCleanupEnabled}
+                                    value={qbitMaxSizeGb}
+                                    onChange={e => {
+                                        const val = parseInt(e.target.value) || 100;
+                                        setQbitMaxSizeGb(val);
+                                        updateSetting('qbit_cleanup_max_size_gb', val);
+                                    }}
+                                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all disabled:opacity-30"
+                                />
+                                <p className="text-[10px] text-zinc-500 font-medium leading-relaxed">Releases larger than this will be rejected and purged.</p>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
 
             {error && (

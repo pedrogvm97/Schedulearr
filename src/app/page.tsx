@@ -218,14 +218,26 @@ export default function Dashboard() {
                   }}
                 />
                 {Object.keys(instances).map(id => (
-                  <Bar
-                    key={id}
-                    dataKey={`${id}_${chartType}`}
-                    name={id}
-                    stackId="a"
-                    fill={instances[id].color}
-                    radius={[2, 2, 0, 0]}
-                  />
+                  <>
+                    <Bar
+                      key={`${id}_grabbed`}
+                      dataKey={`${id}_grabbed`}
+                      name={`${instances[id].name} (Grabbed)`}
+                      stackId="a"
+                      fill={instances[id].color}
+                      opacity={0.8}
+                      radius={[0, 0, 0, 0]}
+                    />
+                    <Bar
+                      key={`${id}_downloading`}
+                      dataKey={`${id}_downloading`}
+                      name={`${instances[id].name} (Downloading)`}
+                      stackId="a"
+                      fill={instances[id].color}
+                      opacity={0.4}
+                      radius={[2, 2, 0, 0]}
+                    />
+                  </>
                 ))}
               </BarChart>
             </ResponsiveContainer>
@@ -316,10 +328,13 @@ export default function Dashboard() {
                     <span className="text-sm font-semibold text-zinc-200 truncate" title={dl.title}>{dl.title}</span>
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-xs text-zinc-500 font-medium">{getAge(dl.date)}</span>
-                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${dl.status === 'Finalized' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' :
-                        dl.status === 'Failed' ? 'bg-red-500/10 text-red-500 border border-red-500/20' :
-                          'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
-                        }`}>
+                      <span
+                        title={dl.failureReason || (dl.status === 'Finalized' ? 'Download imported and completed' : dl.status === 'Grabbed' ? 'Sent to download client' : 'Currently in download queue')}
+                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider cursor-help ${dl.status === 'Finalized' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' :
+                            dl.status === 'Failed' ? 'bg-red-500/10 text-red-500 border border-red-500/20' :
+                              dl.status === 'Downloading' ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20' :
+                                'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
+                          }`}>
                         {dl.status}
                       </span>
                       {dl.size > 0 && (

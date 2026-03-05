@@ -58,13 +58,13 @@ export async function GET() {
         const allRecentRecords: { title: string, date: string, instanceId: string, status: string, size?: number }[] = [];
 
         // Track stats by type: grabbed, imported, failed, size
-        const statsSummary: Record<string, Record<string, { grabbed: number, imported: number, failed: number, sizeBytes: number }>> = {};
+        const statsSummary: Record<string, Record<string, { grabbed: number, imported: number, failed: number, sizeBytes: number, downloading: number }>> = {};
         // Initialize summary structure
         Object.keys(dailyStats).forEach(date => {
             statsSummary[date] = {};
         });
 
-        // Fetch history across all instances concurrently
+        // Fetch history and queue across all instances concurrently
         const fetchPromises = instances.map(async (instance: Instance) => {
             const id = instance.id.toString();
             instanceMetadata[id] = {
@@ -75,16 +75,53 @@ export async function GET() {
 
             // Initialize summary for this instance
             Object.keys(statsSummary).forEach(date => {
-                statsSummary[date][id] = { grabbed: 0, imported: 0, failed: 0, sizeBytes: 0 };
+                statsSummary[date][id] = { grabbed: 0, imported: 0, failed: 0, sizeBytes: 0, downloading: 0 };
             });
 
             try {
                 let records: any[] = [];
+                let queue: any[] = [];
                 if (instance.type === 'radarr') {
-                    records = await getRadarrHistory(instance.url, instance.api_key, 1000);
+                    const [historyRes, queueRes] = await Promise.all([
+                        getRadarrHistory(instance.url, instance.api_key, 1000),
+                        fetch(`${instance.url}/api/v3/queue?apikey=${instance.api_key}`).then(r => r.json())
+                    ]);
+                    records = historyRes;
+                    queue = queueRes.records || [];
                 } else if (instance.type === 'sonarr') {
-                    records = await getSonarrHistory(instance.url, instance.api_key, 1000);
+                    const [historyRes, queueRes] = await Promise.all([
+                        getSonarrHistory(instance.url, instance.api_key, 1000),
+                        fetch(`${instance.url}/api/v3/queue?apikey=${instance.api_key}`).then(r => r.json())
+                    ]);
+                    records = historyRes;
+                    queue = queueRes.records || [];
                 }
+
+                // Add queue items as "Downloading"
+                queue.forEach(item => {
+                    const dateStr = new Date().toISOString().split('T')[0];
+                    if (statsSummary[dateStr]?.[id]) {
+                        statsSummary[dateStr][id].downloading++;
+                    }
+
+                    let title = item.title || 'Unknown Release';
+                    if (item.movie && item.movie.title) title = `${item.movie.title} (Movie)`;
+                    if (item.series && item.series.title) {
+                        let epInfo = '';
+                        if (item.episode && item.episode.seasonNumber !== undefined && item.episode.episodeNumber !== undefined) {
+                            epInfo = ` S${item.episode.seasonNumber.toString().padStart(2, '0')}E${item.episode.episodeNumber.toString().padStart(2, '0')}`;
+                        }
+                        title = `${item.series.title}${epInfo} (Series)`;
+                    }
+
+                    allRecentRecords.push({
+                        title,
+                        date: new Date().toISOString(), // Use current date for queue items
+                        instanceId: id,
+                        status: 'Downloading',
+                        size: item.size || 0
+                    });
+                });
 
                 records.forEach(record => {
                     const recordDate = new Date(record.date);
@@ -139,6 +176,12 @@ export async function GET() {
                             if (isImport) status = 'Finalized';
                             if (isFailed) status = 'Failed';
 
+                            // Extract failure reason if available
+                            let failureReason = '';
+                            if (isFailed) {
+                                failureReason = record.data?.message || record.data?.reason || 'Unknown failure reason';
+                            }
+
                             // Calculate size for the record list
                             let sizeBytes = 0;
                             if (record.data?.importedSize) sizeBytes = parseInt(record.data.importedSize, 10);
@@ -155,7 +198,8 @@ export async function GET() {
                                 date: record.date,
                                 instanceId: id,
                                 status,
-                                size: sizeBytes
+                                size: sizeBytes,
+                                failureReason
                             });
                         }
                     }

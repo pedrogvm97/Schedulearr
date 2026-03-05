@@ -48,14 +48,20 @@ export async function runAutoCleanup() {
             const cookie = await authenticateQbittorrent(qb.url, qb.api_key);
             const torrents = await getActiveTorrents(qb.url, cookie);
 
-            // Identify items to remove (stalled or oversized)
+            // Identify items to remove (stalled, oversized, or stuck at 0%)
             const toRemove = torrents.filter(t => {
                 if (sizeCleanupEnabled && t.size > maxSizeBytes) {
                     return true;
                 }
 
+                // Standard stalled check
                 const isStalled = t.state.toLowerCase().includes('stalled');
-                if (!isStalled) return false;
+
+                // Extra "stuck" check: 0% progress and no activity for stagnation period
+                // progress: 0.0 to 1.0. num_leechs/num_seeds: active peers
+                const isStuck = t.progress === 0 && t.num_seeds === 0 && t.num_leechs === 0;
+
+                if (!isStalled && !isStuck) return false;
 
                 const addedTimeMs = t.added_on * 1000;
                 const minutesSinceAdded = (Date.now() - addedTimeMs) / (1000 * 60);
