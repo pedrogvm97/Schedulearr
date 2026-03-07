@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState, useEffect, useMemo } from 'react';
 import {
@@ -53,6 +53,7 @@ export default function DiscoverPage() {
     const [showFilters, setShowFilters] = useState(true);
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
     const [startSearch, setStartSearch] = useState(true);
+    const [currentPage, setCurrentPage] = useState(0);
 
     // Filtering State
     const [filterGenre, setFilterGenre] = useState<string>('All');
@@ -76,12 +77,19 @@ export default function DiscoverPage() {
         fetchInstances();
     }, []);
 
-    // Filter instances based on selected media type
-    const availableInstances = instances.filter(inst => inst.type === (mediaType === 'movie' ? 'radarr' : 'sonarr'));
+    // Filter instances based on selected media type (declared before useEffects that use it)
+    const availableInstances = instances.filter((inst: Instance) => inst.type === (mediaType === 'movie' ? 'radarr' : 'sonarr'));
 
-    // Select the first valid instance automatically when mediaType changes
+    // Auto-select first available instance when list changes
     useEffect(() => {
-        if (availableInstances.length > 0 && (!selectedInstanceId || !availableInstances.find(i => i.id === selectedInstanceId))) {
+        if (availableInstances.length > 0 && !selectedInstanceId) {
+            setSelectedInstanceId(availableInstances[0].id);
+        }
+    }, [availableInstances]);
+
+    // Select first valid instance when mediaType changes
+    useEffect(() => {
+        if (availableInstances.length > 0 && (!selectedInstanceId || !availableInstances.find((i: Instance) => i.id === selectedInstanceId))) {
             setSelectedInstanceId(availableInstances[0].id);
         }
     }, [mediaType, availableInstances, selectedInstanceId]);
@@ -119,7 +127,13 @@ export default function DiscoverPage() {
         fetchConfigs();
     }, [selectedInstanceId, mediaType, instances]);
 
-    // Discovery Trigger: Fetch TMDB trending when no search is active
+    // Auto-select first root folder when they load
+    useEffect(() => {
+        if (rootFolders.length > 0 && !selectedRootFolderId) {
+            setSelectedRootFolderId(rootFolders[0].id);
+        }
+    }, [rootFolders]);
+
     useEffect(() => {
         if (!searchQuery && !isSearching) {
             handleDiscovery();
@@ -135,7 +149,7 @@ export default function DiscoverPage() {
                 const data = await res.json();
                 setResults(Array.isArray(data) ? data : []);
             } else if (res.status === 503) {
-                // TMDB key not configured — fall back to Sonarr/Radarr lookup
+                // TMDB key not configured â€” fall back to Sonarr/Radarr lookup
                 if (selectedInstanceId) {
                     await handleSearch(null, true);
                     return;
@@ -239,10 +253,22 @@ export default function DiscoverPage() {
     };
 
     // --- Dynamic Filters Logic ---
+    // Full comprehensive genre list â€” static so it works before results load
+    const ALL_TMDB_GENRES = [
+        'All', 'Action', 'Adventure', 'Animation', 'Anime', 'Comedy', 'Crime',
+        'Documentary', 'Drama', 'Family', 'Fantasy', 'History', 'Horror',
+        'Music', 'Mystery', 'Reality', 'Romance', 'Sci-Fi & Fantasy',
+        'Science Fiction', 'Soap', 'Thriller', 'War', 'War & Politics',
+        'Western', 'Talk'
+    ];
+
     const allGenres = useMemo(() => {
-        const genres = new Set<string>();
-        results.forEach(item => item.genres?.forEach((g: string) => genres.add(g)));
-        return ['All', ...Array.from(genres).sort()];
+        // Start with the global list, then add any extras from results
+        const extra = new Set<string>();
+        results.forEach(item => item.genres?.forEach((g: string) => {
+            if (!ALL_TMDB_GENRES.includes(g)) extra.add(g);
+        }));
+        return [...ALL_TMDB_GENRES, ...Array.from(extra).sort()];
     }, [results]);
 
     const allPlatforms = useMemo(() => {
@@ -314,7 +340,7 @@ export default function DiscoverPage() {
         return items;
     }, [results, searchQuery, filterGenre, filterPlatform, filterYear, sortBy, isSearching]);
 
-    // Platform Badge Logic — uses enriched productionCompanies[]
+    // Platform Badge Logic â€” uses enriched productionCompanies[]
     const getPlatformBadge = (item: any) => {
         const allCompanies: string[] = [
             ...(item.productionCompanies || []),
@@ -422,22 +448,14 @@ export default function DiscoverPage() {
                 </div>
             </div>
 
-            {/* Config Row — Quality Profile, Root Folder, Start Search */}
+            {/* Config Row â€” Quality Profile + Start Search (root folder auto-selected) */}
             <div className="flex flex-wrap items-end gap-4 mb-6 p-5 bg-zinc-950/40 border border-zinc-900/50 rounded-3xl backdrop-blur-md">
-                <div className="flex-1 min-w-[180px]">
+                <div className="flex-1 min-w-[180px] max-w-[300px]">
                     <CustomSelect
                         label="Quality Profile"
                         options={profiles}
                         value={selectedProfileId}
                         onChange={(val) => setSelectedProfileId(Number(val))}
-                    />
-                </div>
-                <div className="flex-1 min-w-[180px]">
-                    <CustomSelect
-                        label="Root Folder"
-                        options={rootFolders.map(rf => ({ id: rf.id, name: rf.path }))}
-                        value={selectedRootFolderId}
-                        onChange={(val) => setSelectedRootFolderId(Number(val))}
                     />
                 </div>
                 <div className="flex flex-col gap-1">
@@ -559,184 +577,206 @@ export default function DiscoverPage() {
                             </span>
                         </div>
 
-                        {(filterGenre !== 'All' || filterPlatform !== 'All' || filterYear !== 'All') && (
-                            <button
-                                onClick={() => { setFilterGenre('All'); setFilterPlatform('All'); setFilterYear('All'); }}
-                                className="text-[10px] font-black text-emerald-500 uppercase tracking-widest hover:text-emerald-400 flex items-center gap-1"
-                            >
-                                <X size={12} /> Clear Filters
-                            </button>
-                        )}
+                        <div className="flex items-center gap-3">
+                            {(filterGenre !== 'All' || filterPlatform !== 'All' || filterYear !== 'All') && (
+                                <button
+                                    onClick={() => { setFilterGenre('All'); setFilterPlatform('All'); setFilterYear('All'); setCurrentPage(0); }}
+                                    className="text-[10px] font-black text-emerald-500 uppercase tracking-widest hover:text-emerald-400 flex items-center gap-1"
+                                >
+                                    <X size={12} /> Clear Filters
+                                </button>
+                            )}
+                        </div>
                     </div>
 
                     {filteredResults.length > 0 ? (
-                        <div className={viewMode === 'grid'
-                            ? "grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6"
-                            : "space-y-4"
-                        }>
-                            {filteredResults.map((item, idx) => {
-                                const idStr = item.tmdbId ? `tmdb-${item.tmdbId}` : `tvdb-${item.tvdbId}`;
-                                const posterUrl = item.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl;
-                                const isAdding = addingItemStr === idStr;
-                                // Strict detection + local optimistic state
-                                const hasBeenAdded = (typeof item.id === 'number' && item.id > 0) || item.added === true;
-                                const platform = getPlatformBadge(item);
-                                const rating = item.ratings?.value;
+                        <>
+                            <div className={viewMode === 'grid'
+                                ? "grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6"
+                                : "space-y-4"
+                            }>
+                                {filteredResults.slice(currentPage * 20, (currentPage + 1) * 20).map((item, idx) => {
+                                    const idStr = item.tmdbId ? `tmdb-${item.tmdbId}` : `tvdb-${item.tvdbId}`;
+                                    const posterUrl = item.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl;
+                                    const isAdding = addingItemStr === idStr;
+                                    // Strict detection + local optimistic state
+                                    const hasBeenAdded = (typeof item.id === 'number' && item.id > 0) || item.added === true;
+                                    const platform = getPlatformBadge(item);
+                                    const rating = item.ratings?.value;
 
-                                if (viewMode === 'list') {
-                                    return (
-                                        <div key={idStr} className="group bg-zinc-950/40 border border-zinc-900 rounded-2xl p-4 flex gap-6 hover:border-zinc-800 transition-all items-center">
-                                            <div className="w-20 aspect-[2/3] rounded-lg overflow-hidden bg-zinc-900 flex-shrink-0">
-                                                {posterUrl ? <img src={posterUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-zinc-800"><Film size={24} /></div>}
+                                    if (viewMode === 'list') {
+                                        return (
+                                            <div key={idStr} className="group bg-zinc-950/40 border border-zinc-900 rounded-2xl p-4 flex gap-6 hover:border-zinc-800 transition-all items-center">
+                                                <div className="w-20 aspect-[2/3] rounded-lg overflow-hidden bg-zinc-900 flex-shrink-0">
+                                                    {posterUrl ? <img src={posterUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-zinc-800"><Film size={24} /></div>}
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center gap-3 mb-1">
+                                                        <h3 className="font-bold text-white truncate text-lg">{item.title}</h3>
+                                                        {platform && (
+                                                            <span className={`px-2 py-0.5 rounded-md text-[9px] font-black border ${platform.color}`}>{platform.label}</span>
+                                                        )}
+                                                    </div>
+                                                    <div className="flex items-center gap-3 text-xs text-zinc-500 font-medium">
+                                                        <span className="flex items-center gap-1"><Calendar size={12} /> {item.year}</span>
+                                                        {rating && <span className="flex items-center gap-1 text-amber-500/80"><Star size={12} fill="currentColor" /> {rating.toFixed(1)}</span>}
+                                                        <span className="truncate max-w-[200px]">{item.genres?.slice(0, 2).join(', ')}</span>
+                                                        <div className="flex bg-zinc-900 border border-zinc-700/50 rounded-md overflow-hidden text-[10px] font-bold uppercase tracking-wider">
+                                                            <div className="bg-zinc-800 px-2 py-0.5 text-zinc-500 border-r border-zinc-700/50">Target</div>
+                                                            <div className="px-2 py-0.5 text-indigo-400 bg-indigo-500/10">
+                                                                {profiles.find(p => p.id === selectedProfileId)?.name || 'Unknown'}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    onClick={() => handleAdd(item)}
+                                                    disabled={isAdding || hasBeenAdded}
+                                                    className={`px-6 py-3 rounded-xl font-black text-xs transition-all flex items-center gap-2 ${hasBeenAdded ? 'bg-zinc-900 text-emerald-500/50' : 'bg-white text-black hover:bg-emerald-400 hover:text-black shadow-lg shadow-white/5'}`}
+                                                >
+                                                    {isAdding ? <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> : hasBeenAdded ? <CheckCircle size={14} /> : <Plus size={14} />}
+                                                    {isAdding ? 'ADDING' : hasBeenAdded ? 'ADDED' : 'ADD'}
+                                                </button>
                                             </div>
-                                            <div className="flex-1 min-w-0">
-                                                <div className="flex items-center gap-3 mb-1">
-                                                    <h3 className="font-bold text-white truncate text-lg">{item.title}</h3>
-                                                    {platform && (
-                                                        <span className={`px-2 py-0.5 rounded-md text-[9px] font-black border ${platform.color}`}>{platform.label}</span>
+                                        );
+                                    }
+
+                                    return (
+                                        <div
+                                            key={idStr}
+                                            className="group flex flex-col bg-[#090909] border border-zinc-900 hover:border-zinc-800 rounded-[2rem] overflow-hidden transition-all duration-500 shadow-2xl hover:translate-y-[-4px]"
+                                            style={{ animationDelay: `${idx * 50}ms` }}
+                                        >
+                                            {/* Poster Section */}
+                                            <div className="relative aspect-[2/3] overflow-hidden group-hover:shadow-[0_20px_40px_rgba(0,0,0,0.4)] transition-all duration-500">
+                                                {posterUrl ? (
+                                                    <img src={posterUrl} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-1000 ease-out" />
+                                                ) : (
+                                                    <div className="w-full h-full bg-zinc-900 flex flex-col items-center justify-center text-zinc-800">
+                                                        <Film size={48} />
+                                                    </div>
+                                                )}
+
+                                                {/* Top Overlays */}
+                                                <div className="absolute top-4 left-4 right-4 flex justify-between items-start z-20">
+                                                    <div className="flex flex-col gap-2">
+                                                        {platform && (
+                                                            <span className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider backdrop-blur-md border shadow-2xl ${platform.color}`}>
+                                                                {platform.label}
+                                                            </span>
+                                                        )}
+                                                        {rating && (
+                                                            <span className="w-fit flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-black/60 backdrop-blur-md border border-white/10 text-[10px] font-black text-amber-400 shadow-2xl">
+                                                                <Star size={12} fill="currentColor" /> {rating.toFixed(1)}
+                                                            </span>
+                                                        )}
+                                                    </div>
+
+                                                    {hasBeenAdded && (
+                                                        <div className="p-2 bg-emerald-500 rounded-full text-white shadow-[0_0_20px_rgba(16,185,129,0.5)] border border-emerald-400/30">
+                                                            <CheckCircle size={16} />
+                                                        </div>
                                                     )}
                                                 </div>
-                                                <div className="flex items-center gap-3 text-xs text-zinc-500 font-medium">
-                                                    <span className="flex items-center gap-1"><Calendar size={12} /> {item.year}</span>
-                                                    {rating && <span className="flex items-center gap-1 text-amber-500/80"><Star size={12} fill="currentColor" /> {rating.toFixed(1)}</span>}
-                                                    <span className="truncate max-w-[200px]">{item.genres?.slice(0, 2).join(', ')}</span>
-                                                    <div className="flex bg-zinc-900 border border-zinc-700/50 rounded-md overflow-hidden text-[10px] font-bold uppercase tracking-wider">
-                                                        <div className="bg-zinc-800 px-2 py-0.5 text-zinc-500 border-r border-zinc-700/50">Target</div>
-                                                        <div className="px-2 py-0.5 text-indigo-400 bg-indigo-500/10">
-                                                            {profiles.find(p => p.id === selectedProfileId)?.name || 'Unknown'}
+
+                                                {/* Gradient Bottom */}
+                                                <div className="absolute inset-0 bg-gradient-to-t from-[#090909] via-transparent to-transparent opacity-90 transition-opacity group-hover:opacity-70 duration-500" />
+
+                                                {/* Title & Metadata (Inside Poster) */}
+                                                <div className="absolute bottom-6 left-6 right-6 z-20">
+                                                    <div className="transform translate-y-4 group-hover:translate-y-0 transition-transform duration-500">
+                                                        <h3 className="text-xl font-black text-white leading-tight mb-2 line-clamp-2 drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">
+                                                            {item.title}
+                                                        </h3>
+                                                        <div className="flex flex-wrap items-center gap-3 text-[10px] font-black text-zinc-400 uppercase tracking-widest">
+                                                            <span>{item.year || 'TBA'}</span>
+                                                            <span className="w-1 h-1 bg-zinc-800 rounded-full" />
+                                                            <span className="truncate">{item.genres?.slice(0, 2).join(' / ')}</span>
+                                                            <span className="bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded-md border border-indigo-500/30">
+                                                                {profiles.find(p => p.id === selectedProfileId)?.name || 'Unknown'}
+                                                            </span>
                                                         </div>
                                                     </div>
                                                 </div>
                                             </div>
-                                            <button
-                                                onClick={() => handleAdd(item)}
-                                                disabled={isAdding || hasBeenAdded}
-                                                className={`px-6 py-3 rounded-xl font-black text-xs transition-all flex items-center gap-2 ${hasBeenAdded ? 'bg-zinc-900 text-emerald-500/50' : 'bg-white text-black hover:bg-emerald-400 hover:text-black shadow-lg shadow-white/5'}`}
-                                            >
-                                                {isAdding ? <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> : hasBeenAdded ? <CheckCircle size={14} /> : <Plus size={14} />}
-                                                {isAdding ? 'ADDING' : hasBeenAdded ? 'ADDED' : 'ADD'}
-                                            </button>
+
+                                            {/* Actions Section */}
+                                            <div className="p-6 pt-2 bg-[#090909]">
+                                                <p className="text-sm text-zinc-500 font-medium line-clamp-2 mb-6 h-10 overflow-hidden leading-relaxed">
+                                                    {item.overview || 'The journey of this masterpiece awaits discovery.'}
+                                                </p>
+
+                                                <button
+                                                    onClick={() => handleAdd(item)}
+                                                    disabled={isAdding || hasBeenAdded}
+                                                    className={`w-full py-4 rounded-2xl font-black text-xs uppercase tracking-[0.1em] transition-all duration-300 flex items-center justify-center gap-3 active:scale-95 ${hasBeenAdded
+                                                        ? 'bg-zinc-900/50 text-emerald-500/40 border border-zinc-800/30 cursor-not-allowed'
+                                                        : 'bg-white text-black hover:bg-emerald-400 shadow-[0_10px_20px_rgba(255,255,255,0.05)] hover:shadow-[0_10px_20px_rgba(16,185,129,0.2)]'
+                                                        }`}
+                                                >
+                                                    {isAdding ? (
+                                                        <div className="w-4 h-4 rounded-full border-2 border-black border-t-transparent animate-spin" />
+                                                    ) : hasBeenAdded ? (
+                                                        <CheckCircle size={16} />
+                                                    ) : (
+                                                        <Plus size={16} />
+                                                    )}
+                                                    {isAdding ? 'PROCESSING' : hasBeenAdded ? 'IN LIBRARY' : 'ADD TO LIBRARY'}
+                                                </button>
+                                            </div>
                                         </div>
                                     );
-                                }
-
-                                return (
-                                    <div
-                                        key={idStr}
-                                        className="group flex flex-col bg-[#090909] border border-zinc-900 hover:border-zinc-800 rounded-[2rem] overflow-hidden transition-all duration-500 shadow-2xl hover:translate-y-[-4px]"
-                                        style={{ animationDelay: `${idx * 50}ms` }}
-                                    >
-                                        {/* Poster Section */}
-                                        <div className="relative aspect-[2/3] overflow-hidden group-hover:shadow-[0_20px_40px_rgba(0,0,0,0.4)] transition-all duration-500">
-                                            {posterUrl ? (
-                                                <img src={posterUrl} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-1000 ease-out" />
-                                            ) : (
-                                                <div className="w-full h-full bg-zinc-900 flex flex-col items-center justify-center text-zinc-800">
-                                                    <Film size={48} />
-                                                </div>
-                                            )}
-
-                                            {/* Top Overlays */}
-                                            <div className="absolute top-4 left-4 right-4 flex justify-between items-start z-20">
-                                                <div className="flex flex-col gap-2">
-                                                    {platform && (
-                                                        <span className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider backdrop-blur-md border shadow-2xl ${platform.color}`}>
-                                                            {platform.label}
-                                                        </span>
-                                                    )}
-                                                    {rating && (
-                                                        <span className="w-fit flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-black/60 backdrop-blur-md border border-white/10 text-[10px] font-black text-amber-400 shadow-2xl">
-                                                            <Star size={12} fill="currentColor" /> {rating.toFixed(1)}
-                                                        </span>
-                                                    )}
-                                                </div>
-
-                                                {hasBeenAdded && (
-                                                    <div className="p-2 bg-emerald-500 rounded-full text-white shadow-[0_0_20px_rgba(16,185,129,0.5)] border border-emerald-400/30">
-                                                        <CheckCircle size={16} />
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            {/* Gradient Bottom */}
-                                            <div className="absolute inset-0 bg-gradient-to-t from-[#090909] via-transparent to-transparent opacity-90 transition-opacity group-hover:opacity-70 duration-500" />
-
-                                            {/* Title & Metadata (Inside Poster) */}
-                                            <div className="absolute bottom-6 left-6 right-6 z-20">
-                                                <div className="transform translate-y-4 group-hover:translate-y-0 transition-transform duration-500">
-                                                    <h3 className="text-xl font-black text-white leading-tight mb-2 line-clamp-2 drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">
-                                                        {item.title}
-                                                    </h3>
-                                                    <div className="flex flex-wrap items-center gap-3 text-[10px] font-black text-zinc-400 uppercase tracking-widest">
-                                                        <span>{item.year || 'TBA'}</span>
-                                                        <span className="w-1 h-1 bg-zinc-800 rounded-full" />
-                                                        <span className="truncate">{item.genres?.slice(0, 2).join(' / ')}</span>
-                                                        <span className="bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded-md border border-indigo-500/30">
-                                                            {profiles.find(p => p.id === selectedProfileId)?.name || 'Unknown'}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        {/* Actions Section */}
-                                        <div className="p-6 pt-2 bg-[#090909]">
-                                            <p className="text-sm text-zinc-500 font-medium line-clamp-2 mb-6 h-10 overflow-hidden leading-relaxed">
-                                                {item.overview || 'The journey of this masterpiece awaits discovery.'}
-                                            </p>
-
-                                            <button
-                                                onClick={() => handleAdd(item)}
-                                                disabled={isAdding || hasBeenAdded}
-                                                className={`w-full py-4 rounded-2xl font-black text-xs uppercase tracking-[0.1em] transition-all duration-300 flex items-center justify-center gap-3 active:scale-95 ${hasBeenAdded
-                                                    ? 'bg-zinc-900/50 text-emerald-500/40 border border-zinc-800/30 cursor-not-allowed'
-                                                    : 'bg-white text-black hover:bg-emerald-400 shadow-[0_10px_20px_rgba(255,255,255,0.05)] hover:shadow-[0_10px_20px_rgba(16,185,129,0.2)]'
-                                                    }`}
-                                            >
-                                                {isAdding ? (
-                                                    <div className="w-4 h-4 rounded-full border-2 border-black border-t-transparent animate-spin" />
-                                                ) : hasBeenAdded ? (
-                                                    <CheckCircle size={16} />
-                                                ) : (
-                                                    <Plus size={16} />
-                                                )}
-                                                {isAdding ? 'PROCESSING' : hasBeenAdded ? 'IN LIBRARY' : 'ADD TO LIBRARY'}
-                                            </button>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    ) : (
-                        <div className="text-center py-40 bg-zinc-950/20 rounded-[3rem] border border-zinc-900/50">
-                            {isSearching ? (
-                                <div className="space-y-6">
-                                    <div className="w-16 h-16 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin mx-auto shadow-[0_0_30px_rgba(16,185,129,0.1)]" />
-                                    <p className="text-zinc-500 font-bold uppercase tracking-widest text-xs">Curating your recommendations...</p>
-                                </div>
-                            ) : (
-                                <div className="space-y-6 flex flex-col items-center">
-                                    <div className="p-8 bg-zinc-900/50 rounded-full grayscale opacity-20">
-                                        <Search size={64} />
-                                    </div>
-                                    <div>
-                                        <p className="text-xl font-bold text-white mb-2">No matching media found</p>
-                                        <p className="text-zinc-500 font-medium">Try adjusting your filters or search for something else.</p>
-                                    </div>
+                                })}
+                            </div>
+                            {/* Pagination Controls */}
+                            {filteredResults.length > 20 && (
+                                <div className="flex items-center justify-center gap-4 pt-4 pb-2">
                                     <button
-                                        onClick={() => { setFilterGenre('All'); setFilterPlatform('All'); setFilterYear('All'); setSearchQuery(''); }}
-                                        className="mt-4 px-8 py-3 bg-zinc-900 text-white rounded-xl text-sm font-bold hover:bg-zinc-800 transition-all border border-zinc-800"
-                                    >
-                                        Reset Discovery
-                                    </button>
+                                        onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
+                                        disabled={currentPage === 0}
+                                        className="px-6 py-2.5 rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-400 text-xs font-black uppercase tracking-widest hover:border-zinc-700 hover:text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                                    >&larr; Prev</button>
+                                    <span className="text-zinc-600 text-xs font-bold">
+                                        Page {currentPage + 1} of {Math.ceil(filteredResults.length / 20)}
+                                    </span>
+                                    <button
+                                        onClick={() => setCurrentPage(p => Math.min(Math.ceil(filteredResults.length / 20) - 1, p + 1))}
+                                        disabled={(currentPage + 1) * 20 >= filteredResults.length}
+                                        className="px-6 py-2.5 rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-400 text-xs font-black uppercase tracking-widest hover:border-zinc-700 hover:text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                                    >Next &rarr;</button>
                                 </div>
                             )}
-                        </div>
+                            </>
+                            ) : (
+                            <div className="text-center py-40 bg-zinc-950/20 rounded-[3rem] border border-zinc-900/50">
+                                {isSearching ? (
+                                    <div className="space-y-6">
+                                        <div className="w-16 h-16 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin mx-auto shadow-[0_0_30px_rgba(16,185,129,0.1)]" />
+                                        <p className="text-zinc-500 font-bold uppercase tracking-widest text-xs">Curating your recommendations...</p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-6 flex flex-col items-center">
+                                        <div className="p-8 bg-zinc-900/50 rounded-full grayscale opacity-20">
+                                            <Search size={64} />
+                                        </div>
+                                        <div>
+                                            <p className="text-xl font-bold text-white mb-2">No matching media found</p>
+                                            <p className="text-zinc-500 font-medium">Try adjusting your filters or search for something else.</p>
+                                        </div>
+                                        <button
+                                            onClick={() => { setFilterGenre('All'); setFilterPlatform('All'); setFilterYear('All'); setSearchQuery(''); }}
+                                            className="mt-4 px-8 py-3 bg-zinc-900 text-white rounded-xl text-sm font-bold hover:bg-zinc-800 transition-all border border-zinc-800"
+                                        >
+                                            Reset Discovery
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
                     )}
+                        </div>
                 </div>
-            </div>
-        </div >
-    );
+            </div >
+            );
 }
 
 

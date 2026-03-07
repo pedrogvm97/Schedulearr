@@ -22,6 +22,7 @@ import {
 import { toast } from 'sonner';
 import { CustomSelect } from '@/components/CustomSelect';
 import { twColorToHex } from '@/lib/instanceColor';
+import { CreateProfileModal } from '@/components/CreateProfileModal';
 
 interface Profile {
     id: number;
@@ -168,7 +169,7 @@ export default function ProfilesPage() {
     const filteredProfiles = profiles.filter(p => {
         const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
             p.instanceName.toLowerCase().includes(searchQuery.toLowerCase());
-        const matchesInstance = filterInstances.length === 0 || filterInstances.includes(p.instanceId);
+        const matchesInstance = filterInstances.length > 0 && filterInstances.includes(p.instanceId);
         const matchesType = filterType === 'All' || p.instanceType === filterType;
         return matchesSearch && matchesInstance && matchesType;
     });
@@ -426,108 +427,11 @@ export default function ProfilesPage() {
 
             {/* Create Profile Modal */}
             {showCreateModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
-                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-2xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300">
-                        <div className="p-8 border-b border-zinc-900 flex justify-between items-center">
-                            <div>
-                                <h2 className="text-2xl font-black text-white">Create New Profile</h2>
-                                <p className="text-xs text-zinc-500 font-medium mt-1 uppercase tracking-widest">Configure a new quality standard</p>
-                            </div>
-                            <button onClick={() => setShowCreateModal(false)} className="p-2 hover:bg-zinc-900 rounded-full transition-colors">
-                                <X size={24} className="text-zinc-500" />
-                            </button>
-                        </div>
-
-                        <div className="p-8 space-y-8 max-h-[70vh] overflow-y-auto custom-scrollbar">
-                            <div className="space-y-3">
-                                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Profile Name</label>
-                                <input
-                                    type="text"
-                                    placeholder="e.g. Ultra HD Premium"
-                                    className="w-full bg-black border border-zinc-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:ring-1 focus:ring-emerald-500/50 transition-all font-bold"
-                                    id="new-profile-name"
-                                />
-                            </div>
-
-                            <div className="space-y-3">
-                                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Select Instances</label>
-                                <div className="grid grid-cols-2 gap-3">
-                                    {instances.map(inst => (
-                                        <label key={inst.id} className="flex items-center gap-3 p-4 bg-zinc-950 border border-zinc-900 rounded-2xl cursor-pointer hover:border-zinc-700 transition-all">
-                                            <input type="checkbox" className="w-4 h-4 rounded border-zinc-800 bg-black text-emerald-500 focus:ring-0 focus:ring-offset-0" value={inst.id} name="create-instance" />
-                                            <div className="flex flex-col">
-                                                <span className="text-xs font-bold text-zinc-200">{inst.name}</span>
-                                                <span className="text-[9px] text-zinc-600 font-black uppercase tracking-widest leading-none mt-0.5">{inst.type}</span>
-                                            </div>
-                                        </label>
-                                    ))}
-                                </div>
-                            </div>
-
-                            <div className="p-6 bg-zinc-900/30 border border-zinc-800/50 rounded-3xl space-y-4">
-                                <div className="flex items-center justify-between">
-                                    <div className="space-y-1">
-                                        <p className="text-sm font-bold text-white">Upgrade Allowed</p>
-                                        <p className="text-[10px] text-zinc-500">Automatically upgrade files to better quality</p>
-                                    </div>
-                                    <label className="relative inline-flex items-center cursor-pointer">
-                                        <input type="checkbox" className="sr-only peer" defaultChecked id="new-profile-upgrade" />
-                                        <div className="w-11 h-6 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
-                                    </label>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="p-8 border-t border-zinc-900 flex gap-4">
-                            <button
-                                onClick={() => setShowCreateModal(false)}
-                                className="flex-1 py-4 bg-zinc-900 text-zinc-400 hover:text-white transition-all font-black text-xs uppercase tracking-widest rounded-2xl border border-zinc-800"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={async () => {
-                                    const name = (document.getElementById('new-profile-name') as HTMLInputElement).value;
-                                    const upgrade = (document.getElementById('new-profile-upgrade') as HTMLInputElement).checked;
-                                    const selectedInsts = Array.from(document.querySelectorAll('input[name="create-instance"]:checked')).map((i: any) => i.value);
-
-                                    if (!name || selectedInsts.length === 0) {
-                                        toast.error('Please enter a name and select at least one instance');
-                                        return;
-                                    }
-
-                                    const creationToast = toast.loading(`Creating profile in ${selectedInsts.length} instances...`);
-
-                                    try {
-                                        for (const instId of selectedInsts) {
-                                            await fetch('/api/profiles', {
-                                                method: 'POST',
-                                                headers: { 'Content-Type': 'application/json' },
-                                                body: JSON.stringify({
-                                                    instanceId: instId,
-                                                    profile: {
-                                                        name,
-                                                        upgradeAllowed: upgrade,
-                                                        cutoff: 0,
-                                                        items: []
-                                                    }
-                                                })
-                                            });
-                                        }
-                                        toast.success('Profiles created successfully', { id: creationToast });
-                                        setShowCreateModal(false);
-                                        fetchProfiles();
-                                    } catch (err) {
-                                        toast.error('Failed to create profiles', { id: creationToast });
-                                    }
-                                }}
-                                className="flex-1 py-4 bg-white text-black hover:bg-emerald-400 transition-all font-black text-xs uppercase tracking-widest rounded-2xl shadow-xl shadow-white/5"
-                            >
-                                Create Profile
-                            </button>
-                        </div>
-                    </div>
-                </div>
+                <CreateProfileModal
+                    instances={instances}
+                    onClose={() => setShowCreateModal(false)}
+                    onCreated={() => { setShowCreateModal(false); fetchProfiles(); }}
+                />
             )}
         </div>
     );

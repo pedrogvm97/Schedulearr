@@ -52,7 +52,7 @@ export function CustomSelect({
     };
 
     return (
-        <div className={`relative w-full ${className}`} ref={containerRef}>
+        <div className={`relative w-full ${isOpen ? 'z-50' : ''} ${className}`} ref={containerRef}>
             {label && (
                 <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center gap-2 mb-2 ml-1">
                     {icon} {label}
