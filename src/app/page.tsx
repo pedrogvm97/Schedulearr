@@ -43,7 +43,10 @@ export default function Dashboard() {
     episodes?: string[]
   }>({ show: false });
   const [isTriggering, setIsTriggering] = useState(false);
-  const [chartData, setChartData] = useState<ChartData[]>([]);
+
+  // Data States
+  const [allTimeData, setAllTimeData] = useState<ChartData[]>([]);
+  const [chartData, setChartData] = useState<ChartData[]>([]); // This is the filtered data used by Recharts
   const [instances, setInstances] = useState<Record<string, { name: string, color: string, type: string }>>({});
   const [recentDownloads, setRecentDownloads] = useState<RecentDownload[]>([]);
   const [summaryData, setSummaryData] = useState<{
@@ -51,14 +54,18 @@ export default function Dashboard() {
     indexerTotals: Record<string, any>
   }>({ instanceTotals: {}, indexerTotals: {} });
 
+  // UI States
   const [loadingStats, setLoadingStats] = useState(true);
   const [prowlarrHealth, setProwlarrHealth] = useState<ProwlarrInstance[]>([]);
   const [loadingProwlarr, setLoadingProwlarr] = useState(true);
-
   const [showWelcome, setShowWelcome] = useState(false);
   const [chartType, setChartType] = useState<'grabbed' | 'imported' | 'sizeGB'>('grabbed');
   const [timeframe, setTimeframe] = useState<'day' | 'week' | 'month' | 'year' | 'all'>('month');
   const [recentDownloadFilters, setRecentDownloadFilters] = useState<Record<string, boolean>>({});
+
+  // Tooltip States
+  const [stickyTooltip, setStickyTooltip] = useState<any>(null);
+  const [tooltipTimeout, setTooltipTimeout] = useState<any>(null);
 
   const toggleRecentFilter = (id: string) => {
     setRecentDownloadFilters((prev: Record<string, boolean>) => ({
@@ -81,45 +88,69 @@ export default function Dashboard() {
     return 'Just now';
   };
 
-  useEffect(() => {
-    // Check if user has seen welcome splash
-    const seenWelcome = localStorage.getItem('has_seen_welcome');
-    if (!seenWelcome) {
-      setShowWelcome(true);
+  const filterDataLocally = (data: ChartData[], range: string) => {
+    if (range === 'all') {
+      setChartData(data);
+      return;
     }
-  }, []);
+
+    let days = 30;
+    if (range === 'day') days = 1;
+    else if (range === 'week') days = 7;
+    else if (range === 'month') days = 30;
+    else if (range === 'year') days = 365;
+
+    const now = new Date();
+    const cutoff = new Date(now.getTime() - (days * 24 * 60 * 60 * 1000));
+    const filtered = data.filter(d => new Date(d.date) >= cutoff);
+    setChartData(filtered);
+  };
+
+  const fetchStats = async (requestedTimeframe: string) => {
+    setLoadingStats(true);
+    try {
+      // If we already have "year" data and want something smaller, or have "all" data
+      if (allTimeData.length > 0) {
+        if (['day', 'week', 'month'].includes(requestedTimeframe)) {
+          filterDataLocally(allTimeData, requestedTimeframe);
+          setLoadingStats(false);
+          return;
+        }
+      }
+
+      const res = await fetch(`/api/stats?timeframe=${requestedTimeframe}`);
+      if (res.ok) {
+        const json = await res.json();
+        const data = json.data || [];
+        setAllTimeData(data);
+        filterDataLocally(data, requestedTimeframe);
+
+        setInstances(json.instances || {});
+        if (json.recentDownloads) setRecentDownloads(json.recentDownloads);
+        if (json.summary) setSummaryData(json.summary);
+
+        if (Object.keys(recentDownloadFilters).length === 0 && json.instances) {
+          const initialFilters: Record<string, boolean> = {};
+          Object.keys(json.instances).forEach(id => {
+            initialFilters[id] = true;
+          });
+          setRecentDownloadFilters(initialFilters);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load stats", e);
+    }
+    setLoadingStats(false);
+  };
 
   useEffect(() => {
-    const fetchStats = async () => {
-      setLoadingStats(true);
-      try {
-        const res = await fetch(`/api/stats?timeframe=${timeframe}`);
-        if (res.ok) {
-          const json = await res.json();
-          setChartData(json.data || []);
-          setInstances(json.instances || {});
-          if (json.recentDownloads) setRecentDownloads(json.recentDownloads);
-          if (json.summary) setSummaryData(json.summary);
-
-          // Initialize filters if empty
-          if (Object.keys(recentDownloadFilters).length === 0 && json.instances) {
-            const initialFilters: Record<string, boolean> = {};
-            Object.keys(json.instances).forEach(id => {
-              initialFilters[id] = true;
-            });
-            setRecentDownloadFilters(initialFilters);
-          }
-        }
-      } catch (e) {
-        console.error("Failed to load stats", e);
-      }
-      setLoadingStats(false);
-    };
-
-    fetchStats();
+    fetchStats(timeframe);
   }, [timeframe]);
 
   useEffect(() => {
+    const seenWelcome = localStorage.getItem('has_seen_welcome');
+    if (!seenWelcome) setShowWelcome(true);
+
     const fetchProwlarrHealth = async () => {
       try {
         const res = await fetch('/api/prowlarr/health');
@@ -155,10 +186,30 @@ export default function Dashboard() {
     setIsTriggering(false);
   };
 
+  const handleMouseMove = (state: any) => {
+    if (state.activePayload) {
+      if (tooltipTimeout) {
+        clearTimeout(tooltipTimeout);
+        setTooltipTimeout(null);
+      }
+      setStickyTooltip(state);
+    }
+  };
+
+  const handleMouseLeave = () => {
+    const timeout = setTimeout(() => {
+      setStickyTooltip(null);
+    }, 1000);
+    setTooltipTimeout(timeout);
+  };
+
   const CustomTooltip = ({ active, payload, label }: { active?: boolean, payload?: any[], label?: string }) => {
-    if (active && payload && payload.length) {
-      // Group titles by dataKey to avoid duplicates and show status-specific info
-      const groups = payload.filter(p => p.value > 0).map(entry => {
+    const displayActive = active || !!stickyTooltip;
+    const displayPayload = (active && payload && payload.length) ? payload : (stickyTooltip?.payload || []);
+    const displayLabel = (active && label) ? label : (stickyTooltip?.label || '');
+
+    if (displayActive && displayPayload && displayPayload.length) {
+      const groups = displayPayload.filter((p: any) => p.value > 0).map((entry: any) => {
         const dataKey = entry.dataKey as string;
         const titlesKey = `${dataKey}_titles`;
         const itemTitles = entry.payload[titlesKey] || [];
@@ -175,27 +226,38 @@ export default function Dashboard() {
       if (groups.length === 0) return null;
 
       return (
-        <div className="bg-zinc-950/98 border border-zinc-800 p-4 rounded-xl shadow-2xl backdrop-blur-xl min-w-[280px] max-w-[450px] pointer-events-auto select-text">
+        <div
+          className="bg-zinc-950/98 border border-zinc-800 p-4 rounded-xl shadow-2xl backdrop-blur-xl min-w-[280px] max-w-[450px] pointer-events-auto select-text"
+          onMouseEnter={() => {
+            if (tooltipTimeout) {
+              clearTimeout(tooltipTimeout);
+              setTooltipTimeout(null);
+            }
+          }}
+          onMouseLeave={() => {
+            setStickyTooltip(null);
+          }}
+        >
           <p className="text-zinc-400 text-[10px] font-bold uppercase tracking-widest mb-3 border-b border-zinc-800 pb-2 flex justify-between items-center">
-            <span>{label ? new Date(String(label)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}</span>
-            <span className="text-[9px] text-zinc-600 normal-case font-medium">Scrollable</span>
+            <span>{displayLabel ? new Date(String(displayLabel)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}</span>
+            <span className="text-[9px] text-zinc-600 normal-case font-medium">Scrollable Content</span>
           </p>
 
           <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-            {groups.map((group, index) => (
+            {groups.map((group: any, index: number) => (
               <div key={index} className="space-y-2">
-                <div className="flex items-center justify-between gap-4 sticky top-0 bg-zinc-950/50 backdrop-blur-sm py-1 z-10">
+                <div className="flex items-center justify-between gap-4 sticky top-0 bg-zinc-950/90 backdrop-blur-md py-1 z-10 border-b border-zinc-800/50 mb-1">
                   <div className="flex items-center gap-2">
-                    <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: group.fill, opacity: entryOpacity(group.dataKey) }} />
+                    <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: group.fill }} />
                     <span className="text-zinc-200 text-sm font-semibold">{group.name}</span>
                   </div>
                   <span className="text-white text-sm font-black">{group.value}</span>
                 </div>
 
                 {group.titles.length > 0 && (
-                  <div className="pl-4 border-l-2 border-zinc-800/50 space-y-1.5 ml-1">
+                  <div className="pl-4 border-l-2 border-zinc-800/50 space-y-1.5 ml-1 pb-2">
                     {group.titles.map((t: string, i: number) => (
-                      <p key={i} className="text-zinc-500 text-[11px] leading-tight font-medium">
+                      <p key={i} className="text-zinc-400 text-[11px] leading-tight font-medium opacity-80 hover:opacity-100 transition-opacity">
                         • {t}
                       </p>
                     ))}
@@ -208,12 +270,6 @@ export default function Dashboard() {
       );
     }
     return null;
-  };
-
-  const entryOpacity = (key: string) => {
-    if (key.includes('_downloading')) return 0.4;
-    if (key.includes('_grabbed')) return 0.8;
-    return 1;
   };
 
   return (
@@ -330,8 +386,8 @@ export default function Dashboard() {
                   <div key={indexer.name} className="flex items-center justify-between p-2.5 rounded-xl bg-zinc-950 border border-zinc-800/80 hover:border-zinc-700 transition-colors">
                     <div className="flex items-center gap-3">
                       <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black border ${idx === 0 ? 'bg-amber-500/10 border-amber-500/30 text-amber-500' :
-                          idx === 1 ? 'bg-zinc-400/10 border-zinc-400/30 text-zinc-400' :
-                            'bg-orange-500/10 border-orange-500/30 text-orange-400'
+                        idx === 1 ? 'bg-zinc-400/10 border-zinc-400/30 text-zinc-400' :
+                          'bg-orange-500/10 border-orange-500/30 text-orange-400'
                         }`}>
                         {idx + 1}
                       </div>
@@ -363,7 +419,12 @@ export default function Dashboard() {
               <div className="w-full h-full flex items-center justify-center text-zinc-500 font-medium">No results for this timeframe.</div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <BarChart
+                  data={chartData}
+                  margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                  onMouseMove={handleMouseMove}
+                  onMouseLeave={handleMouseLeave}
+                >
                   <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
                   <XAxis
                     dataKey="date"

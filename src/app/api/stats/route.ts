@@ -200,22 +200,37 @@ export async function GET(req: Request) {
                     }
                 });
 
+                // First pass: Build a map of sourceTitle -> indexer for this instance
+                const sourceToIndexer: Record<string, string> = {};
+                records.forEach(r => {
+                    const typeStr = String(r.eventType).toLowerCase();
+                    const isGrab = r.eventType === 1 || typeStr.includes('grabbed');
+                    if (isGrab && r.sourceTitle) {
+                        sourceToIndexer[r.sourceTitle] = (r.data as any)?.indexer || 'Unknown';
+                    }
+                });
+
                 records.forEach(record => {
                     const recordDate = new Date(record.date);
                     if (recordDate >= startDate && recordDate <= now) {
                         const dateStr = recordDate.toISOString().split('T')[0];
-
-                        // Indexer name
-                        const indexerName = (record.data as any)?.indexer || 'Unknown';
-                        if (!indexerTotals[indexerName]) {
-                            indexerTotals[indexerName] = { grabbed: 0, imported: 0, failed: 0, sizeBytes: 0 };
-                        }
 
                         // Event Types: 1=Grabbed, 3=Imported, 4=Failed
                         const typeStr = String(record.eventType).toLowerCase();
                         const isImport = record.eventType === 3 || typeStr.includes('import');
                         const isGrab = record.eventType === 1 || typeStr.includes('grabbed');
                         const isFailed = record.eventType === 4 || typeStr.includes('failed');
+
+                        // Indexer name resolution
+                        let indexerName = (record.data as any)?.indexer;
+                        if (!indexerName && record.sourceTitle) {
+                            indexerName = sourceToIndexer[record.sourceTitle];
+                        }
+                        if (!indexerName) indexerName = 'Unknown';
+
+                        if (!indexerTotals[indexerName]) {
+                            indexerTotals[indexerName] = { grabbed: 0, imported: 0, failed: 0, sizeBytes: 0 };
+                        }
 
                         // Extract size
                         let size = 0;
@@ -252,14 +267,7 @@ export async function GET(req: Request) {
                         }
                         if (isFailed) indexerTotals[indexerName].failed++;
 
-                        if (!dailyStats[dateStr]) {
-                            // If timeframe is 'all' or 'year', we might have records older than the initialized range
-                            // but still within thirtyDaysAgo if we didn't update thirtyDaysAgo correctly.
-                            // However, we now initialize Based on timeframe.
-                        }
-
                         if (dailyStats[dateStr] && dailyStats[dateStr][id]) {
-                            // ... titles extraction logic ...
                             let title = record.sourceTitle || 'Unknown Release';
 
                             if (record.movie && record.movie.title) {
@@ -328,6 +336,7 @@ export async function GET(req: Request) {
                 dayObj[`${instanceId}_imported_titles`] = titles?.imported || [];
                 dayObj[`${instanceId}_failed_titles`] = titles?.failed || [];
                 dayObj[`${instanceId}_downloading_titles`] = titles?.downloading || [];
+                dayObj[`${instanceId}_sizeGB_titles`] = titles?.imported || []; // Use imported titles for size
 
                 dayObj[instanceId] = summary.grabbed;
                 dayObj[`${instanceId}_titles`] = Array.from(new Set([
