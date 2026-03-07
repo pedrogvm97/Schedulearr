@@ -23,18 +23,28 @@ export async function GET() {
             return NextResponse.json({ error: 'No active qBittorrent instances configured.' }, { status: 404 });
         }
 
-        // 1. Fetch Radarr/Sonarr queues to build a hash -> indexer map
+        // 1. Fetch Radarr/Sonarr data to build a hash -> indexer map
         const hashToIndexer: Record<string, string> = {};
         const radarrInstances = getInstances('radarr', true);
         const sonarrInstances = getInstances('sonarr', true);
 
-        const arrPromises = [
+        const arrQueuePromises = [
             ...radarrInstances.map(inst => fetch(`${inst.url}/api/v3/queue?apiKey=${inst.api_key}`).then(r => r.json()).catch(() => ({ records: [] }))),
             ...sonarrInstances.map(inst => fetch(`${inst.url}/api/v3/queue?apiKey=${inst.api_key}`).then(r => r.json()).catch(() => ({ records: [] })))
         ];
 
-        const arrResults = await Promise.all(arrPromises);
-        arrResults.forEach(data => {
+        const arrHistoryPromises = [
+            ...radarrInstances.map(inst => fetch(`${inst.url}/api/v3/history?apiKey=${inst.api_key}&pageSize=100`).then(r => r.json()).catch(() => ({ records: [] }))),
+            ...sonarrInstances.map(inst => fetch(`${inst.url}/api/v3/history?apiKey=${inst.api_key}&pageSize=100`).then(r => r.json()).catch(() => ({ records: [] })))
+        ];
+
+        const [queueResults, historyResults] = await Promise.all([
+            Promise.all(arrQueuePromises),
+            Promise.all(arrHistoryPromises)
+        ]);
+
+        // Process Queues
+        queueResults.forEach(data => {
             if (data && data.records) {
                 data.records.forEach((record: any) => {
                     const hash = record.downloadId?.toLowerCase();
@@ -43,6 +53,19 @@ export async function GET() {
                     }
                 });
             }
+        });
+
+        // Process History (Grabs have the indexer info)
+        historyResults.forEach(data => {
+            const records = Array.isArray(data) ? data : (data?.records || []);
+            records.forEach((record: any) => {
+                const hash = record.downloadId?.toLowerCase();
+                const typeStr = String(record.eventType).toLowerCase();
+                const isGrab = record.eventType === 1 || typeStr.includes('grabbed');
+                if (hash && isGrab && record.data?.indexer) {
+                    hashToIndexer[hash] = record.data.indexer;
+                }
+            });
         });
 
         // 2. Support multiple qBit instances by aggregating them

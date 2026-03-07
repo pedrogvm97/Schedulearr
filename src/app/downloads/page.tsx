@@ -201,9 +201,9 @@ export default function Downloads() {
                 </button>
 
                 {isCleanupSettingsOpen && (
-                    <div className="p-6 pt-0 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 border-t border-zinc-800/50 animate-in fade-in slide-in-from-top-4 duration-300">
-                        <div className="space-y-6">
-                            <div className="flex items-center justify-between p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50">
+                    <div className="p-6 pt-0 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 border-t border-zinc-800/50 animate-in fade-in slide-in-from-top-4 duration-300">
+                        <div className="space-y-6 flex flex-col">
+                            <div className="flex items-center justify-between p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 h-20">
                                 <div>
                                     <div className="text-sm font-bold text-zinc-200">Enable Cleaner</div>
                                     <p className="text-[10px] text-zinc-500 font-medium">Run background health checks</p>
@@ -220,7 +220,7 @@ export default function Downloads() {
                                 </button>
                             </div>
 
-                            <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-3">
+                            <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-3 flex-1 flex flex-col justify-center min-h-[140px]">
                                 <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Interval (Minutes)</label>
                                 <input
                                     type="number"
@@ -231,14 +231,14 @@ export default function Downloads() {
                                         setQbitCleanupIntervalMin(val);
                                         updateSetting('qbit_cleanup_interval_min', val);
                                     }}
-                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all"
+                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2 text-sm text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all"
                                 />
                                 <p className="text-[10px] text-zinc-500 font-medium leading-relaxed">How often the background process scans your download client.</p>
                             </div>
                         </div>
 
-                        <div className="space-y-6">
-                            <div className="flex items-center justify-between p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50">
+                        <div className="space-y-6 flex flex-col">
+                            <div className="flex items-center justify-between p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 h-20">
                                 <div>
                                     <div className="text-sm font-bold text-zinc-200">Delete Files</div>
                                     <p className="text-[10px] text-zinc-500 font-medium">Remove data from disk</p>
@@ -255,7 +255,7 @@ export default function Downloads() {
                                 </button>
                             </div>
 
-                            <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-3">
+                            <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-3 flex-1 flex flex-col justify-center min-h-[140px]">
                                 <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Stagnation (Minutes)</label>
                                 <input
                                     type="number"
@@ -266,14 +266,14 @@ export default function Downloads() {
                                         setQbitStagnationMin(val);
                                         updateSetting('qbit_cleanup_stagnation_min', val);
                                     }}
-                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all"
+                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2 text-sm text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all"
                                 />
                                 <p className="text-[10px] text-zinc-500 font-medium leading-relaxed">Items with no progress changes for longer than this will be purged.</p>
                             </div>
                         </div>
 
-                        <div className="space-y-6">
-                            <div className="flex items-center justify-between p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50">
+                        <div className="space-y-6 flex flex-col">
+                            <div className="flex items-center justify-between p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 h-20">
                                 <div>
                                     <div className="text-sm font-bold text-zinc-200">Blacklist Failed</div>
                                     <p className="text-[10px] text-zinc-500 font-medium">Prevent re-grabbing same release</p>
@@ -284,13 +284,13 @@ export default function Downloads() {
                                         setQbitBlacklist(next);
                                         updateSetting('qbit_cleanup_blacklist', next);
                                     }}
-                                    className={`w-10 h-5 rounded-full transition-all relative ${qbitBlacklist ? 'bg-emerald-500' : 'bg-zinc-700'}`}
+                                    className={`w-10 h-5 rounded-full transition-all relative ${qbitBlacklist ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-zinc-700'}`}
                                 >
                                     <div className={`w-3 h-3 rounded-full bg-white absolute top-1 transition-all ${qbitBlacklist ? 'left-6' : 'left-1'}`} />
                                 </button>
                             </div>
 
-                            <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-4">
+                            <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-4 flex-1 flex flex-col justify-center min-h-[140px]">
                                 <div className="flex items-center justify-between">
                                     <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Max Size (GB)</label>
                                     <button
@@ -299,7 +299,7 @@ export default function Downloads() {
                                             setQbitSizeCleanupEnabled(next);
                                             updateSetting('qbit_cleanup_max_size_enabled', next);
                                         }}
-                                        className={`w-10 h-5 rounded-full transition-all relative ${qbitSizeCleanupEnabled ? 'bg-emerald-500' : 'bg-zinc-700'}`}
+                                        className={`w-10 h-5 rounded-full transition-all relative ${qbitSizeCleanupEnabled ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-zinc-700'}`}
                                     >
                                         <div className={`w-3 h-3 rounded-full bg-white absolute top-1 transition-all ${qbitSizeCleanupEnabled ? 'left-6' : 'left-1'}`} />
                                     </button>
@@ -314,7 +314,7 @@ export default function Downloads() {
                                         setQbitMaxSizeGb(val);
                                         updateSetting('qbit_cleanup_max_size_gb', val);
                                     }}
-                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all disabled:opacity-30"
+                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2 text-sm text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all disabled:opacity-30"
                                 />
                                 <p className="text-[10px] text-zinc-500 font-medium leading-relaxed">Releases larger than this will be rejected and purged.</p>
                             </div>
