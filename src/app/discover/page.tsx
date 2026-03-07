@@ -253,18 +253,14 @@ export default function DiscoverPage() {
             );
         }
 
-        // 2. High Quality Filter (Default for Discovery)
+        // 2. Quality Filter — only apply by default (no active filters)
         const isDefaultDiscovery = !searchQuery && filterGenre === 'All' && filterPlatform === 'All' && filterYear === 'All';
 
         if (isDefaultDiscovery) {
-            items = items.filter(item => {
-                const rating = item.ratings?.value || 0;
-                const platform = (item.studio || item.network || '').toLowerCase();
-                const isMajor = MAJOR_PLATFORMS.some(p => platform.includes(p));
-                return rating >= 7.0 && isMajor;
-            });
+            // Filter by rating only — studio/network data is often absent in lookup results
+            items = items.filter(item => (item.ratings?.value || 0) >= 6.5);
         } else {
-            // Apply specific filters
+            // Apply specific user filters
             if (filterGenre !== 'All') {
                 items = items.filter(item => item.genres?.includes(filterGenre));
             }
@@ -339,23 +335,48 @@ export default function DiscoverPage() {
                     </div>
 
                     {/* Instance Toggles */}
-                    <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/50 shadow-2xl overflow-x-auto">
+                    <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/50 shadow-2xl overflow-x-auto gap-1">
                         {availableInstances.map(inst => {
                             const isSelected = selectedInstanceId === inst.id;
-                            const instColor = inst.color || (inst.type === 'radarr' ? '#f59e0b' : '#0ea5e9');
+                            const isHexColor = inst.color?.startsWith('#');
+                            const dotStyle = isHexColor ? { backgroundColor: inst.color } : {};
+                            const dotClass = !isHexColor && inst.color ? inst.color : 'bg-blue-500';
+                            const highlightStyle = isSelected && isHexColor ? { borderColor: inst.color, color: inst.color } : {};
+                            const bgStyle = isSelected && isHexColor ? { backgroundColor: `${inst.color}33` } : {};
+
+                            const TW_COLORS: Record<string, string> = {
+                                "bg-red-500": isSelected ? "bg-red-500/20 text-red-400 border-red-500/50" : "bg-transparent border-transparent text-zinc-600",
+                                "bg-orange-500": isSelected ? "bg-orange-500/20 text-orange-400 border-orange-500/50" : "bg-transparent border-transparent text-zinc-600",
+                                "bg-amber-500": isSelected ? "bg-amber-500/20 text-amber-400 border-amber-500/50" : "bg-transparent border-transparent text-zinc-600",
+                                "bg-yellow-500": isSelected ? "bg-yellow-500/20 text-yellow-400 border-yellow-500/50" : "bg-transparent border-transparent text-zinc-600",
+                                "bg-lime-500": isSelected ? "bg-lime-500/20 text-lime-400 border-lime-500/50" : "bg-transparent border-transparent text-zinc-600",
+                                "bg-green-500": isSelected ? "bg-green-500/20 text-green-400 border-green-500/50" : "bg-transparent border-transparent text-zinc-600",
+                                "bg-emerald-500": isSelected ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/50" : "bg-transparent border-transparent text-zinc-600",
+                                "bg-teal-500": isSelected ? "bg-teal-500/20 text-teal-400 border-teal-500/50" : "bg-transparent border-transparent text-zinc-600",
+                                "bg-cyan-500": isSelected ? "bg-cyan-500/20 text-cyan-400 border-cyan-500/50" : "bg-transparent border-transparent text-zinc-600",
+                                "bg-sky-500": isSelected ? "bg-sky-500/20 text-sky-400 border-sky-500/50" : "bg-transparent border-transparent text-zinc-600",
+                                "bg-blue-500": isSelected ? "bg-blue-500/20 text-blue-400 border-blue-500/50" : "bg-transparent border-transparent text-zinc-600",
+                                "bg-indigo-500": isSelected ? "bg-indigo-500/20 text-indigo-400 border-indigo-500/50" : "bg-transparent border-transparent text-zinc-600",
+                                "bg-violet-500": isSelected ? "bg-violet-500/20 text-violet-400 border-violet-500/50" : "bg-transparent border-transparent text-zinc-600",
+                                "bg-purple-500": isSelected ? "bg-purple-500/20 text-purple-400 border-purple-500/50" : "bg-transparent border-transparent text-zinc-600",
+                                "bg-fuchsia-500": isSelected ? "bg-fuchsia-500/20 text-fuchsia-400 border-fuchsia-500/50" : "bg-transparent border-transparent text-zinc-600",
+                                "bg-pink-500": isSelected ? "bg-pink-500/20 text-pink-400 border-pink-500/50" : "bg-transparent border-transparent text-zinc-600",
+                                "bg-rose-500": isSelected ? "bg-rose-500/20 text-rose-400 border-rose-500/50" : "bg-transparent border-transparent text-zinc-600",
+                            };
+                            const standardTailwindClass = TW_COLORS[inst.color || "bg-blue-500"] || TW_COLORS["bg-blue-500"];
+
                             return (
                                 <button
                                     key={inst.id}
                                     onClick={() => setSelectedInstanceId(inst.id)}
-                                    className={`flex items-center gap-2.5 px-6 py-3 text-xs font-black uppercase tracking-widest rounded-xl transition-all whitespace-nowrap ${isSelected ? 'text-white' : 'text-zinc-600 hover:text-zinc-400'}`}
-                                    style={isSelected ? {
-                                        backgroundColor: `${instColor}20`,
-                                        borderColor: `${instColor}40`,
-                                        borderWidth: '1px',
-                                        color: instColor,
-                                    } : {}}
+                                    style={isHexColor && isSelected ? { ...highlightStyle, ...bgStyle } : (isHexColor ? highlightStyle : {})}
+                                    className={`flex items-center gap-2 px-5 py-2.5 text-xs font-bold rounded-xl border transition-all whitespace-nowrap ${!isHexColor ? standardTailwindClass : (isSelected ? 'border' : 'border-transparent text-zinc-600 hover:text-zinc-400')
+                                        }`}
                                 >
-                                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: instColor }} />
+                                    <div
+                                        className={`w-2 h-2 rounded-full ${!isHexColor ? dotClass : ''}`}
+                                        style={dotStyle}
+                                    />
                                     {inst.name}
                                 </button>
                             );
@@ -397,8 +418,8 @@ export default function DiscoverPage() {
                     <button
                         onClick={() => setStartSearch(!startSearch)}
                         className={`h-11 px-5 rounded-2xl border flex items-center gap-3 transition-all duration-300 ${startSearch
-                                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                                : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400'
+                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                            : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400'
                             }`}
                     >
                         <div className={`w-2 h-2 rounded-full transition-all ${startSearch ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-700'
