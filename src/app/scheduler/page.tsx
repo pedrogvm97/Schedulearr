@@ -5,6 +5,7 @@ import axios from 'axios';
 
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
+import { CustomSelect } from '@/components/CustomSelect';
 import {
     DndContext,
     closestCenter,
@@ -48,18 +49,41 @@ interface SchedulerConfig {
 
 interface Movie {
     id: number;
-    idStr?: string; // Synthesized ID for UI
+    idStr?: string;
     type: 'movie';
     title: string;
     year: number;
     instanceId: string;
+    instanceName?: string;
+    instanceColor?: string;
+    instanceUrl?: string;
+    qualityProfileId: number;
     sizeOnDisk: number;
     hasFile: boolean;
+    added: string;
     isDownloading?: boolean;
     genres?: string[];
     monitored: boolean;
     status: string;
     isPinned?: boolean;
+    physicalRelease?: string;
+    digitalRelease?: string;
+    inCinemas?: string;
+    airDateUtc?: string;
+    movieFile?: {
+        id: number;
+        quality?: {
+            quality?: {
+                resolution: number;
+                name: string;
+            };
+        };
+        size?: number;
+    };
+    isDownloaded?: boolean;
+    targetQualityProfile?: string;
+    currentQualityScale?: number;
+    sortDate?: number;
 }
 
 interface Episode {
@@ -73,6 +97,15 @@ interface Episode {
     episodeNumber: number;
     hasFile: boolean;
     monitored: boolean;
+    episodeFileId?: number;
+    episodeFile?: {
+        quality?: {
+            quality?: {
+                name: string;
+            };
+        };
+        size?: number;
+    };
 }
 
 interface SeriesItem {
@@ -81,12 +114,36 @@ interface SeriesItem {
     type: 'series' | 'episode';
     title: string;
     instanceId: string;
+    instanceName?: string;
+    instanceColor?: string;
+    instanceUrl?: string;
+    qualityProfileId: number;
+    added: string;
     episodes?: Episode[];
     queuedEpisodeIds?: number[];
     isPinned?: boolean;
     genres?: string[];
     monitored: boolean;
     status: string;
+    statistics?: {
+        percentOfEpisodes: number;
+        episodeCount: number;
+        episodeFileCount: number;
+    };
+    physicalRelease?: string;
+    digitalRelease?: string;
+    inCinemas?: string;
+    airDateUtc?: string;
+    isDownloaded?: boolean;
+    targetQualityProfile?: string;
+    currentQualityScale?: number;
+    sortDate?: number;
+    isDownloading?: boolean;
+    stats?: {
+        percentOfEpisodes: number;
+        episodeCount: number;
+        episodeFileCount: number;
+    };
 }
 
 interface SearchHistory {
@@ -109,6 +166,14 @@ interface Release {
     downloadUrl: string;
     infoUrl?: string;
     rejections?: string[];
+    customFormatScore?: number;
+    quality?: {
+        quality?: {
+            name: string;
+        };
+    };
+    rejected?: boolean;
+    protocol?: string;
 }
 
 const CountdownTimer = ({ nextRun, enabled }: { nextRun: number | null, enabled: boolean }) => {
@@ -612,40 +677,43 @@ export default function SchedulerQueue() {
     };
 
     // Combine and structure all media
-    let combined = [
+    let combined = ([
         ...(Array.isArray(movies) ? movies : []).map(m => ({
             ...m,
             type: 'movie',
             sortDate: new Date(m.added).getTime(),
             idStr: `movie-${m.instanceId}-${m.id}`,
             isDownloaded: m.hasFile,
-            targetQualityProfile: profiles?.[m.instanceUrl]?.[m.qualityProfileId] || 'Unknown',
+            targetQualityProfile: (m.instanceUrl && m.qualityProfileId && profiles?.[m.instanceUrl.replace(/\/$/, '')]) ? profiles[m.instanceUrl.replace(/\/$/, '')][m.qualityProfileId] : 'Unknown',
             currentQualityScale: m.movieFile?.quality?.quality?.resolution || 0,
             instanceId: m.instanceId,
             instanceColor: m.instanceColor,
             isDownloading: m.isDownloading || false
-        })),
+        } as Movie)),
         ...(Array.isArray(episodes) ? episodes : []).map(e => ({
             ...e,
-            type: 'series',
+            type: 'series' as const,
             sortDate: new Date(e.added).getTime(),
             idStr: `series-${e.instanceId}-${e.id}`,
             isDownloaded: e.statistics?.percentOfEpisodes === 100,
             stats: e.statistics,
-            targetQualityProfile: profiles?.[e.instanceUrl]?.[e.qualityProfileId] || 'Unknown',
+            targetQualityProfile: (e.instanceUrl && e.qualityProfileId && profiles?.[e.instanceUrl.replace(/\/$/, '')]) ? profiles[e.instanceUrl.replace(/\/$/, '')][e.qualityProfileId] : 'Unknown',
             instanceId: e.instanceId,
             instanceColor: e.instanceColor,
             isDownloading: e.queuedEpisodeIds && e.queuedEpisodeIds.length > 0
-        }))
-    ].sort((a, b) => {
+        } as SeriesItem))
+    ] as (Movie | SeriesItem)[]).sort((a, b) => {
         // Group by Instance Name first
         const instA = a.instanceName || '';
         const instB = b.instanceName || '';
-        const instCmp = instA.localeCompare(instB);
-        if (instCmp !== 0) return instCmp;
+        if (instA !== instB) return instA.localeCompare(instB);
 
-        // Then by sortDate
-        return b.sortDate - a.sortDate;
+        // Then by Pin status
+        if (a.isPinned && !b.isPinned) return -1;
+        if (!a.isPinned && b.isPinned) return 1;
+
+        // Then by date (newest first)
+        return (b.sortDate || 0) - (a.sortDate || 0);
     });
 
 
@@ -711,7 +779,7 @@ export default function SchedulerQueue() {
     // Filter by active status for displaying purposes only
     let displayItems = combined;
     if (showActiveOnly) {
-        displayItems = displayItems.filter(item => searchToggles[item.idStr] !== false);
+        displayItems = displayItems.filter(item => item.idStr && searchToggles[item.idStr] !== false);
     }
     if (hideUnmonitored) {
         displayItems = displayItems.filter(item => {
@@ -724,8 +792,8 @@ export default function SchedulerQueue() {
     // Apply Profile Sorting System so UI matches backend expectations
     if (profile === 'custom') {
         displayItems.sort((a, b) => {
-            const indexA = orderedIds.indexOf(a.idStr);
-            const indexB = orderedIds.indexOf(b.idStr);
+            const indexA = a.idStr ? orderedIds.indexOf(a.idStr) : -1;
+            const indexB = b.idStr ? orderedIds.indexOf(b.idStr) : -1;
             if (indexA !== -1 && indexB !== -1) return indexA - indexB;
             if (indexA !== -1) return -1;
             if (indexB !== -1) return 1;
@@ -784,7 +852,7 @@ export default function SchedulerQueue() {
     if (showNextBatchOnly) {
         const allowedBatchSize = schedulerConfig.batchSize || 10;
         // Ignore items that are manually toggled off so they don't eat up preview slots
-        const activeItemsForBatch = displayItems.filter(c => searchToggles[c.idStr] !== false);
+        const activeItemsForBatch = displayItems.filter(c => c.idStr && searchToggles[c.idStr] !== false);
         const moviesInList = activeItemsForBatch.filter(c => c.type === 'movie');
         const seriesInList = activeItemsForBatch.filter(c => c.type === 'series');
 
@@ -898,38 +966,36 @@ export default function SchedulerQueue() {
                                     className="w-14 bg-transparent text-white text-sm font-bold outline-none text-center"
                                 />
                             </div>
-                            <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 flex-shrink-0">
+                            <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-1 flex-shrink-0">
                                 <label className="text-sm font-medium text-zinc-400">Batch Size:</label>
-                                <select
+                                <CustomSelect
+                                    minimal
+                                    options={[...Array(50)].map((_, i) => ({ id: i + 1, name: (i + 1).toString() }))}
                                     value={schedulerConfig.batchSize}
-                                    onChange={e => {
-                                        const val = Number(e.target.value);
-                                        const newConfig = { ...schedulerConfig, batchSize: val };
+                                    onChange={val => {
+                                        const numMatch = val.toString().match(/\d+/);
+                                        const num = numMatch ? Number(numMatch[0]) : 10;
+                                        const newConfig = { ...schedulerConfig, batchSize: num };
                                         setSchedulerConfig(newConfig);
                                         fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newConfig) });
                                     }}
-                                    className="bg-transparent text-white text-sm font-bold outline-none cursor-pointer"
-                                >
-                                    {[...Array(50)].map((_, i) => (
-                                        <option key={i + 1} value={i + 1} className="bg-zinc-900">{i + 1}</option>
-                                    ))}
-                                </select>
+                                />
                             </div>
-                            <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 flex-shrink-0">
+                            <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-1 flex-shrink-0">
                                 <label className="text-sm font-medium text-zinc-400">Behavior:</label>
-                                <select
+                                <CustomSelect
+                                    minimal
+                                    options={[
+                                        { id: 'repeat', name: 'Repeat' },
+                                        { id: 'rotate', name: 'Rotate' }
+                                    ]}
                                     value={schedulerConfig.batchBehavior}
-                                    onChange={e => {
-                                        const val = e.target.value;
+                                    onChange={val => {
                                         const newConfig = { ...schedulerConfig, batchBehavior: val };
                                         setSchedulerConfig(newConfig);
                                         fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newConfig) });
                                     }}
-                                    className="bg-transparent text-white text-sm font-bold outline-none cursor-pointer"
-                                >
-                                    <option value="repeat" className="bg-zinc-900">Repeat Until Extracted</option>
-                                    <option value="rotate" className="bg-zinc-900">Rotate After X Attempts</option>
-                                </select>
+                                />
                             </div>
                             {schedulerConfig.batchBehavior === 'rotate' && (
                                 <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 flex-shrink-0">
@@ -1000,569 +1066,577 @@ export default function SchedulerQueue() {
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 className="w-full bg-zinc-950/50 border border-zinc-700/50 text-white text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block p-2.5 outline-none placeholder-zinc-500"
                             />
-                        </div>
-                        <div className="flex w-full lg:w-auto items-center gap-3 flex-wrap justify-start lg:justify-end">
-                            <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium text-zinc-400 whitespace-nowrap">Sort By:</span>
-                                <select
-                                    value={profile}
-                                    onChange={(e) => handleSaveProfile(e.target.value)}
-                                    className="bg-zinc-950/50 border border-zinc-700/50 text-white text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block p-2 outline-none cursor-pointer"
-                                >
-                                    <option value="recently_added">Added Date (Default)</option>
-                                    <option value="recently_released">Release Date</option>
-                                    <option value="alphabetical">Alphabetical</option>
-                                    <option value="nearly_complete">Completion %</option>
-                                    <option value="random">Randomized</option>
-                                    <option value="custom">Custom Drag & Drop</option>
-                                </select>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium text-zinc-400 whitespace-nowrap">Library Filter:</span>
-                                <select
-                                    value={qualityFilter}
-                                    onChange={(e) => setQualityFilter(e.target.value)}
-                                    className="bg-zinc-950/50 border border-zinc-700/50 text-white text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block p-2 outline-none cursor-pointer"
-                                >
-                                    <option value="missing">Missing Only</option>
-                                    <option value="upgradeable">Upgradeable Only</option>
-                                    <option value="all">Everything</option>
-                                </select>
-                            </div>
-
-                            <div className="flex items-center gap-2 w-full sm:w-auto mt-1 sm:mt-0">
-                                <button
-                                    onClick={handleSaveConfiguration}
-                                    disabled={isSaving}
-                                    className={`px-4 py-2 w-full sm:w-auto text-xs font-semibold rounded-lg shadow-sm border transition-all whitespace-nowrap ${saveSuccess ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/40' : 'bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 border-indigo-500/30'}`}
-                                >
-                                    {isSaving ? 'Saving...' : saveSuccess ? 'Saved ✓' : 'Save Configuration'}
-                                </button>
-                                {hasUnsavedChanges && !saveSuccess && (
-                                    <span className="text-[10px] text-amber-500 font-medium animate-pulse ml-1 whitespace-nowrap">Unsaved changes</span>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Row 2: Genres (Full Width) */}
-                    <div className="w-full">
-                        <div className="flex flex-col mb-4 gap-2">
-                            <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wider block">Filter by Genre</span>
-
-                            {/* Enlarged Logic Buttons matching user request */}
-                            <div className="flex items-center bg-zinc-950 border border-zinc-800 rounded-lg p-1 w-fit shadow-inner mb-2">
-                                <button
-                                    onClick={() => setGenreLogic('OR')}
-                                    className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${genreLogic === 'OR' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                    title="Match ANY selected genre"
-                                >OR</button>
-                                <button
-                                    onClick={() => setGenreLogic('AND')}
-                                    className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${genreLogic === 'AND' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                    title="Match ALL selected genres"
-                                >AND</button>
-                                <button
-                                    onClick={() => setGenreLogic('EXCLUDE')}
-                                    className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${genreLogic === 'EXCLUDE' ? 'bg-rose-900/40 text-rose-400 shadow-sm border border-rose-800/30' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                    title="Match NO selected genres"
-                                >EXCLUDE</button>
-                            </div>
-                        </div>
-                        <div className="flex flex-wrap gap-2 w-full">
-                            {uniqueGenres.map(g => {
-                                const isSelected = selectedGenres.includes(g);
-                                return (
-                                    <button
-                                        key={g}
-                                        onClick={() => handleGenreToggle(g)}
-                                        className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-all ${isSelected
-                                            ? 'bg-purple-500/20 text-purple-300 border-purple-500/50 hover:bg-purple-500/30 shadow-sm'
-                                            : 'bg-zinc-950/50 text-zinc-400 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/50'
-                                            }`}
-                                    >
-                                        {g}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* Media Table Area */}
-            <div>
-                <div className="flex flex-col border-b border-zinc-800 pb-4 mb-4 gap-4">
-                    <div className="flex flex-col gap-3">
-                        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
-                            <h2 className="text-2xl font-bold text-white tracking-tight">Media</h2>
-                            {!loading && combined.length > 0 && (
-                                <div className="flex flex-wrap items-center gap-y-3 gap-x-4 bg-zinc-900/40 border border-zinc-800/60 px-4 py-2.5 rounded-xl">
-                                    <div className="flex items-center gap-2">
-                                        <button onClick={() => handleSelectAll(targetItemsForBulkActions)} className="px-3 py-1.5 text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md border border-zinc-700 transition-colors shadow-sm whitespace-nowrap">Activate all</button>
-                                        <button onClick={() => handleDeselectAll(targetItemsForBulkActions)} className="px-3 py-1.5 text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md border border-zinc-700 transition-colors shadow-sm whitespace-nowrap">Deactivate all</button>
-                                    </div>
-                                    <div className="w-px h-6 bg-zinc-700 hidden lg:block"></div>
-                                    <label className="flex items-center cursor-pointer group" title="When items are clicked to download, they remain on this list if this is ON">
-                                        <div className="relative">
-                                            <input type="checkbox" className="sr-only" checked={showDownloading} onChange={() => setShowDownloading(!showDownloading)} />
-                                            <div className={`block w-9 h-5 rounded-full transition-colors ${showDownloading ? 'bg-blue-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
-                                            <div className={`absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full transition-transform ${showDownloading ? 'translate-x-4' : ''}`}></div>
-                                        </div>
-                                        <span className="text-sm font-medium text-zinc-300 ml-2 whitespace-nowrap">Show Downloading</span>
-                                    </label>
-                                    <div className="w-px h-6 bg-zinc-700 hidden lg:block"></div>
-                                    <label className="flex items-center cursor-pointer group">
-                                        <div className="relative">
-                                            <input type="checkbox" className="sr-only" checked={showActiveOnly} onChange={() => setShowActiveOnly(!showActiveOnly)} />
-                                            <div className={`block w-9 h-5 rounded-full transition-colors ${showActiveOnly ? 'bg-purple-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
-                                            <div className={`absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full transition-transform ${showActiveOnly ? 'translate-x-4' : ''}`}></div>
-                                        </div>
-                                        <span className="text-sm font-medium text-zinc-300 ml-2 whitespace-nowrap">Show active only</span>
-                                    </label>
-
-                                    <div className="w-px h-6 bg-zinc-700 hidden lg:block"></div>
-                                    <label className="flex items-center cursor-pointer group">
-                                        <div className="relative">
-                                            <input type="checkbox" className="sr-only" checked={hideUnmonitored} onChange={() => setHideUnmonitored(!hideUnmonitored)} />
-                                            <div className={`block w-9 h-5 rounded-full transition-colors ${hideUnmonitored ? 'bg-emerald-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
-                                            <div className={`absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full transition-transform ${hideUnmonitored ? 'translate-x-4' : ''}`}></div>
-                                        </div>
-                                        <span className="text-sm font-medium text-zinc-300 ml-2 whitespace-nowrap">Hide Unmonitored</span>
-                                    </label>
+                            <div className="flex w-full lg:w-auto items-center gap-3 flex-wrap justify-start lg:justify-end">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-sm font-medium text-zinc-400 whitespace-nowrap">Sort By:</span>
+                                    <CustomSelect
+                                        minimal
+                                        options={[
+                                            { id: 'recently_added', name: 'Added Date' },
+                                            { id: 'recently_released', name: 'Release Date' },
+                                            { id: 'alphabetical', name: 'Alphabetical' },
+                                            { id: 'nearly_complete', name: 'Completion %' },
+                                            { id: 'random', name: 'Randomized' },
+                                            { id: 'custom', name: 'Custom' }
+                                        ]}
+                                        value={profile}
+                                        onChange={(val) => handleSaveProfile(val)}
+                                    />
                                 </div>
-                            )}
+                                <div className="flex items-center gap-2">
+                                    <span className="text-sm font-medium text-zinc-400 whitespace-nowrap">Library Filter:</span>
+                                    <CustomSelect
+                                        value={qualityFilter}
+                                        onChange={(val) => setQualityFilter(val)}
+                                        options={[
+                                            { id: 'all', name: 'All Statuses' },
+                                            { id: 'missing', name: 'Missing' },
+                                            { id: 'upgradeable', name: 'Upgradeable' }
+                                        ]}
+                                        small
+                                    />
+                                </div>
+
+                                <div className="flex items-center gap-2 w-full sm:w-auto mt-1 sm:mt-0">
+                                    <button
+                                        onClick={handleSaveConfiguration}
+                                        disabled={isSaving}
+                                        className={`px-4 py-2 w-full sm:w-auto text-xs font-semibold rounded-lg shadow-sm border transition-all whitespace-nowrap ${saveSuccess ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/40' : 'bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 border-indigo-500/30'}`}
+                                    >
+                                        {isSaving ? 'Saving...' : saveSuccess ? 'Saved ✓' : 'Save Configuration'}
+                                    </button>
+                                    {hasUnsavedChanges && !saveSuccess && (
+                                        <span className="text-[10px] text-amber-500 font-medium animate-pulse ml-1 whitespace-nowrap">Unsaved changes</span>
+                                    )}
+                                </div>
+                            </div>
                         </div>
-                        <div className="flex items-center mt-1">
-                            {/* Active Instances Section moved here */}
-                            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mr-3">Instances:</span>
-                            <div className="flex flex-wrap gap-2">
-                                {uniqueInstances.map(inst => {
-                                    const isSelected = instanceFilters[inst.id] !== false;
 
-                                    // Make sure inst.color is supported by Tailwind or inject via style if it's a hex
-                                    const isHexColor = inst.color?.startsWith('#');
-                                    const dotStyle = isHexColor ? { backgroundColor: inst.color } : {};
-                                    const dotClass = !isHexColor && inst.color ? inst.color : 'bg-blue-500';
+                        {/* Row 2: Genres (Full Width) */}
+                        <div className="w-full">
+                            <div className="flex flex-col mb-4 gap-2">
+                                <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wider block">Filter by Genre</span>
 
-                                    // Selected states coloring
-                                    const highlightStyle = isSelected && isHexColor ? { borderColor: inst.color, color: inst.color } : {};
-                                    const bgStyle = isSelected && isHexColor ? { backgroundColor: `${inst.color}33` } : {}; // 33 is ~20% opacity matching original bg-blue-500/20
-
-                                    // Define dynamic classes exclusively for tailwind base colors safely
-                                    const TW_COLORS: Record<string, string> = {
-                                        "bg-red-500": isSelected ? "bg-red-500/20 text-red-400 border-red-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                        "bg-orange-500": isSelected ? "bg-orange-500/20 text-orange-400 border-orange-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                        "bg-amber-500": isSelected ? "bg-amber-500/20 text-amber-400 border-amber-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                        "bg-yellow-500": isSelected ? "bg-yellow-500/20 text-yellow-400 border-yellow-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                        "bg-lime-500": isSelected ? "bg-lime-500/20 text-lime-400 border-lime-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                        "bg-green-500": isSelected ? "bg-green-500/20 text-green-400 border-green-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                        "bg-emerald-500": isSelected ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                        "bg-teal-500": isSelected ? "bg-teal-500/20 text-teal-400 border-teal-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                        "bg-cyan-500": isSelected ? "bg-cyan-500/20 text-cyan-400 border-cyan-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                        "bg-sky-500": isSelected ? "bg-sky-500/20 text-sky-400 border-sky-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                        "bg-blue-500": isSelected ? "bg-blue-500/20 text-blue-400 border-blue-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                        "bg-indigo-500": isSelected ? "bg-indigo-500/20 text-indigo-400 border-indigo-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                        "bg-violet-500": isSelected ? "bg-violet-500/20 text-violet-400 border-violet-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                        "bg-purple-500": isSelected ? "bg-purple-500/20 text-purple-400 border-purple-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                        "bg-fuchsia-500": isSelected ? "bg-fuchsia-500/20 text-fuchsia-400 border-fuchsia-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                        "bg-pink-500": isSelected ? "bg-pink-500/20 text-pink-400 border-pink-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                        "bg-rose-500": isSelected ? "bg-rose-500/20 text-rose-400 border-rose-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                    };
-
-                                    const standardTailwindClass = TW_COLORS[inst.color || "bg-blue-500"] || TW_COLORS["bg-blue-500"];
-
+                                {/* Enlarged Logic Buttons matching user request */}
+                                <div className="flex items-center bg-zinc-950 border border-zinc-800 rounded-lg p-1 w-fit shadow-inner mb-2">
+                                    <button
+                                        onClick={() => setGenreLogic('OR')}
+                                        className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${genreLogic === 'OR' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                        title="Match ANY selected genre"
+                                    >OR</button>
+                                    <button
+                                        onClick={() => setGenreLogic('AND')}
+                                        className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${genreLogic === 'AND' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                        title="Match ALL selected genres"
+                                    >AND</button>
+                                    <button
+                                        onClick={() => setGenreLogic('EXCLUDE')}
+                                        className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${genreLogic === 'EXCLUDE' ? 'bg-rose-900/40 text-rose-400 shadow-sm border border-rose-800/30' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                        title="Match NO selected genres"
+                                    >EXCLUDE</button>
+                                </div>
+                            </div>
+                            <div className="flex flex-wrap gap-2 w-full">
+                                {uniqueGenres.map(g => {
+                                    const isSelected = selectedGenres.includes(g);
                                     return (
                                         <button
-                                            key={inst.id}
-                                            onClick={() => toggleInstance(inst.name, inst.id)}
-                                            style={isHexColor && isSelected ? { ...highlightStyle, ...bgStyle } : (isHexColor ? highlightStyle : {})}
-                                            className={`px-3 py-1 text-xs font-semibold rounded-full border transition-all ${!isHexColor ? standardTailwindClass : 'hover:opacity-80'}`}
+                                            key={g}
+                                            onClick={() => handleGenreToggle(g)}
+                                            className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-all ${isSelected
+                                                ? 'bg-purple-500/20 text-purple-300 border-purple-500/50 hover:bg-purple-500/30 shadow-sm'
+                                                : 'bg-zinc-950/50 text-zinc-400 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/50'
+                                                }`}
                                         >
-                                            <div className="flex items-center gap-1.5">
-                                                <div className={`w-2 h-2 rounded-full ${!isHexColor ? dotClass : ''}`} style={dotStyle} title="Instance Color"></div>
-                                                {inst.name}
-                                            </div>
+                                            {g}
                                         </button>
                                     );
                                 })}
                             </div>
                         </div>
                     </div>
-
-                    <label className="flex items-center cursor-pointer group shrink-0">
-                        <div className="relative">
-                            <input type="checkbox" className="sr-only" checked={showNextBatchOnly} onChange={() => setShowNextBatchOnly(!showNextBatchOnly)} />
-                            <div className={`block w-12 h-6 rounded-full transition-colors ${showNextBatchOnly ? 'bg-amber-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
-                            <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${showNextBatchOnly ? 'translate-x-6' : ''}`}></div>
-                        </div>
-                        <div className="ml-3 flex flex-col">
-                            <span className="text-sm font-bold text-amber-500">Preview Upcoming Batch</span>
-                            <span className="text-[10px] text-zinc-400 leading-tight">Shows exactly what will be searched next cycle</span>
-                        </div>
-                    </label>
                 </div>
 
-                {displayItems.length === 0 ? (
-                    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-12 text-center flex flex-col items-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-500 mb-4 opacity-50"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-                        <h3 className="text-xl font-semibold text-white">All caught up!</h3>
-                        <p className="text-zinc-500 mt-2">No missing media matching this filter.</p>
-                    </div>
-                ) : (
-                    <DndContext
-                        sensors={sensors}
-                        collisionDetection={closestCenter}
-                        onDragEnd={handleDragEnd}
-                    >
-                        <SortableContext
-                            items={displayItems.map(c => c.idStr)}
-                            strategy={verticalListSortingStrategy}
-                        >
-                            <div className="grid grid-cols-1 gap-3">
-                                {displayItems.map((item) => {
-                                    const isToggled = searchToggles[item.idStr] !== false;
-                                    const isExpanded = item.type === 'series' && expandedSeriesId === `${item.instanceId}-${item.id}`;
-
-                                    return (
-                                        <SortableItem key={item.idStr} id={item.idStr} isDraggable={profile === 'custom'}>
-                                            <div className="flex-1 flex flex-col gap-1 w-full">
-                                                {/* Main Card */}
-                                                <div
-                                                    onClick={(e) => item.type === 'series' && toggleExpandSeries(item, e)}
-                                                    className={`flex items-center justify-between p-4 rounded-xl border transition-all ${isToggled ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-950 border-zinc-900 opacity-60'
-                                                        } ${item.type === 'series' ? 'cursor-pointer hover:bg-zinc-800' : ''}`}
-                                                >
-                                                    <div className="flex items-center gap-4">
-                                                        <div className={`w-2 h-12 rounded-full ${item.instanceColor || (item.type === 'movie' ? 'bg-yellow-500' : 'bg-cyan-500')}`} />
-                                                        <div>
-                                                            <div className="flex items-center gap-2 mb-1">
-                                                                <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm ${item.type === 'movie' ? 'bg-yellow-500/20 text-yellow-500' : 'bg-cyan-500/20 text-cyan-500'}`}>
-                                                                    {item.type}
-                                                                </span>
-                                                                {item.isDownloading && (
-                                                                    <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center gap-1 animate-pulse">
-                                                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                                                                        Downloading
-                                                                    </span>
-                                                                )}
-                                                                <span
-                                                                    className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm border border-zinc-700/50 opacity-80"
-                                                                    style={{
-                                                                        backgroundColor: item.instanceColor?.startsWith('#') ? `${item.instanceColor}1a` : undefined,
-                                                                        color: item.instanceColor?.startsWith('#') ? item.instanceColor : undefined,
-                                                                        borderColor: item.instanceColor?.startsWith('#') ? `${item.instanceColor}33` : undefined
-                                                                    }}
-                                                                >
-                                                                    {item.instanceName}
-                                                                </span>
-                                                            </div>
-                                                            <h3 className="text-lg font-medium text-white flex items-center gap-2">
-                                                                {item.title}
-                                                                {item.type === 'series' && (
-                                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`text-zinc-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`}><polyline points="6 9 12 15 18 9"></polyline></svg>
-                                                                )}
-                                                            </h3>
-                                                            <div className="text-sm text-zinc-400 flex flex-wrap items-center gap-x-2 gap-y-1">
-                                                                {item.type === 'movie'
-                                                                    ? (item.isDownloaded ? 'Downloaded' : 'Missing from Library')
-                                                                    : (item.stats ? `${item.stats.episodeFileCount} / ${item.stats.episodeCount} Episodes (${Math.round(item.stats.percentOfEpisodes)}%)` : 'Unknown')}
-                                                                <span className="text-zinc-600">•</span>
-                                                                <span>Added {formatDistanceToNow(item.sortDate, { addSuffix: true })}</span>
-
-                                                                <div className="flex items-center gap-2 w-full mt-1">
-                                                                    <div className="flex bg-zinc-900 border border-zinc-700/50 rounded-md overflow-hidden text-xs font-medium">
-                                                                        <div className="bg-zinc-800 px-2 py-0.5 text-zinc-400 border-r border-zinc-700/50">Target</div>
-                                                                        <div className="px-2 py-0.5 text-indigo-400 bg-indigo-500/10">{item.targetQualityProfile}</div>
-                                                                    </div>
-
-                                                                    {item.type === 'movie' && item.isDownloaded && (
-                                                                        <>
-                                                                            <div className="flex bg-zinc-900 border border-zinc-700/50 rounded-md overflow-hidden text-xs font-medium">
-                                                                                <div className="bg-zinc-800 px-2 py-0.5 text-zinc-400 border-r border-zinc-700/50">Current</div>
-                                                                                <div className={`px-2 py-0.5 ${item.currentQualityScale >= 2160 ? 'text-emerald-400 bg-emerald-500/10' :
-                                                                                    item.currentQualityScale >= 1080 ? 'text-blue-400 bg-blue-500/10' : 'text-yellow-400 bg-yellow-500/10'}`}>
-                                                                                    {item.currentQualityScale ? `${item.currentQualityScale}p` : 'Unknown'}
-                                                                                </div>
-                                                                            </div>
-                                                                            {item.movieFile && (
-                                                                                <div className="flex bg-zinc-900 border border-zinc-700/50 rounded-md overflow-hidden text-xs font-medium">
-                                                                                    <div className="bg-zinc-800 px-2 py-0.5 text-zinc-400 border-r border-zinc-700/50">Size</div>
-                                                                                    <div className="px-2 py-0.5 text-zinc-300 bg-zinc-800/10">{formatSize(item.movieFile.size)}</div>
-                                                                                </div>
-                                                                            )}
-                                                                        </>
-                                                                    )}
-                                                                    {item.type === 'series' && item.stats && item.stats.sizeOnDisk > 0 && (
-                                                                        <div className="flex bg-zinc-900 border border-zinc-700/50 rounded-md overflow-hidden text-xs font-medium">
-                                                                            <div className="bg-zinc-800 px-2 py-0.5 text-zinc-400 border-r border-zinc-700/50">Total Size</div>
-                                                                            <div className="px-2 py-0.5 text-zinc-300 bg-zinc-800/10">{formatSize(item.stats.sizeOnDisk)}</div>
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="flex items-center gap-2">
-                                                        {(item.type === 'movie' || item.type === 'series') && (
-                                                            <button
-                                                                className="text-xs bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 font-medium px-3 py-1.5 rounded-lg border border-indigo-500/30 transition-colors relative z-20 cursor-pointer flex items-center gap-1.5"
-                                                                onPointerDown={(e) => e.stopPropagation()}
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    handleInteractiveSearch(item.type === 'series' ? 'series' : 'movie', item.id, item.instanceId, item.title);
-                                                                }}
-                                                                title="Search specifically for this item across all indexers"
-                                                            >
-                                                                <Search size={14} />
-                                                                Interactive Search
-                                                            </button>
-                                                        )}
-
-                                                        {item.type === 'movie' && item.hasFile && item.movieFile && (
-                                                            <button
-                                                                className="text-xs bg-rose-600/20 text-rose-400 hover:bg-rose-600/30 font-medium px-2 py-1.5 rounded-lg border border-rose-500/30 transition-colors relative z-20 cursor-pointer"
-                                                                onPointerDown={(e) => e.stopPropagation()}
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    handleDeleteFile('movie', item.id, item.instanceId, item.movieFile.id);
-                                                                }}
-                                                                title="Delete movie file from disk"
-                                                            >
-                                                                <Trash2 size={14} />
-                                                            </button>
-                                                        )}
-
-                                                        {searchingItems[item.idStr] ? (
-                                                            <span className="text-xs font-semibold px-3 py-1.5 rounded-lg border bg-zinc-800/80 text-zinc-300 border-zinc-700 flex items-center gap-2">
-                                                                {searchingItems[item.idStr].isPolling && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>}
-                                                                {searchingItems[item.idStr].status}
-                                                            </span>
-                                                        ) : (
-                                                            <button
-                                                                className="text-xs bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 font-medium px-3 py-1.5 rounded-lg border border-emerald-500/30 transition-colors relative z-20 cursor-pointer flex items-center gap-1.5"
-                                                                onPointerDown={(e) => e.stopPropagation()}
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    handleForceSearch(item);
-                                                                }}
-                                                                title="Trigger automatic search"
-                                                            >
-                                                                <RefreshCw size={14} />
-                                                                Force Search {item.type === 'series' && '(All)'}
-                                                            </button>
-                                                        )}
-                                                        <span className="text-xs text-zinc-500 font-medium mr-2">Status: {isToggled ? 'Active' : 'Paused'}</span>
-                                                        <button
-                                                            onPointerDown={(e) => e.stopPropagation()}
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                toggleSearch(item.idStr);
-                                                            }}
-                                                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-zinc-950 cursor-pointer z-50 ${isToggled ? 'bg-emerald-500' : 'bg-zinc-700'}`}
-                                                        >
-                                                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isToggled ? 'translate-x-6' : 'translate-x-1'}`} />
-                                                        </button>
-                                                    </div>
-                                                </div>
-
-                                                {/* Expanded Episodes */}
-                                                {isExpanded && (
-                                                    <div className="ml-8 mt-1 mb-4 border-l-2 border-zinc-800 pl-4 py-2 space-y-2">
-                                                        {loadingEpisodes[`${item.instanceId}-${item.id}`] ? (
-                                                            <div className="text-sm text-zinc-500 flex items-center gap-2 p-2">
-                                                                <div className="w-4 h-4 rounded-full border-2 border-zinc-500 border-t-transparent animate-spin"></div>
-                                                                Loading episodes...
-                                                            </div>
-                                                        ) : seriesEpisodes[`${item.instanceId}-${item.id}`] ? (
-                                                            <div className="grid gap-2">
-                                                                {seriesEpisodes[`${item.instanceId}-${item.id}`]
-                                                                    .filter((ep: any) => !hideUnmonitored || ep.monitored)
-                                                                    .map((ep: any) => (
-                                                                        <div key={ep.id} className="bg-zinc-900/50 border border-zinc-800/80 rounded-lg p-3 flex items-center justify-between hover:bg-zinc-800/50 transition-colors">
-                                                                            <div>
-                                                                                <div className="flex items-center gap-2 mb-1">
-                                                                                    <span className="text-xs font-mono text-zinc-400 bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">S{String(ep.seasonNumber).padStart(2, '0')}E{String(ep.episodeNumber).padStart(2, '0')}</span>
-                                                                                    <h4 className="text-sm font-medium text-zinc-200">{ep.title}</h4>
-                                                                                    {ep.hasFile ? (
-                                                                                        <div className="flex items-center gap-2">
-                                                                                            <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Downloaded</span>
-                                                                                            <button
-                                                                                                onClick={(e) => {
-                                                                                                    e.stopPropagation();
-                                                                                                    handleDeleteFile('episode', ep.id, item.instanceId, ep.episodeFileId);
-                                                                                                }}
-                                                                                                className="p-1 text-rose-500 hover:bg-rose-500/10 rounded-md transition-colors"
-                                                                                                title="Delete episode file"
-                                                                                            >
-                                                                                                <Trash2 size={12} />
-                                                                                            </button>
-                                                                                        </div>
-                                                                                    ) : item.queuedEpisodeIds?.includes(ep.id) ? (
-                                                                                        <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center gap-1 animate-pulse">
-                                                                                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                                                                                            Downloading
-                                                                                        </span>
-                                                                                    ) : ep.monitored ? (
-                                                                                        <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">Missing</span>
-                                                                                    ) : (
-                                                                                        <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-500 border border-zinc-700">Unmonitored</span>
-                                                                                    )}
-                                                                                </div>
-                                                                                {ep.hasFile && ep.episodeFile && (
-                                                                                    <div className="flex items-center gap-2 mt-1">
-                                                                                        <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded">{ep.episodeFile.quality?.quality?.name || 'Unknown Quality'}</span>
-                                                                                        <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded">{formatSize(ep.episodeFile.size || 0)}</span>
-                                                                                    </div>
-                                                                                )}
-                                                                            </div>
-                                                                            <div className="flex items-center gap-2 flex-wrap justify-end">
-                                                                                {!ep.hasFile && ep.monitored && new Date(ep.airDateUtc).getTime() < Date.now() && (
-                                                                                    <>
-                                                                                        <button
-                                                                                            onClick={(e) => {
-                                                                                                e.stopPropagation();
-                                                                                                handleInteractiveSearch('episode', ep.id, item.instanceId, `${item.title} - S${String(ep.seasonNumber).padStart(2, '0')}E${String(ep.episodeNumber).padStart(2, '0')}`);
-                                                                                            }}
-                                                                                            className="px-2 py-1 text-[10px] font-semibold bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 rounded border border-indigo-500/20 hover:border-indigo-500/40 transition-colors"
-                                                                                        >
-                                                                                            Interactive Search
-                                                                                        </button>
-
-                                                                                        {searchingItems[`episode-${item.instanceId}-${ep.id}`] ? (
-                                                                                            <span className="text-[10px] font-semibold px-2 py-1 rounded border bg-zinc-800/80 text-zinc-300 border-zinc-700 flex items-center gap-1.5">
-                                                                                                {searchingItems[`episode-${item.instanceId}-${ep.id}`].isPolling && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>}
-                                                                                                {searchingItems[`episode-${item.instanceId}-${ep.id}`].status}
-                                                                                            </span>
-                                                                                        ) : (
-                                                                                            <button
-                                                                                                className="px-2 py-1 text-[10px] font-semibold bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 rounded border border-emerald-500/20 hover:border-emerald-500/40 transition-colors cursor-pointer flex items-center gap-1"
-                                                                                                onPointerDown={(e) => e.stopPropagation()}
-                                                                                                onClick={(e) => {
-                                                                                                    e.stopPropagation();
-                                                                                                    const epItem = {
-                                                                                                        idStr: `episode-${item.instanceId}-${ep.id}`,
-                                                                                                        instanceId: item.instanceId,
-                                                                                                        type: 'episode',
-                                                                                                        id: ep.id
-                                                                                                    };
-                                                                                                    handleForceSearch(epItem);
-                                                                                                }}
-                                                                                                title="Trigger automatic search for this specific episode"
-                                                                                            >
-                                                                                                <RefreshCw size={12} />
-                                                                                                Force Search
-                                                                                            </button>
-                                                                                        )}
-                                                                                    </>
-                                                                                )}
-                                                                            </div>
-                                                                        </div>
-                                                                    ))}
-                                                            </div>
-                                                        ) : (
-                                                            <div className="text-sm text-zinc-500 p-2">No episodes found.</div>
-                                                        )}
-                                                    </div>
-                                                )}
+                {/* Media Table Area */}
+                <div>
+                    <div className="flex flex-col border-b border-zinc-800 pb-4 mb-4 gap-4">
+                        <div className="flex flex-col gap-3">
+                            <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+                                <h2 className="text-2xl font-bold text-white tracking-tight">Media</h2>
+                                {!loading && combined.length > 0 && (
+                                    <div className="flex flex-wrap items-center gap-y-3 gap-x-4 bg-zinc-900/40 border border-zinc-800/60 px-4 py-2.5 rounded-xl">
+                                        <div className="flex items-center gap-2">
+                                            <button onClick={() => handleSelectAll(targetItemsForBulkActions)} className="px-3 py-1.5 text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md border border-zinc-700 transition-colors shadow-sm whitespace-nowrap">Activate all</button>
+                                            <button onClick={() => handleDeselectAll(targetItemsForBulkActions)} className="px-3 py-1.5 text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md border border-zinc-700 transition-colors shadow-sm whitespace-nowrap">Deactivate all</button>
+                                        </div>
+                                        <div className="w-px h-6 bg-zinc-700 hidden lg:block"></div>
+                                        <label className="flex items-center cursor-pointer group" title="When items are clicked to download, they remain on this list if this is ON">
+                                            <div className="relative">
+                                                <input type="checkbox" className="sr-only" checked={showDownloading} onChange={() => setShowDownloading(!showDownloading)} />
+                                                <div className={`block w-9 h-5 rounded-full transition-colors ${showDownloading ? 'bg-blue-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
+                                                <div className={`absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full transition-transform ${showDownloading ? 'translate-x-4' : ''}`}></div>
                                             </div>
-                                        </SortableItem>
-                                    );
-                                })}
-                            </div>
-                        </SortableContext>
-                    </DndContext>
-                )
-                }
-            </div >
-
-            {/* Interactive Search Modal Overlay */}
-            {
-                interactiveSearchItem && (
-                    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-                            <div className="p-5 border-b border-zinc-800/60 bg-zinc-900/50 flex justify-between items-center">
-                                <div>
-                                    <h2 className="text-xl font-bold text-white mb-1">Interactive Release Search</h2>
-                                    <p className="text-sm text-zinc-400 font-medium">Top 10 highest scored releases for: <span className="text-indigo-400 font-bold">{interactiveSearchItem?.title}</span></p>
-
-                                </div>
-                                <button
-                                    onClick={() => setInteractiveSearchItem(null)}
-                                    className="text-zinc-500 hover:text-white p-2 bg-zinc-900 rounded-full hover:bg-zinc-800 border border-zinc-800 transition-colors"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                                </button>
-                            </div>
-                            <div className="flex-1 overflow-y-auto p-5">
-                                {loadingReleases ? (
-                                    <div className="flex flex-col items-center justify-center py-20">
-                                        <div className="w-10 h-10 rounded-full border-4 border-indigo-500 border-t-transparent animate-spin mb-4"></div>
-                                        <p className="text-zinc-400 font-medium animate-pulse">Querying indexers for live releases...</p>
-                                    </div>
-                                ) : interactiveReleases.length === 0 ? (
-                                    <div className="flex flex-col items-center justify-center py-20 bg-zinc-900/30 rounded-xl border border-dashed border-zinc-800">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="text-zinc-600 mb-4"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                                        <h3 className="text-lg font-bold text-zinc-300">No Releases Found</h3>
-                                        <p className="text-sm text-zinc-500 mt-1 max-w-sm text-center">Your indexers could not find any active releases for this item matching its quality profile.</p>
-                                    </div>
-                                ) : (
-                                    <div className="space-y-3">
-                                        {interactiveReleases.map((release, idx) => (
-                                            <div key={release.guid} className="bg-zinc-900 border border-zinc-800 hover:border-indigo-500/50 transition-colors p-4 rounded-xl flex flex-col md:flex-row gap-4 items-start md:items-center justify-between group">
-                                                <div className="flex-1 min-w-0 pr-4">
-                                                    <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                                                        <span className="flex items-center justify-center w-6 h-6 rounded bg-zinc-800 text-zinc-400 text-xs font-bold ring-1 ring-zinc-700">#{idx + 1}</span>
-                                                        <span className={`text-xs font-bold px-2 py-0.5 rounded ${release.customFormatScore > 0 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-zinc-800 text-zinc-400 border border-zinc-700'}`}>Score: {release.customFormatScore}</span>
-                                                        <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border border-blue-500/20 bg-blue-500/10 text-blue-400">{release.quality || 'Unknown'}</span>
-                                                        {release.rejected && (
-                                                            <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded border border-rose-500/20 bg-rose-500/10 text-rose-400">Rejected</span>
-                                                        )}
-                                                    </div>
-                                                    <h4 className="text-sm font-medium text-zinc-200 break-words leading-snug group-hover:text-white transition-colors">
-                                                        {release.title}
-                                                    </h4>
-                                                    <div className="flex items-center gap-3 mt-2 text-xs font-medium text-zinc-500">
-                                                        <span className="flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg> {(release.size / 1024 / 1024 / 1024).toFixed(2)} GB</span>
-                                                        <span className="text-zinc-700">•</span>
-                                                        <span>{release.indexer}</span>
-                                                        <span className="text-zinc-700">•</span>
-                                                        <span className="uppercase text-[10px] tracking-wider">{release.protocol}</span>
-                                                    </div>
-                                                    {release.rejected && release.rejections && release.rejections.length > 0 && (
-                                                        <div className="mt-2 text-xs text-rose-400/80 bg-rose-500/5 p-2 rounded border border-rose-500/10 hidden group-hover:block transition-all">
-                                                            Warning: {release.rejections.join(', ')}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                                <div className="flex-shrink-0 mt-3 md:mt-0 w-full md:w-auto">
-                                                    <button
-                                                        onClick={() => triggerInteractiveDownload(release.guid, release.indexerId)}
-                                                        disabled={triggeringReleaseGuid !== null}
-                                                        className={`w-full md:w-auto flex items-center justify-center gap-2 px-6 py-2.5 text-sm font-bold rounded-lg border transition-all ${triggeringReleaseGuid === release.guid
-                                                            ? 'bg-amber-500/20 text-amber-400 border-amber-500/30 cursor-wait'
-                                                            : triggeringReleaseGuid
-                                                                ? 'bg-zinc-800 text-zinc-600 border-zinc-700 cursor-not-allowed'
-                                                                : 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500 shadow-lg shadow-indigo-500/20 hover:scale-[1.02] active:scale-[0.98]'
-                                                            }`}
-                                                    >
-                                                        {triggeringReleaseGuid === release.guid ? (
-                                                            <><div className="w-4 h-4 rounded-full border-2 border-amber-500 border-t-transparent animate-spin"></div> Grabbing...</>
-                                                        ) : (
-                                                            <><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> Download</>
-                                                        )}
-                                                    </button>
-                                                </div>
+                                            <span className="text-sm font-medium text-zinc-300 ml-2 whitespace-nowrap">Show Downloading</span>
+                                        </label>
+                                        <div className="w-px h-6 bg-zinc-700 hidden lg:block"></div>
+                                        <label className="flex items-center cursor-pointer group">
+                                            <div className="relative">
+                                                <input type="checkbox" className="sr-only" checked={showActiveOnly} onChange={() => setShowActiveOnly(!showActiveOnly)} />
+                                                <div className={`block w-9 h-5 rounded-full transition-colors ${showActiveOnly ? 'bg-purple-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
+                                                <div className={`absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full transition-transform ${showActiveOnly ? 'translate-x-4' : ''}`}></div>
                                             </div>
-                                        ))}
+                                            <span className="text-sm font-medium text-zinc-300 ml-2 whitespace-nowrap">Show active only</span>
+                                        </label>
+
+                                        <div className="w-px h-6 bg-zinc-700 hidden lg:block"></div>
+                                        <label className="flex items-center cursor-pointer group">
+                                            <div className="relative">
+                                                <input type="checkbox" className="sr-only" checked={hideUnmonitored} onChange={() => setHideUnmonitored(!hideUnmonitored)} />
+                                                <div className={`block w-9 h-5 rounded-full transition-colors ${hideUnmonitored ? 'bg-emerald-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
+                                                <div className={`absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full transition-transform ${hideUnmonitored ? 'translate-x-4' : ''}`}></div>
+                                            </div>
+                                            <span className="text-sm font-medium text-zinc-300 ml-2 whitespace-nowrap">Hide Unmonitored</span>
+                                        </label>
                                     </div>
                                 )}
                             </div>
+                            <div className="flex items-center mt-1">
+                                {/* Active Instances Section moved here */}
+                                <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mr-3">Instances:</span>
+                                <div className="flex flex-wrap gap-2">
+                                    {uniqueInstances.map(inst => {
+                                        const isSelected = instanceFilters[inst.id] !== false;
+
+                                        // Make sure inst.color is supported by Tailwind or inject via style if it's a hex
+                                        const isHexColor = inst.color?.startsWith('#');
+                                        const dotStyle = isHexColor ? { backgroundColor: inst.color } : {};
+                                        const dotClass = !isHexColor && inst.color ? inst.color : 'bg-blue-500';
+
+                                        // Selected states coloring
+                                        const highlightStyle = isSelected && isHexColor ? { borderColor: inst.color, color: inst.color } : {};
+                                        const bgStyle = isSelected && isHexColor ? { backgroundColor: `${inst.color}33` } : {}; // 33 is ~20% opacity matching original bg-blue-500/20
+
+                                        // Define dynamic classes exclusively for tailwind base colors safely
+                                        const TW_COLORS: Record<string, string> = {
+                                            "bg-red-500": isSelected ? "bg-red-500/20 text-red-400 border-red-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                            "bg-orange-500": isSelected ? "bg-orange-500/20 text-orange-400 border-orange-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                            "bg-amber-500": isSelected ? "bg-amber-500/20 text-amber-400 border-amber-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                            "bg-yellow-500": isSelected ? "bg-yellow-500/20 text-yellow-400 border-yellow-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                            "bg-lime-500": isSelected ? "bg-lime-500/20 text-lime-400 border-lime-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                            "bg-green-500": isSelected ? "bg-green-500/20 text-green-400 border-green-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                            "bg-emerald-500": isSelected ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                            "bg-teal-500": isSelected ? "bg-teal-500/20 text-teal-400 border-teal-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                            "bg-cyan-500": isSelected ? "bg-cyan-500/20 text-cyan-400 border-cyan-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                            "bg-sky-500": isSelected ? "bg-sky-500/20 text-sky-400 border-sky-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                            "bg-blue-500": isSelected ? "bg-blue-500/20 text-blue-400 border-blue-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                            "bg-indigo-500": isSelected ? "bg-indigo-500/20 text-indigo-400 border-indigo-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                            "bg-violet-500": isSelected ? "bg-violet-500/20 text-violet-400 border-violet-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                            "bg-purple-500": isSelected ? "bg-purple-500/20 text-purple-400 border-purple-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                            "bg-fuchsia-500": isSelected ? "bg-fuchsia-500/20 text-fuchsia-400 border-fuchsia-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                            "bg-pink-500": isSelected ? "bg-pink-500/20 text-pink-400 border-pink-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                            "bg-rose-500": isSelected ? "bg-rose-500/20 text-rose-400 border-rose-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
+                                        };
+
+                                        const standardTailwindClass = TW_COLORS[inst.color || "bg-blue-500"] || TW_COLORS["bg-blue-500"];
+
+                                        return (
+                                            <button
+                                                key={inst.id}
+                                                onClick={() => toggleInstance(inst.name, inst.id)}
+                                                style={isHexColor && isSelected ? { ...highlightStyle, ...bgStyle } : (isHexColor ? highlightStyle : {})}
+                                                className={`px-3 py-1 text-xs font-semibold rounded-full border transition-all ${!isHexColor ? standardTailwindClass : 'hover:opacity-80'}`}
+                                            >
+                                                <div className="flex items-center gap-1.5">
+                                                    <div className={`w-2 h-2 rounded-full ${!isHexColor ? dotClass : ''}`} style={dotStyle} title="Instance Color"></div>
+                                                    {inst.name}
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
                         </div>
+
+                        <label className="flex items-center cursor-pointer group shrink-0">
+                            <div className="relative">
+                                <input type="checkbox" className="sr-only" checked={showNextBatchOnly} onChange={() => setShowNextBatchOnly(!showNextBatchOnly)} />
+                                <div className={`block w-12 h-6 rounded-full transition-colors ${showNextBatchOnly ? 'bg-amber-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
+                                <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${showNextBatchOnly ? 'translate-x-6' : ''}`}></div>
+                            </div>
+                            <div className="ml-3 flex flex-col">
+                                <span className="text-sm font-bold text-amber-500">Preview Upcoming Batch</span>
+                                <span className="text-[10px] text-zinc-400 leading-tight">Shows exactly what will be searched next cycle</span>
+                            </div>
+                        </label>
                     </div>
-                )
-            }
-        </div >
+
+                    {displayItems.length === 0 ? (
+                        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-12 text-center flex flex-col items-center">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-500 mb-4 opacity-50"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                            <h3 className="text-xl font-semibold text-white">All caught up!</h3>
+                            <p className="text-zinc-500 mt-2">No missing media matching this filter.</p>
+                        </div>
+                    ) : (
+                        <DndContext
+                            sensors={sensors}
+                            collisionDetection={closestCenter}
+                            onDragEnd={handleDragEnd}
+                        >
+                            <SortableContext
+                                items={displayItems.map(c => c.idStr)}
+                                strategy={verticalListSortingStrategy}
+                            >
+                                <div className="grid grid-cols-1 gap-3">
+                                    {displayItems.map((item) => {
+                                        const isToggled = searchToggles[item.idStr] !== false;
+                                        const isExpanded = item.type === 'series' && expandedSeriesId === `${item.instanceId}-${item.id}`;
+
+                                        return (
+                                            <SortableItem key={item.idStr} id={item.idStr} isDraggable={profile === 'custom'}>
+                                                <div className="flex-1 flex flex-col gap-1 w-full">
+                                                    {/* Main Card */}
+                                                    <div
+                                                        onClick={(e) => item.type === 'series' && toggleExpandSeries(item, e)}
+                                                        className={`flex items-center justify-between p-4 rounded-xl border transition-all ${isToggled ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-950 border-zinc-900 opacity-60'
+                                                            } ${item.type === 'series' ? 'cursor-pointer hover:bg-zinc-800' : ''}`}
+                                                    >
+                                                        <div className="flex items-center gap-4">
+                                                            <div className={`w-2 h-12 rounded-full ${item.instanceColor || (item.type === 'movie' ? 'bg-yellow-500' : 'bg-cyan-500')}`} />
+                                                            <div>
+                                                                <div className="flex items-center gap-2 mb-1">
+                                                                    <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm ${item.type === 'movie' ? 'bg-yellow-500/20 text-yellow-500' : 'bg-cyan-500/20 text-cyan-500'}`}>
+                                                                        {item.type}
+                                                                    </span>
+                                                                    {item.isDownloading && (
+                                                                        <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center gap-1 animate-pulse">
+                                                                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                                                                            Downloading
+                                                                        </span>
+                                                                    )}
+                                                                    <span
+                                                                        className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm border border-zinc-700/50 opacity-80"
+                                                                        style={{
+                                                                            backgroundColor: item.instanceColor?.startsWith('#') ? `${item.instanceColor}1a` : undefined,
+                                                                            color: item.instanceColor?.startsWith('#') ? item.instanceColor : undefined,
+                                                                            borderColor: item.instanceColor?.startsWith('#') ? `${item.instanceColor}33` : undefined
+                                                                        }}
+                                                                    >
+                                                                        {item.instanceName}
+                                                                    </span>
+                                                                </div>
+                                                                <h3 className="text-lg font-medium text-white flex items-center gap-2">
+                                                                    {item.title}
+                                                                    {item.type === 'series' && (
+                                                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`text-zinc-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`}><polyline points="6 9 12 15 18 9"></polyline></svg>
+                                                                    )}
+                                                                </h3>
+                                                                <div className="text-sm text-zinc-400 flex flex-wrap items-center gap-x-2 gap-y-1">
+                                                                    {item.type === 'movie'
+                                                                        ? (item.isDownloaded ? 'Downloaded' : 'Missing from Library')
+                                                                        : (item.stats ? `${item.stats.episodeFileCount} / ${item.stats.episodeCount} Episodes (${Math.round(item.stats.percentOfEpisodes)}%)` : 'Unknown')}
+                                                                    <span className="text-zinc-600">•</span>
+                                                                    <span>Added {formatDistanceToNow(item.sortDate, { addSuffix: true })}</span>
+
+                                                                    <div className="flex items-center gap-2 w-full mt-1">
+                                                                        <div className="flex bg-zinc-900 border border-zinc-700/50 rounded-md overflow-hidden text-xs font-medium">
+                                                                            <div className="bg-zinc-800 px-2 py-0.5 text-zinc-400 border-r border-zinc-700/50">Target</div>
+                                                                            <div className="px-2 py-0.5 text-indigo-400 bg-indigo-500/10">{item.targetQualityProfile}</div>
+                                                                        </div>
+
+                                                                        {item.type === 'movie' && item.isDownloaded && (
+                                                                            <>
+                                                                                <div className="flex bg-zinc-900 border border-zinc-700/50 rounded-md overflow-hidden text-xs font-medium">
+                                                                                    <div className="bg-zinc-800 px-2 py-0.5 text-zinc-400 border-r border-zinc-700/50">Current</div>
+                                                                                    <div className={`px-2 py-0.5 ${item.currentQualityScale >= 2160 ? 'text-emerald-400 bg-emerald-500/10' :
+                                                                                        item.currentQualityScale >= 1080 ? 'text-blue-400 bg-blue-500/10' : 'text-yellow-400 bg-yellow-500/10'}`}>
+                                                                                        {item.currentQualityScale ? `${item.currentQualityScale}p` : 'Unknown'}
+                                                                                    </div>
+                                                                                </div>
+                                                                                {item.movieFile && (
+                                                                                    <div className="flex bg-zinc-900 border border-zinc-700/50 rounded-md overflow-hidden text-xs font-medium">
+                                                                                        <div className="bg-zinc-800 px-2 py-0.5 text-zinc-400 border-r border-zinc-700/50">Size</div>
+                                                                                        <div className="px-2 py-0.5 text-zinc-300 bg-zinc-800/10">{formatSize(item.movieFile.size)}</div>
+                                                                                    </div>
+                                                                                )}
+                                                                            </>
+                                                                        )}
+                                                                        {item.type === 'series' && item.stats && item.stats.sizeOnDisk > 0 && (
+                                                                            <div className="flex bg-zinc-900 border border-zinc-700/50 rounded-md overflow-hidden text-xs font-medium">
+                                                                                <div className="bg-zinc-800 px-2 py-0.5 text-zinc-400 border-r border-zinc-700/50">Total Size</div>
+                                                                                <div className="px-2 py-0.5 text-zinc-300 bg-zinc-800/10">{formatSize(item.stats.sizeOnDisk)}</div>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="flex items-center gap-2">
+                                                            {(item.type === 'movie' || item.type === 'series') && (
+                                                                <button
+                                                                    className="text-xs bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 font-medium px-3 py-1.5 rounded-lg border border-indigo-500/30 transition-colors relative z-20 cursor-pointer flex items-center gap-1.5"
+                                                                    onPointerDown={(e) => e.stopPropagation()}
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleInteractiveSearch(item.type === 'series' ? 'series' : 'movie', item.id, item.instanceId, item.title);
+                                                                    }}
+                                                                    title="Search specifically for this item across all indexers"
+                                                                >
+                                                                    <Search size={14} />
+                                                                    Interactive Search
+                                                                </button>
+                                                            )}
+
+                                                            {item.type === 'movie' && item.hasFile && item.movieFile && (
+                                                                <button
+                                                                    className="text-xs bg-rose-600/20 text-rose-400 hover:bg-rose-600/30 font-medium px-2 py-1.5 rounded-lg border border-rose-500/30 transition-colors relative z-20 cursor-pointer"
+                                                                    onPointerDown={(e) => e.stopPropagation()}
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleDeleteFile('movie', item.id, item.instanceId, item.movieFile.id);
+                                                                    }}
+                                                                    title="Delete movie file from disk"
+                                                                >
+                                                                    <Trash2 size={14} />
+                                                                </button>
+                                                            )}
+
+                                                            {searchingItems[item.idStr] ? (
+                                                                <span className="text-xs font-semibold px-3 py-1.5 rounded-lg border bg-zinc-800/80 text-zinc-300 border-zinc-700 flex items-center gap-2">
+                                                                    {searchingItems[item.idStr].isPolling && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>}
+                                                                    {searchingItems[item.idStr].status}
+                                                                </span>
+                                                            ) : (
+                                                                <button
+                                                                    className="text-xs bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 font-medium px-3 py-1.5 rounded-lg border border-emerald-500/30 transition-colors relative z-20 cursor-pointer flex items-center gap-1.5"
+                                                                    onPointerDown={(e) => e.stopPropagation()}
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleForceSearch(item);
+                                                                    }}
+                                                                    title="Trigger automatic search"
+                                                                >
+                                                                    <RefreshCw size={14} />
+                                                                    Force Search {item.type === 'series' && '(All)'}
+                                                                </button>
+                                                            )}
+                                                            <span className="text-xs text-zinc-500 font-medium mr-2">Status: {isToggled ? 'Active' : 'Paused'}</span>
+                                                            <button
+                                                                onPointerDown={(e) => e.stopPropagation()}
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    toggleSearch(item.idStr);
+                                                                }}
+                                                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-zinc-950 cursor-pointer z-50 ${isToggled ? 'bg-emerald-500' : 'bg-zinc-700'}`}
+                                                            >
+                                                                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isToggled ? 'translate-x-6' : 'translate-x-1'}`} />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Expanded Episodes */}
+                                                    {isExpanded && (
+                                                        <div className="ml-8 mt-1 mb-4 border-l-2 border-zinc-800 pl-4 py-2 space-y-2">
+                                                            {loadingEpisodes[`${item.instanceId}-${item.id}`] ? (
+                                                                <div className="text-sm text-zinc-500 flex items-center gap-2 p-2">
+                                                                    <div className="w-4 h-4 rounded-full border-2 border-zinc-500 border-t-transparent animate-spin"></div>
+                                                                    Loading episodes...
+                                                                </div>
+                                                            ) : seriesEpisodes[`${item.instanceId}-${item.id}`] ? (
+                                                                <div className="grid gap-2">
+                                                                    {seriesEpisodes[`${item.instanceId}-${item.id}`]
+                                                                        .filter((ep: any) => !hideUnmonitored || ep.monitored)
+                                                                        .map((ep: any) => (
+                                                                            <div key={ep.id} className="bg-zinc-900/50 border border-zinc-800/80 rounded-lg p-3 flex items-center justify-between hover:bg-zinc-800/50 transition-colors">
+                                                                                <div>
+                                                                                    <div className="flex items-center gap-2 mb-1">
+                                                                                        <span className="text-xs font-mono text-zinc-400 bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">S{String(ep.seasonNumber).padStart(2, '0')}E{String(ep.episodeNumber).padStart(2, '0')}</span>
+                                                                                        <h4 className="text-sm font-medium text-zinc-200">{ep.title}</h4>
+                                                                                        {ep.hasFile ? (
+                                                                                            <div className="flex items-center gap-2">
+                                                                                                <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Downloaded</span>
+                                                                                                <button
+                                                                                                    onClick={(e) => {
+                                                                                                        e.stopPropagation();
+                                                                                                        handleDeleteFile('episode', ep.id, item.instanceId, ep.episodeFileId);
+                                                                                                    }}
+                                                                                                    className="p-1 text-rose-500 hover:bg-rose-500/10 rounded-md transition-colors"
+                                                                                                    title="Delete episode file"
+                                                                                                >
+                                                                                                    <Trash2 size={12} />
+                                                                                                </button>
+                                                                                            </div>
+                                                                                        ) : item.queuedEpisodeIds?.includes(ep.id) ? (
+                                                                                            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center gap-1 animate-pulse">
+                                                                                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                                                                                                Downloading
+                                                                                            </span>
+                                                                                        ) : ep.monitored ? (
+                                                                                            <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">Missing</span>
+                                                                                        ) : (
+                                                                                            <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-500 border border-zinc-700">Unmonitored</span>
+                                                                                        )}
+                                                                                    </div>
+                                                                                    {ep.hasFile && ep.episodeFile && (
+                                                                                        <div className="flex items-center gap-2 mt-1">
+                                                                                            <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded">{ep.episodeFile.quality?.quality?.name || 'Unknown Quality'}</span>
+                                                                                            <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded">{formatSize(ep.episodeFile.size || 0)}</span>
+                                                                                        </div>
+                                                                                    )}
+                                                                                </div>
+                                                                                <div className="flex items-center gap-2 flex-wrap justify-end">
+                                                                                    {!ep.hasFile && ep.monitored && new Date(ep.airDateUtc).getTime() < Date.now() && (
+                                                                                        <>
+                                                                                            <button
+                                                                                                onClick={(e) => {
+                                                                                                    e.stopPropagation();
+                                                                                                    handleInteractiveSearch('episode', ep.id, item.instanceId, `${item.title} - S${String(ep.seasonNumber).padStart(2, '0')}E${String(ep.episodeNumber).padStart(2, '0')}`);
+                                                                                                }}
+                                                                                                className="px-2 py-1 text-[10px] font-semibold bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 rounded border border-indigo-500/20 hover:border-indigo-500/40 transition-colors"
+                                                                                            >
+                                                                                                Interactive Search
+                                                                                            </button>
+
+                                                                                            {searchingItems[`episode-${item.instanceId}-${ep.id}`] ? (
+                                                                                                <span className="text-[10px] font-semibold px-2 py-1 rounded border bg-zinc-800/80 text-zinc-300 border-zinc-700 flex items-center gap-1.5">
+                                                                                                    {searchingItems[`episode-${item.instanceId}-${ep.id}`].isPolling && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>}
+                                                                                                    {searchingItems[`episode-${item.instanceId}-${ep.id}`].status}
+                                                                                                </span>
+                                                                                            ) : (
+                                                                                                <button
+                                                                                                    className="px-2 py-1 text-[10px] font-semibold bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 rounded border border-emerald-500/20 hover:border-emerald-500/40 transition-colors cursor-pointer flex items-center gap-1"
+                                                                                                    onPointerDown={(e) => e.stopPropagation()}
+                                                                                                    onClick={(e) => {
+                                                                                                        e.stopPropagation();
+                                                                                                        const epItem = {
+                                                                                                            idStr: `episode-${item.instanceId}-${ep.id}`,
+                                                                                                            instanceId: item.instanceId,
+                                                                                                            type: 'episode',
+                                                                                                            id: ep.id
+                                                                                                        };
+                                                                                                        handleForceSearch(epItem as any);
+                                                                                                    }}
+                                                                                                    title="Trigger automatic search for this specific episode"
+                                                                                                >
+                                                                                                    <RefreshCw size={12} />
+                                                                                                    Force Search
+                                                                                                </button>
+                                                                                            )}
+                                                                                        </>
+                                                                                    )}
+                                                                                </div>
+                                                                            </div>
+                                                                        ))}
+                                                                </div>
+                                                            ) : (
+                                                                <div className="text-sm text-zinc-500 p-2">No episodes found.</div>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </SortableItem>
+                                        );
+                                    })}
+                                </div>
+                            </SortableContext>
+                        </DndContext>
+                    )
+                    }
+                </div >
+
+                {/* Interactive Search Modal Overlay */}
+                {
+                    interactiveSearchItem && (
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                            <div className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+                                <div className="p-5 border-b border-zinc-800/60 bg-zinc-900/50 flex justify-between items-center">
+                                    <div>
+                                        <h2 className="text-xl font-bold text-white mb-1">Interactive Release Search</h2>
+                                        <p className="text-sm text-zinc-400 font-medium">Top 10 highest scored releases for: <span className="text-indigo-400 font-bold">{interactiveSearchItem?.title}</span></p>
+
+                                    </div>
+                                    <button
+                                        onClick={() => setInteractiveSearchItem(null)}
+                                        className="text-zinc-500 hover:text-white p-2 bg-zinc-900 rounded-full hover:bg-zinc-800 border border-zinc-800 transition-colors"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                                    </button>
+                                </div>
+                                <div className="flex-1 overflow-y-auto p-5">
+                                    <div className="flex flex-col items-end">
+                                        <div className="text-[10px] font-black text-zinc-600 uppercase tracking-widest mb-1.5 opacity-40 group-hover:opacity-100 transition-opacity">Storage</div>
+                                        <div className="text-sm font-black text-white bg-zinc-900 border border-zinc-800/50 px-3 py-1.5 rounded-xl shadow-inner group-hover:border-zinc-700/50 transition-all">
+                                            {(interactiveSearchItem as any)?.type === 'movie' ? formatSize((interactiveSearchItem as any)?.sizeOnDisk || 0) : formatSize((interactiveSearchItem as any)?.statistics?.sizeOnDisk || 0)}
+                                        </div>
+                                    </div>
+                                    {loadingReleases ? (
+                                        <div className="flex flex-col items-center justify-center py-20">
+                                            <div className="w-10 h-10 rounded-full border-4 border-indigo-500 border-t-transparent animate-spin mb-4"></div>
+                                            <p className="text-zinc-400 font-medium animate-pulse">Querying indexers for live releases...</p>
+                                        </div>
+                                    ) : interactiveReleases.length === 0 ? (
+                                        <div className="flex flex-col items-center justify-center py-20 bg-zinc-900/30 rounded-xl border border-dashed border-zinc-800">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="text-zinc-600 mb-4"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                                            <h3 className="text-lg font-bold text-zinc-300">No Releases Found</h3>
+                                            <p className="text-sm text-zinc-500 mt-1 max-w-sm text-center">Your indexers could not find any active releases for this item matching its quality profile.</p>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-3">
+                                            {interactiveReleases.map((release, idx) => (
+                                                <div key={release.guid} className="bg-zinc-900 border border-zinc-800 hover:border-indigo-500/50 transition-colors p-4 rounded-xl flex flex-col md:flex-row gap-4 items-start md:items-center justify-between group">
+                                                    <div className="flex-1 min-w-0 pr-4">
+                                                        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                                                            <span className="flex items-center justify-center w-6 h-6 rounded bg-zinc-800 text-zinc-400 text-xs font-bold ring-1 ring-zinc-700">#{idx + 1}</span>
+                                                            <span className={`text-xs font-bold px-2 py-0.5 rounded ${release.customFormatScore > 0 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-zinc-800 text-zinc-400 border border-zinc-700'}`}>Score: {release.customFormatScore}</span>
+                                                            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border border-blue-500/20 bg-blue-500/10 text-blue-400">{release.quality || 'Unknown'}</span>
+                                                            {release.rejected && (
+                                                                <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded border border-rose-500/20 bg-rose-500/10 text-rose-400">Rejected</span>
+                                                            )}
+                                                        </div>
+                                                        <h4 className="text-sm font-medium text-zinc-200 break-words leading-snug group-hover:text-white transition-colors">
+                                                            {release.title}
+                                                        </h4>
+                                                        <div className="flex items-center gap-3 mt-2 text-xs font-medium text-zinc-500">
+                                                            <span className="flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg> {(release.size / 1024 / 1024 / 1024).toFixed(2)} GB</span>
+                                                            <span className="text-zinc-700">•</span>
+                                                            <span>{release.indexer}</span>
+                                                            <span className="text-zinc-700">•</span>
+                                                            <span className="uppercase text-[10px] tracking-wider">{release.protocol}</span>
+                                                        </div>
+                                                        {release.rejected && release.rejections && release.rejections.length > 0 && (
+                                                            <div className="mt-2 text-xs text-rose-400/80 bg-rose-500/5 p-2 rounded border border-rose-500/10 hidden group-hover:block transition-all">
+                                                                Warning: {release.rejections.join(', ')}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <div className="flex-shrink-0 mt-3 md:mt-0 w-full md:w-auto">
+                                                        <button
+                                                            onClick={() => triggerInteractiveDownload(release.guid, release.indexerId)}
+                                                            disabled={triggeringReleaseGuid !== null}
+                                                            className={`w-full md:w-auto flex items-center justify-center gap-2 px-6 py-2.5 text-sm font-bold rounded-lg border transition-all ${triggeringReleaseGuid === release.guid
+                                                                ? 'bg-amber-500/20 text-amber-400 border-amber-500/30 cursor-wait'
+                                                                : triggeringReleaseGuid
+                                                                    ? 'bg-zinc-800 text-zinc-600 border-zinc-700 cursor-not-allowed'
+                                                                    : 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500 shadow-lg shadow-indigo-500/20 hover:scale-[1.02] active:scale-[0.98]'
+                                                                }`}
+                                                        >
+                                                            {triggeringReleaseGuid === release.guid ? (
+                                                                <><div className="w-4 h-4 rounded-full border-2 border-amber-500 border-t-transparent animate-spin"></div> Grabbing...</>
+                                                            ) : (
+                                                                <><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> Download</>
+                                                            )}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )
+                }
+            </div>
+        </div>
     );
 }

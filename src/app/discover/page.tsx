@@ -7,7 +7,8 @@ import {
     LayoutGrid, List, Sparkles, TrendingUp,
     ChevronDown, ChevronRight, Tags, Monitor
 } from 'lucide-react';
-import toast, { Toaster } from 'react-hot-toast';
+import { toast, Toaster } from 'sonner';
+import { CustomSelect } from '@/components/CustomSelect';
 
 interface Instance {
     id: string;
@@ -363,38 +364,34 @@ export default function DiscoverPage() {
 
                         {/* Destination Instance */}
                         <div className="space-y-4 pt-4 border-t border-zinc-900/50">
-                            <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center gap-2">
-                                <Globe size={12} /> Target Library
-                            </label>
-                            <div className="grid grid-cols-1 gap-3">
-                                <select
-                                    className="w-full bg-zinc-950 border border-zinc-800/80 rounded-xl p-3 text-sm text-white focus:ring-2 focus:ring-emerald-500/20 outline-none"
-                                    value={selectedInstanceId}
-                                    onChange={(e) => setSelectedInstanceId(e.target.value)}
-                                >
-                                    {availableInstances.map(inst => <option key={inst.id} value={inst.id}>{inst.name}</option>)}
-                                </select>
-                                <select
-                                    className="w-full bg-zinc-950 border border-zinc-800/80 rounded-xl p-3 text-sm text-white focus:ring-2 focus:ring-emerald-500/20 outline-none"
-                                    value={selectedProfileId}
-                                    onChange={(e) => setSelectedProfileId(Number(e.target.value))}
-                                >
-                                    {profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                                </select>
+                            <CustomSelect
+                                label="Target Library"
+                                icon={<Globe size={12} />}
+                                options={availableInstances}
+                                value={selectedInstanceId}
+                                onChange={(val) => setSelectedInstanceId(val)}
+                                className="mb-3"
+                            />
+                            <CustomSelect
+                                label="Quality Profile"
+                                options={profiles}
+                                value={selectedProfileId}
+                                onChange={(val) => setSelectedProfileId(Number(val))}
+                                className="mb-3"
+                            />
 
-                                <div className="space-y-1 mt-2">
-                                    <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest pl-1">Start Search</label>
-                                    <button
-                                        onClick={() => setStartSearch(!startSearch)}
-                                        className={`w-full h-11 rounded-2xl border px-4 flex items-center justify-between transition-all duration-300 ${startSearch
-                                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500'
-                                            : 'bg-zinc-900 border-zinc-800 text-zinc-500'
-                                            }`}
-                                    >
-                                        <span className="text-[10px] font-black uppercase tracking-wider">{startSearch ? 'YES' : 'NO'}</span>
-                                        <div className={`w-2 h-2 rounded-full ${startSearch ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-700'}`} />
-                                    </button>
-                                </div>
+                            <div className="space-y-1 mt-2">
+                                <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest pl-1">Start Search</label>
+                                <button
+                                    onClick={() => setStartSearch(!startSearch)}
+                                    className={`w-full h-11 rounded-2xl border px-4 flex items-center justify-between transition-all duration-300 ${startSearch
+                                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500'
+                                        : 'bg-zinc-900 border-zinc-800 text-zinc-500'
+                                        }`}
+                                >
+                                    <span className="text-[10px] font-black uppercase tracking-wider">{startSearch ? 'YES' : 'NO'}</span>
+                                    <div className={`w-2 h-2 rounded-full ${startSearch ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-700'}`} />
+                                </button>
                             </div>
                         </div>
 
@@ -417,31 +414,21 @@ export default function DiscoverPage() {
                                 </div>
                             </div>
 
-                            <div className="space-y-3">
-                                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center gap-2">
-                                    <Monitor size={12} /> Platform
-                                </label>
-                                <select
-                                    className="w-full bg-zinc-950 border border-zinc-800/80 rounded-xl p-3 text-xs font-bold text-zinc-400 focus:ring-2 focus:ring-emerald-500/20 outline-none cursor-pointer"
-                                    value={filterPlatform}
-                                    onChange={(e) => setFilterPlatform(e.target.value)}
-                                >
-                                    {allPlatforms.slice(0, 20).map(p => <option key={p} value={p}>{p}</option>)}
-                                </select>
-                            </div>
+                            <CustomSelect
+                                label="Platform"
+                                icon={<Monitor size={12} />}
+                                options={allPlatforms.map(p => ({ id: p, name: p }))}
+                                value={filterPlatform}
+                                onChange={(val) => setFilterPlatform(val)}
+                            />
 
-                            <div className="space-y-3">
-                                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center gap-2">
-                                    <Calendar size={12} /> Year
-                                </label>
-                                <select
-                                    className="w-full bg-zinc-950 border border-zinc-800/80 rounded-xl p-3 text-xs font-bold text-zinc-400 focus:ring-2 focus:ring-emerald-500/20 outline-none cursor-pointer"
-                                    value={filterYear}
-                                    onChange={(e) => setFilterYear(e.target.value)}
-                                >
-                                    {allYears.map(y => <option key={y} value={y}>{y}</option>)}
-                                </select>
-                            </div>
+                            <CustomSelect
+                                label="Year"
+                                icon={<Calendar size={12} />}
+                                options={allYears.map(y => ({ id: y, name: y }))}
+                                value={filterYear}
+                                onChange={(val) => setFilterYear(val)}
+                            />
 
                             <div className="space-y-3">
                                 <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center gap-2">
@@ -521,6 +508,12 @@ export default function DiscoverPage() {
                                                     <span className="flex items-center gap-1"><Calendar size={12} /> {item.year}</span>
                                                     {rating && <span className="flex items-center gap-1 text-amber-500/80"><Star size={12} fill="currentColor" /> {rating.toFixed(1)}</span>}
                                                     <span className="truncate max-w-[200px]">{item.genres?.slice(0, 2).join(', ')}</span>
+                                                    <div className="flex bg-zinc-900 border border-zinc-700/50 rounded-md overflow-hidden text-[10px] font-bold uppercase tracking-wider">
+                                                        <div className="bg-zinc-800 px-2 py-0.5 text-zinc-500 border-r border-zinc-700/50">Target</div>
+                                                        <div className="px-2 py-0.5 text-indigo-400 bg-indigo-500/10">
+                                                            {profiles.find(p => p.id === selectedProfileId)?.name || 'Unknown'}
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </div>
                                             <button
@@ -586,6 +579,9 @@ export default function DiscoverPage() {
                                                         <span>{item.year || 'TBA'}</span>
                                                         <span className="w-1 h-1 bg-zinc-800 rounded-full" />
                                                         <span className="truncate">{item.genres?.slice(0, 2).join(' / ')}</span>
+                                                        <span className="bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded-md border border-indigo-500/30">
+                                                            {profiles.find(p => p.id === selectedProfileId)?.name || 'Unknown'}
+                                                        </span>
                                                     </div>
                                                 </div>
                                             </div>
@@ -647,7 +643,7 @@ export default function DiscoverPage() {
                     )}
                 </div>
             </div>
-        </div>
+        </div >
     );
 }
 

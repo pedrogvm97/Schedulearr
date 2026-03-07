@@ -21,7 +21,7 @@ export async function GET() {
                 ...m,
                 instanceName: instance.name,
                 instanceId: instance.id,
-                instanceColor: instance.color,
+                instanceUrl: instance.url,
                 isDownloading: queuedIds.has(m.id)
             }))];
         }

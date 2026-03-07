@@ -16,18 +16,20 @@ export async function GET() {
         // Fetch Radarr Profiles
         for (const instance of radarrs) {
             const profiles = await getRadarrProfiles(instance.url, instance.api_key);
-            profileMap[instance.url] = {};
+            const normalizedUrl = instance.url.replace(/\/$/, '');
+            profileMap[normalizedUrl] = {};
             profiles.forEach(p => {
-                profileMap[instance.url][p.id] = p.name;
+                profileMap[normalizedUrl][p.id] = p.name;
             });
         }
 
         // Fetch Sonarr Profiles
         for (const instance of sonarrs) {
             const profiles = await getSonarrProfiles(instance.url, instance.api_key);
-            profileMap[instance.url] = {};
+            const normalizedUrl = instance.url.replace(/\/$/, '');
+            profileMap[normalizedUrl] = {};
             profiles.forEach(p => {
-                profileMap[instance.url][p.id] = p.name;
+                profileMap[normalizedUrl][p.id] = p.name;
             });
         }
 

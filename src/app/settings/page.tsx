@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
+import { CustomSelect } from "@/components/CustomSelect";
 
 export default function Settings() {
     const [instances, setInstances] = useState<any[]>([]);
@@ -239,16 +240,16 @@ export default function Settings() {
                 <form onSubmit={handleAddOrEdit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-1">
                         <label className="text-sm font-medium text-zinc-300">Type</label>
-                        <select
+                        <CustomSelect
                             value={type}
-                            onChange={e => setType(e.target.value)}
-                            className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                        >
-                            <option value="radarr">Radarr</option>
-                            <option value="sonarr">Sonarr</option>
-                            <option value="prowlarr">Prowlarr</option>
-                            <option value="qbittorrent">qBittorrent</option>
-                        </select>
+                            onChange={(val) => setType(val)}
+                            options={[
+                                { id: 'radarr', name: 'Radarr' },
+                                { id: 'sonarr', name: 'Sonarr' },
+                                { id: 'prowlarr', name: 'Prowlarr' },
+                                { id: 'qbittorrent', name: 'qBittorrent' }
+                            ]}
+                        />
                     </div>
 
                     <div className="space-y-1">

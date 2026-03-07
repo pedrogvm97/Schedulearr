@@ -11,9 +11,16 @@ import {
     AlertCircle,
     ChevronRight,
     Search,
-    Filter
+    Filter,
+    X,
+    ChevronDown,
+    ChevronUp,
+    Film,
+    Tv,
+    ArrowRight
 } from 'lucide-react';
-import { toast } from 'react-hot-toast';
+import { toast } from 'sonner';
+import { CustomSelect } from '@/components/CustomSelect';
 
 interface Profile {
     id: number;
@@ -37,8 +44,12 @@ export default function ProfilesPage() {
     const [instances, setInstances] = useState<Instance[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
-    const [filterInstance, setFilterInstance] = useState('All');
-    const [filterType, setFilterType] = useState('All');
+    const [filterInstances, setFilterInstances] = useState<string[]>([]);
+    const [filterType, setFilterType] = useState<'All' | 'radarr' | 'sonarr'>('All');
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [expandingProfile, setExpandingProfile] = useState<string | null>(null); // "instanceId-profileId"
+    const [profileMedia, setProfileMedia] = useState<Record<string, any[]>>({}); // items grouped by profile key
+    const [loadingMedia, setLoadingMedia] = useState<string | null>(null);
 
     const fetchProfiles = async () => {
         setLoading(true);
@@ -123,10 +134,38 @@ export default function ProfilesPage() {
         }
     };
 
+    const toggleInstanceFilter = (id: string) => {
+        setFilterInstances(prev =>
+            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+        );
+    };
+
+    const fetchProfileMedia = async (profile: Profile) => {
+        const key = `${profile.instanceId}-${profile.id}`;
+        if (profileMedia[key]) return; // Already loaded
+
+        setLoadingMedia(key);
+        try {
+            const endpoint = profile.instanceType === 'radarr' ? '/api/radarr/all' : '/api/sonarr/all';
+            const res = await fetch(endpoint);
+            if (res.ok) {
+                const allMedia = await res.json();
+                const items = allMedia.filter((m: any) =>
+                    m.instanceId === profile.instanceId && m.qualityProfileId === profile.id
+                );
+                setProfileMedia(prev => ({ ...prev, [key]: items }));
+            }
+        } catch (error) {
+            console.error('Failed to fetch media for profile:', error);
+        } finally {
+            setLoadingMedia(null);
+        }
+    };
+
     const filteredProfiles = profiles.filter(p => {
         const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
             p.instanceName.toLowerCase().includes(searchQuery.toLowerCase());
-        const matchesInstance = filterInstance === 'All' || p.instanceId === filterInstance;
+        const matchesInstance = filterInstances.length === 0 || filterInstances.includes(p.instanceId);
         const matchesType = filterType === 'All' || p.instanceType === filterType;
         return matchesSearch && matchesInstance && matchesType;
     });
@@ -146,53 +185,83 @@ export default function ProfilesPage() {
                     </p>
                 </div>
 
-                <button
-                    onClick={fetchProfiles}
-                    className="flex items-center gap-2 px-6 py-3 bg-zinc-900 hover:bg-zinc-800 text-white rounded-2xl transition-all font-bold text-sm border border-zinc-800"
-                >
-                    <RefreshCcw size={16} className={loading ? 'animate-spin' : ''} />
-                    Refresh
-                </button>
+                <div className="flex flex-wrap gap-4">
+                    <button
+                        onClick={() => setShowCreateModal(true)}
+                        className="flex items-center gap-2 px-6 py-3 bg-white text-black hover:bg-emerald-400 transition-all font-bold text-sm rounded-2xl shadow-xl shadow-white/5"
+                    >
+                        <Plus size={18} />
+                        Create Profile
+                    </button>
+                    <button
+                        onClick={fetchProfiles}
+                        className="flex items-center gap-2 px-6 py-3 bg-zinc-900 hover:bg-zinc-800 text-white rounded-2xl transition-all font-bold text-sm border border-zinc-800"
+                    >
+                        <RefreshCcw size={16} className={loading ? 'animate-spin' : ''} />
+                        Refresh
+                    </button>
+                </div>
             </div>
 
-            {/* Filters bar */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-2 bg-black/40 backdrop-blur-xl border border-zinc-900 rounded-[2rem]">
-                <div className="relative col-span-2">
-                    <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-zinc-600" size={18} />
-                    <input
-                        type="text"
-                        placeholder="Search profiles or instances..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full pl-14 pr-6 py-4 bg-transparent text-white placeholder:text-zinc-600 focus:outline-none font-medium"
-                    />
-                </div>
+            {/* Combined Filter Bar */}
+            <div className="flex flex-col gap-6 p-6 bg-black/40 backdrop-blur-xl border border-zinc-900 rounded-[2.5rem]">
+                <div className="flex flex-col lg:flex-row gap-6">
+                    {/* Search Input */}
+                    <div className="relative flex-1">
+                        <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-zinc-600" size={18} />
+                        <input
+                            type="text"
+                            placeholder="Search by profile name..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="w-full pl-14 pr-6 py-4 bg-zinc-950 border border-zinc-800/50 rounded-2xl text-white placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-emerald-500/30 transition-all font-medium"
+                        />
+                    </div>
 
-                <div className="flex items-center gap-2 px-4 border-l border-zinc-900">
-                    <Filter size={16} className="text-zinc-600" />
-                    <select
-                        value={filterInstance}
-                        onChange={(e) => setFilterInstance(e.target.value)}
-                        className="bg-transparent text-white font-bold text-sm focus:outline-none cursor-pointer w-full"
-                    >
-                        <option value="All">All Instances</option>
-                        {instances.map(inst => (
-                            <option key={inst.id} value={inst.id}>{inst.name}</option>
+                    {/* Media Type Filter */}
+                    <div className="flex p-1 bg-zinc-950 rounded-2xl border border-zinc-900 overflow-hidden">
+                        {(['All', 'radarr', 'sonarr'] as const).map(type => (
+                            <button
+                                key={type}
+                                onClick={() => setFilterType(type)}
+                                className={`px-6 py-3 text-xs font-black uppercase tracking-widest rounded-xl transition-all ${filterType === type ? 'bg-zinc-800 text-white shadow-lg' : 'text-zinc-600 hover:text-zinc-400'}`}
+                            >
+                                {type === 'radarr' ? 'Movies' : type === 'sonarr' ? 'Series' : 'All'}
+                            </button>
                         ))}
-                    </select>
+                    </div>
                 </div>
 
-                <div className="flex items-center gap-2 px-4 border-l border-zinc-900">
-                    <ChevronRight size={16} className="text-zinc-600" />
-                    <select
-                        value={filterType}
-                        onChange={(e) => setFilterType(e.target.value)}
-                        className="bg-transparent text-white font-bold text-sm focus:outline-none cursor-pointer w-full"
-                    >
-                        <option value="All">All Types</option>
-                        <option value="radarr">Radarr</option>
-                        <option value="sonarr">Sonarr</option>
-                    </select>
+                {/* Instance Toggler Filter */}
+                <div className="flex flex-col gap-3 pt-2">
+                    <span className="text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em] ml-1">Filter by Instance</span>
+                    <div className="flex flex-wrap gap-2">
+                        {instances.filter(i => filterType === 'All' || i.type === filterType).map(inst => {
+                            const isSelected = filterInstances.includes(inst.id);
+                            return (
+                                <button
+                                    key={inst.id}
+                                    onClick={() => toggleInstanceFilter(inst.id)}
+                                    className={`px-4 py-2 text-[11px] font-bold rounded-xl border transition-all flex items-center gap-2.5 ${isSelected
+                                        ? 'bg-white text-black border-white shadow-lg shadow-white/5'
+                                        : 'bg-zinc-950/50 text-zinc-500 border-zinc-800 hover:border-zinc-700 hover:text-zinc-300'
+                                        }`}
+                                >
+                                    <div className={`w-1.5 h-1.5 rounded-full ${inst.type === 'radarr' ? 'bg-amber-500' : 'bg-sky-500'}`} />
+                                    {inst.name}
+                                    {isSelected && <X size={10} className="ml-1 opacity-60" />}
+                                </button>
+                            );
+                        })}
+                        {filterInstances.length > 0 && (
+                            <button
+                                onClick={() => setFilterInstances([])}
+                                className="px-4 py-2 text-[10px] font-black text-zinc-400 uppercase tracking-widest hover:text-white transition-colors"
+                            >
+                                Clear all
+                            </button>
+                        )}
+                    </div>
                 </div>
             </div>
 
@@ -255,27 +324,78 @@ export default function ProfilesPage() {
                                 </div>
                             </div>
 
-                            <div className="mt-8 pt-8 border-t border-zinc-900 flex flex-col gap-3">
-                                <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest block ml-1">Copy to Instance</label>
-                                <div className="flex gap-2">
-                                    <select
-                                        className="flex-1 bg-zinc-900/50 border border-zinc-900 rounded-xl px-4 py-2 text-xs font-bold text-white focus:outline-none"
-                                        onChange={(e) => handleCopy(profile, e.target.value)}
-                                        value=""
-                                    >
-                                        <option value="" disabled>Select Target...</option>
-                                        {instances
+                            <div className="flex gap-2 items-center mt-auto pt-6">
+                                <div className="flex-1">
+                                    <CustomSelect
+                                        label="Clone to"
+                                        options={instances
                                             .filter(i => i.id !== profile.instanceId && i.type === profile.instanceType)
-                                            .map(inst => (
-                                                <option key={inst.id} value={inst.id}>{inst.name}</option>
-                                            ))
+                                            .map(i => ({ id: i.id, name: i.name }))
                                         }
-                                    </select>
-                                    <div className="p-2 rounded-xl bg-zinc-900 text-zinc-600 border border-zinc-800">
-                                        <Copy size={16} />
-                                    </div>
+                                        value=""
+                                        onChange={(val) => handleCopy(profile, val)}
+                                        placeholder="Target Instance..."
+                                        minimal
+                                    />
                                 </div>
+                                <button
+                                    onClick={() => {
+                                        const key = `${profile.instanceId}-${profile.id}`;
+                                        if (expandingProfile === key) {
+                                            setExpandingProfile(null);
+                                        } else {
+                                            setExpandingProfile(key);
+                                            fetchProfileMedia(profile);
+                                        }
+                                    }}
+                                    className={`p-3 rounded-2xl flex items-center justify-center transition-all border ${expandingProfile === `${profile.instanceId}-${profile.id}`
+                                        ? 'bg-white text-black border-white'
+                                        : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:border-zinc-700'
+                                        }`}
+                                    title="View Media in Profile"
+                                >
+                                    {expandingProfile === `${profile.instanceId}-${profile.id}` ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                                </button>
                             </div>
+
+                            {/* Expanded Media List */}
+                            {expandingProfile === `${profile.instanceId}-${profile.id}` && (
+                                <div className="mt-6 pt-6 border-t border-zinc-900 animate-in slide-in-from-top-2 duration-300">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <h4 className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em]">Associated Media</h4>
+                                        <span className="text-[10px] font-bold text-zinc-600">
+                                            {loadingMedia === `${profile.instanceId}-${profile.id}` ? 'Loading...' : `${profileMedia[`${profile.instanceId}-${profile.id}`]?.length || 0} items`}
+                                        </span>
+                                    </div>
+
+                                    {loadingMedia === `${profile.instanceId}-${profile.id}` ? (
+                                        <div className="space-y-2">
+                                            {[1, 2, 3].map(i => (
+                                                <div key={i} className="h-10 bg-zinc-900/50 rounded-xl animate-pulse" />
+                                            ))}
+                                        </div>
+                                    ) : (profileMedia[`${profile.instanceId}-${profile.id}`]?.length || 0) > 0 ? (
+                                        <div className="max-h-60 overflow-y-auto pr-1 custom-scrollbar space-y-2">
+                                            {profileMedia[`${profile.instanceId}-${profile.id}`].map((m: any) => (
+                                                <div key={m.id} className="flex items-center gap-3 p-3 bg-black/40 border border-zinc-900/50 rounded-xl group/item hover:border-zinc-800 transition-all">
+                                                    <div className="w-8 h-10 rounded bg-zinc-900 flex-shrink-0 flex items-center justify-center overflow-hidden">
+                                                        {profile.instanceType === 'radarr' ? <Film size={12} className="text-zinc-700" /> : <Tv size={12} className="text-zinc-700" />}
+                                                    </div>
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="text-[11px] font-bold text-zinc-300 truncate">{m.title}</div>
+                                                        <div className="text-[9px] text-zinc-600 font-medium">{m.year} • {m.status}</div>
+                                                    </div>
+                                                    <ChevronRight size={12} className="text-zinc-800 group-hover/item:text-zinc-500" />
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className="py-8 text-center bg-zinc-950/40 rounded-2xl border border-zinc-900 border-dashed">
+                                            <p className="text-[10px] font-bold text-zinc-700 uppercase tracking-widest">No items found in this profile</p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     ))}
                 </div>
@@ -287,6 +407,112 @@ export default function ProfilesPage() {
                     <div className="text-center space-y-2">
                         <h3 className="text-2xl font-black text-white">No Profiles Found</h3>
                         <p className="text-zinc-600 font-medium">Make sure your instances are correctly configured and online.</p>
+                    </div>
+                </div>
+            )}
+
+            {/* Create Profile Modal */}
+            {showCreateModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
+                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-2xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300">
+                        <div className="p-8 border-b border-zinc-900 flex justify-between items-center">
+                            <div>
+                                <h2 className="text-2xl font-black text-white">Create New Profile</h2>
+                                <p className="text-xs text-zinc-500 font-medium mt-1 uppercase tracking-widest">Configure a new quality standard</p>
+                            </div>
+                            <button onClick={() => setShowCreateModal(false)} className="p-2 hover:bg-zinc-900 rounded-full transition-colors">
+                                <X size={24} className="text-zinc-500" />
+                            </button>
+                        </div>
+
+                        <div className="p-8 space-y-8 max-h-[70vh] overflow-y-auto custom-scrollbar">
+                            <div className="space-y-3">
+                                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Profile Name</label>
+                                <input
+                                    type="text"
+                                    placeholder="e.g. Ultra HD Premium"
+                                    className="w-full bg-black border border-zinc-800 rounded-2xl px-5 py-4 text-white focus:outline-none focus:ring-1 focus:ring-emerald-500/50 transition-all font-bold"
+                                    id="new-profile-name"
+                                />
+                            </div>
+
+                            <div className="space-y-3">
+                                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest ml-1">Select Instances</label>
+                                <div className="grid grid-cols-2 gap-3">
+                                    {instances.map(inst => (
+                                        <label key={inst.id} className="flex items-center gap-3 p-4 bg-zinc-950 border border-zinc-900 rounded-2xl cursor-pointer hover:border-zinc-700 transition-all">
+                                            <input type="checkbox" className="w-4 h-4 rounded border-zinc-800 bg-black text-emerald-500 focus:ring-0 focus:ring-offset-0" value={inst.id} name="create-instance" />
+                                            <div className="flex flex-col">
+                                                <span className="text-xs font-bold text-zinc-200">{inst.name}</span>
+                                                <span className="text-[9px] text-zinc-600 font-black uppercase tracking-widest leading-none mt-0.5">{inst.type}</span>
+                                            </div>
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="p-6 bg-zinc-900/30 border border-zinc-800/50 rounded-3xl space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <div className="space-y-1">
+                                        <p className="text-sm font-bold text-white">Upgrade Allowed</p>
+                                        <p className="text-[10px] text-zinc-500">Automatically upgrade files to better quality</p>
+                                    </div>
+                                    <label className="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" className="sr-only peer" defaultChecked id="new-profile-upgrade" />
+                                        <div className="w-11 h-6 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="p-8 border-t border-zinc-900 flex gap-4">
+                            <button
+                                onClick={() => setShowCreateModal(false)}
+                                className="flex-1 py-4 bg-zinc-900 text-zinc-400 hover:text-white transition-all font-black text-xs uppercase tracking-widest rounded-2xl border border-zinc-800"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={async () => {
+                                    const name = (document.getElementById('new-profile-name') as HTMLInputElement).value;
+                                    const upgrade = (document.getElementById('new-profile-upgrade') as HTMLInputElement).checked;
+                                    const selectedInsts = Array.from(document.querySelectorAll('input[name="create-instance"]:checked')).map((i: any) => i.value);
+
+                                    if (!name || selectedInsts.length === 0) {
+                                        toast.error('Please enter a name and select at least one instance');
+                                        return;
+                                    }
+
+                                    const creationToast = toast.loading(`Creating profile in ${selectedInsts.length} instances...`);
+
+                                    try {
+                                        for (const instId of selectedInsts) {
+                                            await fetch('/api/profiles', {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({
+                                                    instanceId: instId,
+                                                    profile: {
+                                                        name,
+                                                        upgradeAllowed: upgrade,
+                                                        cutoff: 0,
+                                                        items: []
+                                                    }
+                                                })
+                                            });
+                                        }
+                                        toast.success('Profiles created successfully', { id: creationToast });
+                                        setShowCreateModal(false);
+                                        fetchProfiles();
+                                    } catch (err) {
+                                        toast.error('Failed to create profiles', { id: creationToast });
+                                    }
+                                }}
+                                className="flex-1 py-4 bg-white text-black hover:bg-emerald-400 transition-all font-black text-xs uppercase tracking-widest rounded-2xl shadow-xl shadow-white/5"
+                            >
+                                Create Profile
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

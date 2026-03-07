@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
+import { CustomSelect } from '@/components/CustomSelect';
 
 interface IndexerRule {
     id: string;
@@ -378,15 +379,15 @@ export default function IndexersPage() {
 
                             <div>
                                 <label className="block text-sm font-medium text-zinc-400 mb-1">Interval Reset</label>
-                                <select
+                                <CustomSelect
                                     value={formInterval}
-                                    onChange={e => setFormInterval(e.target.value as any)}
-                                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-emerald-500"
-                                >
-                                    <option value="daily">Daily</option>
-                                    <option value="weekly">Weekly</option>
-                                    <option value="monthly">Monthly</option>
-                                </select>
+                                    onChange={(val) => setFormInterval(val as any)}
+                                    options={[
+                                        { id: 'daily', name: 'Daily' },
+                                        { id: 'weekly', name: 'Weekly' },
+                                        { id: 'monthly', name: 'Monthly' }
+                                    ]}
+                                />
                             </div>
                         </div>
 
