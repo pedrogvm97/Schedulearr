@@ -111,36 +111,41 @@ export default function DiscoverPage() {
         fetchConfigs();
     }, [selectedInstanceId, mediaType, instances]);
 
-    // Initial load: Fetch trending
+    // Discovery Trigger: Fetch trending whenever we have no results and no active search
     useEffect(() => {
-        if (selectedInstanceId && availableInstances.length > 0) {
+        const shouldTriggerDiscovery = selectedInstanceId && !searchQuery && results.length === 0 && !isSearching;
+        if (shouldTriggerDiscovery) {
             handleSearch(null, true);
         }
-    }, [selectedInstanceId]); // Only trigger when selectedInstanceId is definitively set
+    }, [selectedInstanceId, searchQuery, mediaType]);
 
     const handleSearch = async (e?: React.FormEvent | null, isDiscovery = false) => {
         if (e) e.preventDefault();
+
         const instanceIdToUse = selectedInstanceId;
         if (!instanceIdToUse) return;
 
         setIsSearching(true);
-        // If it's a new explicit search, clear results to show loading
-        if (!isDiscovery) setResults([]);
+        // Clear results only for explicit new searches with a query
+        if (!isDiscovery && searchQuery) setResults([]);
 
         try {
             const endpoint = mediaType === 'movie' ? `/api/radarr/lookup` : `/api/sonarr/lookup`;
-            const term = isDiscovery ? '' : searchQuery;
+            // If it's a discovery call or if the query is empty, use an empty term
+            const term = (isDiscovery || !searchQuery) ? '' : searchQuery;
+
             const res = await fetch(`${endpoint}?instanceId=${instanceIdToUse}&term=${encodeURIComponent(term)}`);
             if (res.ok) {
                 const data = await res.json();
-                setResults(Array.isArray(data) ? data : []);
+                const processedResults = Array.isArray(data) ? data : [];
+                setResults(processedResults);
             } else {
                 console.error("Discovery/Search failed", await res.text());
-                if (!isDiscovery) toast.error("Failed to fetch results");
+                if (!isDiscovery && searchQuery) toast.error("Failed to fetch results");
             }
         } catch (error) {
             console.error("Search error:", error);
-            if (!isDiscovery) toast.error("An error occurred during search");
+            if (!isDiscovery && searchQuery) toast.error("An error occurred during search");
         } finally {
             setIsSearching(false);
         }
@@ -470,8 +475,8 @@ export default function DiscoverPage() {
                                 const idStr = item.tmdbId ? `tmdb-${item.tmdbId}` : `tvdb-${item.tvdbId}`;
                                 const posterUrl = item.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl;
                                 const isAdding = addingItemStr === idStr;
-                                // Correct detection: Radarr/Sonarr set 'id' to 0 for lookup results NOT in library
-                                const hasBeenAdded = item.id !== 0 || item.addedAt;
+                                // Strict detection + local optimistic state
+                                const hasBeenAdded = (typeof item.id === 'number' && item.id > 0) || item.added;
                                 const platform = getPlatformBadge(item);
                                 const rating = item.ratings?.value;
 
