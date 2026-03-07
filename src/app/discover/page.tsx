@@ -229,8 +229,15 @@ export default function DiscoverPage() {
     const allPlatforms = useMemo(() => {
         const platforms = new Set<string>();
         results.forEach(item => {
-            const p = item.studio || item.network;
-            if (p) platforms.add(p);
+            // Use enriched productionCompanies first, fall back to studio/network
+            const companies: string[] = item.productionCompanies || [];
+            if (companies.length > 0) {
+                companies.forEach((c: string) => platforms.add(c));
+            } else if (item.studio) {
+                platforms.add(item.studio);
+            } else if (item.network) {
+                platforms.add(item.network);
+            }
         });
         return ['All', ...Array.from(platforms).sort()];
     }, [results]);
@@ -244,7 +251,7 @@ export default function DiscoverPage() {
     const filteredResults = useMemo(() => {
         let items = [...results];
 
-        // 1. Text Search (if searching locally within trending or results)
+        // 1. Text Search
         if (searchQuery && !isSearching) {
             const q = searchQuery.toLowerCase();
             items = items.filter(item =>
@@ -253,26 +260,42 @@ export default function DiscoverPage() {
             );
         }
 
-        // 2. Quality Filter — only apply by default (no active filters)
         const isDefaultDiscovery = !searchQuery && filterGenre === 'All' && filterPlatform === 'All' && filterYear === 'All';
 
         if (isDefaultDiscovery) {
-            // Filter by rating only — studio/network data is often absent in lookup results
-            items = items.filter(item => (item.ratings?.value || 0) >= 6.5);
+            // Default: filter by rating + major platform/studio (if enrichment data is available for at least some items)
+            const hasEnrichedData = items.some(item => item.productionCompanies?.length > 0 || item.studio || item.network);
+            items = items.filter(item => {
+                const rating = item.ratings?.value || 0;
+                if (rating < 6.5) return false;
+                if (!hasEnrichedData) return true; // no enrichment yet, just show rated content
+                const allCompanies: string[] = [
+                    ...(item.productionCompanies || []),
+                    item.studio, item.network
+                ].filter(Boolean).map((s: string) => s.toLowerCase());
+                if (allCompanies.length === 0) return true; // no companies data, show anyway
+                return MAJOR_PLATFORMS.some(p => allCompanies.some(c => c.includes(p)));
+            });
         } else {
-            // Apply specific user filters
             if (filterGenre !== 'All') {
                 items = items.filter(item => item.genres?.includes(filterGenre));
             }
             if (filterPlatform !== 'All') {
-                items = items.filter(item => (item.studio || item.network) === filterPlatform);
+                // Match against full productionCompanies list
+                items = items.filter(item => {
+                    const allCompanies: string[] = [
+                        ...(item.productionCompanies || []),
+                        item.studio, item.network
+                    ].filter(Boolean);
+                    return allCompanies.includes(filterPlatform);
+                });
             }
             if (filterYear !== 'All') {
                 items = items.filter(item => item.year?.toString() === filterYear);
             }
         }
 
-        // 3. Sorting
+        // Sorting
         items.sort((a, b) => {
             if (sortBy === 'year') return (b.year || 0) - (a.year || 0);
             if (sortBy === 'alphabetical') return a.title.localeCompare(b.title);
@@ -282,17 +305,32 @@ export default function DiscoverPage() {
         return items;
     }, [results, searchQuery, filterGenre, filterPlatform, filterYear, sortBy, isSearching]);
 
-    // Platform Badge Logic
+    // Platform Badge Logic — uses enriched productionCompanies[]
     const getPlatformBadge = (item: any) => {
-        const platform = (item.studio || item.network || '').toLowerCase();
-        if (platform.includes('netflix')) return { label: 'Netflix', color: 'bg-red-600/20 text-red-400 border-red-500/30' };
-        if (platform.includes('disney')) return { label: 'Disney+', color: 'bg-blue-600/20 text-blue-400 border-blue-500/30' };
-        if (platform.includes('hbo') || platform.includes('max')) return { label: 'HBO Max', color: 'bg-purple-600/20 text-purple-400 border-purple-500/30' };
-        if (platform.includes('amazon') || platform.includes('prime')) return { label: 'Prime Video', color: 'bg-sky-600/20 text-sky-400 border-sky-500/30' };
-        if (platform.includes('apple')) return { label: 'Apple TV+', color: 'bg-zinc-600/20 text-zinc-400 border-zinc-500/30' };
-        if (platform.includes('hulu')) return { label: 'Hulu', color: 'bg-emerald-600/20 text-emerald-400 border-emerald-500/30' };
-        if (platform.includes('paramount')) return { label: 'Paramount+', color: 'bg-blue-600/20 text-blue-400 border-blue-500/30' };
-        return platform ? { label: item.studio || item.network, color: 'bg-zinc-800/50 text-zinc-400 border-zinc-700/30' } : null;
+        const allCompanies: string[] = [
+            ...(item.productionCompanies || []),
+            item.studio, item.network
+        ].filter(Boolean).map((s: string) => s.toLowerCase());
+        const joined = allCompanies.join(' ');
+        if (joined.includes('netflix')) return { label: 'Netflix', color: 'bg-red-600/20 text-red-400 border-red-500/30' };
+        if (joined.includes('disney')) return { label: 'Disney+', color: 'bg-blue-600/20 text-blue-400 border-blue-500/30' };
+        if (joined.includes('hbo') || joined.includes('max')) return { label: 'HBO Max', color: 'bg-purple-600/20 text-purple-400 border-purple-500/30' };
+        if (joined.includes('amazon') || joined.includes('prime')) return { label: 'Prime Video', color: 'bg-sky-600/20 text-sky-400 border-sky-500/30' };
+        if (joined.includes('apple')) return { label: 'Apple TV+', color: 'bg-zinc-400/20 text-zinc-300 border-zinc-500/30' };
+        if (joined.includes('hulu')) return { label: 'Hulu', color: 'bg-emerald-600/20 text-emerald-400 border-emerald-500/30' };
+        if (joined.includes('paramount')) return { label: 'Paramount+', color: 'bg-blue-600/20 text-blue-400 border-blue-500/30' };
+        if (joined.includes('showtime')) return { label: 'Showtime', color: 'bg-red-700/20 text-red-400 border-red-600/30' };
+        if (joined.includes('amc')) return { label: 'AMC', color: 'bg-amber-600/20 text-amber-400 border-amber-500/30' };
+        if (joined.includes('fx')) return { label: 'FX', color: 'bg-orange-600/20 text-orange-400 border-orange-500/30' };
+        if (joined.includes('warner')) return { label: 'Warner Bros', color: 'bg-blue-700/20 text-blue-400 border-blue-600/30' };
+        if (joined.includes('universal')) return { label: 'Universal', color: 'bg-indigo-600/20 text-indigo-400 border-indigo-500/30' };
+        if (joined.includes('sony')) return { label: 'Sony', color: 'bg-zinc-600/20 text-zinc-400 border-zinc-500/30' };
+        if (joined.includes('lionsgate')) return { label: 'Lionsgate', color: 'bg-yellow-600/20 text-yellow-400 border-yellow-500/30' };
+        if (joined.includes('20th century') || joined.includes('fox')) return { label: '20th Century', color: 'bg-red-600/20 text-red-400 border-red-500/30' };
+        if (joined.includes('mgm')) return { label: 'MGM', color: 'bg-yellow-700/20 text-yellow-400 border-yellow-600/30' };
+        // Fallback: show the first company name
+        const firstLabel = item.productionCompanies?.[0] || item.studio || item.network;
+        return firstLabel ? { label: firstLabel, color: 'bg-zinc-800/50 text-zinc-400 border-zinc-700/30' } : null;
     };
 
     const isDiscoveryMode = useMemo(() => results.length > 0 && !isSearching && !searchQuery, [results.length, isSearching, searchQuery]);
