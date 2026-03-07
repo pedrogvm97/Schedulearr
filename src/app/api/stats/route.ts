@@ -63,8 +63,11 @@ interface ChartDay {
     [key: string]: string | number | string[] | any;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
     try {
+        const { searchParams } = new URL(req.url);
+        const timeframe = searchParams.get('timeframe') || 'month';
+
         const allInstances = getInstances();
         const instances = allInstances.filter(i => i.type === 'radarr' || i.type === 'sonarr');
 
@@ -72,15 +75,22 @@ export async function GET() {
             return NextResponse.json({ data: [] });
         }
 
-        // Calculate 30 days ago limit
+        // Calculate timeframe limit
         const now = new Date();
-        const thirtyDaysAgo = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
+        let daysToFetch = 30;
+        if (timeframe === 'day') daysToFetch = 1;
+        else if (timeframe === 'week') daysToFetch = 7;
+        else if (timeframe === 'month') daysToFetch = 30;
+        else if (timeframe === 'year') daysToFetch = 365;
+        else if (timeframe === 'all') daysToFetch = 5000; // Large enough for "all"
+
+        const startDate = new Date(now.getTime() - (daysToFetch * 24 * 60 * 60 * 1000));
 
         // Prepare data map: YYYY-MM-DD -> instanceId -> { status -> titles[] }
         const dailyStats: Record<string, Record<string, Record<string, string[]>>> = {};
 
-        // Initialize 30 days of empty maps
-        for (let i = 29; i >= 0; i--) {
+        // Initialize empty maps for the range
+        for (let i = daysToFetch - 1; i >= 0; i--) {
             const d = new Date(now.getTime() - (i * 24 * 60 * 60 * 1000));
             const dateStr = d.toISOString().split('T')[0];
             dailyStats[dateStr] = {};
@@ -97,6 +107,10 @@ export async function GET() {
             indexer?: string
         }[] = [];
 
+        // Aggregate totals for the left panel
+        const instanceTotals: Record<string, { grabbed: number, imported: number, failed: number, sizeBytes: number, downloading: number }> = {};
+        const indexerTotals: Record<string, { grabbed: number, imported: number, failed: number, sizeBytes: number }> = {};
+
         // Track stats by type: grabbed, imported, failed, size
         const statsSummary: Record<string, Record<string, { grabbed: number, imported: number, failed: number, sizeBytes: number, downloading: number }>> = {};
         // Initialize summary structure
@@ -112,6 +126,9 @@ export async function GET() {
                 color: tailwindToHex(instance.color || ''),
                 type: instance.type
             };
+
+            // Initialize total for this instance
+            instanceTotals[id] = { grabbed: 0, imported: 0, failed: 0, sizeBytes: 0, downloading: 0 };
 
             // Initialize summary for this instance
             Object.keys(statsSummary).forEach(date => {
@@ -185,40 +202,64 @@ export async function GET() {
 
                 records.forEach(record => {
                     const recordDate = new Date(record.date);
-                    if (recordDate >= thirtyDaysAgo && recordDate <= now) {
+                    if (recordDate >= startDate && recordDate <= now) {
                         const dateStr = recordDate.toISOString().split('T')[0];
-                        if (dailyStats[dateStr]) {
-                            // Event Types: 1=Grabbed, 3=Imported, 4=Failed
-                            const typeStr = String(record.eventType).toLowerCase();
-                            const isImport = record.eventType === 3 || typeStr.includes('import');
-                            const isGrab = record.eventType === 1 || typeStr.includes('grabbed');
-                            const isFailed = record.eventType === 4 || typeStr.includes('failed');
 
-                            // Update numerical stats
-                            if (statsSummary[dateStr][id]) {
-                                if (isGrab) statsSummary[dateStr][id].grabbed++;
-                                if (isImport) {
-                                    statsSummary[dateStr][id].imported++;
-                                    // Extract size from data property (bytes as string) or nested objects
-                                    let size = 0;
-                                    if (record.data?.importedSize) size = parseInt(String(record.data.importedSize), 10);
-                                    else if (record.data?.size) size = parseInt(String(record.data.size), 10);
-                                    else if (record.movieFile?.size) size = parseInt(String(record.movieFile.size), 10);
-                                    else if (record.episodeFile?.size) size = parseInt(String(record.episodeFile.size), 10);
-                                    else if (record.size) size = parseInt(String(record.size), 10);
+                        // Indexer name
+                        const indexerName = (record.data as any)?.indexer || 'Unknown';
+                        if (!indexerTotals[indexerName]) {
+                            indexerTotals[indexerName] = { grabbed: 0, imported: 0, failed: 0, sizeBytes: 0 };
+                        }
 
-                                    if (isNaN(size) || !size) size = 0;
-                                    statsSummary[dateStr][id].sizeBytes += size;
-                                }
+                        // Event Types: 1=Grabbed, 3=Imported, 4=Failed
+                        const typeStr = String(record.eventType).toLowerCase();
+                        const isImport = record.eventType === 3 || typeStr.includes('import');
+                        const isGrab = record.eventType === 1 || typeStr.includes('grabbed');
+                        const isFailed = record.eventType === 4 || typeStr.includes('failed');
 
-                                if (isFailed) statsSummary[dateStr][id].failed++;
+                        // Extract size
+                        let size = 0;
+                        if (record.data?.importedSize) size = parseInt(String(record.data.importedSize), 10);
+                        else if (record.data?.size) size = parseInt(String(record.data.size), 10);
+                        else if (record.movieFile?.size) size = parseInt(String(record.movieFile.size), 10);
+                        else if (record.episodeFile?.size) size = parseInt(String(record.episodeFile.size), 10);
+                        else if (record.size) size = parseInt(String(record.size), 10);
+                        if (isNaN(size) || !size) size = 0;
+
+                        // Update numerical stats
+                        if (statsSummary[dateStr] && statsSummary[dateStr][id]) {
+                            if (isGrab) statsSummary[dateStr][id].grabbed++;
+                            if (isImport) {
+                                statsSummary[dateStr][id].imported++;
+                                statsSummary[dateStr][id].sizeBytes += size;
                             }
+                            if (isFailed) statsSummary[dateStr][id].failed++;
+                        }
 
-                            if (!dailyStats[dateStr][id]) {
-                                dailyStats[dateStr][id] = { grabbed: [], imported: [], failed: [], downloading: [] };
-                            }
+                        // Update instance totals
+                        if (isGrab) instanceTotals[id].grabbed++;
+                        if (isImport) {
+                            instanceTotals[id].imported++;
+                            instanceTotals[id].sizeBytes += size;
+                        }
+                        if (isFailed) instanceTotals[id].failed++;
 
-                            // Try to extract clean title, fallback to sourceTitle
+                        // Update indexer totals
+                        if (isGrab) indexerTotals[indexerName].grabbed++;
+                        if (isImport) {
+                            indexerTotals[indexerName].imported++;
+                            indexerTotals[indexerName].sizeBytes += size;
+                        }
+                        if (isFailed) indexerTotals[indexerName].failed++;
+
+                        if (!dailyStats[dateStr]) {
+                            // If timeframe is 'all' or 'year', we might have records older than the initialized range
+                            // but still within thirtyDaysAgo if we didn't update thirtyDaysAgo correctly.
+                            // However, we now initialize Based on timeframe.
+                        }
+
+                        if (dailyStats[dateStr] && dailyStats[dateStr][id]) {
+                            // ... titles extraction logic ...
                             let title = record.sourceTitle || 'Unknown Release';
 
                             if (record.movie && record.movie.title) {
@@ -230,7 +271,6 @@ export async function GET() {
                                 }
                                 title = `${record.series.title}${epInfo}`;
                             } else {
-                                // Clean up the source title if we don't have metadata
                                 title = title
                                     .replace(/\b(1080p|720p|2160p|4k|uhd|bluray|web-dl|webrip|h\.264|h\.265|x264|x265|hevc|ddp5\.1|dts|aac|repack|proper)\b/gi, '')
                                     .replace(/[\.\-]/g, ' ')
@@ -253,31 +293,14 @@ export async function GET() {
                             if (isImport) status = 'Finalized';
                             if (isFailed) status = 'Failed';
 
-                            // Extract failure reason if available
-                            let failureReason = '';
-                            if (isFailed) {
-                                failureReason = record.data?.message || record.data?.reason || 'Unknown failure reason';
-                            }
-
-                            // Calculate size for the record list
-                            let sizeBytes = 0;
-                            if (record.data?.importedSize) sizeBytes = parseInt(String(record.data.importedSize), 10);
-                            else if (record.data?.size) sizeBytes = parseInt(String(record.data.size), 10);
-                            else if (record.movieFile?.size) sizeBytes = parseInt(String(record.movieFile.size), 10);
-                            else if (record.episodeFile?.size) sizeBytes = parseInt(String(record.episodeFile.size), 10);
-                            else if (record.size) sizeBytes = parseInt(String(record.size), 10);
-
-                            if (isNaN(sizeBytes) || !sizeBytes) sizeBytes = 0;
-
-
                             allRecentRecords.push({
                                 title,
                                 date: record.date,
                                 instanceId: id,
                                 status,
-                                size: sizeBytes,
-                                failureReason,
-                                indexer: (record.data as any)?.indexer || 'Unknown'
+                                size,
+                                failureReason: isFailed ? (record.data?.message || record.data?.reason || 'Unknown failure reason') : '',
+                                indexer: indexerName
                             });
                         }
                     }
@@ -300,15 +323,13 @@ export async function GET() {
                 dayObj[`${instanceId}_downloading`] = summary.downloading;
                 dayObj[`${instanceId}_sizeGB`] = parseFloat((summary.sizeBytes / (1024 ** 3)).toFixed(2));
 
-                // Granular labels for tooltips
                 const titles = dailyStats[date][instanceId];
                 dayObj[`${instanceId}_grabbed_titles`] = titles?.grabbed || [];
                 dayObj[`${instanceId}_imported_titles`] = titles?.imported || [];
                 dayObj[`${instanceId}_failed_titles`] = titles?.failed || [];
                 dayObj[`${instanceId}_downloading_titles`] = titles?.downloading || [];
 
-                // Legacy support/Titles
-                dayObj[instanceId] = summary.grabbed; // default to grabbed for main chart
+                dayObj[instanceId] = summary.grabbed;
                 dayObj[`${instanceId}_titles`] = Array.from(new Set([
                     ...(titles?.grabbed || []),
                     ...(titles?.imported || []),
@@ -320,7 +341,6 @@ export async function GET() {
         });
 
         allRecentRecords.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        // Filter out duplicate titles within short time to avoid history bloat if multiple events exist
         const seen = new Set();
         const recentDownloads = allRecentRecords.filter(r => {
             const key = `${r.title}-${r.status}`;
@@ -329,7 +349,15 @@ export async function GET() {
             return true;
         }).slice(0, 20);
 
-        return NextResponse.json({ data: chartData, instances: instanceMetadata, recentDownloads });
+        return NextResponse.json({
+            data: chartData,
+            instances: instanceMetadata,
+            recentDownloads,
+            summary: {
+                instanceTotals,
+                indexerTotals
+            }
+        });
     } catch (error) {
         console.error('API /stats error:', error);
         return NextResponse.json({ error: 'Failed to generate statistics' }, { status: 500 });

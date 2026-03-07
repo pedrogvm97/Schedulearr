@@ -46,13 +46,18 @@ export default function Dashboard() {
   const [chartData, setChartData] = useState<ChartData[]>([]);
   const [instances, setInstances] = useState<Record<string, { name: string, color: string, type: string }>>({});
   const [recentDownloads, setRecentDownloads] = useState<RecentDownload[]>([]);
-  const [loadingStats, setLoadingStats] = useState(true);
+  const [summaryData, setSummaryData] = useState<{
+    instanceTotals: Record<string, any>,
+    indexerTotals: Record<string, any>
+  }>({ instanceTotals: {}, indexerTotals: {} });
 
+  const [loadingStats, setLoadingStats] = useState(true);
   const [prowlarrHealth, setProwlarrHealth] = useState<ProwlarrInstance[]>([]);
   const [loadingProwlarr, setLoadingProwlarr] = useState(true);
 
   const [showWelcome, setShowWelcome] = useState(false);
   const [chartType, setChartType] = useState<'grabbed' | 'imported' | 'sizeGB'>('grabbed');
+  const [timeframe, setTimeframe] = useState<'day' | 'week' | 'month' | 'year' | 'all'>('month');
   const [recentDownloadFilters, setRecentDownloadFilters] = useState<Record<string, boolean>>({});
 
   const toggleRecentFilter = (id: string) => {
@@ -86,13 +91,15 @@ export default function Dashboard() {
 
   useEffect(() => {
     const fetchStats = async () => {
+      setLoadingStats(true);
       try {
-        const res = await fetch('/api/stats');
+        const res = await fetch(`/api/stats?timeframe=${timeframe}`);
         if (res.ok) {
           const json = await res.json();
           setChartData(json.data || []);
           setInstances(json.instances || {});
           if (json.recentDownloads) setRecentDownloads(json.recentDownloads);
+          if (json.summary) setSummaryData(json.summary);
 
           // Initialize filters if empty
           if (Object.keys(recentDownloadFilters).length === 0 && json.instances) {
@@ -109,6 +116,10 @@ export default function Dashboard() {
       setLoadingStats(false);
     };
 
+    fetchStats();
+  }, [timeframe]);
+
+  useEffect(() => {
     const fetchProwlarrHealth = async () => {
       try {
         const res = await fetch('/api/prowlarr/health');
@@ -122,7 +133,6 @@ export default function Dashboard() {
       setLoadingProwlarr(false);
     };
 
-    fetchStats();
     fetchProwlarrHealth();
   }, []);
 
@@ -214,27 +224,42 @@ export default function Dashboard() {
           <p className="text-zinc-400">View logs of background engine batches and manual search triggers.</p>
         </div>
 
-        <div className="flex gap-2 items-center">
-          <div className="flex bg-zinc-900 border border-zinc-800 rounded-lg p-1 mr-4">
+        <div className="flex flex-wrap gap-4 items-center">
+          {/* Timeframe Selector */}
+          <div className="flex bg-zinc-900 border border-zinc-800 rounded-lg p-1">
+            {(['day', 'week', 'month', 'year', 'all'] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTimeframe(t)}
+                className={`px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md transition ${timeframe === t ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+              >
+                {t === 'day' ? 'Today' : t}
+              </button>
+            ))}
+          </div>
+
+          {/* Metric Selector */}
+          <div className="flex bg-zinc-900 border border-zinc-800 rounded-lg p-1">
             <button
               onClick={() => setChartType('grabbed')}
-              className={`px-3 py-1 text-xs font-bold rounded-md transition ${chartType === 'grabbed' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+              className={`px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md transition ${chartType === 'grabbed' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
             >
               Grabs
             </button>
             <button
               onClick={() => setChartType('imported')}
-              className={`px-3 py-1 text-xs font-bold rounded-md transition ${chartType === 'imported' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+              className={`px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md transition ${chartType === 'imported' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
             >
               Finalized
             </button>
             <button
               onClick={() => setChartType('sizeGB')}
-              className={`px-3 py-1 text-xs font-bold rounded-md transition ${chartType === 'sizeGB' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+              className={`px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md transition ${chartType === 'sizeGB' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
             >
-              Data (GB)
+              Data
             </button>
           </div>
+
           <button
             onClick={handleManualTrigger}
             disabled={isTriggering}
@@ -245,91 +270,139 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Analytics Graph */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 mb-8 mt-2">
-        <div className="h-72 w-full">
-          {loadingStats ? (
-            <div className="w-full h-full flex items-center justify-center text-zinc-500 font-medium">Loading aggregated statistics...</div>
-          ) : chartData.length === 0 ? (
-            <div className="w-full h-full flex items-center justify-center text-zinc-500 font-medium">No download events logged in the past 30 days.</div>
-          ) : (
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
-                <XAxis
-                  dataKey="date"
-                  stroke="#52525b"
-                  fontSize={12}
-                  tickFormatter={(val) => {
-                    const d = new Date(val);
-                    return `${d.getMonth() + 1}/${d.getDate()}`;
-                  }}
-                />
-                <YAxis stroke="#52525b" fontSize={12} allowDecimals={false} />
-                <Tooltip
-                  cursor={{ fill: '#27272a', opacity: 0.4 }}
-                  content={<CustomTooltip />}
-                />
-                <Legend
-                  wrapperStyle={{ paddingTop: '20px', fontSize: '11px' }}
-                  formatter={(value: string) => {
-                    // "value" here is what's passed as "name" to the Bar
-                    // If we pass instance name already, just return it.
-                    // But if it has tags like (Grabbed), we keep them unless it's a duplicate.
-                    return <span className="text-zinc-400 font-medium">{value}</span>;
-                  }}
-                />
-                {Object.keys(instances).map((id) => (
-                  <React.Fragment key={id}>
-                    {(chartType === 'grabbed') && (
-                      <>
-                        <Bar
-                          dataKey={`${id}_grabbed`}
-                          name={instances[id].name}
-                          stackId="a"
-                          fill={instances[id].color}
-                          opacity={0.8}
-                          radius={[0, 0, 0, 0]}
-                          legendType="rect"
+      {/* Analytics Dashboard Re-design */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8 mt-2 items-stretch">
+        {/* Left Stats Column */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-4">
+          {/* Instance Rankings */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col justify-between">
+            <div>
+              <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-widest mb-4">Instance Rankings</h3>
+              <div className="space-y-4">
+                {Object.keys(instances).map(id => {
+                  const totals = summaryData.instanceTotals[id] || { grabbed: 0, imported: 0, failed: 0, sizeBytes: 0 };
+                  const value = chartType === 'grabbed' ? totals.grabbed : (chartType === 'imported' ? totals.imported : (totals.sizeBytes / (1024 ** 3)));
+
+                  // Calculate max for bar width
+                  const maxVal = Math.max(...Object.values(summaryData.instanceTotals).map((t: any) =>
+                    chartType === 'grabbed' ? t.grabbed : (chartType === 'imported' ? t.imported : (t.sizeBytes / (1024 ** 3)))
+                  ), 1);
+                  const percentage = Math.min(100, (value / maxVal) * 100);
+
+                  return (
+                    <div key={id} className="space-y-1.5">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="font-bold text-zinc-200">{instances[id].name}</span>
+                        <span className="text-zinc-400 font-black">
+                          {chartType === 'sizeGB' ? `${value.toFixed(1)} GB` : value}
+                        </span>
+                      </div>
+                      <div className="h-1.5 w-full bg-zinc-950 rounded-full overflow-hidden border border-zinc-800/50">
+                        <div
+                          className="h-full transition-all duration-1000 ease-out rounded-full"
+                          style={{
+                            width: `${percentage}%`,
+                            backgroundColor: instances[id].color,
+                            boxShadow: `0 0 10px ${instances[id].color}40`
+                          }}
                         />
-                        <Bar
-                          dataKey={`${id}_downloading`}
-                          name={`${instances[id].name} (Downloading)`}
-                          stackId="a"
-                          fill={instances[id].color}
-                          opacity={0.4}
-                          radius={[2, 2, 0, 0]}
-                          legendType="none"
-                        />
-                      </>
-                    )}
-                    {(chartType === 'imported') && (
-                      <Bar
-                        dataKey={`${id}_imported`}
-                        name={instances[id].name}
-                        stackId="a"
-                        fill={instances[id].color}
-                        opacity={1}
-                        radius={[2, 2, 0, 0]}
-                        legendType="rect"
-                      />
-                    )}
-                    {(chartType === 'sizeGB') && (
-                      <Bar
-                        dataKey={`${id}_sizeGB`}
-                        name={instances[id].name}
-                        stackId="a"
-                        fill={instances[id].color}
-                        opacity={0.9}
-                        radius={[2, 2, 0, 0]}
-                        legendType="rect"
-                      />
-                    )}
-                  </React.Fragment>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Top Indexers */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col">
+            <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-widest mb-4">Top Indexers</h3>
+            <div className="space-y-3 flex-1 flex flex-col justify-center">
+              {Object.entries(summaryData.indexerTotals || {})
+                .map(([name, stats]: [string, any]) => ({
+                  name,
+                  value: chartType === 'grabbed' ? stats.grabbed : (chartType === 'imported' ? stats.imported : (stats.sizeBytes / (1024 ** 3)))
+                }))
+                .filter(item => item.value > 0)
+                .sort((a, b) => b.value - a.value)
+                .slice(0, 3)
+                .map((indexer, idx) => (
+                  <div key={indexer.name} className="flex items-center justify-between p-2.5 rounded-xl bg-zinc-950 border border-zinc-800/80 hover:border-zinc-700 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black border ${idx === 0 ? 'bg-amber-500/10 border-amber-500/30 text-amber-500' :
+                          idx === 1 ? 'bg-zinc-400/10 border-zinc-400/30 text-zinc-400' :
+                            'bg-orange-500/10 border-orange-500/30 text-orange-400'
+                        }`}>
+                        {idx + 1}
+                      </div>
+                      <span className="text-xs font-bold text-zinc-200 truncate max-w-[100px]">{indexer.name}</span>
+                    </div>
+                    <span className="text-xs font-black text-white px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800/50 min-w-[50px] text-center">
+                      {chartType === 'sizeGB' ? `${indexer.value.toFixed(1)}G` : indexer.value}
+                    </span>
+                  </div>
                 ))}
-              </BarChart>
-            </ResponsiveContainer>
-          )}
+              {(!summaryData.indexerTotals || Object.keys(summaryData.indexerTotals).length === 0) && (
+                <div className="text-center py-4 text-zinc-500 text-xs italic">No indexer data available</div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Right Trend Graph Column */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-widest">Trend Analysis</h3>
+            <div className="text-[10px] text-zinc-500 font-medium">Daily Totals</div>
+          </div>
+
+          <div className="flex-1 min-h-[220px]">
+            {loadingStats ? (
+              <div className="w-full h-full flex items-center justify-center text-zinc-500 font-medium">Loading aggregated statistics...</div>
+            ) : chartData.length === 0 ? (
+              <div className="w-full h-full flex items-center justify-center text-zinc-500 font-medium">No results for this timeframe.</div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                  <XAxis
+                    dataKey="date"
+                    stroke="#52525b"
+                    fontSize={10}
+                    tickFormatter={(val) => {
+                      const d = new Date(val);
+                      return `${d.getMonth() + 1}/${d.getDate()}`;
+                    }}
+                  />
+                  <YAxis stroke="#52525b" fontSize={10} allowDecimals={false} />
+                  <Tooltip
+                    cursor={{ fill: '#27272a', opacity: 0.4 }}
+                    content={<CustomTooltip />}
+                  />
+                  <Legend
+                    wrapperStyle={{ paddingTop: '20px', fontSize: '10px' }}
+                    formatter={(value: string) => <span className="text-zinc-500 font-black uppercase tracking-tighter">{value}</span>}
+                  />
+                  {Object.keys(instances).map((id) => (
+                    <React.Fragment key={id}>
+                      {(chartType === 'grabbed') && (
+                        <>
+                          <Bar dataKey={`${id}_grabbed`} name={instances[id].name} stackId="a" fill={instances[id].color} opacity={0.8} radius={[0, 0, 0, 0]} legendType="rect" />
+                          <Bar dataKey={`${id}_downloading`} name={`${instances[id].name} (DL)`} stackId="a" fill={instances[id].color} opacity={0.3} radius={[2, 2, 0, 0]} legendType="none" />
+                        </>
+                      )}
+                      {(chartType === 'imported') && (
+                        <Bar dataKey={`${id}_imported`} name={instances[id].name} stackId="a" fill={instances[id].color} opacity={1} radius={[2, 2, 0, 0]} legendType="rect" />
+                      )}
+                      {(chartType === 'sizeGB') && (
+                        <Bar dataKey={`${id}_sizeGB`} name={instances[id].name} stackId="a" fill={instances[id].color} opacity={0.9} radius={[2, 2, 0, 0]} legendType="rect" />
+                      )}
+                    </React.Fragment>
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
         </div>
       </div>
 
