@@ -40,6 +40,7 @@ interface Instance {
     name: string;
     type: string;
     color?: string;
+    colorHex?: string;
 }
 
 export default function ProfilesPage() {
@@ -242,7 +243,7 @@ export default function ProfilesPage() {
                     <div className="flex flex-wrap gap-2">
                         {instances.filter(i => filterType === 'All' || i.type === filterType).map(inst => {
                             const isSelected = filterInstances.includes(inst.id);
-                            const hex = twColorToHex(inst.color);
+                            const hex = inst.colorHex || '#3b82f6';
                             return (
                                 <button
                                     key={inst.id}

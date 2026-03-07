@@ -56,6 +56,7 @@ interface Movie {
     instanceId: string;
     instanceName?: string;
     instanceColor?: string;
+    colorHex?: string;
     instanceUrl?: string;
     qualityProfileId: number;
     sizeOnDisk: number;
@@ -116,6 +117,7 @@ interface SeriesItem {
     instanceId: string;
     instanceName?: string;
     instanceColor?: string;
+    colorHex?: string;
     instanceUrl?: string;
     qualityProfileId: number;
     added: string;
@@ -688,6 +690,7 @@ export default function SchedulerQueue() {
             currentQualityScale: m.movieFile?.quality?.quality?.resolution || 0,
             instanceId: m.instanceId,
             instanceColor: m.instanceColor,
+            colorHex: m.colorHex,
             isDownloading: m.isDownloading || false
         } as Movie)),
         ...(Array.isArray(episodes) ? episodes : []).map(e => ({
@@ -700,6 +703,7 @@ export default function SchedulerQueue() {
             targetQualityProfile: (e.instanceUrl && e.qualityProfileId && profiles?.[e.instanceUrl.replace(/\/$/, '')]) ? profiles[e.instanceUrl.replace(/\/$/, '')][e.qualityProfileId] : 'Unknown',
             instanceId: e.instanceId,
             instanceColor: e.instanceColor,
+            colorHex: e.colorHex,
             isDownloading: e.queuedEpisodeIds && e.queuedEpisodeIds.length > 0
         } as SeriesItem))
     ] as (Movie | SeriesItem)[]).sort((a, b) => {
@@ -719,13 +723,19 @@ export default function SchedulerQueue() {
 
     // Extract ALL unique genres and instances BEFORE applying active filters so they never disappear
     const allGenres = new Set<string>();
-    const allInstances = new Map<string, { id: string, name: string, type: string, color?: string }>();
+    const allInstances = new Map<string, { id: string, name: string, type: string, color?: string, colorHex?: string }>();
     combined.forEach(item => {
         if (item.genres && Array.isArray(item.genres)) {
             item.genres.forEach((g: string) => allGenres.add(g));
         }
         if (item.instanceName && item.instanceId) {
-            allInstances.set(item.instanceId, { id: item.instanceId, name: item.instanceName, type: item.type, color: item.instanceColor });
+            allInstances.set(item.instanceId, {
+                id: item.instanceId,
+                name: item.instanceName,
+                type: item.type,
+                color: item.instanceColor,
+                colorHex: item.colorHex
+            });
         }
     });
     const uniqueGenres = ['All', ...Array.from(allGenres).sort()];
@@ -1206,50 +1216,25 @@ export default function SchedulerQueue() {
                                 <div className="flex flex-wrap gap-2">
                                     {uniqueInstances.map(inst => {
                                         const isSelected = instanceFilters[inst.id] !== false;
-
-                                        // Make sure inst.color is supported by Tailwind or inject via style if it's a hex
-                                        const isHexColor = inst.color?.startsWith('#');
-                                        const dotStyle = isHexColor ? { backgroundColor: inst.color } : {};
-                                        const dotClass = !isHexColor && inst.color ? inst.color : 'bg-blue-500';
-
-                                        // Selected states coloring
-                                        const highlightStyle = isSelected && isHexColor ? { borderColor: inst.color, color: inst.color } : {};
-                                        const bgStyle = isSelected && isHexColor ? { backgroundColor: `${inst.color}33` } : {}; // 33 is ~20% opacity matching original bg-blue-500/20
-
-                                        // Define dynamic classes exclusively for tailwind base colors safely
-                                        const TW_COLORS: Record<string, string> = {
-                                            "bg-red-500": isSelected ? "bg-red-500/20 text-red-400 border-red-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                            "bg-orange-500": isSelected ? "bg-orange-500/20 text-orange-400 border-orange-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                            "bg-amber-500": isSelected ? "bg-amber-500/20 text-amber-400 border-amber-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                            "bg-yellow-500": isSelected ? "bg-yellow-500/20 text-yellow-400 border-yellow-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                            "bg-lime-500": isSelected ? "bg-lime-500/20 text-lime-400 border-lime-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                            "bg-green-500": isSelected ? "bg-green-500/20 text-green-400 border-green-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                            "bg-emerald-500": isSelected ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                            "bg-teal-500": isSelected ? "bg-teal-500/20 text-teal-400 border-teal-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                            "bg-cyan-500": isSelected ? "bg-cyan-500/20 text-cyan-400 border-cyan-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                            "bg-sky-500": isSelected ? "bg-sky-500/20 text-sky-400 border-sky-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                            "bg-blue-500": isSelected ? "bg-blue-500/20 text-blue-400 border-blue-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                            "bg-indigo-500": isSelected ? "bg-indigo-500/20 text-indigo-400 border-indigo-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                            "bg-violet-500": isSelected ? "bg-violet-500/20 text-violet-400 border-violet-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                            "bg-purple-500": isSelected ? "bg-purple-500/20 text-purple-400 border-purple-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                            "bg-fuchsia-500": isSelected ? "bg-fuchsia-500/20 text-fuchsia-400 border-fuchsia-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                            "bg-pink-500": isSelected ? "bg-pink-500/20 text-pink-400 border-pink-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                            "bg-rose-500": isSelected ? "bg-rose-500/20 text-rose-400 border-rose-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                        };
-
-                                        const standardTailwindClass = TW_COLORS[inst.color || "bg-blue-500"] || TW_COLORS["bg-blue-500"];
+                                        const hex = inst.colorHex || '#3b82f6';
 
                                         return (
                                             <button
                                                 key={inst.id}
                                                 onClick={() => toggleInstance(inst.name, inst.id)}
-                                                style={isHexColor && isSelected ? { ...highlightStyle, ...bgStyle } : (isHexColor ? highlightStyle : {})}
-                                                className={`px-3 py-1 text-xs font-semibold rounded-full border transition-all ${!isHexColor ? standardTailwindClass : 'hover:opacity-80'}`}
+                                                style={{
+                                                    borderColor: isSelected ? hex : 'transparent',
+                                                    color: isSelected ? hex : '#71717a',
+                                                    backgroundColor: isSelected ? `${hex}15` : 'transparent'
+                                                }}
+                                                className={`px-3 py-1 text-xs font-semibold rounded-full border transition-all flex items-center gap-1.5 ${!isSelected ? 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-700' : ''}`}
                                             >
-                                                <div className="flex items-center gap-1.5">
-                                                    <div className={`w-2 h-2 rounded-full ${!isHexColor ? dotClass : ''}`} style={dotStyle} title="Instance Color"></div>
-                                                    {inst.name}
-                                                </div>
+                                                <div
+                                                    className="w-2 h-2 rounded-full shadow-sm"
+                                                    style={{ backgroundColor: hex }}
+                                                    title="Instance Color"
+                                                ></div>
+                                                {inst.name}
                                             </button>
                                         );
                                     })}
@@ -1317,9 +1302,9 @@ export default function SchedulerQueue() {
                                                                     <span
                                                                         className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm border border-zinc-700/50 opacity-80"
                                                                         style={{
-                                                                            backgroundColor: item.instanceColor?.startsWith('#') ? `${item.instanceColor}1a` : undefined,
-                                                                            color: item.instanceColor?.startsWith('#') ? item.instanceColor : undefined,
-                                                                            borderColor: item.instanceColor?.startsWith('#') ? `${item.instanceColor}33` : undefined
+                                                                            backgroundColor: `${item.colorHex}1a`,
+                                                                            color: item.colorHex,
+                                                                            borderColor: `${item.colorHex}33`
                                                                         }}
                                                                     >
                                                                         {item.instanceName}

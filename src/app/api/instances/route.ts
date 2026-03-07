@@ -1,12 +1,18 @@
 import { NextResponse } from 'next/server';
 import { getInstances, addInstance, removeInstance, toggleInstanceEnabled, updateInstance, Instance } from '@/lib/db';
+import { twColorToHex } from '@/lib/instanceColor';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
     try {
         const instances = getInstances();
-        return NextResponse.json(instances);
+        // Enrich with hex colors so UI components don't have to guess
+        const enriched = instances.map(inst => ({
+            ...inst,
+            colorHex: twColorToHex(inst.color)
+        }));
+        return NextResponse.json(enriched);
     } catch (error) {
         return NextResponse.json({ error: 'Failed to fetch instances' }, { status: 500 });
     }

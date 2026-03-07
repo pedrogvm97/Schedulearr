@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getInstances } from '@/lib/db';
 import { getAllSeries, getQueue } from '@/lib/sonarr';
+import { twColorToHex } from '@/lib/instanceColor';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,6 +22,8 @@ export async function GET() {
                 instanceName: instance.name,
                 instanceId: instance.id,
                 instanceUrl: instance.url,
+                instanceColor: instance.color,
+                colorHex: twColorToHex(instance.color),
                 queuedEpisodeIds: queue.filter(q => q.seriesId === s.id).map(q => q.episodeId)
             }))];
         }

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getInstances } from '@/lib/db';
 import { getAllMovies, getQueue } from '@/lib/radarr';
+import { twColorToHex } from '@/lib/instanceColor';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,6 +23,8 @@ export async function GET() {
                 instanceName: instance.name,
                 instanceId: instance.id,
                 instanceUrl: instance.url,
+                instanceColor: instance.color,
+                colorHex: twColorToHex(instance.color),
                 isDownloading: queuedIds.has(m.id)
             }))];
         }

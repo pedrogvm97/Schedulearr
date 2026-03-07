@@ -4,9 +4,11 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
     Search, Plus, Film, Tv, CheckCircle,
     Filter, X, Star, Calendar,
-    LayoutGrid, List, Sparkles, TrendingUp,
+    LayoutGrid, List as Rows, Sparkles, TrendingUp,
     ChevronDown, Tags, Monitor, ChevronRight,
-    HardDrive, Percent, PlayCircle, ChevronUp
+    HardDrive, Percent, PlayCircle, ChevronUp,
+    PlaySquare, Square, Trash2, MoveHorizontal, MoreVertical,
+    CheckCircle2
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import { CustomSelect } from '@/components/CustomSelect';
@@ -17,6 +19,7 @@ interface Instance {
     name: string;
     type: 'radarr' | 'sonarr';
     color?: string;
+    colorHex?: string;
 }
 
 interface QualityProfile { id: number; name: string; }
@@ -122,87 +125,65 @@ function EpisodeList({ instanceId, seriesId }: { instanceId: string; seriesId: n
 }
 
 // ──────────────────────────────────────────────
-// My Media Card
+// My Media Card Components
 // ──────────────────────────────────────────────
-function MyMediaCard({ item, viewMode }: { item: any; viewMode: 'grid' | 'list' }) {
+function MyMediaGridCard({ item, isSeries, expandAll, onDelete, onTransfer }: {
+    item: any; isSeries: boolean; expandAll: boolean; onDelete: () => void; onTransfer: () => void;
+}) {
     const [expanded, setExpanded] = useState(false);
-    const isSeries = !!item.seasons;
+
+    useEffect(() => {
+        setExpanded(expandAll);
+    }, [expandAll]);
+
     const poster = item.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || item.remotePoster;
     const totalEps = item.statistics?.totalEpisodeCount || 0;
     const haveEps = item.statistics?.episodeFileCount || 0;
     const pct = totalEps > 0 ? Math.round((haveEps / totalEps) * 100) : (item.hasFile ? 100 : 0);
-    const sizeMb = item.statistics?.sizeOnDisk || item.movieFile?.size || 0;
-    const sizeStr = sizeMb > 1e9 ? `${(sizeMb / 1e9).toFixed(1)} GB` : sizeMb > 1e6 ? `${(sizeMb / 1e6).toFixed(0)} MB` : '';
-    const qualityName = item.movieFile?.quality?.quality?.name || item.statistics?.qualityName || '';
-
-    if (viewMode === 'list') {
-        return (
-            <div className="bg-zinc-950/40 border border-zinc-900 rounded-2xl p-4 flex gap-4 hover:border-zinc-800 transition-all">
-                <div className="w-14 aspect-[2/3] rounded-lg overflow-hidden bg-zinc-900 flex-shrink-0">
-                    {poster ? <img src={poster} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-zinc-800">{isSeries ? <Tv size={16} /> : <Film size={16} />}</div>}
-                </div>
-                <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <span className="text-sm font-bold text-white truncate">{item.title}</span>
-                        <span className="text-[9px] font-black text-zinc-600 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800">{item.instanceName}</span>
-                    </div>
-                    <div className="flex items-center gap-3 text-[10px] text-zinc-500 flex-wrap">
-                        {item.year && <span className="flex items-center gap-1"><Calendar size={10} />{item.year}</span>}
-                        {qualityName && <span className="flex items-center gap-1 text-indigo-400"><Star size={10} />{qualityName}</span>}
-                        {sizeStr && <span className="flex items-center gap-1"><HardDrive size={10} />{sizeStr}</span>}
-                        {isSeries && <span className="flex items-center gap-1"><Percent size={10} />{pct}%</span>}
-                    </div>
-                </div>
-            </div>
-        );
-    }
 
     return (
-        <div className="group flex flex-col bg-[#090909] border border-zinc-900 hover:border-zinc-800 rounded-[2rem] overflow-hidden transition-all duration-300 shadow-xl hover:-translate-y-0.5">
-            {/* Poster */}
+        <div className="group flex flex-col bg-[#090909] border border-zinc-900 hover:border-zinc-800 rounded-[2rem] overflow-hidden transition-all duration-300 shadow-xl hover:-translate-y-1">
             <div className="relative aspect-[2/3] overflow-hidden">
                 {poster
                     ? <img src={poster} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
                     : <div className="w-full h-full bg-zinc-900 flex items-center justify-center text-zinc-800">{isSeries ? <Tv size={48} /> : <Film size={48} />}</div>}
 
-                {/* Availability bar for series */}
                 {isSeries && (
                     <div className="absolute bottom-0 left-0 right-0 h-1 bg-zinc-900">
                         <div className="h-full bg-emerald-500 transition-all" style={{ width: `${pct}%` }} />
                     </div>
                 )}
 
-                {/* Overlays */}
                 <div className="absolute inset-0 bg-gradient-to-t from-[#090909] via-transparent to-transparent opacity-90" />
-                <div className="absolute top-3 left-3 right-3 flex justify-between items-start">
-                    {qualityName && (
-                        <span className="px-2 py-1 rounded-lg text-[9px] font-black bg-black/60 backdrop-blur-sm border border-white/10 text-indigo-300">
-                            {qualityName}
-                        </span>
-                    )}
-                    <div className="flex items-center gap-1 ml-auto">
-                        {sizeStr && <span className="px-2 py-1 rounded-lg text-[9px] font-black bg-black/60 backdrop-blur-sm border border-white/10 text-zinc-400">{sizeStr}</span>}
+                <div className="absolute top-4 left-4 right-4 flex justify-between items-start opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex gap-1.5 ml-auto">
+                        <button onClick={(e) => { e.stopPropagation(); onTransfer(); }} className="p-2 rounded-xl bg-black/60 backdrop-blur-md border border-white/10 text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all">
+                            <MoveHorizontal size={14} />
+                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="p-2 rounded-xl bg-red-500/10 backdrop-blur-md border border-red-500/20 text-red-500 hover:bg-red-500/20 transition-all">
+                            <Trash2 size={14} />
+                        </button>
                     </div>
                 </div>
-                <div className="absolute bottom-4 left-4 right-4">
+
+                <div className="absolute bottom-4 left-5 right-5">
                     <h3 className="text-base font-black text-white leading-tight line-clamp-2 drop-shadow-lg">{item.title}</h3>
-                    <div className="flex items-center gap-2 mt-1 text-[10px] text-zinc-400 font-bold">
+                    <div className="flex items-center gap-2 mt-1.5 text-[10px] text-zinc-400 font-bold uppercase tracking-wider">
                         {item.year && <span>{item.year}</span>}
-                        {isSeries && <><span className="opacity-40">•</span><span className="text-emerald-400">{pct}% complete</span></>}
+                        {isSeries && <><span className="opacity-40">•</span><span className="text-emerald-400">{pct}%</span></>}
                         <span className="opacity-30">•</span>
                         <span className="truncate text-zinc-500">{item.instanceName}</span>
                     </div>
                 </div>
             </div>
 
-            {/* Episode Expand (series only) */}
             {isSeries && (
                 <div className="px-4 pb-4">
                     <button
                         onClick={() => setExpanded(v => !v)}
-                        className="w-full flex items-center justify-between py-2.5 text-[10px] font-black uppercase tracking-wider text-zinc-600 hover:text-zinc-300 transition-colors"
+                        className="w-full flex items-center justify-between py-2.5 px-1 text-[10px] font-black uppercase tracking-wider text-zinc-600 hover:text-zinc-300 transition-colors"
                     >
-                        <span className="flex items-center gap-1.5"><PlayCircle size={12} /> {item.statistics?.episodeCount || 0} Episodes</span>
+                        <span className="flex items-center gap-1.5"><PlaySquare size={12} /> {item.statistics?.episodeCount || 0} Episodes</span>
                         {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                     </button>
                     {expanded && <EpisodeList instanceId={item.instanceId} seriesId={item.id} />}
@@ -210,6 +191,52 @@ function MyMediaCard({ item, viewMode }: { item: any; viewMode: 'grid' | 'list' 
             )}
         </div>
     );
+}
+
+function MyMediaListCard({ item, isSeries, onDelete, onTransfer }: {
+    item: any; isSeries: boolean; onDelete: () => void; onTransfer: () => void;
+}) {
+    const poster = item.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || item.remotePoster;
+    const sizeMb = item.statistics?.sizeOnDisk || item.movieFile?.size || 0;
+    const sizeStr = sizeMb > 1e9 ? `${(sizeMb / 1e9).toFixed(1)} GB` : sizeMb > 1e6 ? `${(sizeMb / 1e6).toFixed(0)} MB` : '0 MB';
+    const path = item.path || 'Unknown Path';
+    const pct = isSeries ? Math.round((item.statistics?.episodeFileCount / item.statistics?.totalEpisodeCount) * 100) : 100;
+
+    return (
+        <div className="group bg-zinc-950/40 border border-zinc-900 rounded-2xl p-4 flex gap-6 hover:border-zinc-800 transition-all items-center">
+            <div className="w-16 aspect-[2/3] rounded-xl overflow-hidden bg-zinc-900 flex-shrink-0 shadow-lg">
+                {poster ? <img src={poster} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-zinc-800">{isSeries ? <Tv size={24} /> : <Film size={24} />}</div>}
+            </div>
+            <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-3 mb-1.5 flex-wrap">
+                    <h3 className="font-bold text-white text-lg truncate">{item.title}</h3>
+                    <span className="px-2 py-0.5 rounded text-[9px] font-black border border-zinc-800 text-zinc-500 uppercase tracking-widest">{item.instanceName}</span>
+                    {isSeries && <span className="px-2 py-0.5 rounded text-[9px] font-black bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 uppercase tracking-widest">{pct}% READY</span>}
+                </div>
+                <div className="flex items-center gap-5 text-xs text-zinc-500 font-medium">
+                    <span className="flex items-center gap-1.5"><Calendar size={12} /> {item.year}</span>
+                    <span className="flex items-center gap-1.5"><HardDrive size={12} /> {sizeStr}</span>
+                    <span className="flex items-center gap-1.5 truncate max-w-md"><Monitor size={12} className="text-zinc-700" /> <span className="text-zinc-600 truncate">{path}</span></span>
+                </div>
+            </div>
+            <div className="flex items-center gap-2 pr-2">
+                <button onClick={onTransfer} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-bold text-zinc-400 hover:text-white hover:border-zinc-700 transition-all">
+                    <MoveHorizontal size={14} /> Transfer
+                </button>
+                <button onClick={onDelete} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-500/5 border border-red-500/20 text-xs font-bold text-red-500 hover:bg-red-500/10 transition-all">
+                    <Trash2 size={14} /> Delete
+                </button>
+            </div>
+        </div>
+    );
+}
+
+function MyMediaCard({ item, viewMode, onRefresh, expandAll, onDelete, onTransfer }: {
+    item: any; viewMode: 'grid' | 'list'; onRefresh: () => void; expandAll: boolean; onDelete: () => void; onTransfer: () => void;
+}) {
+    const isSeries = !!item.seasons || !!item.statistics;
+    if (viewMode === 'list') return <MyMediaListCard item={item} isSeries={isSeries} onDelete={onDelete} onTransfer={onTransfer} />;
+    return <MyMediaGridCard item={item} isSeries={isSeries} expandAll={expandAll} onDelete={onDelete} onTransfer={onTransfer} />;
 }
 
 // ──────────────────────────────────────────────
@@ -365,12 +392,14 @@ export default function DiscoverPage() {
 
     // ── Load library (for cross-referencing) ──
     const loadLibrary = useCallback(async () => {
+        setLibraryLoading(true);
         const endpoint = mediaType === 'movie' ? '/api/radarr/all' : '/api/sonarr/all';
         const data = await fetch(endpoint).then(r => r.ok ? r.json() : []).catch(() => []);
         const items = Array.isArray(data) ? data : [];
         setLibraryItems(items);
         const ids = new Set<number>(items.flatMap((m: any) => [m.tmdbId, m.tvdbId].filter(Boolean)));
         setLibrarySet(ids);
+        setLibraryLoading(false);
     }, [mediaType]);
 
     useEffect(() => { loadLibrary(); }, [loadLibrary]);
@@ -406,6 +435,77 @@ export default function DiscoverPage() {
             handleDiscovery();
         }
     }, [mediaType, pageMode]);
+
+    // ── Management Handlers ──
+    const [transferTarget, setTransferTarget] = useState<any>(null);
+    const [isTransferring, setIsTransferring] = useState(false);
+
+    const handleDelete = async (item: any) => {
+        if (!confirm(`Are you sure you want to delete "${item.title}"? This cannot be undone.`)) return;
+        const deleteFiles = confirm(`Do you also want to delete the files from disk?`);
+
+        try {
+            const endpoint = mediaType === 'movie' ? '/api/radarr/delete' : '/api/sonarr/delete';
+            const params = new URLSearchParams({
+                instanceId: item.instanceId,
+                deleteFiles: deleteFiles.toString()
+            });
+            if (mediaType === 'movie') params.append('movieId', item.id);
+            else params.append('seriesId', item.id);
+
+            const res = await fetch(`${endpoint}?${params.toString()}`, { method: 'DELETE' });
+            if (res.ok) {
+                toast.success(`Deleted ${item.title}`);
+                loadLibrary();
+            } else {
+                const err = await res.json().catch(() => ({}));
+                toast.error(err.error || 'Failed to delete item');
+            }
+        } catch (e) {
+            toast.error('An error occurred while deleting');
+        }
+    };
+
+    const handleTransfer = async (item: any, targetInstanceId: string, targetProfileId: number) => {
+        setIsTransferring(true);
+        try {
+            // Step 1: Add to target
+            const resAdd = await fetch('/api/media/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    mediaId: item.tmdbId || item.tvdbId,
+                    mediaType,
+                    instanceId: targetInstanceId,
+                    profileId: targetProfileId,
+                    rootFolder: null, // Auto-select
+                })
+            });
+
+            if (!resAdd.ok) {
+                const err = await resAdd.json();
+                throw new Error(err.error || 'Failed to add to target instance');
+            }
+
+            // Step 2: Delete from source
+            const deleteEndpoint = mediaType === 'movie' ? '/api/radarr/delete' : '/api/sonarr/delete';
+            const deleteParams = new URLSearchParams({
+                instanceId: item.instanceId,
+                deleteFiles: 'true'
+            });
+            if (mediaType === 'movie') deleteParams.append('movieId', item.id);
+            else deleteParams.append('seriesId', item.id);
+
+            await fetch(`${deleteEndpoint}?${deleteParams.toString()}`, { method: 'DELETE' });
+
+            toast.success(`Transferred ${item.title} successfully`);
+            setTransferTarget(null);
+            loadLibrary();
+        } catch (e: any) {
+            toast.error(e.message || 'Transfer failed');
+        }
+        setIsTransferring(false);
+    };
 
     // ── Search ──
     const handleSearch = async (e?: React.FormEvent | null) => {
@@ -448,7 +548,6 @@ export default function DiscoverPage() {
             if (res.ok) {
                 const added = await res.json();
                 toast.success(`Added ${item.title}!`);
-                // Mark in library
                 if (added?.id) {
                     const newId = item.tmdbId || item.tvdbId;
                     if (newId) setLibrarySet(prev => new Set([...prev, newId]));
@@ -498,10 +597,17 @@ export default function DiscoverPage() {
         return items;
     }, [results, searchQuery, isSearching, filterGenre, filterPlatform, filterYear, sortBy]);
 
+    const [expandAll, setExpandAll] = useState(false);
+
     const filteredLibrary = useMemo(() => {
-        let items = [...libraryItems].filter(i =>
-            i.instanceId && instances.some(inst => inst.type === (mediaType === 'movie' ? 'radarr' : 'sonarr') && inst.id === i.instanceId)
-        );
+        let items = [...libraryItems];
+        if (selectedInstanceId) {
+            items = items.filter(i => i.instanceId === selectedInstanceId);
+        } else {
+            items = items.filter(i =>
+                i.instanceId && instances.some(inst => inst.type === (mediaType === 'movie' ? 'radarr' : 'sonarr') && inst.id === i.instanceId)
+            );
+        }
         if (searchQuery) {
             const q = searchQuery.toLowerCase();
             items = items.filter(i => i.title?.toLowerCase().includes(q));
@@ -511,7 +617,7 @@ export default function DiscoverPage() {
         if (sortBy === 'year') items.sort((a, b) => (b.year || 0) - (a.year || 0));
         else if (sortBy === 'alphabetical') items.sort((a, b) => a.title?.localeCompare(b.title || '') || 0);
         return items;
-    }, [libraryItems, instances, mediaType, searchQuery, filterGenre, filterYear, sortBy]);
+    }, [libraryItems, instances, mediaType, searchQuery, filterGenre, filterYear, sortBy, selectedInstanceId]);
 
     const allPlatforms = useMemo(() => {
         const ps = new Set<string>();
@@ -548,285 +654,183 @@ export default function DiscoverPage() {
 
             {/* Top Control Bar */}
             <div className="flex flex-wrap items-center gap-3">
-                {/* Discovery / My Library Toggle */}
                 <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/50">
-                    <button
-                        onClick={() => setPageMode('discover')}
-                        className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black rounded-xl transition-all ${pageMode === 'discover' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'}`}
-                    >
-                        <Sparkles size={14} /> Discover
-                    </button>
-                    <button
-                        onClick={() => setPageMode('mylibrary')}
-                        className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black rounded-xl transition-all ${pageMode === 'mylibrary' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'}`}
-                    >
-                        <HardDrive size={14} /> My Library
-                    </button>
+                    <button onClick={() => setPageMode('discover')} className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black rounded-xl transition-all ${pageMode === 'discover' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'}`}><Sparkles size={14} /> Discover</button>
+                    <button onClick={() => setPageMode('mylibrary')} className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black rounded-xl transition-all ${pageMode === 'mylibrary' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'}`}><HardDrive size={14} /> My Library</button>
                 </div>
 
-                {/* Movies / Series Toggle */}
                 <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/50">
-                    <button
-                        onClick={() => setMediaType('movie')}
-                        className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black rounded-xl transition-all ${mediaType === 'movie' ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30' : 'text-zinc-500 hover:text-zinc-400'}`}
-                    >
-                        <Film size={14} /> Movies
-                    </button>
-                    <button
-                        onClick={() => setMediaType('series')}
-                        className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black rounded-xl transition-all ${mediaType === 'series' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30' : 'text-zinc-500 hover:text-zinc-400'}`}
-                    >
-                        <Tv size={14} /> Series
-                    </button>
+                    <button onClick={() => setMediaType('movie')} className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black rounded-xl transition-all ${mediaType === 'movie' ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30' : 'text-zinc-500 hover:text-zinc-400'}`}><Film size={14} /> Movies</button>
+                    <button onClick={() => setMediaType('series')} className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black rounded-xl transition-all ${mediaType === 'series' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30' : 'text-zinc-500 hover:text-zinc-400'}`}><Tv size={14} /> Series</button>
                 </div>
 
-                {/* Instance Toggles */}
                 <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/50 overflow-x-auto gap-1 max-w-full">
                     {availableInstances.map(inst => {
                         const isSelected = selectedInstanceId === inst.id;
-                        const hex = twColorToHex(inst.color);
+                        const hex = inst.colorHex || '#3b82f6';
                         return (
                             <button
                                 key={inst.id}
                                 onClick={() => setSelectedInstanceId(inst.id)}
                                 className="flex items-center gap-2 px-5 py-2.5 text-xs font-bold rounded-xl border transition-all whitespace-nowrap"
-                                style={isSelected ? {
-                                    backgroundColor: `${hex}22`,
-                                    borderColor: `${hex}66`,
-                                    color: hex,
-                                } : {
-                                    borderColor: 'transparent',
-                                    color: '#52525b',
-                                }}
+                                style={isSelected ? { backgroundColor: `${hex}22`, borderColor: `${hex}66`, color: hex } : { borderColor: 'transparent', color: '#52525b' }}
                             >
-                                <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: hex }} />
-                                {inst.name}
+                                <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: hex }} /> {inst.name}
                             </button>
                         );
                     })}
                 </div>
 
-                {/* View toggle */}
-                <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/50 ml-auto">
-                    <button onClick={() => setViewMode('grid')} className={`p-2.5 rounded-xl transition-all ${viewMode === 'grid' ? 'bg-zinc-800 text-white' : 'text-zinc-600'}`}><LayoutGrid size={16} /></button>
-                    <button onClick={() => setViewMode('list')} className={`p-2.5 rounded-xl transition-all ${viewMode === 'list' ? 'bg-zinc-800 text-white' : 'text-zinc-600'}`}><List size={16} /></button>
+                <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/50 ml-auto gap-2">
+                    {pageMode === 'mylibrary' && mediaType === 'series' && (
+                        <button
+                            onClick={() => setExpandAll(!expandAll)}
+                            className={`flex items-center gap-2 px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${expandAll ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-zinc-900 text-zinc-500 border border-zinc-800 hover:text-zinc-300'}`}
+                        >
+                            {expandAll ? 'Hide Episodes' : 'Expand All'}
+                        </button>
+                    )}
+                    <div className="flex bg-zinc-900/50 rounded-xl p-0.5">
+                        <button onClick={() => setViewMode('grid')} className={`p-2 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-zinc-700 text-white' : 'text-zinc-600'}`}><LayoutGrid size={15} /></button>
+                        <button onClick={() => setViewMode('list')} className={`p-2 rounded-lg transition-all ${viewMode === 'list' ? 'bg-zinc-700 text-white' : 'text-zinc-600'}`}><Rows size={15} /></button>
+                    </div>
                 </div>
             </div>
 
-            {/* Profile selector (Discover only) */}
             {pageMode === 'discover' && (
                 <div className="flex flex-wrap items-end gap-4 p-5 bg-zinc-950/40 border border-zinc-900/50 rounded-3xl backdrop-blur-md">
                     <div className="min-w-[220px] max-w-[300px]">
-                        <CustomSelect
-                            label="Quality Profile"
-                            options={profiles}
-                            value={selectedProfileId}
-                            onChange={(val) => setSelectedProfileId(Number(val))}
-                        />
+                        <CustomSelect label="Quality Profile" options={profiles} value={selectedProfileId} onChange={(val) => setSelectedProfileId(Number(val))} />
                     </div>
                     <div className="flex flex-col gap-1">
                         <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Auto-Search</label>
-                        <button
-                            onClick={() => setStartSearch(!startSearch)}
-                            className={`h-11 px-5 rounded-2xl border flex items-center gap-3 transition-all text-xs font-black uppercase tracking-wider ${startSearch ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-zinc-900 border-zinc-800 text-zinc-500'}`}
-                        >
-                            <div className={`w-2 h-2 rounded-full ${startSearch ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-700'}`} />
-                            {startSearch ? 'Yes' : 'No'}
+                        <button onClick={() => setStartSearch(!startSearch)} className={`h-11 px-5 rounded-2xl border flex items-center gap-3 transition-all text-xs font-black uppercase tracking-wider ${startSearch ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-zinc-900 border-zinc-800 text-zinc-500'}`}>
+                            <div className={`w-2 h-2 rounded-full ${startSearch ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-700'}`} /> {startSearch ? 'Yes' : 'No'}
                         </button>
                     </div>
                     <div className="flex flex-col gap-1">
                         <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Filters</label>
-                        <button
-                            onClick={() => setShowFilters(!showFilters)}
-                            className={`h-11 px-5 rounded-2xl border flex items-center gap-2 text-xs font-black uppercase tracking-wider transition-all ${showFilters ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-zinc-900 border-zinc-800 text-zinc-500'}`}
-                        >
-                            <Filter size={14} /> {showFilters ? 'Hide' : 'Show'}
-                        </button>
+                        <button onClick={() => setShowFilters(!showFilters)} className={`h-11 px-5 rounded-2xl border flex items-center gap-2 text-xs font-black uppercase tracking-wider transition-all ${showFilters ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-zinc-900 border-zinc-800 text-zinc-500'}`}><Filter size={14} /> {showFilters ? 'Hide' : 'Show'}</button>
                     </div>
                 </div>
             )}
 
-            {/* Main Content Area */}
             <div className="flex flex-col lg:flex-row gap-8 items-start">
-                {/* Sidebar */}
                 {showFilters && (
                     <div className="w-full lg:w-72 space-y-7 bg-zinc-950/20 p-6 rounded-3xl border border-zinc-900/50 flex-shrink-0">
-                        {/* Search */}
                         <div className="space-y-2">
                             <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em]">Search</label>
                             <form onSubmit={handleSearch} className="relative group">
                                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-600 group-focus-within:text-emerald-500 transition-colors" size={16} />
-                                <input
-                                    type="text"
-                                    placeholder="Title, keyword..."
-                                    value={searchQuery}
-                                    onChange={e => setSearchQuery(e.target.value)}
-                                    onKeyDown={e => { if (e.key === 'Enter') handleSearch(); if (e.key === 'Escape') { setSearchQuery(''); handleDiscovery(); } }}
-                                    className="w-full bg-zinc-950 border border-zinc-800/80 rounded-2xl pl-10 pr-4 py-3 text-sm text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all placeholder-zinc-700"
-                                />
+                                <input type="text" placeholder="Title, keyword..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleSearch(); if (e.key === 'Escape') { setSearchQuery(''); handleDiscovery(); } }} className="w-full bg-zinc-950 border border-zinc-800/80 rounded-2xl pl-10 pr-4 py-3 text-sm text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all placeholder-zinc-700" />
                                 {isSearching && <div className="absolute right-4 top-1/2 -translate-y-1/2 w-3 h-3 border-2 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin" />}
                             </form>
-                            {searchQuery && (
-                                <button onClick={() => { setSearchQuery(''); handleDiscovery(); }} className="flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-300 font-bold">
-                                    <X size={10} /> Clear — back to trending
-                                </button>
-                            )}
                         </div>
 
-                        {/* Genre Filter */}
                         <div className="space-y-3">
                             <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center gap-1.5"><Tags size={11} /> Genre</label>
-                            <div className="flex flex-wrap gap-1.5">
-                                {ALL_GENRES.map(genre => (
-                                    <button
-                                        key={genre}
-                                        onClick={() => setFilterGenre(genre)}
-                                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all border ${filterGenre === genre ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-transparent text-zinc-600 border-zinc-800 hover:text-zinc-400 hover:border-zinc-700'}`}
-                                    >
-                                        {genre}
-                                    </button>
-                                ))}
-                            </div>
+                            <div className="flex flex-wrap gap-1.5">{ALL_GENRES.map(genre => <button key={genre} onClick={() => setFilterGenre(genre)} className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all border ${filterGenre === genre ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-transparent text-zinc-600 border-zinc-800 hover:text-zinc-400 hover:border-zinc-700'}`}>{genre}</button>)}</div>
                         </div>
 
-                        {/* Platform filter (discover only) */}
-                        {pageMode === 'discover' && allPlatforms.length > 1 && (
-                            <CustomSelect
-                                label="Platform / Studio"
-                                icon={<Monitor size={11} />}
-                                options={allPlatforms.map(p => ({ id: p, name: p }))}
-                                value={filterPlatform}
-                                onChange={val => setFilterPlatform(val)}
-                            />
-                        )}
+                        {pageMode === 'discover' && allPlatforms.length > 1 && <CustomSelect label="Platform / Studio" icon={<Monitor size={11} />} options={allPlatforms.map(p => ({ id: p, name: p }))} value={filterPlatform} onChange={val => setFilterPlatform(val)} />}
+                        <CustomSelect label="Year" icon={<Calendar size={11} />} options={allYears.map(y => ({ id: y, name: y }))} value={filterYear} onChange={val => setFilterYear(val)} />
 
-                        <CustomSelect
-                            label="Year"
-                            icon={<Calendar size={11} />}
-                            options={allYears.map(y => ({ id: y, name: y }))}
-                            value={filterYear}
-                            onChange={val => setFilterYear(val)}
-                        />
-
-                        {/* Sort */}
                         <div className="space-y-2">
                             <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center gap-1.5"><TrendingUp size={11} /> Sort</label>
-                            <div className="space-y-1">
-                                {[
-                                    { id: 'popularity', label: 'Trending First' },
-                                    { id: 'year', label: 'Newest First' },
-                                    { id: 'alphabetical', label: 'Alphabetical' },
-                                ].map(s => (
-                                    <button
-                                        key={s.id}
-                                        onClick={() => setSortBy(s.id as any)}
-                                        className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-all border ${sortBy === s.id ? 'bg-zinc-800 text-white border-zinc-700' : 'text-zinc-600 border-transparent hover:text-zinc-400'}`}
-                                    >
-                                        {s.label}
-                                    </button>
-                                ))}
-                            </div>
+                            <div className="space-y-1">{[{ id: 'popularity', label: 'Trending First' }, { id: 'year', label: 'Newest First' }, { id: 'alphabetical', label: 'Alphabetical' }].map(s => <button key={s.id} onClick={() => setSortBy(s.id as any)} className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-all border ${sortBy === s.id ? 'bg-zinc-800 text-white border-zinc-700' : 'text-zinc-600 border-transparent hover:text-zinc-400'}`}>{s.label}</button>)}</div>
                         </div>
-
-                        {/* Clear filters */}
-                        {(filterGenre !== 'All' || filterPlatform !== 'All' || filterYear !== 'All') && (
-                            <button onClick={() => { setFilterGenre('All'); setFilterPlatform('All'); setFilterYear('All'); }} className="w-full text-[10px] font-black text-emerald-500 uppercase tracking-widest hover:text-emerald-400 flex items-center justify-center gap-1">
-                                <X size={10} /> Clear Filters
-                            </button>
-                        )}
                     </div>
                 )}
 
-                {/* Results */}
                 <div className="flex-1 min-w-0 space-y-5">
-                    {/* Header row */}
                     <div className="flex items-center justify-between">
-                        <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                            {pageMode === 'discover' ? (searchQuery ? `Results for "${searchQuery}"` : 'Trending Now') : 'My Library'}
-                            <span className="bg-zinc-900 text-zinc-500 text-[10px] font-black px-2 py-0.5 rounded-full border border-zinc-800">
-                                {displayItems.length}
-                            </span>
-                        </h2>
-                        {pageMode === 'discover' && !showFilters && (
-                            <button onClick={() => setShowFilters(true)} className="flex items-center gap-1.5 text-[10px] font-black text-zinc-500 hover:text-zinc-300 uppercase tracking-widest">
-                                <Filter size={12} /> Filters
-                            </button>
-                        )}
+                        <h2 className="text-lg font-bold text-white flex items-center gap-2">{pageMode === 'discover' ? (searchQuery ? `Results for "${searchQuery}"` : 'Trending Now') : 'My Library'}<span className="bg-zinc-900 text-zinc-500 text-[10px] font-black px-2 py-0.5 rounded-full border border-zinc-800">{displayItems.length}</span></h2>
+                        {pageMode === 'discover' && !showFilters && <button onClick={() => setShowFilters(true)} className="flex items-center gap-1.5 text-[10px] font-black text-zinc-500 hover:text-zinc-300 uppercase tracking-widest"><Filter size={12} /> Filters</button>}
                     </div>
 
-                    {/* Grid / List */}
                     {isSearching || (pageMode === 'mylibrary' && libraryLoading) ? (
                         <div className="flex flex-col items-center justify-center py-40 gap-4">
-                            <div className="w-12 h-12 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin" />
-                            <p className="text-zinc-600 text-xs font-bold uppercase tracking-widest">
-                                {pageMode === 'discover' ? 'Searching...' : 'Loading library...'}
-                            </p>
+                            <div className="w-12 h-12 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin" /><p className="text-zinc-600 text-xs font-bold uppercase tracking-widest">{pageMode === 'discover' ? 'Searching...' : 'Loading library...'}</p>
                         </div>
                     ) : pageItems.length > 0 ? (
                         <>
-                            <div className={viewMode === 'grid'
-                                ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5'
-                                : 'space-y-3'
-                            }>
+                            <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5' : 'space-y-3'}>
                                 {pageItems.map((item, idx) => {
-                                    if (pageMode === 'mylibrary') {
-                                        return <MyMediaCard key={`${item.instanceId}-${item.id}-${idx}`} item={item} viewMode={viewMode} />;
-                                    }
-                                    const idStr = item.tmdbId ? `tmdb-${item.tmdbId}` : `tvdb-${item.tvdbId}`;
-                                    return (
-                                        <DiscoveryCard
-                                            key={idStr}
-                                            item={item}
-                                            isAdding={addingItemStr === idStr}
-                                            hasBeenAdded={isInLibrary(item)}
-                                            onAdd={() => handleAdd(item)}
-                                            viewMode={viewMode}
-                                        />
-                                    );
+                                    if (pageMode === 'mylibrary') return <MyMediaCard key={`${item.instanceId}-${item.id}-${idx}`} item={item} viewMode={viewMode} onRefresh={loadLibrary} expandAll={expandAll} onDelete={() => handleDelete(item)} onTransfer={() => setTransferTarget(item)} />;
+                                    return <DiscoveryCard key={item.tmdbId ? `tmdb-${item.tmdbId}` : `tvdb-${item.tvdbId}`} item={item} isAdding={addingItemStr === (item.tmdbId ? `tmdb-${item.tmdbId}` : `tvdb-${item.tvdbId}`)} hasBeenAdded={isInLibrary(item)} onAdd={() => handleAdd(item)} viewMode={viewMode} />;
                                 })}
                             </div>
-
-                            {/* Pagination */}
                             {totalPages > 1 && (
                                 <div className="flex items-center justify-center gap-4 pt-4">
-                                    <button
-                                        onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
-                                        disabled={currentPage === 0}
-                                        className="px-5 py-2.5 rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-400 text-xs font-black uppercase tracking-widest hover:border-zinc-700 hover:text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                                    >← Prev</button>
+                                    <button onClick={() => setCurrentPage(p => Math.max(0, p - 1))} disabled={currentPage === 0} className="px-5 py-2.5 rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-400 text-xs font-black uppercase tracking-widest hover:border-zinc-700 hover:text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed">← Prev</button>
                                     <span className="text-zinc-600 text-xs font-bold">Page {currentPage + 1} of {totalPages}</span>
-                                    <button
-                                        onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))}
-                                        disabled={currentPage >= totalPages - 1}
-                                        className="px-5 py-2.5 rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-400 text-xs font-black uppercase tracking-widest hover:border-zinc-700 hover:text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                                    >Next →</button>
+                                    <button onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))} disabled={currentPage >= totalPages - 1} className="px-5 py-2.5 rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-400 text-xs font-black uppercase tracking-widest hover:border-zinc-700 hover:text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed">Next →</button>
                                 </div>
                             )}
                         </>
                     ) : (
                         <div className="flex flex-col items-center justify-center py-40 bg-zinc-950/20 rounded-[3rem] border border-zinc-900/50 gap-6">
-                            <div className="p-8 bg-zinc-900/50 rounded-full opacity-20">
-                                <Search size={64} />
-                            </div>
+                            <div className="p-8 bg-zinc-900/50 rounded-full opacity-20"><Search size={64} /></div>
                             <div className="text-center">
-                                <p className="text-xl font-bold text-white mb-2">
-                                    {pageMode === 'mylibrary' ? 'Library is empty' : 'No results found'}
-                                </p>
-                                <p className="text-zinc-500 font-medium">
-                                    {pageMode === 'mylibrary' ? 'Add media in Discover mode.' : 'Try adjusting your filters.'}
-                                </p>
+                                <p className="text-xl font-bold text-white mb-2">{pageMode === 'mylibrary' ? 'Library is empty' : 'No results found'}</p>
+                                <p className="text-zinc-500 font-medium">{pageMode === 'mylibrary' ? 'Add media in Discover mode.' : 'Try adjusting your filters.'}</p>
                             </div>
-                            {(filterGenre !== 'All' || filterPlatform !== 'All' || filterYear !== 'All' || searchQuery) && (
-                                <button
-                                    onClick={() => { setFilterGenre('All'); setFilterPlatform('All'); setFilterYear('All'); setSearchQuery(''); handleDiscovery(); }}
-                                    className="px-6 py-3 bg-zinc-900 text-white rounded-xl text-sm font-bold hover:bg-zinc-800 transition-all border border-zinc-800"
-                                >
-                                    Reset All Filters
-                                </button>
-                            )}
                         </div>
                     )}
                 </div>
+            </div>
+
+            {/* Transfer Modal */}
+            {transferTarget && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl relative">
+                        <button onClick={() => setTransferTarget(null)} className="absolute top-6 right-6 p-2 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"><X size={20} /></button>
+                        <div className="flex items-center gap-4 mb-8">
+                            <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center text-indigo-500"><MoveHorizontal size={24} /></div>
+                            <div><h2 className="text-xl font-black text-white">Transfer Media</h2><p className="text-sm text-zinc-500 font-bold">{transferTarget.title}</p></div>
+                        </div>
+                        <TransferForm item={transferTarget} instances={instances.filter(i => i.type === (mediaType === 'movie' ? 'radarr' : 'sonarr') && i.id !== transferTarget.instanceId)} onTransfer={handleTransfer} onCancel={() => setTransferTarget(null)} loading={isTransferring} />
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+function TransferForm({ item, instances, onTransfer, onCancel, loading }: any) {
+    const [targetInstanceId, setTargetInstanceId] = useState('');
+    const [profiles, setProfiles] = useState<any[]>([]);
+    const [selectedProfileId, setSelectedProfileId] = useState<number | null>(null);
+    const [loadingProfiles, setLoadingProfiles] = useState(false);
+
+    useEffect(() => {
+        if (targetInstanceId) {
+            setLoadingProfiles(true);
+            const base = instances.find((i: any) => i.id === targetInstanceId)?.type === 'radarr' ? '/api/radarr' : '/api/sonarr';
+            fetch(`${base}/profiles?instanceId=${targetInstanceId}`).then(r => r.json()).then(data => {
+                setProfiles(data);
+                if (data.length > 0) setSelectedProfileId(data[0].id);
+            }).finally(() => setLoadingProfiles(false));
+        }
+    }, [targetInstanceId, instances]);
+
+    const canSubmit = targetInstanceId && selectedProfileId && !loading;
+
+    return (
+        <div className="space-y-6">
+            <div className="space-y-4">
+                <CustomSelect label="Target Instance" value={targetInstanceId} onChange={setTargetInstanceId} options={instances.map((i: any) => ({ id: i.id, name: i.name }))} />
+                {targetInstanceId && (
+                    <div className="relative">
+                        {loadingProfiles && <div className="absolute right-3 top-3 z-10"><div className="w-4 h-4 border-2 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin" /></div>}
+                        <CustomSelect label="Quality Profile" value={selectedProfileId || ''} onChange={(v) => setSelectedProfileId(Number(v))} options={profiles.map(p => ({ id: p.id.toString(), name: p.name }))} />
+                    </div>
+                )}
+            </div>
+            <div className="bg-amber-500/5 border border-amber-500/10 p-4 rounded-2xl"><p className="text-[10px] font-bold text-amber-500/80 leading-relaxed">Note: Transferring will ADD the media to the target instance and DELETE it from the source instance (including files).</p></div>
+            <div className="flex gap-3 pt-2">
+                <button onClick={onCancel} className="flex-1 h-12 bg-zinc-900 border border-zinc-800 text-zinc-400 font-black uppercase text-[10px] tracking-widest rounded-2xl hover:text-white transition-all">Cancel</button>
+                <button disabled={!canSubmit} onClick={() => onTransfer(item, targetInstanceId, selectedProfileId)} className={`flex-[2] h-12 flex items-center justify-center gap-2 font-black uppercase text-[10px] tracking-widest rounded-2xl transition-all ${canSubmit ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'}`}>{loading ? <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" /> : <MoveHorizontal size={14} />} {loading ? 'Transferring...' : 'Confirm Transfer'}</button>
             </div>
         </div>
     );
