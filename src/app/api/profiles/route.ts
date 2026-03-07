@@ -1,7 +1,15 @@
 import { NextResponse } from 'next/server';
 import { getInstances, getInstanceById } from '@/lib/db';
-import { getQualityProfiles as getRadarrProfiles } from '@/lib/radarr';
-import { getQualityProfiles as getSonarrProfiles } from '@/lib/sonarr';
+import {
+    getQualityProfiles as getRadarrProfiles,
+    createQualityProfile as createRadarrProfile,
+    deleteQualityProfile as deleteRadarrProfile
+} from '@/lib/radarr';
+import {
+    getQualityProfiles as getSonarrProfiles,
+    createQualityProfile as createSonarrProfile,
+    deleteQualityProfile as deleteSonarrProfile
+} from '@/lib/sonarr';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +25,7 @@ export async function GET(request: Request) {
                 return NextResponse.json({ error: 'Instance not found' }, { status: 404 });
             }
 
-            let profiles = [];
+            let profiles: any[] = [];
             if (instance.type === 'radarr') {
                 profiles = await getRadarrProfiles(instance.url, instance.api_key);
             } else if (instance.type === 'sonarr') {
@@ -31,7 +39,7 @@ export async function GET(request: Request) {
             const radarrInstances = getInstances('radarr', true);
             const sonarrInstances = getInstances('sonarr', true);
 
-            const allProfiles = [];
+            const allProfiles: any[] = [];
 
             // Fetch Radarr
             for (const r of radarrInstances) {
@@ -64,5 +72,60 @@ export async function GET(request: Request) {
     } catch (error) {
         console.error('API /profiles error:', error);
         return NextResponse.json({ error: 'Failed to fetch profiles' }, { status: 500 });
+    }
+}
+export async function POST(request: Request) {
+    try {
+        const body = await request.json();
+        const { instanceId, profile } = body;
+
+        if (!instanceId || !profile) {
+            return NextResponse.json({ error: 'Missing instanceId or profile data' }, { status: 400 });
+        }
+
+        const instance = getInstanceById(instanceId);
+        if (!instance) {
+            return NextResponse.json({ error: 'Instance not found' }, { status: 404 });
+        }
+
+        let newProfile;
+        if (instance.type === 'radarr') {
+            newProfile = await createRadarrProfile(instance.url, instance.api_key, profile);
+        } else if (instance.type === 'sonarr') {
+            newProfile = await createSonarrProfile(instance.url, instance.api_key, profile);
+        }
+
+        return NextResponse.json(newProfile);
+    } catch (error: any) {
+        console.error('API /profiles POST error:', error);
+        return NextResponse.json({ error: error.response?.data?.message || 'Failed to create profile' }, { status: 500 });
+    }
+}
+
+export async function DELETE(request: Request) {
+    const { searchParams } = new URL(request.url);
+    const instanceId = searchParams.get('instanceId');
+    const profileId = searchParams.get('profileId');
+
+    if (!instanceId || !profileId) {
+        return NextResponse.json({ error: 'Missing instanceId or profileId' }, { status: 400 });
+    }
+
+    try {
+        const instance = getInstanceById(instanceId);
+        if (!instance) {
+            return NextResponse.json({ error: 'Instance not found' }, { status: 404 });
+        }
+
+        if (instance.type === 'radarr') {
+            await deleteRadarrProfile(instance.url, instance.api_key, parseInt(profileId));
+        } else if (instance.type === 'sonarr') {
+            await deleteSonarrProfile(instance.url, instance.api_key, parseInt(profileId));
+        }
+
+        return NextResponse.json({ success: true });
+    } catch (error: any) {
+        console.error('API /profiles DELETE error:', error);
+        return NextResponse.json({ error: error.response?.data?.[0]?.errorMessage || 'Failed to delete profile' }, { status: 500 });
     }
 }

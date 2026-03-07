@@ -280,3 +280,23 @@ export const addSeries = async (url: string, apiKey: string, seriesPayload: any)
         return { success: false, error: error.response?.data || error.message };
     }
 };
+export async function createQualityProfile(url: string, apiKey: string, profile: any) {
+    const res = await axios.post(`${url}/api/v3/qualityprofile`, profile, {
+        headers: { 'X-Api-Key': apiKey }
+    });
+    return res.data;
+}
+
+export async function updateQualityProfile(url: string, apiKey: string, profile: any) {
+    const res = await axios.put(`${url}/api/v3/qualityprofile/${profile.id}`, profile, {
+        headers: { 'X-Api-Key': apiKey }
+    });
+    return res.data;
+}
+
+export async function deleteQualityProfile(url: string, apiKey: string, profileId: number) {
+    const res = await axios.delete(`${url}/api/v3/qualityprofile/${profileId}`, {
+        headers: { 'X-Api-Key': apiKey }
+    });
+    return res.data;
+}

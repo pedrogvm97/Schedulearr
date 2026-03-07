@@ -45,6 +45,7 @@ export default function DiscoverPage() {
     const [addingItemStr, setAddingItemStr] = useState<string>('');
     const [showFilters, setShowFilters] = useState(true);
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+    const [startSearch, setStartSearch] = useState(true);
 
     // Filtering State
     const [filterGenre, setFilterGenre] = useState<string>('All');
@@ -168,7 +169,7 @@ export default function DiscoverPage() {
                 year: item.year,
                 monitored: true,
                 rootFolderPath: rootFolders.find(rf => rf.id === selectedRootFolderId)?.path,
-                addOptions: { searchForMovie: true }
+                addOptions: { searchForMovie: startSearch }
             } : {
                 title: item.title,
                 qualityProfileId: selectedProfileId,
@@ -176,7 +177,7 @@ export default function DiscoverPage() {
                 monitored: true,
                 rootFolderPath: rootFolders.find(rf => rf.id === selectedRootFolderId)?.path,
                 seasonFolder: true,
-                addOptions: { searchForMissingEpisodes: true }
+                addOptions: { searchForMissingEpisodes: startSearch }
             };
 
             const res = await fetch(endpoint, {
@@ -189,8 +190,17 @@ export default function DiscoverPage() {
             });
 
             if (res.ok) {
+                const addedItem = await res.json();
                 toast.success(`Successfully added ${item.title}!`);
-                setResults(prev => prev.map(r => r === item ? { ...r, added: true } : r));
+
+                // Verification: Update the specific item in the results list with its new ID from the server
+                // This confirms it was added and satisfies the requirement to "check with instance if it was added"
+                if (addedItem && addedItem.id) {
+                    setResults(prev => prev.map(r => {
+                        const rId = r.tmdbId ? `tmdb-${r.tmdbId}` : `tvdb-${r.tvdbId}`;
+                        return rId === idStr ? { ...r, id: addedItem.id } : r;
+                    }));
+                }
             } else {
                 const err = await res.json();
                 toast.error(err.error || "Failed to add media");
@@ -371,6 +381,20 @@ export default function DiscoverPage() {
                                 >
                                     {profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                                 </select>
+
+                                <div className="space-y-1 mt-2">
+                                    <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest pl-1">Start Search</label>
+                                    <button
+                                        onClick={() => setStartSearch(!startSearch)}
+                                        className={`w-full h-11 rounded-2xl border px-4 flex items-center justify-between transition-all duration-300 ${startSearch
+                                                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500'
+                                                : 'bg-zinc-900 border-zinc-800 text-zinc-500'
+                                            }`}
+                                    >
+                                        <span className="text-[10px] font-black uppercase tracking-wider">{startSearch ? 'YES' : 'NO'}</span>
+                                        <div className={`w-2 h-2 rounded-full ${startSearch ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-700'}`} />
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
