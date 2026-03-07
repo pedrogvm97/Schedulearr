@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { CustomSelect } from '@/components/CustomSelect';
+import { twColorToHex } from '@/lib/instanceColor';
 
 interface Profile {
     id: number;
@@ -240,44 +241,25 @@ export default function ProfilesPage() {
                     <div className="flex flex-wrap gap-2">
                         {instances.filter(i => filterType === 'All' || i.type === filterType).map(inst => {
                             const isSelected = filterInstances.includes(inst.id);
-                            const isHexColor = inst.color?.startsWith('#');
-                            const dotStyle = isHexColor ? { backgroundColor: inst.color } : {};
-                            const dotClass = !isHexColor && inst.color ? inst.color : 'bg-blue-500';
-                            const highlightStyle = isSelected && isHexColor ? { borderColor: inst.color, color: inst.color } : {};
-                            const bgStyle = isSelected && isHexColor ? { backgroundColor: `${inst.color}33` } : {};
-
-                            const TW_COLORS: Record<string, string> = {
-                                "bg-red-500": isSelected ? "bg-red-500/20 text-red-400 border-red-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                "bg-orange-500": isSelected ? "bg-orange-500/20 text-orange-400 border-orange-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                "bg-amber-500": isSelected ? "bg-amber-500/20 text-amber-400 border-amber-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                "bg-yellow-500": isSelected ? "bg-yellow-500/20 text-yellow-400 border-yellow-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                "bg-lime-500": isSelected ? "bg-lime-500/20 text-lime-400 border-lime-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                "bg-green-500": isSelected ? "bg-green-500/20 text-green-400 border-green-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                "bg-emerald-500": isSelected ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                "bg-teal-500": isSelected ? "bg-teal-500/20 text-teal-400 border-teal-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                "bg-cyan-500": isSelected ? "bg-cyan-500/20 text-cyan-400 border-cyan-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                "bg-sky-500": isSelected ? "bg-sky-500/20 text-sky-400 border-sky-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                "bg-blue-500": isSelected ? "bg-blue-500/20 text-blue-400 border-blue-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                "bg-indigo-500": isSelected ? "bg-indigo-500/20 text-indigo-400 border-indigo-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                "bg-violet-500": isSelected ? "bg-violet-500/20 text-violet-400 border-violet-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                "bg-purple-500": isSelected ? "bg-purple-500/20 text-purple-400 border-purple-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                "bg-fuchsia-500": isSelected ? "bg-fuchsia-500/20 text-fuchsia-400 border-fuchsia-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                "bg-pink-500": isSelected ? "bg-pink-500/20 text-pink-400 border-pink-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                                "bg-rose-500": isSelected ? "bg-rose-500/20 text-rose-400 border-rose-500/50" : "bg-zinc-950/50 text-zinc-500 border-zinc-800",
-                            };
-                            const standardTailwindClass = TW_COLORS[inst.color || "bg-blue-500"] || TW_COLORS["bg-blue-500"];
-
+                            const hex = twColorToHex(inst.color);
                             return (
                                 <button
                                     key={inst.id}
                                     onClick={() => toggleInstanceFilter(inst.id)}
-                                    style={isHexColor && isSelected ? { ...highlightStyle, ...bgStyle } : (isHexColor ? highlightStyle : {})}
-                                    className={`px-4 py-2 text-[11px] font-bold rounded-xl border transition-all flex items-center gap-2.5 ${!isHexColor ? standardTailwindClass : (isSelected ? 'border' : 'bg-zinc-950/50 text-zinc-500 border-zinc-800 hover:border-zinc-700 hover:text-zinc-300')
-                                        }`}
+                                    className="px-4 py-2 text-[11px] font-bold rounded-xl border transition-all flex items-center gap-2.5"
+                                    style={isSelected ? {
+                                        backgroundColor: `${hex}22`,
+                                        borderColor: `${hex}66`,
+                                        color: hex,
+                                    } : {
+                                        backgroundColor: 'rgba(9,9,11,0.5)',
+                                        borderColor: '#27272a',
+                                        color: '#71717a'
+                                    }}
                                 >
                                     <div
-                                        className={`w-1.5 h-1.5 rounded-full ${!isHexColor ? dotClass : ''}`}
-                                        style={dotStyle}
+                                        className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                                        style={{ backgroundColor: hex }}
                                     />
                                     {inst.name}
                                     {isSelected && <X size={10} className="ml-1 opacity-60" />}

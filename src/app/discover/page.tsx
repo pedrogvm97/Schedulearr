@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import { CustomSelect } from '@/components/CustomSelect';
+import { twColorToHex } from '@/lib/instanceColor';
 
 interface Instance {
     id: string;
@@ -118,13 +119,34 @@ export default function DiscoverPage() {
         fetchConfigs();
     }, [selectedInstanceId, mediaType, instances]);
 
-    // Discovery Trigger: Fetch trending whenever we have no results and no active search
+    // Discovery Trigger: Fetch TMDB trending when no search is active
     useEffect(() => {
-        const shouldTriggerDiscovery = selectedInstanceId && !searchQuery && !isSearching;
-        if (shouldTriggerDiscovery) {
-            handleSearch(null, true);
+        if (!searchQuery && !isSearching) {
+            handleDiscovery();
         }
-    }, [selectedInstanceId, searchQuery, mediaType]);
+    }, [mediaType]); // Re-fetch when switching movie/series
+
+    const handleDiscovery = async () => {
+        setIsSearching(true);
+        try {
+            const type = mediaType === 'movie' ? 'movie' : 'tv';
+            const res = await fetch(`/api/tmdb/trending?type=${type}`);
+            if (res.ok) {
+                const data = await res.json();
+                setResults(Array.isArray(data) ? data : []);
+            } else if (res.status === 503) {
+                // TMDB key not configured — fall back to Sonarr/Radarr lookup
+                if (selectedInstanceId) {
+                    await handleSearch(null, true);
+                    return;
+                }
+            }
+        } catch (error) {
+            console.error('Discovery error:', error);
+        } finally {
+            setIsSearching(false);
+        }
+    };
 
     const handleSearch = async (e?: React.FormEvent | null, isDiscovery = false) => {
         if (e) e.preventDefault();
@@ -133,26 +155,23 @@ export default function DiscoverPage() {
         if (!instanceIdToUse) return;
 
         setIsSearching(true);
-        // Clear results only for explicit new searches with a query
         if (!isDiscovery && searchQuery) setResults([]);
 
         try {
             const endpoint = mediaType === 'movie' ? `/api/radarr/lookup` : `/api/sonarr/lookup`;
-            // If it's a discovery call or if the query is empty, use an empty term
             const term = (isDiscovery || !searchQuery) ? '' : searchQuery;
 
             const res = await fetch(`${endpoint}?instanceId=${instanceIdToUse}&term=${encodeURIComponent(term)}`);
             if (res.ok) {
                 const data = await res.json();
-                const processedResults = Array.isArray(data) ? data : [];
-                setResults(processedResults);
+                setResults(Array.isArray(data) ? data : []);
             } else {
-                console.error("Discovery/Search failed", await res.text());
-                if (!isDiscovery && searchQuery) toast.error("Failed to fetch results");
+                console.error('Search failed', await res.text());
+                if (!isDiscovery && searchQuery) toast.error('Failed to fetch results');
             }
         } catch (error) {
-            console.error("Search error:", error);
-            if (!isDiscovery && searchQuery) toast.error("An error occurred during search");
+            console.error('Search error:', error);
+            if (!isDiscovery && searchQuery) toast.error('An error occurred during search');
         } finally {
             setIsSearching(false);
         }
@@ -263,19 +282,9 @@ export default function DiscoverPage() {
         const isDefaultDiscovery = !searchQuery && filterGenre === 'All' && filterPlatform === 'All' && filterYear === 'All';
 
         if (isDefaultDiscovery) {
-            // Default: filter by rating + major platform/studio (if enrichment data is available for at least some items)
-            const hasEnrichedData = items.some(item => item.productionCompanies?.length > 0 || item.studio || item.network);
-            items = items.filter(item => {
-                const rating = item.ratings?.value || 0;
-                if (rating < 6.5) return false;
-                if (!hasEnrichedData) return true; // no enrichment yet, just show rated content
-                const allCompanies: string[] = [
-                    ...(item.productionCompanies || []),
-                    item.studio, item.network
-                ].filter(Boolean).map((s: string) => s.toLowerCase());
-                if (allCompanies.length === 0) return true; // no companies data, show anyway
-                return MAJOR_PLATFORMS.some(p => allCompanies.some(c => c.includes(p)));
-            });
+            // Default view: only filter by rating (>= 6), no platform restriction
+            // MAJOR_PLATFORMS filter is only applied when the user explicitly picks a platform
+            items = items.filter(item => (item.ratings?.value || 0) >= 6);
         } else {
             if (filterGenre !== 'All') {
                 items = items.filter(item => item.genres?.includes(filterGenre));
@@ -376,44 +385,24 @@ export default function DiscoverPage() {
                     <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/50 shadow-2xl overflow-x-auto gap-1">
                         {availableInstances.map(inst => {
                             const isSelected = selectedInstanceId === inst.id;
-                            const isHexColor = inst.color?.startsWith('#');
-                            const dotStyle = isHexColor ? { backgroundColor: inst.color } : {};
-                            const dotClass = !isHexColor && inst.color ? inst.color : 'bg-blue-500';
-                            const highlightStyle = isSelected && isHexColor ? { borderColor: inst.color, color: inst.color } : {};
-                            const bgStyle = isSelected && isHexColor ? { backgroundColor: `${inst.color}33` } : {};
-
-                            const TW_COLORS: Record<string, string> = {
-                                "bg-red-500": isSelected ? "bg-red-500/20 text-red-400 border-red-500/50" : "bg-transparent border-transparent text-zinc-600",
-                                "bg-orange-500": isSelected ? "bg-orange-500/20 text-orange-400 border-orange-500/50" : "bg-transparent border-transparent text-zinc-600",
-                                "bg-amber-500": isSelected ? "bg-amber-500/20 text-amber-400 border-amber-500/50" : "bg-transparent border-transparent text-zinc-600",
-                                "bg-yellow-500": isSelected ? "bg-yellow-500/20 text-yellow-400 border-yellow-500/50" : "bg-transparent border-transparent text-zinc-600",
-                                "bg-lime-500": isSelected ? "bg-lime-500/20 text-lime-400 border-lime-500/50" : "bg-transparent border-transparent text-zinc-600",
-                                "bg-green-500": isSelected ? "bg-green-500/20 text-green-400 border-green-500/50" : "bg-transparent border-transparent text-zinc-600",
-                                "bg-emerald-500": isSelected ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/50" : "bg-transparent border-transparent text-zinc-600",
-                                "bg-teal-500": isSelected ? "bg-teal-500/20 text-teal-400 border-teal-500/50" : "bg-transparent border-transparent text-zinc-600",
-                                "bg-cyan-500": isSelected ? "bg-cyan-500/20 text-cyan-400 border-cyan-500/50" : "bg-transparent border-transparent text-zinc-600",
-                                "bg-sky-500": isSelected ? "bg-sky-500/20 text-sky-400 border-sky-500/50" : "bg-transparent border-transparent text-zinc-600",
-                                "bg-blue-500": isSelected ? "bg-blue-500/20 text-blue-400 border-blue-500/50" : "bg-transparent border-transparent text-zinc-600",
-                                "bg-indigo-500": isSelected ? "bg-indigo-500/20 text-indigo-400 border-indigo-500/50" : "bg-transparent border-transparent text-zinc-600",
-                                "bg-violet-500": isSelected ? "bg-violet-500/20 text-violet-400 border-violet-500/50" : "bg-transparent border-transparent text-zinc-600",
-                                "bg-purple-500": isSelected ? "bg-purple-500/20 text-purple-400 border-purple-500/50" : "bg-transparent border-transparent text-zinc-600",
-                                "bg-fuchsia-500": isSelected ? "bg-fuchsia-500/20 text-fuchsia-400 border-fuchsia-500/50" : "bg-transparent border-transparent text-zinc-600",
-                                "bg-pink-500": isSelected ? "bg-pink-500/20 text-pink-400 border-pink-500/50" : "bg-transparent border-transparent text-zinc-600",
-                                "bg-rose-500": isSelected ? "bg-rose-500/20 text-rose-400 border-rose-500/50" : "bg-transparent border-transparent text-zinc-600",
-                            };
-                            const standardTailwindClass = TW_COLORS[inst.color || "bg-blue-500"] || TW_COLORS["bg-blue-500"];
-
+                            const hex = twColorToHex(inst.color);
                             return (
                                 <button
                                     key={inst.id}
                                     onClick={() => setSelectedInstanceId(inst.id)}
-                                    style={isHexColor && isSelected ? { ...highlightStyle, ...bgStyle } : (isHexColor ? highlightStyle : {})}
-                                    className={`flex items-center gap-2 px-5 py-2.5 text-xs font-bold rounded-xl border transition-all whitespace-nowrap ${!isHexColor ? standardTailwindClass : (isSelected ? 'border' : 'border-transparent text-zinc-600 hover:text-zinc-400')
-                                        }`}
+                                    className="flex items-center gap-2 px-5 py-2.5 text-xs font-bold rounded-xl border transition-all whitespace-nowrap"
+                                    style={isSelected ? {
+                                        backgroundColor: `${hex}22`,
+                                        borderColor: `${hex}66`,
+                                        color: hex,
+                                    } : {
+                                        borderColor: 'transparent',
+                                        color: '#52525b'
+                                    }}
                                 >
                                     <div
-                                        className={`w-2 h-2 rounded-full ${!isHexColor ? dotClass : ''}`}
-                                        style={dotStyle}
+                                        className="w-2 h-2 rounded-full flex-shrink-0"
+                                        style={{ backgroundColor: hex }}
                                     />
                                     {inst.name}
                                 </button>
