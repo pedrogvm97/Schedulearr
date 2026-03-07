@@ -239,16 +239,19 @@ export default function ProfilesPage() {
                                 </div>
 
                                 <div className="flex flex-wrap gap-1.5 pt-2">
-                                    {profile.items?.filter((item: any) => item.allowed).slice(0, 6).map((item: any) => (
+                                    {(profile.items || []).filter((item: any) => item?.allowed && item?.quality).slice(0, 6).map((item: any) => (
                                         <span key={item.quality.id} className="px-2.5 py-1 rounded-lg bg-zinc-900/50 border border-zinc-800 text-[9px] font-bold text-zinc-400">
                                             {item.quality.name}
                                         </span>
                                     ))}
-                                    {profile.items?.filter((item: any) => item.allowed).length > 6 && (
+                                    {(profile.items || []).filter((item: any) => item?.allowed && item?.quality).length > 6 && (
                                         <span className="px-2.5 py-1 rounded-lg bg-zinc-900 text-[9px] font-bold text-zinc-600">
-                                            +{profile.items.filter((item: any) => item.allowed).length - 6} more
+                                            +{(profile.items || []).filter((item: any) => item?.allowed && item?.quality).length - 6} more
                                         </span>
-                                    ) || <span className="text-[9px] font-bold text-zinc-600 px-1">Any quality</span>}
+                                    )}
+                                    {(!profile.items || profile.items.filter((item: any) => item?.allowed && item?.quality).length === 0) && (
+                                        <span className="text-[9px] font-bold text-zinc-600 px-1 italic">Any quality</span>
+                                    )}
                                 </div>
                             </div>
 

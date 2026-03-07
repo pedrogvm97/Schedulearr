@@ -256,11 +256,12 @@ export const getRootFolders = async (url: string, apiKey: string): Promise<Sonar
 
 export const searchSeries = async (url: string, apiKey: string, term: string = ''): Promise<any[]> => {
     try {
-        // Sonarr v3 doesn't have a specific /discover, but empty search often returns trending in recent builds
-        // If it doesn't, we'll try a common popular term if term is empty
+        // Sonarr v3 doesn't have a specific /discover, but searching for "trending" 
+        // usually returns popular results when using the search/lookup endpoint.
+        const searchTerm = term || 'trending';
         const response = await axios.get(`${url}/api/v3/series/lookup`, {
             headers: { 'X-Api-Key': apiKey },
-            params: { term: term || '' }
+            params: { term: searchTerm }
         });
         return response.data;
     } catch (error) {

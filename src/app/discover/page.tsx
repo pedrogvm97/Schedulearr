@@ -114,7 +114,7 @@ export default function DiscoverPage() {
 
     // Discovery Trigger: Fetch trending whenever we have no results and no active search
     useEffect(() => {
-        const shouldTriggerDiscovery = selectedInstanceId && !searchQuery && results.length === 0 && !isSearching;
+        const shouldTriggerDiscovery = selectedInstanceId && !searchQuery && !isSearching;
         if (shouldTriggerDiscovery) {
             handleSearch(null, true);
         }
@@ -387,8 +387,8 @@ export default function DiscoverPage() {
                                     <button
                                         onClick={() => setStartSearch(!startSearch)}
                                         className={`w-full h-11 rounded-2xl border px-4 flex items-center justify-between transition-all duration-300 ${startSearch
-                                                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500'
-                                                : 'bg-zinc-900 border-zinc-800 text-zinc-500'
+                                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500'
+                                            : 'bg-zinc-900 border-zinc-800 text-zinc-500'
                                             }`}
                                     >
                                         <span className="text-[10px] font-black uppercase tracking-wider">{startSearch ? 'YES' : 'NO'}</span>
@@ -500,7 +500,7 @@ export default function DiscoverPage() {
                                 const posterUrl = item.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl;
                                 const isAdding = addingItemStr === idStr;
                                 // Strict detection + local optimistic state
-                                const hasBeenAdded = (typeof item.id === 'number' && item.id > 0) || item.added;
+                                const hasBeenAdded = (typeof item.id === 'number' && item.id > 0) || item.added === true;
                                 const platform = getPlatformBadge(item);
                                 const rating = item.ratings?.value;
 
