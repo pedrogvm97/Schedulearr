@@ -123,8 +123,9 @@ export default function DiscoverPage() {
         if (!selectedInstanceId) return;
 
         setIsSearching(true);
-        // If it's a new search, clear results to show loading
-        if (!isDiscovery || results.length === 0) setResults([]);
+        // If it's a new explicit search, clear results to show loading
+        // If it's discovery, only clear if we have nothing yet
+        if (!isDiscovery) setResults([]);
 
         try {
             const endpoint = mediaType === 'movie' ? `/api/radarr/lookup` : `/api/sonarr/lookup`;
@@ -134,11 +135,13 @@ export default function DiscoverPage() {
                 const data = await res.json();
                 setResults(Array.isArray(data) ? data : []);
             } else {
-                toast.error("Failed to fetch results");
+                console.error("Discovery/Search failed", await res.text());
+                // Don't toast on initial load to avoid annoyance
+                if (!isDiscovery) toast.error("Failed to fetch results");
             }
         } catch (error) {
             console.error("Search error:", error);
-            toast.error("An error occurred during search");
+            if (!isDiscovery) toast.error("An error occurred during search");
         } finally {
             setIsSearching(false);
         }

@@ -9,9 +9,11 @@ export async function GET(request: Request) {
     const instanceId = searchParams.get('instanceId');
     const term = searchParams.get('term');
 
-    if (!instanceId || !term) {
-        return NextResponse.json({ error: 'Missing instanceId or term' }, { status: 400 });
+    if (!instanceId) {
+        return NextResponse.json({ error: 'Missing instanceId' }, { status: 400 });
     }
+
+    const searchTerm = term || '';
 
     try {
         const instance = getInstanceById(instanceId);
@@ -19,7 +21,7 @@ export async function GET(request: Request) {
             return NextResponse.json({ error: 'Instance not found' }, { status: 404 });
         }
 
-        const results = await searchSeries(instance.url, instance.api_key, term);
+        const results = await searchSeries(instance.url, instance.api_key, searchTerm);
         return NextResponse.json(results);
     } catch (error) {
         console.error('API /sonarr/lookup error:', error);
