@@ -227,7 +227,7 @@ export default function Dashboard() {
 
       return (
         <div
-          className="bg-zinc-950/98 border border-zinc-800 p-4 rounded-xl shadow-2xl backdrop-blur-xl min-w-[280px] max-w-[450px] pointer-events-auto select-text"
+          className="bg-zinc-950/98 border border-zinc-800 p-4 rounded-xl shadow-2xl backdrop-blur-xl min-w-[280px] max-w-[450px] pointer-events-auto select-text z-50 relative"
           onMouseEnter={() => {
             if (tooltipTimeout) {
               clearTimeout(tooltipTimeout);
@@ -240,7 +240,12 @@ export default function Dashboard() {
         >
           <p className="text-zinc-400 text-[10px] font-bold uppercase tracking-widest mb-3 border-b border-zinc-800 pb-2 flex justify-between items-center">
             <span>{displayLabel ? new Date(String(displayLabel)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}</span>
-            <span className="text-[9px] text-zinc-600 normal-case font-medium">Scrollable Content</span>
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] text-zinc-600 normal-case font-medium">Scrollable Content</span>
+              <button onClick={() => setStickyTooltip(null)} className="text-zinc-600 hover:text-zinc-400 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+              </button>
+            </div>
           </p>
 
           <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">

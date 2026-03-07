@@ -238,6 +238,23 @@ export default function Downloads() {
                         </div>
 
                         <div className="space-y-6">
+                            <div className="flex items-center justify-between p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50">
+                                <div>
+                                    <div className="text-sm font-bold text-zinc-200">Delete Files</div>
+                                    <p className="text-[10px] text-zinc-500 font-medium">Remove data from disk</p>
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        const next = !qbitDeleteFiles;
+                                        setQbitDeleteFiles(next);
+                                        updateSetting('qbit_cleanup_delete_files', next);
+                                    }}
+                                    className={`w-10 h-5 rounded-full transition-all relative ${qbitDeleteFiles ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-zinc-700'}`}
+                                >
+                                    <div className={`w-3 h-3 rounded-full bg-white absolute top-1 transition-all ${qbitDeleteFiles ? 'left-6' : 'left-1'}`} />
+                                </button>
+                            </div>
+
                             <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-3">
                                 <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Stagnation (Minutes)</label>
                                 <input
@@ -252,23 +269,6 @@ export default function Downloads() {
                                     className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all"
                                 />
                                 <p className="text-[10px] text-zinc-500 font-medium leading-relaxed">Items with no progress changes for longer than this will be purged.</p>
-                            </div>
-
-                            <div className="flex items-center justify-between p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50">
-                                <div>
-                                    <div className="text-sm font-bold text-zinc-200">Delete Files</div>
-                                    <p className="text-[10px] text-zinc-500 font-medium">Remove data from disk</p>
-                                </div>
-                                <button
-                                    onClick={() => {
-                                        const next = !qbitDeleteFiles;
-                                        setQbitDeleteFiles(next);
-                                        updateSetting('qbit_cleanup_delete_files', next);
-                                    }}
-                                    className={`w-10 h-5 rounded-full transition-all relative ${qbitDeleteFiles ? 'bg-emerald-500' : 'bg-zinc-700'}`}
-                                >
-                                    <div className={`w-3 h-3 rounded-full bg-white absolute top-1 transition-all ${qbitDeleteFiles ? 'left-6' : 'left-1'}`} />
-                                </button>
                             </div>
                         </div>
 

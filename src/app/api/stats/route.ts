@@ -222,7 +222,7 @@ export async function GET(req: Request) {
                         const isFailed = record.eventType === 4 || typeStr.includes('failed');
 
                         // Indexer name resolution
-                        let indexerName = (record.data as any)?.indexer;
+                        let indexerName = (record.data as any)?.indexerName || (record.data as any)?.indexer;
                         if (!indexerName && record.sourceTitle) {
                             indexerName = sourceToIndexer[record.sourceTitle];
                         }
