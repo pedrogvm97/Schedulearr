@@ -21,7 +21,7 @@ export async function GET() {
                 instanceName: instance.name,
                 instanceId: instance.id,
                 instanceColor: instance.color,
-                queuedEpisodeIds: queuedEpisodeIds.filter(id => s.episodes?.some((ep: any) => ep.id === id))
+                queuedEpisodeIds: queue.filter(q => q.seriesId === s.id).map(q => q.episodeId)
             }))];
         }
 

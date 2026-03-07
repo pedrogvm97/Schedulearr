@@ -153,6 +153,50 @@ export const getQualityProfiles = async (url: string, apiKey: string): Promise<R
     }
 };
 
+export interface RadarrRootFolder {
+    id: number;
+    path: string;
+    freeSpace: number;
+    unmappedFolders: any[];
+}
+
+export const getRootFolders = async (url: string, apiKey: string): Promise<RadarrRootFolder[]> => {
+    try {
+        const response = await axios.get(`${url}/api/v3/rootfolder`, {
+            headers: { 'X-Api-Key': apiKey }
+        });
+        return response.data;
+    } catch (error) {
+        console.error(`Error fetching Radarr Root Folders (${url}):`, error);
+        return [];
+    }
+};
+
+export const searchMovies = async (url: string, apiKey: string, term: string): Promise<any[]> => {
+    try {
+        const response = await axios.get(`${url}/api/v3/movie/lookup`, {
+            headers: { 'X-Api-Key': apiKey },
+            params: { term }
+        });
+        return response.data;
+    } catch (error) {
+        console.error(`Error looking up movies in Radarr (${url}):`, error);
+        return [];
+    }
+};
+
+export const addMovie = async (url: string, apiKey: string, moviePayload: any): Promise<any> => {
+    try {
+        const response = await axios.post(`${url}/api/v3/movie`, moviePayload, {
+            headers: { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' }
+        });
+        return { success: true, data: response.data };
+    } catch (error: any) {
+        console.error(`Error adding movie to Radarr (${url}):`, error.response?.data || error.message);
+        return { success: false, error: error.response?.data || error.message };
+    }
+};
+
 // Check queue for a specific movie ID
 export const getMovieQueueStatus = async (url: string, apiKey: string, movieId: number): Promise<string | null> => {
     try {

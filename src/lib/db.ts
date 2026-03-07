@@ -168,6 +168,13 @@ export const removeInstance = (id: string) => {
     stmt.run(id);
 }
 
+export const getInstanceById = (id: string): Instance | undefined => {
+    const stmt = db.prepare('SELECT * FROM instances WHERE id = ?');
+    const raw = stmt.get(id) as any;
+    if (!raw) return undefined;
+    return { ...raw, enabled: raw.enabled === 1 } as Instance;
+};
+
 export const toggleInstanceEnabled = (id: string, enabled: boolean) => {
     const stmt = db.prepare('UPDATE instances SET enabled = ? WHERE id = ?');
     stmt.run(enabled ? 1 : 0, id);

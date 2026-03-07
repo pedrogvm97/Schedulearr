@@ -991,8 +991,8 @@ export default function SchedulerQueue() {
                 {/* Filter & Controls Box - New Layout */}
                 <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-5 mb-6 shadow-sm w-full mt-4">
                     {/* Row 1: Search & Core Filters */}
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-5 pb-5 border-b border-zinc-800/60">
-                        <div className="flex-1 w-full relative">
+                    <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 mb-5 pb-5 border-b border-zinc-800/60">
+                        <div className="w-full lg:flex-1 relative">
                             <input
                                 type="text"
                                 placeholder="Search active media..."
@@ -1001,9 +1001,9 @@ export default function SchedulerQueue() {
                                 className="w-full bg-zinc-950/50 border border-zinc-700/50 text-white text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block p-2.5 outline-none placeholder-zinc-500"
                             />
                         </div>
-                        <div className="flex items-center gap-3 flex-wrap">
+                        <div className="flex w-full lg:w-auto items-center gap-3 flex-wrap justify-start lg:justify-end">
                             <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium text-zinc-400">Sort By:</span>
+                                <span className="text-sm font-medium text-zinc-400 whitespace-nowrap">Sort By:</span>
                                 <select
                                     value={profile}
                                     onChange={(e) => handleSaveProfile(e.target.value)}
@@ -1018,7 +1018,7 @@ export default function SchedulerQueue() {
                                 </select>
                             </div>
                             <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium text-zinc-400">Library Filter:</span>
+                                <span className="text-sm font-medium text-zinc-400 whitespace-nowrap">Library Filter:</span>
                                 <select
                                     value={qualityFilter}
                                     onChange={(e) => setQualityFilter(e.target.value)}
@@ -1030,16 +1030,16 @@ export default function SchedulerQueue() {
                                 </select>
                             </div>
 
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 w-full sm:w-auto mt-1 sm:mt-0">
                                 <button
                                     onClick={handleSaveConfiguration}
                                     disabled={isSaving}
-                                    className={`px-4 py-2 text-xs font-semibold rounded-lg shadow-sm border transition-all ${saveSuccess ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/40' : 'bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 border-indigo-500/30'}`}
+                                    className={`px-4 py-2 w-full sm:w-auto text-xs font-semibold rounded-lg shadow-sm border transition-all whitespace-nowrap ${saveSuccess ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/40' : 'bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 border-indigo-500/30'}`}
                                 >
                                     {isSaving ? 'Saving...' : saveSuccess ? 'Saved ✓' : 'Save Configuration'}
                                 </button>
                                 {hasUnsavedChanges && !saveSuccess && (
-                                    <span className="text-[10px] text-amber-500 font-medium animate-pulse ml-1">Unsaved changes</span>
+                                    <span className="text-[10px] text-amber-500 font-medium animate-pulse ml-1 whitespace-nowrap">Unsaved changes</span>
                                 )}
                             </div>
                         </div>
@@ -1092,41 +1092,43 @@ export default function SchedulerQueue() {
 
             {/* Media Table Area */}
             <div>
-                <div className="flex flex-col md:flex-row md:items-end justify-between border-b border-zinc-800 pb-4 mb-4 gap-4">
+                <div className="flex flex-col border-b border-zinc-800 pb-4 mb-4 gap-4">
                     <div className="flex flex-col gap-3">
-                        <div className="flex items-center gap-4">
+                        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
                             <h2 className="text-2xl font-bold text-white tracking-tight">Media</h2>
                             {!loading && combined.length > 0 && (
-                                <div className="flex items-center gap-2">
-                                    <button onClick={() => handleSelectAll(targetItemsForBulkActions)} className="px-3 py-1.5 text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md border border-zinc-700 transition-colors shadow-sm">Activate all</button>
-                                    <button onClick={() => handleDeselectAll(targetItemsForBulkActions)} className="px-3 py-1.5 text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md border border-zinc-700 transition-colors shadow-sm">Deactivate all</button>
-                                    <div className="w-px h-6 bg-zinc-700 mx-2 hidden md:block"></div>
+                                <div className="flex flex-wrap items-center gap-y-3 gap-x-4 bg-zinc-900/40 border border-zinc-800/60 px-4 py-2.5 rounded-xl">
+                                    <div className="flex items-center gap-2">
+                                        <button onClick={() => handleSelectAll(targetItemsForBulkActions)} className="px-3 py-1.5 text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md border border-zinc-700 transition-colors shadow-sm whitespace-nowrap">Activate all</button>
+                                        <button onClick={() => handleDeselectAll(targetItemsForBulkActions)} className="px-3 py-1.5 text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md border border-zinc-700 transition-colors shadow-sm whitespace-nowrap">Deactivate all</button>
+                                    </div>
+                                    <div className="w-px h-6 bg-zinc-700 hidden lg:block"></div>
                                     <label className="flex items-center cursor-pointer group" title="When items are clicked to download, they remain on this list if this is ON">
                                         <div className="relative">
                                             <input type="checkbox" className="sr-only" checked={showDownloading} onChange={() => setShowDownloading(!showDownloading)} />
-                                            <div className={`block w-10 h-6 rounded-full transition-colors ${showDownloading ? 'bg-blue-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
-                                            <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${showDownloading ? 'translate-x-4' : ''}`}></div>
+                                            <div className={`block w-9 h-5 rounded-full transition-colors ${showDownloading ? 'bg-blue-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
+                                            <div className={`absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full transition-transform ${showDownloading ? 'translate-x-4' : ''}`}></div>
                                         </div>
-                                        <span className="text-sm font-medium text-zinc-300 ml-3 hidden xl:inline-block">Show Downloading</span>
+                                        <span className="text-sm font-medium text-zinc-300 ml-2 whitespace-nowrap">Show Downloading</span>
                                     </label>
-                                    <div className="w-px h-6 bg-zinc-700 mx-2 hidden md:block"></div>
+                                    <div className="w-px h-6 bg-zinc-700 hidden lg:block"></div>
                                     <label className="flex items-center cursor-pointer group">
                                         <div className="relative">
                                             <input type="checkbox" className="sr-only" checked={showActiveOnly} onChange={() => setShowActiveOnly(!showActiveOnly)} />
-                                            <div className={`block w-10 h-6 rounded-full transition-colors ${showActiveOnly ? 'bg-purple-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
-                                            <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${showActiveOnly ? 'translate-x-4' : ''}`}></div>
+                                            <div className={`block w-9 h-5 rounded-full transition-colors ${showActiveOnly ? 'bg-purple-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
+                                            <div className={`absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full transition-transform ${showActiveOnly ? 'translate-x-4' : ''}`}></div>
                                         </div>
-                                        <span className="text-sm font-medium text-zinc-300 ml-3 hidden xl:inline-block">Show active only</span>
+                                        <span className="text-sm font-medium text-zinc-300 ml-2 whitespace-nowrap">Show active only</span>
                                     </label>
 
-                                    <div className="w-px h-6 bg-zinc-700 mx-2 hidden md:block"></div>
+                                    <div className="w-px h-6 bg-zinc-700 hidden lg:block"></div>
                                     <label className="flex items-center cursor-pointer group">
                                         <div className="relative">
                                             <input type="checkbox" className="sr-only" checked={hideUnmonitored} onChange={() => setHideUnmonitored(!hideUnmonitored)} />
-                                            <div className={`block w-10 h-6 rounded-full transition-colors ${hideUnmonitored ? 'bg-emerald-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
-                                            <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${hideUnmonitored ? 'translate-x-4' : ''}`}></div>
+                                            <div className={`block w-9 h-5 rounded-full transition-colors ${hideUnmonitored ? 'bg-emerald-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
+                                            <div className={`absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full transition-transform ${hideUnmonitored ? 'translate-x-4' : ''}`}></div>
                                         </div>
-                                        <span className="text-sm font-medium text-zinc-300 ml-3 hidden xl:inline-block">Hide Unmonitored</span>
+                                        <span className="text-sm font-medium text-zinc-300 ml-2 whitespace-nowrap">Hide Unmonitored</span>
                                     </label>
                                 </div>
                             )}
@@ -1397,6 +1399,11 @@ export default function SchedulerQueue() {
                                                                                                 <Trash2 size={12} />
                                                                                             </button>
                                                                                         </div>
+                                                                                    ) : item.queuedEpisodeIds?.includes(ep.id) ? (
+                                                                                        <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center gap-1 animate-pulse">
+                                                                                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                                                                                            Downloading
+                                                                                        </span>
                                                                                     ) : ep.monitored ? (
                                                                                         <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">Missing</span>
                                                                                     ) : (

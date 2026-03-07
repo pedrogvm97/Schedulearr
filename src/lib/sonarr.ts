@@ -234,3 +234,47 @@ export const deleteEpisodeFile = async (url: string, apiKey: string, episodeFile
         return false;
     }
 };
+
+export interface SonarrRootFolder {
+    id: number;
+    path: string;
+    freeSpace: number;
+    unmappedFolders: any[];
+}
+
+export const getRootFolders = async (url: string, apiKey: string): Promise<SonarrRootFolder[]> => {
+    try {
+        const response = await axios.get(`${url}/api/v3/rootfolder`, {
+            headers: { 'X-Api-Key': apiKey }
+        });
+        return response.data;
+    } catch (error) {
+        console.error(`Error fetching Sonarr Root Folders (${url}):`, error);
+        return [];
+    }
+};
+
+export const searchSeries = async (url: string, apiKey: string, term: string): Promise<any[]> => {
+    try {
+        const response = await axios.get(`${url}/api/v3/series/lookup`, {
+            headers: { 'X-Api-Key': apiKey },
+            params: { term }
+        });
+        return response.data;
+    } catch (error) {
+        console.error(`Error looking up series in Sonarr (${url}):`, error);
+        return [];
+    }
+};
+
+export const addSeries = async (url: string, apiKey: string, seriesPayload: any): Promise<any> => {
+    try {
+        const response = await axios.post(`${url}/api/v3/series`, seriesPayload, {
+            headers: { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' }
+        });
+        return { success: true, data: response.data };
+    } catch (error: any) {
+        console.error(`Error adding series to Sonarr (${url}):`, error.response?.data || error.message);
+        return { success: false, error: error.response?.data || error.message };
+    }
+};

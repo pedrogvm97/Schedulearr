@@ -148,13 +148,20 @@ export async function GET() {
                     }
 
                     let title = item.title || 'Unknown Release';
-                    if (item.movie && item.movie.title) title = `${item.movie.title} (Movie)`;
-                    if (item.series && item.series.title) {
+                    if (item.movie && item.movie.title) {
+                        title = item.movie.title;
+                    } else if (item.series && item.series.title) {
                         let epInfo = '';
                         if (item.episode && item.episode.seasonNumber !== undefined && item.episode.episodeNumber !== undefined) {
                             epInfo = ` S${item.episode.seasonNumber.toString().padStart(2, '0')}E${item.episode.episodeNumber.toString().padStart(2, '0')}`;
                         }
-                        title = `${item.series.title}${epInfo} (Series)`;
+                        title = `${item.series.title}${epInfo}`;
+                    } else {
+                        title = title
+                            .replace(/\b(1080p|720p|2160p|4k|uhd|bluray|web-dl|webrip|h\.264|h\.265|x264|x265|hevc|ddp5\.1|dts|aac|repack|proper)\b/gi, '')
+                            .replace(/[\.\-]/g, ' ')
+                            .replace(/\s+/g, ' ')
+                            .trim();
                     }
 
                     allRecentRecords.push({
@@ -213,13 +220,22 @@ export async function GET() {
 
                             // Try to extract clean title, fallback to sourceTitle
                             let title = record.sourceTitle || 'Unknown Release';
-                            if (record.movie && record.movie.title) title = `${record.movie.title} (Movie)`;
-                            if (record.series && record.series.title) {
+
+                            if (record.movie && record.movie.title) {
+                                title = record.movie.title;
+                            } else if (record.series && record.series.title) {
                                 let epInfo = '';
                                 if (record.episode && record.episode.seasonNumber !== undefined && record.episode.episodeNumber !== undefined) {
                                     epInfo = ` S${record.episode.seasonNumber.toString().padStart(2, '0')}E${record.episode.episodeNumber.toString().padStart(2, '0')}`;
                                 }
-                                title = `${record.series.title}${epInfo} (Series)`;
+                                title = `${record.series.title}${epInfo}`;
+                            } else {
+                                // Clean up the source title if we don't have metadata
+                                title = title
+                                    .replace(/\b(1080p|720p|2160p|4k|uhd|bluray|web-dl|webrip|h\.264|h\.265|x264|x265|hevc|ddp5\.1|dts|aac|repack|proper)\b/gi, '')
+                                    .replace(/[\.\-]/g, ' ')
+                                    .replace(/\s+/g, ' ')
+                                    .trim();
                             }
 
                             if (isGrab && !dailyStats[dateStr][id].grabbed.includes(title)) {

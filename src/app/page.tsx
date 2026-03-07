@@ -12,6 +12,7 @@ interface RecentDownload {
   status: string;
   size: number;
   failureReason?: string;
+  indexer?: string;
 }
 
 interface IndexerHealth {
@@ -164,15 +165,16 @@ export default function Dashboard() {
       if (groups.length === 0) return null;
 
       return (
-        <div className="bg-zinc-950/95 border border-zinc-800 p-4 rounded-xl shadow-2xl backdrop-blur-md min-w-[260px] max-w-[400px]">
-          <p className="text-zinc-400 text-[10px] font-bold uppercase tracking-widest mb-3 border-b border-zinc-800 pb-2">
-            {label ? new Date(String(label)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
+        <div className="bg-zinc-950/98 border border-zinc-800 p-4 rounded-xl shadow-2xl backdrop-blur-xl min-w-[280px] max-w-[450px] pointer-events-auto select-text">
+          <p className="text-zinc-400 text-[10px] font-bold uppercase tracking-widest mb-3 border-b border-zinc-800 pb-2 flex justify-between items-center">
+            <span>{label ? new Date(String(label)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}</span>
+            <span className="text-[9px] text-zinc-600 normal-case font-medium">Scrollable</span>
           </p>
 
-          <div className="space-y-4">
+          <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
             {groups.map((group, index) => (
               <div key={index} className="space-y-2">
-                <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center justify-between gap-4 sticky top-0 bg-zinc-950/50 backdrop-blur-sm py-1 z-10">
                   <div className="flex items-center gap-2">
                     <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: group.fill, opacity: entryOpacity(group.dataKey) }} />
                     <span className="text-zinc-200 text-sm font-semibold">{group.name}</span>
@@ -182,16 +184,11 @@ export default function Dashboard() {
 
                 {group.titles.length > 0 && (
                   <div className="pl-4 border-l-2 border-zinc-800/50 space-y-1.5 ml-1">
-                    {group.titles.slice(0, 8).map((t: string, i: number) => (
-                      <p key={i} className="text-zinc-500 text-[11px] leading-tight truncate font-medium">
+                    {group.titles.map((t: string, i: number) => (
+                      <p key={i} className="text-zinc-500 text-[11px] leading-tight font-medium">
                         • {t}
                       </p>
                     ))}
-                    {group.titles.length > 8 && (
-                      <p className="text-zinc-600 text-[10px] italic pl-2 pt-0.5">
-                        +{group.titles.length - 8} more releases...
-                      </p>
-                    )}
                   </div>
                 )}
               </div>
@@ -282,36 +279,52 @@ export default function Dashboard() {
                     return <span className="text-zinc-400 font-medium">{value}</span>;
                   }}
                 />
-                {Object.keys(instances).map((id, idx) => (
+                {Object.keys(instances).map((id) => (
                   <React.Fragment key={id}>
-                    <Bar
-                      dataKey={`${id}_grabbed`}
-                      name={`${instances[id].name}`}
-                      stackId="a"
-                      fill={instances[id].color}
-                      opacity={0.8}
-                      radius={[0, 0, 0, 0]}
-                      // Only show the first bar of an instance in the legend to avoid doubling
-                      legendType={idx === 0 || true ? 'rect' : 'none'}
-                    />
-                    <Bar
-                      dataKey={`${id}_downloading`}
-                      name={`${instances[id].name} (Downloading)`}
-                      stackId="a"
-                      fill={instances[id].color}
-                      opacity={0.4}
-                      radius={[2, 2, 0, 0]}
-                      legendType="none"
-                    />
-                    <Bar
-                      dataKey={`${id}_imported`}
-                      name={`${instances[id].name} (Finalized)`}
-                      stackId="a"
-                      fill={instances[id].color}
-                      opacity={1}
-                      radius={[0, 0, 0, 0]}
-                      legendType="none"
-                    />
+                    {(chartType === 'grabbed') && (
+                      <>
+                        <Bar
+                          dataKey={`${id}_grabbed`}
+                          name={instances[id].name}
+                          stackId="a"
+                          fill={instances[id].color}
+                          opacity={0.8}
+                          radius={[0, 0, 0, 0]}
+                          legendType="rect"
+                        />
+                        <Bar
+                          dataKey={`${id}_downloading`}
+                          name={`${instances[id].name} (Downloading)`}
+                          stackId="a"
+                          fill={instances[id].color}
+                          opacity={0.4}
+                          radius={[2, 2, 0, 0]}
+                          legendType="none"
+                        />
+                      </>
+                    )}
+                    {(chartType === 'imported') && (
+                      <Bar
+                        dataKey={`${id}_imported`}
+                        name={instances[id].name}
+                        stackId="a"
+                        fill={instances[id].color}
+                        opacity={1}
+                        radius={[2, 2, 0, 0]}
+                        legendType="rect"
+                      />
+                    )}
+                    {(chartType === 'sizeGB') && (
+                      <Bar
+                        dataKey={`${id}_sizeGB`}
+                        name={instances[id].name}
+                        stackId="a"
+                        fill={instances[id].color}
+                        opacity={0.9}
+                        radius={[2, 2, 0, 0]}
+                        legendType="rect"
+                      />
+                    )}
                   </React.Fragment>
                 ))}
               </BarChart>
