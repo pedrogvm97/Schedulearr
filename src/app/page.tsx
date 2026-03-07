@@ -109,15 +109,6 @@ export default function Dashboard() {
   const fetchStats = async (requestedTimeframe: string) => {
     setLoadingStats(true);
     try {
-      // If we already have "year" data and want something smaller, or have "all" data
-      if (allTimeData.length > 0) {
-        if (['day', 'week', 'month'].includes(requestedTimeframe)) {
-          filterDataLocally(allTimeData, requestedTimeframe);
-          setLoadingStats(false);
-          return;
-        }
-      }
-
       const res = await fetch(`/api/stats?timeframe=${requestedTimeframe}`);
       if (res.ok) {
         const json = await res.json();
