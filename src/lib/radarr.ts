@@ -172,14 +172,24 @@ export const getRootFolders = async (url: string, apiKey: string): Promise<Radar
     }
 };
 
-export const searchMovies = async (url: string, apiKey: string, term: string): Promise<any[]> => {
+export const searchMovies = async (url: string, apiKey: string, term: string = ''): Promise<any[]> => {
     try {
-        const response = await axios.get(`${url}/api/v3/movie/lookup`, {
+        const endpoint = term ? `${url}/api/v3/movie/lookup` : `${url}/api/v3/movie/lookup/discover`;
+        const params = term ? { term } : {};
+        const response = await axios.get(endpoint, {
             headers: { 'X-Api-Key': apiKey },
-            params: { term }
+            params
         });
         return response.data;
-    } catch (error) {
+    } catch (error: any) {
+        // Fallback for older versions that might not have /discover
+        if (!term && error.response?.status === 404) {
+            const response = await axios.get(`${url}/api/v3/movie/lookup`, {
+                headers: { 'X-Api-Key': apiKey },
+                params: { term: '' }
+            });
+            return response.data;
+        }
         console.error(`Error looking up movies in Radarr (${url}):`, error);
         return [];
     }
