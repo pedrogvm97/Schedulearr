@@ -149,6 +149,71 @@ export default function Settings() {
         return <div className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]" title="Offline" />;
     };
 
+    const handleExport = async () => {
+        const password = window.prompt("Enter a password to encrypt your backup:");
+        if (!password) return;
+
+        try {
+            const res = await fetch('/api/instances/export', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password })
+            });
+
+            if (!res.ok) throw new Error('Failed to export');
+            const data = await res.json();
+
+            // Trigger download
+            const blob = new Blob([data.encryptedData], { type: 'application/json' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = data.filename || 'instances_backup.json';
+            a.click();
+            window.URL.revokeObjectURL(url);
+            toast.success("Backup exported successfully!");
+        } catch (e: any) {
+            toast.error(e.message || "Failed to export backup");
+        }
+    };
+
+    const handleImport = async () => {
+        const password = window.prompt("Enter the password to decrypt your backup:");
+        if (!password) return;
+
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        input.onchange = async (e: any) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = async (event: any) => {
+                const encryptedData = event.target.result;
+                try {
+                    const res = await fetch('/api/instances/import', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ password, encryptedData })
+                    });
+
+                    if (!res.ok) {
+                        const errData = await res.json();
+                        throw new Error(errData.error || 'Failed to import');
+                    }
+
+                    toast.success("Backup restored successfully!");
+                    fetchInstances();
+                } catch (err: any) {
+                    toast.error(err.message || "Failed to restore backup");
+                }
+            };
+            reader.readAsText(file);
+        };
+        input.click();
+    };
+
     return (
         <div className="max-w-4xl mx-auto p-6 space-y-8 pb-24">
             <div>
@@ -246,6 +311,31 @@ export default function Settings() {
                         </button>
                     </div>
                 </form>
+            </div>
+
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <h2 className="text-xl font-semibold text-white">Backup & Restore</h2>
+                        <p className="text-sm text-zinc-400 mt-1">Export your instances into an encrypted file or restore them from a previous backup.</p>
+                    </div>
+                    <div className="flex gap-3">
+                        <button
+                            onClick={handleExport}
+                            className="bg-zinc-800 hover:bg-zinc-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center gap-2"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                            Export Backup
+                        </button>
+                        <button
+                            onClick={handleImport}
+                            className="bg-zinc-800 hover:bg-zinc-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center gap-2"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                            Restore Backup
+                        </button>
+                    </div>
+                </div>
             </div>
 
             <div className="space-y-4">
