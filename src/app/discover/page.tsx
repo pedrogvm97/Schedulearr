@@ -113,30 +113,29 @@ export default function DiscoverPage() {
 
     // Initial load: Fetch trending
     useEffect(() => {
-        if (selectedInstanceId) {
+        if (selectedInstanceId && availableInstances.length > 0) {
             handleSearch(null, true);
         }
-    }, [selectedInstanceId, mediaType]);
+    }, [selectedInstanceId]); // Only trigger when selectedInstanceId is definitively set
 
     const handleSearch = async (e?: React.FormEvent | null, isDiscovery = false) => {
         if (e) e.preventDefault();
-        if (!selectedInstanceId) return;
+        const instanceIdToUse = selectedInstanceId;
+        if (!instanceIdToUse) return;
 
         setIsSearching(true);
         // If it's a new explicit search, clear results to show loading
-        // If it's discovery, only clear if we have nothing yet
         if (!isDiscovery) setResults([]);
 
         try {
             const endpoint = mediaType === 'movie' ? `/api/radarr/lookup` : `/api/sonarr/lookup`;
             const term = isDiscovery ? '' : searchQuery;
-            const res = await fetch(`${endpoint}?instanceId=${selectedInstanceId}&term=${encodeURIComponent(term)}`);
+            const res = await fetch(`${endpoint}?instanceId=${instanceIdToUse}&term=${encodeURIComponent(term)}`);
             if (res.ok) {
                 const data = await res.json();
                 setResults(Array.isArray(data) ? data : []);
             } else {
                 console.error("Discovery/Search failed", await res.text());
-                // Don't toast on initial load to avoid annoyance
                 if (!isDiscovery) toast.error("Failed to fetch results");
             }
         } catch (error) {
@@ -471,7 +470,8 @@ export default function DiscoverPage() {
                                 const idStr = item.tmdbId ? `tmdb-${item.tmdbId}` : `tvdb-${item.tvdbId}`;
                                 const posterUrl = item.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl;
                                 const isAdding = addingItemStr === idStr;
-                                const hasBeenAdded = item.added;
+                                // Correct detection: Radarr/Sonarr set 'id' to 0 for lookup results NOT in library
+                                const hasBeenAdded = item.id !== 0 || item.addedAt;
                                 const platform = getPlatformBadge(item);
                                 const rating = item.ratings?.value;
 
