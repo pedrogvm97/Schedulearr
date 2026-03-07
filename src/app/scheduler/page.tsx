@@ -814,7 +814,7 @@ export default function SchedulerQueue() {
             const pctB = b.type === 'series' ? (b.stats?.percentOfEpisodes || 0) : 0;
             // Rank series higher if they have high completion, tie-break by sortDate. Movies go to bottom, sorted by date.
             if (pctA !== pctB) return pctB - pctA;
-            return b.sortDate - a.sortDate;
+            return (b.sortDate ?? 0) - (a.sortDate ?? 0);
         });
     } else if (profile === 'random') {
         // Pseudo-stable random sort per load
@@ -880,7 +880,7 @@ export default function SchedulerQueue() {
     // Keep orderedIds in sync visually if it's empty (initial load)
     useEffect(() => {
         if (displayItems.length > 0 && orderedIds.length === 0) {
-            setOrderedIds(displayItems.map(c => c.idStr));
+            setOrderedIds(displayItems.map(c => c.idStr).filter((id): id is string => id !== undefined));
         }
     }, [displayItems, orderedIds.length]);
 
@@ -1283,16 +1283,17 @@ export default function SchedulerQueue() {
                             onDragEnd={handleDragEnd}
                         >
                             <SortableContext
-                                items={displayItems.map(c => c.idStr)}
+                                items={displayItems.map(c => c.idStr).filter((id): id is string => id !== undefined)}
                                 strategy={verticalListSortingStrategy}
                             >
                                 <div className="grid grid-cols-1 gap-3">
                                     {displayItems.map((item) => {
-                                        const isToggled = searchToggles[item.idStr] !== false;
+                                        const itemKey = item.idStr ?? String(item.id);
+                                        const isToggled = searchToggles[itemKey] !== false;
                                         const isExpanded = item.type === 'series' && expandedSeriesId === `${item.instanceId}-${item.id}`;
 
                                         return (
-                                            <SortableItem key={item.idStr} id={item.idStr} isDraggable={profile === 'custom'}>
+                                            <SortableItem key={item.idStr ?? item.id} id={item.idStr ?? String(item.id)} isDraggable={profile === 'custom'}>
                                                 <div className="flex-1 flex flex-col gap-1 w-full">
                                                     {/* Main Card */}
                                                     <div
@@ -1335,7 +1336,7 @@ export default function SchedulerQueue() {
                                                                         ? (item.isDownloaded ? 'Downloaded' : 'Missing from Library')
                                                                         : (item.stats ? `${item.stats.episodeFileCount} / ${item.stats.episodeCount} Episodes (${Math.round(item.stats.percentOfEpisodes)}%)` : 'Unknown')}
                                                                     <span className="text-zinc-600">•</span>
-                                                                    <span>Added {formatDistanceToNow(item.sortDate, { addSuffix: true })}</span>
+                                                                    <span>Added {formatDistanceToNow(item.sortDate ?? 0, { addSuffix: true })}</span>
 
                                                                     <div className="flex items-center gap-2 w-full mt-1">
                                                                         <div className="flex bg-zinc-900 border border-zinc-700/50 rounded-md overflow-hidden text-xs font-medium">
@@ -1347,23 +1348,23 @@ export default function SchedulerQueue() {
                                                                             <>
                                                                                 <div className="flex bg-zinc-900 border border-zinc-700/50 rounded-md overflow-hidden text-xs font-medium">
                                                                                     <div className="bg-zinc-800 px-2 py-0.5 text-zinc-400 border-r border-zinc-700/50">Current</div>
-                                                                                    <div className={`px-2 py-0.5 ${item.currentQualityScale >= 2160 ? 'text-emerald-400 bg-emerald-500/10' :
-                                                                                        item.currentQualityScale >= 1080 ? 'text-blue-400 bg-blue-500/10' : 'text-yellow-400 bg-yellow-500/10'}`}>
+                                                                                    <div className={`px-2 py-0.5 ${(item.currentQualityScale ?? 0) >= 2160 ? 'text-emerald-400 bg-emerald-500/10' :
+                                                                                        (item.currentQualityScale ?? 0) >= 1080 ? 'text-blue-400 bg-blue-500/10' : 'text-yellow-400 bg-yellow-500/10'}`}>
                                                                                         {item.currentQualityScale ? `${item.currentQualityScale}p` : 'Unknown'}
                                                                                     </div>
                                                                                 </div>
                                                                                 {item.movieFile && (
                                                                                     <div className="flex bg-zinc-900 border border-zinc-700/50 rounded-md overflow-hidden text-xs font-medium">
                                                                                         <div className="bg-zinc-800 px-2 py-0.5 text-zinc-400 border-r border-zinc-700/50">Size</div>
-                                                                                        <div className="px-2 py-0.5 text-zinc-300 bg-zinc-800/10">{formatSize(item.movieFile.size)}</div>
+                                                                                        <div className="px-2 py-0.5 text-zinc-300 bg-zinc-800/10">{item.movieFile?.size != null ? formatSize(item.movieFile.size) : 'N/A'}</div>
                                                                                     </div>
                                                                                 )}
                                                                             </>
                                                                         )}
-                                                                        {item.type === 'series' && item.stats && item.stats.sizeOnDisk > 0 && (
+                                                                        {item.type === 'series' && item.stats && (item.stats as any).sizeOnDisk > 0 && (
                                                                             <div className="flex bg-zinc-900 border border-zinc-700/50 rounded-md overflow-hidden text-xs font-medium">
                                                                                 <div className="bg-zinc-800 px-2 py-0.5 text-zinc-400 border-r border-zinc-700/50">Total Size</div>
-                                                                                <div className="px-2 py-0.5 text-zinc-300 bg-zinc-800/10">{formatSize(item.stats.sizeOnDisk)}</div>
+                                                                                <div className="px-2 py-0.5 text-zinc-300 bg-zinc-800/10">{formatSize((item.stats as any).sizeOnDisk)}</div>
                                                                             </div>
                                                                         )}
                                                                     </div>
@@ -1393,7 +1394,9 @@ export default function SchedulerQueue() {
                                                                     onPointerDown={(e) => e.stopPropagation()}
                                                                     onClick={(e) => {
                                                                         e.stopPropagation();
-                                                                        handleDeleteFile('movie', item.id, item.instanceId, item.movieFile.id);
+                                                                        if (item.type === 'movie' && item.movieFile) {
+                                                                            handleDeleteFile('movie', item.id, item.instanceId, item.movieFile.id);
+                                                                        }
                                                                     }}
                                                                     title="Delete movie file from disk"
                                                                 >
@@ -1401,10 +1404,10 @@ export default function SchedulerQueue() {
                                                                 </button>
                                                             )}
 
-                                                            {searchingItems[item.idStr] ? (
+                                                            {searchingItems[itemKey] ? (
                                                                 <span className="text-xs font-semibold px-3 py-1.5 rounded-lg border bg-zinc-800/80 text-zinc-300 border-zinc-700 flex items-center gap-2">
-                                                                    {searchingItems[item.idStr].isPolling && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>}
-                                                                    {searchingItems[item.idStr].status}
+                                                                    {searchingItems[itemKey].isPolling && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>}
+                                                                    {searchingItems[itemKey].status}
                                                                 </span>
                                                             ) : (
                                                                 <button
@@ -1425,7 +1428,7 @@ export default function SchedulerQueue() {
                                                                 onPointerDown={(e) => e.stopPropagation()}
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
-                                                                    toggleSearch(item.idStr);
+                                                                    toggleSearch(itemKey);
                                                                 }}
                                                                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-zinc-950 cursor-pointer z-50 ${isToggled ? 'bg-emerald-500' : 'bg-zinc-700'}`}
                                                             >
@@ -1587,8 +1590,8 @@ export default function SchedulerQueue() {
                                                     <div className="flex-1 min-w-0 pr-4">
                                                         <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                                                             <span className="flex items-center justify-center w-6 h-6 rounded bg-zinc-800 text-zinc-400 text-xs font-bold ring-1 ring-zinc-700">#{idx + 1}</span>
-                                                            <span className={`text-xs font-bold px-2 py-0.5 rounded ${release.customFormatScore > 0 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-zinc-800 text-zinc-400 border border-zinc-700'}`}>Score: {release.customFormatScore}</span>
-                                                            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border border-blue-500/20 bg-blue-500/10 text-blue-400">{release.quality || 'Unknown'}</span>
+                                                            <span className={`text-xs font-bold px-2 py-0.5 rounded ${(release.customFormatScore ?? 0) > 0 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-zinc-800 text-zinc-400 border border-zinc-700'}`}>Score: {release.customFormatScore ?? 0}</span>
+                                                            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border border-blue-500/20 bg-blue-500/10 text-blue-400">{typeof release.quality === 'string' ? release.quality : (release.quality as any)?.quality?.name || 'Unknown'}</span>
                                                             {release.rejected && (
                                                                 <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded border border-rose-500/20 bg-rose-500/10 text-rose-400">Rejected</span>
                                                             )}

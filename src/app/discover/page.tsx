@@ -28,6 +28,11 @@ interface RootFolder {
     freeSpace: number;
 }
 
+const MAJOR_PLATFORMS = [
+    'netflix', 'hbo', 'apple', 'disney', 'amazon', 'paramount', 'hulu',
+    'warner bros', 'universal', 'sony', 'mgm', 'lionsgate', '20th century', 'amc', 'fx', 'showtime'
+];
+
 export default function DiscoverPage() {
     const [mediaType, setMediaType] = useState<'movie' | 'series'>('series');
     const [searchQuery, setSearchQuery] = useState('');
@@ -248,26 +253,33 @@ export default function DiscoverPage() {
             );
         }
 
-        // 2. Genre Filter
-        if (filterGenre !== 'All') {
-            items = items.filter(item => item.genres?.includes(filterGenre));
+        // 2. High Quality Filter (Default for Discovery)
+        const isDefaultDiscovery = !searchQuery && filterGenre === 'All' && filterPlatform === 'All' && filterYear === 'All';
+
+        if (isDefaultDiscovery) {
+            items = items.filter(item => {
+                const rating = item.ratings?.value || 0;
+                const platform = (item.studio || item.network || '').toLowerCase();
+                const isMajor = MAJOR_PLATFORMS.some(p => platform.includes(p));
+                return rating >= 7.0 && isMajor;
+            });
+        } else {
+            // Apply specific filters
+            if (filterGenre !== 'All') {
+                items = items.filter(item => item.genres?.includes(filterGenre));
+            }
+            if (filterPlatform !== 'All') {
+                items = items.filter(item => (item.studio || item.network) === filterPlatform);
+            }
+            if (filterYear !== 'All') {
+                items = items.filter(item => item.year?.toString() === filterYear);
+            }
         }
 
-        // 3. Platform Filter
-        if (filterPlatform !== 'All') {
-            items = items.filter(item => (item.studio || item.network) === filterPlatform);
-        }
-
-        // 4. Year Filter
-        if (filterYear !== 'All') {
-            items = items.filter(item => item.year?.toString() === filterYear);
-        }
-
-        // 5. Sorting
+        // 3. Sorting
         items.sort((a, b) => {
             if (sortBy === 'year') return (b.year || 0) - (a.year || 0);
             if (sortBy === 'alphabetical') return a.title.localeCompare(b.title);
-            // Default to natural API order (usually popularity)
             return 0;
         });
 
@@ -314,16 +326,40 @@ export default function DiscoverPage() {
                     <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/50 shadow-2xl">
                         <button
                             onClick={() => setMediaType('movie')}
-                            className={`flex items-center gap-2.5 px-6 py-3 text-sm font-bold rounded-xl transition-all ${mediaType === 'movie' ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 shadow-[0_0_20px_rgba(79,70,229,0.15)]' : 'text-zinc-500 hover:text-zinc-400'}`}
+                            className={`flex items-center gap-2.5 px-6 py-3 text-sm font-bold rounded-xl transition-all ${mediaType === 'movie' ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30' : 'text-zinc-500 hover:text-zinc-400'}`}
                         >
                             <Film size={18} /> Movies
                         </button>
                         <button
                             onClick={() => setMediaType('series')}
-                            className={`flex items-center gap-2.5 px-6 py-3 text-sm font-bold rounded-xl transition-all ${mediaType === 'series' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.15)]' : 'text-zinc-500 hover:text-zinc-400'}`}
+                            className={`flex items-center gap-2.5 px-6 py-3 text-sm font-bold rounded-xl transition-all ${mediaType === 'series' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30' : 'text-zinc-500 hover:text-zinc-400'}`}
                         >
                             <Tv size={18} /> Series
                         </button>
+                    </div>
+
+                    {/* Instance Toggles */}
+                    <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/50 shadow-2xl overflow-x-auto">
+                        {availableInstances.map(inst => {
+                            const isSelected = selectedInstanceId === inst.id;
+                            const instColor = inst.color || (inst.type === 'radarr' ? '#f59e0b' : '#0ea5e9');
+                            return (
+                                <button
+                                    key={inst.id}
+                                    onClick={() => setSelectedInstanceId(inst.id)}
+                                    className={`flex items-center gap-2.5 px-6 py-3 text-xs font-black uppercase tracking-widest rounded-xl transition-all whitespace-nowrap ${isSelected ? 'text-white' : 'text-zinc-600 hover:text-zinc-400'}`}
+                                    style={isSelected ? {
+                                        backgroundColor: `${instColor}20`,
+                                        borderColor: `${instColor}40`,
+                                        borderWidth: '1px',
+                                        color: instColor,
+                                    } : {}}
+                                >
+                                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: instColor }} />
+                                    {inst.name}
+                                </button>
+                            );
+                        })}
                     </div>
 
                     {/* View Controls */}
@@ -334,11 +370,52 @@ export default function DiscoverPage() {
                         <button onClick={() => setViewMode('list')} className={`p-3 rounded-xl transition-all ${viewMode === 'list' ? 'bg-zinc-800 text-white' : 'text-zinc-600'}`} title="List View">
                             <List size={20} />
                         </button>
-                        <div className="w-[1px] bg-zinc-800 mx-2 my-2" />
-                        <button onClick={() => setShowFilters(!showFilters)} className={`p-3 rounded-xl transition-all ${showFilters ? 'bg-emerald-500/10 text-emerald-500' : 'text-zinc-600'}`} title="Toggle Filters">
-                            <Filter size={20} />
-                        </button>
                     </div>
+                </div>
+            </div>
+
+            {/* Config Row — Quality Profile, Root Folder, Start Search */}
+            <div className="flex flex-wrap items-end gap-4 mb-6 p-5 bg-zinc-950/40 border border-zinc-900/50 rounded-3xl backdrop-blur-md">
+                <div className="flex-1 min-w-[180px]">
+                    <CustomSelect
+                        label="Quality Profile"
+                        options={profiles}
+                        value={selectedProfileId}
+                        onChange={(val) => setSelectedProfileId(Number(val))}
+                    />
+                </div>
+                <div className="flex-1 min-w-[180px]">
+                    <CustomSelect
+                        label="Root Folder"
+                        options={rootFolders.map(rf => ({ id: rf.id, name: rf.path }))}
+                        value={selectedRootFolderId}
+                        onChange={(val) => setSelectedRootFolderId(Number(val))}
+                    />
+                </div>
+                <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Start Search</label>
+                    <button
+                        onClick={() => setStartSearch(!startSearch)}
+                        className={`h-11 px-5 rounded-2xl border flex items-center gap-3 transition-all duration-300 ${startSearch
+                                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400'
+                            }`}
+                    >
+                        <div className={`w-2 h-2 rounded-full transition-all ${startSearch ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-700'
+                            }`} />
+                        <span className="text-[10px] font-black uppercase tracking-wider">{startSearch ? 'YES' : 'NO'}</span>
+                    </button>
+                </div>
+                <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Filters</label>
+                    <button
+                        onClick={() => setShowFilters(!showFilters)}
+                        className={`h-11 px-5 rounded-2xl border flex items-center gap-2 transition-all ${showFilters ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400'
+                            }`}
+                    >
+                        <Filter size={16} />
+                        <span className="text-[10px] font-black uppercase tracking-wider">Genre / Year</span>
+                    </button>
                 </div>
             </div>
 
@@ -362,41 +439,8 @@ export default function DiscoverPage() {
                             </form>
                         </div>
 
-                        {/* Destination Instance */}
-                        <div className="space-y-4 pt-4 border-t border-zinc-900/50">
-                            <CustomSelect
-                                label="Target Library"
-                                icon={<Globe size={12} />}
-                                options={availableInstances}
-                                value={selectedInstanceId}
-                                onChange={(val) => setSelectedInstanceId(val)}
-                                className="mb-3"
-                            />
-                            <CustomSelect
-                                label="Quality Profile"
-                                options={profiles}
-                                value={selectedProfileId}
-                                onChange={(val) => setSelectedProfileId(Number(val))}
-                                className="mb-3"
-                            />
-
-                            <div className="space-y-1 mt-2">
-                                <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest pl-1">Start Search</label>
-                                <button
-                                    onClick={() => setStartSearch(!startSearch)}
-                                    className={`w-full h-11 rounded-2xl border px-4 flex items-center justify-between transition-all duration-300 ${startSearch
-                                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500'
-                                        : 'bg-zinc-900 border-zinc-800 text-zinc-500'
-                                        }`}
-                                >
-                                    <span className="text-[10px] font-black uppercase tracking-wider">{startSearch ? 'YES' : 'NO'}</span>
-                                    <div className={`w-2 h-2 rounded-full ${startSearch ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-700'}`} />
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Filters */}
-                        <div className="space-y-6 pt-4 border-t border-zinc-900/50">
+                        {/* Sidebar Filters */}
+                        <div className="space-y-6">
                             <div className="space-y-3">
                                 <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center gap-2">
                                     <Tags size={12} /> Genre

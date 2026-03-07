@@ -37,6 +37,7 @@ interface Instance {
     id: string;
     name: string;
     type: string;
+    color?: string;
 }
 
 export default function ProfilesPage() {
@@ -72,7 +73,8 @@ export default function ProfilesPage() {
             const res = await fetch('/api/instances');
             if (res.ok) {
                 const data = await res.json();
-                setInstances(data);
+                // ONLY Radarr and Sonarr are relevant for quality profiles
+                setInstances(data.filter((i: any) => i.type === 'radarr' || i.type === 'sonarr'));
             }
         } catch (error) {
             console.error('Failed to fetch instances:', error);
@@ -238,16 +240,27 @@ export default function ProfilesPage() {
                     <div className="flex flex-wrap gap-2">
                         {instances.filter(i => filterType === 'All' || i.type === filterType).map(inst => {
                             const isSelected = filterInstances.includes(inst.id);
+                            const instColor = inst.color || (inst.type === 'radarr' ? '#f59e0b' : '#0ea5e9'); // Fallback colors
+
                             return (
                                 <button
                                     key={inst.id}
                                     onClick={() => toggleInstanceFilter(inst.id)}
                                     className={`px-4 py-2 text-[11px] font-bold rounded-xl border transition-all flex items-center gap-2.5 ${isSelected
-                                        ? 'bg-white text-black border-white shadow-lg shadow-white/5'
+                                        ? 'text-white'
                                         : 'bg-zinc-950/50 text-zinc-500 border-zinc-800 hover:border-zinc-700 hover:text-zinc-300'
                                         }`}
+                                    style={isSelected ? {
+                                        backgroundColor: `${instColor}20`, // 20% opacity
+                                        borderColor: `${instColor}40`,
+                                        color: instColor,
+                                        boxShadow: `0 10px 20px -5px ${instColor}15`
+                                    } : {}}
                                 >
-                                    <div className={`w-1.5 h-1.5 rounded-full ${inst.type === 'radarr' ? 'bg-amber-500' : 'bg-sky-500'}`} />
+                                    <div
+                                        className="w-1.5 h-1.5 rounded-full"
+                                        style={{ backgroundColor: instColor }}
+                                    />
                                     {inst.name}
                                     {isSelected && <X size={10} className="ml-1 opacity-60" />}
                                 </button>
