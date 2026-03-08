@@ -9,6 +9,8 @@ export default function Settings() {
     const [loading, setLoading] = useState(true);
 
     const [tmdbApiKey, setTmdbApiKey] = useState("");
+    const [tmdbInput, setTmdbInput] = useState("");
+    const [tmdbState, setTmdbState] = useState<'view' | 'edit' | 'confirm'>('view');
 
     // Form state
     const [editTargetId, setEditTargetId] = useState<string | null>(null);
@@ -39,6 +41,8 @@ export default function Settings() {
             if (sRes.ok) {
                 const sData = await sRes.json();
                 setTmdbApiKey(sData.tmdb_api_key || "");
+                setTmdbInput(sData.tmdb_api_key || "");
+                setTmdbState(sData.tmdb_api_key ? 'view' : 'edit');
             }
         } catch (e) {
             console.error(e);
@@ -236,26 +240,80 @@ export default function Settings() {
                 <h2 className="text-xl font-semibold text-white mb-4">General Settings</h2>
                 <div className="space-y-4">
                     <div className="space-y-1">
-                        <label className="text-sm font-medium text-zinc-300 flex items-center justify-between">
-                            TMDB API Key (Optional)
-                            {tmdbApiKey && <span className="text-[10px] text-emerald-500 font-bold bg-emerald-500/10 px-2 py-0.5 rounded-full">Active: {tmdbApiKey.slice(0, 4)}••••••••</span>}
-                        </label>
-                        <div className="flex gap-2">
-                            <input
-                                type="password"
-                                placeholder={tmdbApiKey ? "••••••••••••••••" : "Your TMDB API Key for high-quality discovery"}
-                                value={tmdbApiKey}
-                                onChange={e => setTmdbApiKey(e.target.value)}
-                                className="flex-1 bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none placeholder:text-zinc-600"
-                            />
-                            <button
-                                onClick={() => updateSetting('tmdb_api_key', tmdbApiKey)}
-                                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold text-xs transition-colors"
-                            >
-                                {tmdbApiKey ? 'Update Key' : 'Save Key'}
-                            </button>
-                        </div>
-                        <p className="text-[10px] text-zinc-500">Enable this for better trending and discovery results on the discovery page.</p>
+                        <label className="text-sm font-medium text-zinc-300">TMDB API Key (Optional)</label>
+
+                        {tmdbState === 'view' ? (
+                            <div className="flex items-center justify-between bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-3">
+                                <div className="flex flex-col">
+                                    <span className="text-xs text-zinc-500 font-medium uppercase tracking-wider">Status: Configured</span>
+                                    <span className="text-white font-mono text-sm">{tmdbApiKey.slice(0, 4)}••••••••</span>
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        setTmdbInput(tmdbApiKey);
+                                        setTmdbState('edit');
+                                    }}
+                                    className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md text-xs font-bold transition-colors"
+                                >
+                                    Change
+                                </button>
+                            </div>
+                        ) : tmdbState === 'edit' ? (
+                            <div className="flex gap-2">
+                                <input
+                                    type="password"
+                                    placeholder="Paste your TMDB API Key"
+                                    value={tmdbInput}
+                                    onChange={e => setTmdbInput(e.target.value)}
+                                    className="flex-1 bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none placeholder:text-zinc-600"
+                                />
+                                <button
+                                    onClick={() => setTmdbState('confirm')}
+                                    disabled={!tmdbInput}
+                                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-bold text-xs transition-colors"
+                                >
+                                    Save Key
+                                </button>
+                                {tmdbApiKey && (
+                                    <button
+                                        onClick={() => setTmdbState('view')}
+                                        className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg font-bold text-xs transition-colors"
+                                    >
+                                        Cancel
+                                    </button>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="flex items-center justify-between bg-emerald-500/5 border border-emerald-500/20 rounded-lg px-4 py-3 animate-in fade-in slide-in-from-top-1 duration-200">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-1.5 bg-emerald-500/20 rounded-full">
+                                        <svg className="w-4 h-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                    </div>
+                                    <span className="text-sm text-emerald-500 font-bold">Confirm saving this key?</span>
+                                </div>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={async () => {
+                                            await updateSetting('tmdb_api_key', tmdbInput);
+                                            setTmdbApiKey(tmdbInput);
+                                            setTmdbState('view');
+                                        }}
+                                        className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md text-xs font-black transition-all"
+                                    >
+                                        Confirm
+                                    </button>
+                                    <button
+                                        onClick={() => setTmdbState('edit')}
+                                        className="px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md text-xs font-bold transition-all"
+                                    >
+                                        Back
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                        <p className="text-[10px] text-zinc-500 mt-2">Enable this for better trending and discovery results on the discovery page.</p>
                     </div>
                 </div>
             </div>
@@ -501,8 +559,11 @@ export default function Settings() {
                         </div>
 
                         <h3 className="text-2xl font-bold text-white mb-2 tracking-tight">Thank You!</h3>
-                        <p className="text-zinc-400 text-sm mb-8 leading-relaxed">
+                        <p className="text-zinc-400 text-sm mb-4 leading-relaxed">
                             I built Schedulearr to scratch my own itch, and it's amazing to see others finding it useful. Your support helps me keep improving it and motivates me to build more cool things.
+                        </p>
+                        <p className="text-[10px] text-zinc-500 mb-8 italic">
+                            * Note: While not strictly enforced by the license, I politely ask that if you modify or redistribute this software, you keep this attribution link intact to support the original project.
                         </p>
 
                         <a
