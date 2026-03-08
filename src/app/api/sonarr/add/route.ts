@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getInstanceById } from '@/lib/db';
-import { addSeries } from '@/lib/sonarr';
+import { addSeries, searchSeries } from '@/lib/sonarr';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,10 +18,27 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Instance not found' }, { status: 404 });
         }
 
-        // Build the Sonarr-compatible series payload from the lookup item
+        // If item came from TMDB discovery it may only have tmdbId (no tvdbId).
+        // Sonarr needs a tvdbId, so resolve it via Sonarr's own search first.
+        let resolvedItem = { ...item };
+        if (!resolvedItem.tvdbId && resolvedItem.title) {
+            try {
+                const searchResults = await searchSeries(instance.url, instance.api_key, resolvedItem.title);
+                // Find the best match: same tmdbId or same year + closest title
+                const best = searchResults.find((s: any) => s.tmdbId === resolvedItem.tmdbId)
+                    || searchResults.find((s: any) => s.year === resolvedItem.year)
+                    || searchResults[0];
+                if (best?.tvdbId) resolvedItem.tvdbId = best.tvdbId;
+                if (best?.seasons && !resolvedItem.seasons) resolvedItem.seasons = best.seasons;
+            } catch (e) {
+                console.warn('[sonarr/add] Could not resolve tvdbId via search:', e);
+            }
+        }
+
+        // Build the Sonarr-compatible series payload
         const seriesPayload: any = {
-            title: item.title,
-            year: item.year,
+            title: resolvedItem.title,
+            year: resolvedItem.year,
             qualityProfileId: qualityProfileId,
             rootFolderPath: rootFolderPath,
             monitored: true,
@@ -32,12 +49,9 @@ export async function POST(request: Request) {
             }
         };
 
-        // Sonarr needs tvdbId for series
-        if (item.tvdbId) seriesPayload.tvdbId = item.tvdbId;
-        if (item.imdbId) seriesPayload.imdbId = item.imdbId;
-
-        // Pass through any seasons array if present (Sonarr lookup returns them)
-        if (item.seasons) seriesPayload.seasons = item.seasons;
+        if (resolvedItem.tvdbId) seriesPayload.tvdbId = resolvedItem.tvdbId;
+        if (resolvedItem.imdbId) seriesPayload.imdbId = resolvedItem.imdbId;
+        if (resolvedItem.seasons) seriesPayload.seasons = resolvedItem.seasons;
 
         const result = await addSeries(instance.url, instance.api_key, seriesPayload);
         if (result.success) {

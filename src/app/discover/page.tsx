@@ -8,11 +8,12 @@ import {
     ChevronDown, Tags, Monitor, ChevronRight,
     HardDrive, Percent, PlayCircle, ChevronUp,
     PlaySquare, Square, Trash2, MoveHorizontal, MoreVertical,
-    CheckCircle2, Copy
+    CheckCircle2, Copy, ListOrdered
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import { CustomSelect } from '@/components/CustomSelect';
 import { twColorToHex } from '@/lib/instanceColor';
+import { SchedulerQueuePanel } from '@/components/SchedulerQueuePanel';
 
 interface Instance {
     id: string;
@@ -353,7 +354,7 @@ function DiscoveryCard({ item, isAdding, hasBeenAdded, onAdd, viewMode }: {
 // Main Page
 // ──────────────────────────────────────────────
 export default function DiscoverPage() {
-    const [pageMode, setPageMode] = useState<'discover' | 'mylibrary'>('discover');
+    const [pageMode, setPageMode] = useState<'discover' | 'mylibrary' | 'queue'>('discover');
     const [mediaType, setMediaType] = useState<'movie' | 'series'>('series');
     const [searchQuery, setSearchQuery] = useState('');
     const [isSearching, setIsSearching] = useState(false);
@@ -516,9 +517,17 @@ export default function DiscoverPage() {
                 })
             });
 
+            const data = await res.json();
+
+            if (res.status === 409) {
+                // Item already exists on destination — not really an error, just inform the user
+                toast.info(data.error || `${item.title} already exists on the target instance.`);
+                setTransferTarget(null);
+                return;
+            }
+
             if (!res.ok) {
-                const err = await res.json();
-                throw new Error(err.error || `Failed to ${action}`);
+                throw new Error(data.error || `Failed to ${action}`);
             }
 
             toast.success(`${action === 'transfer' ? 'Transferred' : 'Copied'} ${item.title} successfully`);
@@ -705,12 +714,15 @@ export default function DiscoverPage() {
                 <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/50">
                     <button onClick={() => setPageMode('discover')} className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black rounded-xl transition-all ${pageMode === 'discover' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'}`}><Sparkles size={14} /> Discover</button>
                     <button onClick={() => setPageMode('mylibrary')} className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black rounded-xl transition-all ${pageMode === 'mylibrary' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'}`}><HardDrive size={14} /> My Library</button>
+                    <button onClick={() => setPageMode('queue')} className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black rounded-xl transition-all ${pageMode === 'queue' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'}`}><ListOrdered size={14} /> Search Queue</button>
                 </div>
 
-                <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/50">
-                    <button onClick={() => setMediaType('movie')} className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black rounded-xl transition-all ${mediaType === 'movie' ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30' : 'text-zinc-500 hover:text-zinc-400'}`}><Film size={14} /> Movies</button>
-                    <button onClick={() => setMediaType('series')} className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black rounded-xl transition-all ${mediaType === 'series' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30' : 'text-zinc-500 hover:text-zinc-400'}`}><Tv size={14} /> Series</button>
-                </div>
+                {pageMode !== 'queue' && (
+                    <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/50">
+                        <button onClick={() => setMediaType('movie')} className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black rounded-xl transition-all ${mediaType === 'movie' ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30' : 'text-zinc-500 hover:text-zinc-400'}`}><Film size={14} /> Movies</button>
+                        <button onClick={() => setMediaType('series')} className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black rounded-xl transition-all ${mediaType === 'series' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30' : 'text-zinc-500 hover:text-zinc-400'}`}><Tv size={14} /> Series</button>
+                    </div>
+                )}
 
                 {pageMode === 'mylibrary' && (
                     <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/50 overflow-x-auto gap-1 max-w-full">
@@ -769,127 +781,131 @@ export default function DiscoverPage() {
                 </div>
             )}
 
-            <div className="flex flex-col lg:flex-row gap-8 items-start">
-                {showFilters && (
-                    <div className="w-full lg:w-72 space-y-7 bg-zinc-950/20 p-6 rounded-3xl border border-zinc-900/50 flex-shrink-0">
-                        <div className="space-y-2">
-                            <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em]">Search</label>
-                            <form onSubmit={handleSearch} className="relative group">
-                                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-600 group-focus-within:text-emerald-500 transition-colors" size={16} />
-                                <input type="text" placeholder="Title, keyword..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleSearch(); if (e.key === 'Escape') { setSearchQuery(''); handleDiscovery(); } }} className="w-full bg-zinc-950 border border-zinc-800/80 rounded-2xl pl-10 pr-4 py-3 text-sm text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all placeholder-zinc-700" />
-                                {isSearching && <div className="absolute right-4 top-1/2 -translate-y-1/2 w-3 h-3 border-2 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin" />}
-                            </form>
-                        </div>
-
-                        <div className="space-y-3">
-                            <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center gap-1.5"><Tags size={11} /> Genre</label>
-                            <div className="flex flex-wrap gap-1.5">{ALL_GENRES.map(genre => <button key={genre} onClick={() => setFilterGenre(genre)} className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all border ${filterGenre === genre ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-transparent text-zinc-600 border-zinc-800 hover:text-zinc-400 hover:border-zinc-700'}`}>{genre}</button>)}</div>
-                        </div>
-
-                        <div className="space-y-3">
-                            <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center gap-1.5"><Monitor size={11} /> Studio / Network</label>
-                            <div className="flex flex-wrap gap-1.5">
-                                {QUICK_STUDIOS.map(s => (
-                                    <button
-                                        key={s.name}
-                                        onClick={() => setFilterPlatform(filterPlatform === s.name ? 'All' : s.name)}
-                                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all border ${filterPlatform === s.name ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-transparent text-zinc-600 border-zinc-800 hover:text-zinc-400 hover:border-zinc-700'}`}
-                                    >
-                                        <span className={s.color}>{s.name}</span>
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        {pageMode === 'discover' && allPlatforms.length > QUICK_STUDIOS.length && (
-                            <CustomSelect label="All Platforms" icon={<Monitor size={11} />} options={allPlatforms.map(p => ({ id: p, name: p }))} value={filterPlatform} onChange={val => setFilterPlatform(val)} />
-                        )}
-                        <CustomSelect label="Year" icon={<Calendar size={11} />} options={allYears.map(y => ({ id: y, name: y }))} value={filterYear} onChange={val => setFilterYear(val)} />
-
-                    </div>
-                )}
-
-                <div className="flex-1 min-w-0 space-y-5">
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                        <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                            {pageMode === 'discover' ? (searchQuery ? `Results for "${searchQuery}"` : 'Trending Now') : 'My Library'}
-                            <span className="bg-zinc-900 text-zinc-500 text-[10px] font-black px-2 py-0.5 rounded-full border border-zinc-800">{displayItems.length}</span>
-                        </h2>
-
-                        <div className="flex items-center gap-3">
-                            <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-900">
-                                {[
-                                    { id: 'popularity', label: 'Popularity', icon: <TrendingUp size={12} /> },
-                                    { id: 'year', label: 'Year', icon: <Calendar size={12} /> },
-                                    { id: 'alphabetical', label: 'A-Z', icon: <Rows size={12} /> }
-                                ].map(s => (
-                                    <button
-                                        key={s.id}
-                                        onClick={() => setSortBy(s.id as any)}
-                                        className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-tight transition-all ${sortBy === s.id ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                    >
-                                        {s.icon} {s.label}
-                                    </button>
-                                ))}
+            {pageMode === 'queue' ? (
+                <SchedulerQueuePanel />
+            ) : (
+                <div className="flex flex-col lg:flex-row gap-8 items-start">
+                    {showFilters && (
+                        <div className="w-full lg:w-72 space-y-7 bg-zinc-950/20 p-6 rounded-3xl border border-zinc-900/50 flex-shrink-0">
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em]">Search</label>
+                                <form onSubmit={handleSearch} className="relative group">
+                                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-600 group-focus-within:text-emerald-500 transition-colors" size={16} />
+                                    <input type="text" placeholder="Title, keyword..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleSearch(); if (e.key === 'Escape') { setSearchQuery(''); handleDiscovery(); } }} className="w-full bg-zinc-950 border border-zinc-800/80 rounded-2xl pl-10 pr-4 py-3 text-sm text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all placeholder-zinc-700" />
+                                    {isSearching && <div className="absolute right-4 top-1/2 -translate-y-1/2 w-3 h-3 border-2 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin" />}
+                                </form>
                             </div>
 
-                            <button
-                                onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
-                                className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-900 text-zinc-500 hover:text-white hover:border-zinc-700 transition-all"
-                                title={sortOrder === 'desc' ? 'Descending' : 'Ascending'}
-                            >
-                                <div className={`transition-transform duration-300 ${sortOrder === 'asc' ? 'rotate-180' : ''}`}>
-                                    <ChevronDown size={14} />
+                            <div className="space-y-3">
+                                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center gap-1.5"><Tags size={11} /> Genre</label>
+                                <div className="flex flex-wrap gap-1.5">{ALL_GENRES.map(genre => <button key={genre} onClick={() => setFilterGenre(genre)} className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all border ${filterGenre === genre ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-transparent text-zinc-600 border-zinc-800 hover:text-zinc-400 hover:border-zinc-700'}`}>{genre}</button>)}</div>
+                            </div>
+
+                            <div className="space-y-3">
+                                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center gap-1.5"><Monitor size={11} /> Studio / Network</label>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {QUICK_STUDIOS.map(s => (
+                                        <button
+                                            key={s.name}
+                                            onClick={() => setFilterPlatform(filterPlatform === s.name ? 'All' : s.name)}
+                                            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all border ${filterPlatform === s.name ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-transparent text-zinc-600 border-zinc-800 hover:text-zinc-400 hover:border-zinc-700'}`}
+                                        >
+                                            <span className={s.color}>{s.name}</span>
+                                        </button>
+                                    ))}
                                 </div>
-                            </button>
+                            </div>
 
-                            {pageMode === 'discover' && !showFilters && (
-                                <button onClick={() => setShowFilters(true)} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-900 text-[10px] font-black text-zinc-500 hover:text-zinc-300 uppercase tracking-widest transition-all">
-                                    <Filter size={12} /> Filters
-                                </button>
+                            {pageMode === 'discover' && allPlatforms.length > QUICK_STUDIOS.length && (
+                                <CustomSelect label="All Platforms" icon={<Monitor size={11} />} options={allPlatforms.map(p => ({ id: p, name: p }))} value={filterPlatform} onChange={val => setFilterPlatform(val)} />
                             )}
-                        </div>
-                    </div>
+                            <CustomSelect label="Year" icon={<Calendar size={11} />} options={allYears.map(y => ({ id: y, name: y }))} value={filterYear} onChange={val => setFilterYear(val)} />
 
-                    {availableInstances.length === 0 && pageMode === 'discover' ? (
-                        <div className="flex flex-col items-center justify-center py-40 bg-zinc-950/20 rounded-[3rem] border border-zinc-900/50 gap-6">
-                            <div className="p-8 bg-zinc-900/50 rounded-full text-zinc-700 opacity-50"><Monitor size={64} /></div>
-                            <div className="text-center">
-                                <p className="text-xl font-bold text-white mb-2">No {mediaType} instances found</p>
-                                <p className="text-zinc-500 font-medium max-w-xs mx-auto text-sm">You need to configure at least one {mediaType} instance in settings to browse and add content.</p>
-                            </div>
-                        </div>
-                    ) : isSearching || (pageMode === 'mylibrary' && libraryLoading) ? (
-                        <div className="flex flex-col items-center justify-center py-40 gap-4">
-                            <div className="w-12 h-12 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin" /><p className="text-zinc-600 text-xs font-bold uppercase tracking-widest">{pageMode === 'discover' ? 'Searching...' : 'Loading library...'}</p>
-                        </div>
-                    ) : pageItems.length > 0 ? (
-                        <>
-                            <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5' : 'space-y-3'}>
-                                {pageItems.map((item, idx) => {
-                                    if (pageMode === 'mylibrary') return <MyMediaCard key={`${item.instanceId}-${item.id}-${idx}`} item={item} viewMode={viewMode} onRefresh={loadLibrary} expandAll={expandAll} excludeUnmonitored={excludeUnmonitored} onDelete={() => handleDelete(item)} onTransfer={() => setTransferTarget(item)} />;
-                                    return <DiscoveryCard key={item.tmdbId ? `tmdb-${item.tmdbId}` : `tvdb-${item.tvdbId}`} item={item} isAdding={addingItemStr === (item.tmdbId ? `tmdb-${item.tmdbId}` : `tvdb-${item.tvdbId}`)} hasBeenAdded={isInLibrary(item)} onAdd={() => handleAdd(item)} viewMode={viewMode} />;
-                                })}
-                            </div>
-                            {totalPages > 1 && (
-                                <div className="flex items-center justify-center gap-4 pt-4">
-                                    <button onClick={() => setCurrentPage(p => Math.max(0, p - 1))} disabled={currentPage === 0} className="px-5 py-2.5 rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-400 text-xs font-black uppercase tracking-widest hover:border-zinc-700 hover:text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed">← Prev</button>
-                                    <span className="text-zinc-600 text-xs font-bold">Page {currentPage + 1} of {totalPages}</span>
-                                    <button onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))} disabled={currentPage >= totalPages - 1} className="px-5 py-2.5 rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-400 text-xs font-black uppercase tracking-widest hover:border-zinc-700 hover:text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed">Next →</button>
-                                </div>
-                            )}
-                        </>
-                    ) : (
-                        <div className="flex flex-col items-center justify-center py-40 bg-zinc-950/20 rounded-[3rem] border border-zinc-900/50 gap-6">
-                            <div className="p-8 bg-zinc-900/50 rounded-full opacity-20"><Search size={64} /></div>
-                            <div className="text-center">
-                                <p className="text-xl font-bold text-white mb-2">{pageMode === 'mylibrary' ? 'Library is empty' : 'No results found'}</p>
-                                <p className="text-zinc-500 font-medium">{pageMode === 'mylibrary' ? 'Add media in Discover mode.' : 'Try adjusting your filters.'}</p>
-                            </div>
                         </div>
                     )}
+
+                    <div className="flex-1 min-w-0 space-y-5">
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                                {pageMode === 'discover' ? (searchQuery ? `Results for "${searchQuery}"` : 'Trending Now') : 'My Library'}
+                                <span className="bg-zinc-900 text-zinc-500 text-[10px] font-black px-2 py-0.5 rounded-full border border-zinc-800">{displayItems.length}</span>
+                            </h2>
+
+                            <div className="flex items-center gap-3">
+                                <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-900">
+                                    {[
+                                        { id: 'popularity', label: 'Popularity', icon: <TrendingUp size={12} /> },
+                                        { id: 'year', label: 'Year', icon: <Calendar size={12} /> },
+                                        { id: 'alphabetical', label: 'A-Z', icon: <Rows size={12} /> }
+                                    ].map(s => (
+                                        <button
+                                            key={s.id}
+                                            onClick={() => setSortBy(s.id as any)}
+                                            className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-tight transition-all ${sortBy === s.id ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                        >
+                                            {s.icon} {s.label}
+                                        </button>
+                                    ))}
+                                </div>
+
+                                <button
+                                    onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+                                    className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-900 text-zinc-500 hover:text-white hover:border-zinc-700 transition-all"
+                                    title={sortOrder === 'desc' ? 'Descending' : 'Ascending'}
+                                >
+                                    <div className={`transition-transform duration-300 ${sortOrder === 'asc' ? 'rotate-180' : ''}`}>
+                                        <ChevronDown size={14} />
+                                    </div>
+                                </button>
+
+                                {pageMode === 'discover' && !showFilters && (
+                                    <button onClick={() => setShowFilters(true)} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-900 text-[10px] font-black text-zinc-500 hover:text-zinc-300 uppercase tracking-widest transition-all">
+                                        <Filter size={12} /> Filters
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {availableInstances.length === 0 && pageMode === 'discover' ? (
+                            <div className="flex flex-col items-center justify-center py-40 bg-zinc-950/20 rounded-[3rem] border border-zinc-900/50 gap-6">
+                                <div className="p-8 bg-zinc-900/50 rounded-full text-zinc-700 opacity-50"><Monitor size={64} /></div>
+                                <div className="text-center">
+                                    <p className="text-xl font-bold text-white mb-2">No {mediaType} instances found</p>
+                                    <p className="text-zinc-500 font-medium max-w-xs mx-auto text-sm">You need to configure at least one {mediaType} instance in settings to browse and add content.</p>
+                                </div>
+                            </div>
+                        ) : isSearching || (pageMode === 'mylibrary' && libraryLoading) ? (
+                            <div className="flex flex-col items-center justify-center py-40 gap-4">
+                                <div className="w-12 h-12 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin" /><p className="text-zinc-600 text-xs font-bold uppercase tracking-widest">{pageMode === 'discover' ? 'Searching...' : 'Loading library...'}</p>
+                            </div>
+                        ) : pageItems.length > 0 ? (
+                            <>
+                                <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5' : 'space-y-3'}>
+                                    {pageItems.map((item, idx) => {
+                                        if (pageMode === 'mylibrary') return <MyMediaCard key={`${item.instanceId}-${item.id}-${idx}`} item={item} viewMode={viewMode} onRefresh={loadLibrary} expandAll={expandAll} excludeUnmonitored={excludeUnmonitored} onDelete={() => handleDelete(item)} onTransfer={() => setTransferTarget(item)} />;
+                                        return <DiscoveryCard key={item.tmdbId ? `tmdb-${item.tmdbId}` : `tvdb-${item.tvdbId}`} item={item} isAdding={addingItemStr === (item.tmdbId ? `tmdb-${item.tmdbId}` : `tvdb-${item.tvdbId}`)} hasBeenAdded={isInLibrary(item)} onAdd={() => handleAdd(item)} viewMode={viewMode} />;
+                                    })}
+                                </div>
+                                {totalPages > 1 && (
+                                    <div className="flex items-center justify-center gap-4 pt-4">
+                                        <button onClick={() => setCurrentPage(p => Math.max(0, p - 1))} disabled={currentPage === 0} className="px-5 py-2.5 rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-400 text-xs font-black uppercase tracking-widest hover:border-zinc-700 hover:text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed">← Prev</button>
+                                        <span className="text-zinc-600 text-xs font-bold">Page {currentPage + 1} of {totalPages}</span>
+                                        <button onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))} disabled={currentPage >= totalPages - 1} className="px-5 py-2.5 rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-400 text-xs font-black uppercase tracking-widest hover:border-zinc-700 hover:text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed">Next →</button>
+                                    </div>
+                                )}
+                            </>
+                        ) : (
+                            <div className="flex flex-col items-center justify-center py-40 bg-zinc-950/20 rounded-[3rem] border border-zinc-900/50 gap-6">
+                                <div className="p-8 bg-zinc-900/50 rounded-full opacity-20"><Search size={64} /></div>
+                                <div className="text-center">
+                                    <p className="text-xl font-bold text-white mb-2">{pageMode === 'mylibrary' ? 'Library is empty' : 'No results found'}</p>
+                                    <p className="text-zinc-500 font-medium">{pageMode === 'mylibrary' ? 'Add media in Discover mode.' : 'Try adjusting your filters.'}</p>
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 </div>
-            </div>
+            )}
 
             {/* Add Media Modal */}
             {isAddModalOpen && selectedItemForAdd && (

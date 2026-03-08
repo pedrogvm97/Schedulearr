@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getInstanceById, getSetting } from '@/lib/db';
 import { searchSeries } from '@/lib/sonarr';
-import { getTrending, getTMDBDetails, discoverTMDB, TMDB_PROVIDERS, TMDB_GENRES, TMDB_REVERSE_GENRES } from '@/lib/tmdb';
+import { getTrending, discoverTMDB, TMDB_PROVIDERS, TMDB_GENRES, TMDB_REVERSE_GENRES } from '@/lib/tmdb';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,45 +26,42 @@ export async function GET(request: Request) {
 
         const tmdbApiKey = getSetting('tmdb_api_key');
 
+        // Auto-discovery mode (no search term): use TMDB
         if (!searchTerm && tmdbApiKey) {
-            console.log(`[LOOKUP] Using TMDB for discovery (series, Platform: ${platform || 'Any'}, Genre: ${genre || 'Any'})`);
+            console.log(`[LOOKUP] TMDB discovery (series, Platform: ${platform || 'Any'}, Genre: ${genre || 'Any'})`);
 
-            let tmdbResults = [];
             const genreId = genre ? TMDB_GENRES[genre] : undefined;
             const providerId = platform ? TMDB_PROVIDERS[platform] : undefined;
 
+            let tmdbResults: any[] = [];
             if (providerId || genreId) {
                 tmdbResults = await discoverTMDB(tmdbApiKey, 'tv', providerId, genreId);
             } else {
                 tmdbResults = await getTrending(tmdbApiKey, 'tv');
             }
 
-            // Map and resolve TVDB IDs if possible
-            const mappedResults = await Promise.all(tmdbResults.map(async m => {
-                // Get external IDs to get TVDB ID
-                const details = await getTMDBDetails(tmdbApiKey, m.id, 'tv');
-                const tvdbId = details?.external_ids?.tvdb_id;
-
-                return {
-                    title: m.name,
-                    year: m.first_air_date ? new Date(m.first_air_date).getFullYear() : undefined,
-                    tmdbId: m.id,
-                    tvdbId: tvdbId,
-                    overview: m.overview,
-                    remotePoster: m.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : undefined,
-                    ratings: { value: m.vote_average },
-                    popularity: m.popularity,
-                    genres: Array.from(new Set([...(m.genre_ids?.map(id => TMDB_REVERSE_GENRES[id]).filter(Boolean) || []), ...(genre ? [genre] : [])])),
-                    productionCompanies: details?.production_companies?.map((c: any) => c.name) || (platform ? [platform] : [])
-                };
+            // Map WITHOUT per-result detail fetches (those were causing timeouts and empty results)
+            // TVDB ID is resolved on-demand when the user adds the show via Sonarr lookup
+            const mappedResults = tmdbResults.map((m: any) => ({
+                title: m.name,
+                year: m.first_air_date ? new Date(m.first_air_date).getFullYear() : undefined,
+                tmdbId: m.id,
+                tvdbId: undefined,
+                overview: m.overview,
+                remotePoster: m.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : undefined,
+                ratings: { value: m.vote_average },
+                popularity: m.popularity,
+                genres: (m.genre_ids?.map((id: number) => TMDB_REVERSE_GENRES[id]).filter(Boolean) || []),
+                productionCompanies: platform ? [platform] : []
             }));
 
             return NextResponse.json(mappedResults);
         }
 
+        // Text search mode: use Sonarr's own search
         const results = await searchSeries(instance.url, instance.api_key, searchTerm);
 
-        const mappedSearch = results.map(s => ({
+        const mappedSearch = results.map((s: any) => ({
             title: s.title,
             year: s.year,
             tmdbId: s.tmdbId,
@@ -74,7 +71,8 @@ export async function GET(request: Request) {
             ratings: s.ratings,
             popularity: s.popularity,
             genres: s.genres || [],
-            productionCompanies: []
+            network: s.network || undefined,
+            productionCompanies: s.network ? [s.network] : []
         }));
 
         return NextResponse.json(mappedSearch);

@@ -23,8 +23,7 @@ export function Navigation() {
                         <span className="font-bold text-lg text-white tracking-tight">Schedulearr</span>
                     </div>
                     <div className="hidden md:flex items-center gap-1">
-                        <Link href="/scheduler" className={isActive('/scheduler')}>Media Search</Link>
-                        <Link href="/discover" className={isActive('/discover')}>Discover</Link>
+                        <Link href="/discover" className={isActive('/discover')}>Media</Link>
                         <Link href="/downloads" className={isActive('/downloads')}>Downloads</Link>
                         <Link href="/indexers" className={isActive('/indexers')}>Indexers</Link>
                         <Link href="/profiles" className={isActive('/profiles')}>Profiles</Link>

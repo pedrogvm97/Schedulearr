@@ -62,7 +62,23 @@ export async function POST(request: Request) {
         const addResult = await (isMovie ? radarr.addMovie(targetInstance.url, targetInstance.api_key, addPayload) : sonarr.addSeries(targetInstance.url, targetInstance.api_key, addPayload));
 
         if (!addResult.success) {
-            return NextResponse.json({ error: `Failed to add to target: ${addResult.error}` }, { status: 400 });
+            // Check if this is a duplicate conflict (Radarr/Sonarr return messages containing these strings)
+            const errStr = typeof addResult.error === 'string'
+                ? addResult.error
+                : Array.isArray(addResult.error)
+                    ? addResult.error.map((e: any) => e.errorMessage || JSON.stringify(e)).join(' ')
+                    : JSON.stringify(addResult.error);
+
+            const isDuplicate = /already been added|already exists|duplicate/i.test(errStr);
+
+            if (isDuplicate) {
+                return NextResponse.json({
+                    error: `"${item.title}" already exists on the target instance. No changes were made.`,
+                    code: 'ALREADY_EXISTS'
+                }, { status: 409 });
+            }
+
+            return NextResponse.json({ error: `Failed to add to target: ${errStr}` }, { status: 400 });
         }
 
         // 3. Handle Files if requested
