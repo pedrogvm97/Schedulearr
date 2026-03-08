@@ -15,6 +15,7 @@ import { CustomSelect } from '@/components/CustomSelect';
 import { twColorToHex } from '@/lib/instanceColor';
 import { SchedulerQueuePanel } from '@/components/SchedulerQueuePanel';
 import { MediaDetailsPanel } from '@/components/MediaDetailsPanel';
+import { PersonDetailsPanel } from '@/components/PersonDetailsPanel';
 
 interface Instance {
     id: string;
@@ -402,6 +403,7 @@ export default function DiscoverPage() {
     const [rootFolders, setRootFolders] = useState<RootFolder[]>([]);
     const [tmdbApiKey, setTmdbApiKey] = useState<string>('');
     const [showDetailsFor, setShowDetailsFor] = useState<any>(null);
+    const [showPersonDetailsFor, setShowPersonDetailsFor] = useState<number | null>(null);
     const [selectedRootFolderId, setSelectedRootFolderId] = useState<number>(0);
 
     // UI
@@ -513,12 +515,12 @@ export default function DiscoverPage() {
         }
     }, [mediaType, selectedInstanceIds, availableInstances, filterPlatform, filterGenre]);
 
-    // ── Trigger discovery on load / type / platform / genre change ──
+    // ── Trigger discovery on load / type / platform / genre / year change ──
     useEffect(() => {
         if (pageMode === 'discover' && !searchQuery) {
             handleDiscovery();
         }
-    }, [mediaType, pageMode, searchQuery, filterPlatform, filterGenre, handleDiscovery]);
+    }, [mediaType, pageMode, searchQuery, filterPlatform, filterGenre, filterYear, handleDiscovery]);
 
     // ── Management Handlers ──
     const [transferTarget, setTransferTarget] = useState<any>(null);
@@ -663,7 +665,7 @@ export default function DiscoverPage() {
         if (!id) return { exists: false, hasFile: false, isDownloading: false };
         const status = libraryMap.get(id);
         if (status) return { exists: true, ...status };
-        return { exists: (typeof item.id === 'number' && item.id > 0), hasFile: false, isDownloading: false };
+        return { exists: (typeof item.id === 'number' && item.id > 0), hasFile: false, isDownloading: false, instances: [] };
     };
 
     useEffect(() => {
@@ -1006,9 +1008,28 @@ export default function DiscoverPage() {
                 <MediaDetailsPanel
                     item={showDetailsFor}
                     tmdbApiKey={tmdbApiKey}
+                    libStatus={isInLibrary(showDetailsFor)}
                     onClose={() => setShowDetailsFor(null)}
-                    onSelectRecommended={(rec) => {
+                    onAdd={() => {
+                        handleAdd(showDetailsFor);
+                    }}
+                    onSelectPerson={(pid: number) => {
+                        setShowPersonDetailsFor(pid);
+                    }}
+                    onSelectRecommended={(rec: any) => {
                         setShowDetailsFor(rec);
+                    }}
+                />
+            )}
+
+            {/* Person Details Panel */}
+            {showPersonDetailsFor && tmdbApiKey && (
+                <PersonDetailsPanel
+                    personId={showPersonDetailsFor}
+                    tmdbApiKey={tmdbApiKey}
+                    onClose={() => setShowPersonDetailsFor(null)}
+                    onSelectMedia={(media: any) => {
+                        setShowDetailsFor(media);
                     }}
                 />
             )}

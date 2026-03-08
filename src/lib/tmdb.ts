@@ -44,17 +44,29 @@ export const searchTMDB = async (apiKey: string, query: string, type: 'movie' | 
     }
 };
 
-export const getTMDBDetails = async (apiKey: string, id: number, type: 'movie' | 'tv'): Promise<any> => {
+export const getTMDBDetails = async (apiKey: string, id: number, type: 'movie' | 'tv' | 'person'): Promise<any> => {
     try {
-        const response = await axios.get(`${BASE_URL}/${type === 'movie' ? 'movie' : 'tv'}/${id}`, {
+        const response = await axios.get(`${BASE_URL}/${type === 'tv' ? 'tv' : type}/${id}`, {
             params: {
                 api_key: apiKey,
-                append_to_response: 'external_ids'
+                append_to_response: 'external_ids,combined_credits,images'
             }
         });
         return response.data;
     } catch (error) {
         console.error(`TMDB getDetails error (${id}):`, error);
+        return null;
+    }
+};
+
+export const getPersonCredits = async (apiKey: string, personId: number): Promise<any> => {
+    try {
+        const response = await axios.get(`${BASE_URL}/person/${personId}/combined_credits`, {
+            params: { api_key: apiKey }
+        });
+        return response.data;
+    } catch (error) {
+        console.error(`TMDB getPersonCredits error (${personId}):`, error);
         return null;
     }
 };
