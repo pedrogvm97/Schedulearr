@@ -16,6 +16,7 @@ import { twColorToHex } from '@/lib/instanceColor';
 import { SchedulerQueuePanel } from '@/components/SchedulerQueuePanel';
 import { MediaDetailsPanel } from '@/components/MediaDetailsPanel';
 import { PersonDetailsPanel } from '@/components/PersonDetailsPanel';
+import { InteractiveSearchModal } from '@/components/InteractiveSearchModal';
 
 interface Instance {
     id: string;
@@ -34,9 +35,8 @@ interface RootFolder { id: number; path: string; }
 const ALL_GENRES = [
     'All', 'Action', 'Adventure', 'Animation', 'Anime', 'Comedy', 'Crime',
     'Documentary', 'Drama', 'Family', 'Fantasy', 'History', 'Horror',
-    'Music', 'Mystery', 'Reality', 'Romance', 'Sci-Fi & Fantasy',
-    'Science Fiction', 'Soap', 'Thriller', 'War', 'War & Politics',
-    'Western', 'Talk'
+    'Music', 'Mystery', 'Reality', 'Romance', 'Sci-Fi',
+    'Soap', 'Thriller', 'War', 'Western', 'Talk'
 ];
 
 const QUICK_STUDIOS = [
@@ -70,10 +70,11 @@ function getPlatformBadge(item: any) {
 // ──────────────────────────────────────────────
 // My Media Episode Row
 // ──────────────────────────────────────────────
-function EpisodeList({ instanceId, seriesId }: { instanceId: string; seriesId: number }) {
+function EpisodeList({ instanceId, seriesId, onInteractiveSearch }: { instanceId: string; seriesId: number; onInteractiveSearch?: (ep: any) => void }) {
     const [episodes, setEpisodes] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
+    const [searchingEpId, setSearchingEpId] = useState<number | null>(null);
 
     useEffect(() => {
         fetch(`/api/sonarr/episodes?instanceId=${instanceId}&seriesId=${seriesId}`)
@@ -87,6 +88,30 @@ function EpisodeList({ instanceId, seriesId }: { instanceId: string; seriesId: n
             .finally(() => setLoading(false));
     }, [instanceId, seriesId]);
 
+    const handleAutoSearch = async (ep: any) => {
+        setSearchingEpId(ep.id);
+        try {
+            const res = await fetch('/api/sonarr/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    instanceId,
+                    name: 'EpisodeSearch',
+                    episodeIds: [ep.id]
+                })
+            });
+            if (res.ok) {
+                toast.success(`Search triggered for S${ep.seasonNumber}E${ep.episodeNumber}`);
+            } else {
+                toast.error('Failed to trigger search');
+            }
+        } catch (e) {
+            toast.error('Error triggering search');
+        } finally {
+            setSearchingEpId(null);
+        }
+    };
+
     if (loading) return <div className="flex items-center gap-2 py-4 text-zinc-600 text-xs"><div className="w-3 h-3 border border-zinc-700 border-t-zinc-400 rounded-full animate-spin" /> Loading episodes...</div>;
 
     const seasons = [...new Set(episodes.map(e => e.seasonNumber))].sort((a, b) => b - a);
@@ -94,7 +119,7 @@ function EpisodeList({ instanceId, seriesId }: { instanceId: string; seriesId: n
     const haveCount = seasonEps.filter(e => e.hasFile).length;
 
     return (
-        <div className="mt-3 space-y-3">
+        <div className="mt-3 space-y-4">
             {/* Season Tabs */}
             <div className="flex flex-wrap gap-1.5">
                 {seasons.map(s => (
@@ -109,24 +134,46 @@ function EpisodeList({ instanceId, seriesId }: { instanceId: string; seriesId: n
             </div>
 
             {/* Season Summary */}
-            <div className="flex items-center gap-3 text-[10px] text-zinc-500 font-medium">
+            <div className="flex items-center gap-3 text-[10px] text-zinc-500 font-medium px-1">
                 <span className="text-emerald-500 font-bold">{haveCount}/{seasonEps.length}</span> episodes available
             </div>
 
             {/* Episode List */}
-            <div className="space-y-1 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+            <div className="space-y-1.5 max-h-64 overflow-y-auto custom-scrollbar pr-2">
                 {seasonEps.map(ep => (
-                    <div key={ep.id} className={`flex items-center gap-3 px-3 py-2 rounded-xl border transition-all ${ep.hasFile ? 'border-zinc-800 bg-zinc-950/30' : 'border-zinc-900/50 opacity-50'}`}>
-                        <span className={`text-[10px] font-black w-8 ${ep.hasFile ? 'text-emerald-500' : 'text-zinc-700'}`}>
+                    <div key={ep.id} className={`group/ep flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all ${ep.hasFile ? 'border-zinc-800 bg-zinc-950/30' : 'border-zinc-900/50 hover:bg-zinc-900/20'}`}>
+                        <span className={`text-[10px] font-black w-8 flex-shrink-0 ${ep.hasFile ? 'text-emerald-500' : 'text-zinc-700'}`}>
                             E{String(ep.episodeNumber).padStart(2, '0')}
                         </span>
-                        <span className="flex-1 text-xs text-zinc-400 truncate">{ep.title}</span>
-                        {ep.hasFile && ep.episodeFile?.quality?.quality?.name && (
-                            <span className="text-[9px] font-bold text-zinc-600 bg-zinc-900 px-1.5 py-0.5 rounded">
-                                {ep.episodeFile.quality.quality.name}
-                            </span>
-                        )}
-                        {!ep.hasFile && <span className="text-[9px] text-zinc-700 font-bold">MISSING</span>}
+                        <div className="flex-1 min-w-0 flex flex-col">
+                            <span className={`text-xs truncate ${ep.hasFile ? 'text-zinc-300 font-medium' : 'text-zinc-600'}`}>{ep.title}</span>
+                            {ep.hasFile && ep.episodeFile?.quality?.quality?.name && (
+                                <span className="text-[9px] font-bold text-zinc-600 mt-0.5 uppercase tracking-tighter">
+                                    {ep.episodeFile.quality.quality.name}
+                                </span>
+                            )}
+                        </div>
+
+                        <div className="flex items-center gap-1.5 opacity-0 group-hover/ep:opacity-100 transition-opacity">
+                            <button
+                                onClick={() => onInteractiveSearch?.(ep)}
+                                title="Interactive Search"
+                                className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"
+                            >
+                                <Search size={12} />
+                            </button>
+                            <button
+                                onClick={() => handleAutoSearch(ep)}
+                                disabled={searchingEpId === ep.id}
+                                title="Automatic Search"
+                                className={`p-1.5 rounded-lg border transition-all ${searchingEpId === ep.id ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-emerald-400'}`}
+                            >
+                                {searchingEpId === ep.id ? <div className="w-3 h-3 border border-emerald-500 border-t-transparent rounded-full animate-spin" /> : <PlayCircle size={12} />}
+                            </button>
+                        </div>
+
+                        {!ep.hasFile && <span className="text-[9px] text-zinc-700 font-black tracking-widest uppercase flex-shrink-0">Missing</span>}
+                        {ep.hasFile && <CheckCircle size={10} className="text-emerald-500/50 flex-shrink-0" />}
                     </div>
                 ))}
             </div>
@@ -134,11 +181,12 @@ function EpisodeList({ instanceId, seriesId }: { instanceId: string; seriesId: n
     );
 }
 
+
 // ──────────────────────────────────────────────
 // My Media Card Components
 // ──────────────────────────────────────────────
-function MyMediaGridCard({ item, isSeries, expandAll, excludeUnmonitored, onDelete, onTransfer }: {
-    item: any; isSeries: boolean; expandAll: boolean; excludeUnmonitored: boolean; onDelete: () => void; onTransfer: () => void;
+function MyMediaGridCard({ item, isSeries, expandAll, excludeUnmonitored, onDelete, onTransfer, onInteractiveSearch }: {
+    item: any; isSeries: boolean; expandAll: boolean; excludeUnmonitored: boolean; onDelete: () => void; onTransfer: () => void; onInteractiveSearch?: (payload: any) => void;
 }) {
     const [expanded, setExpanded] = useState(false);
 
@@ -149,40 +197,47 @@ function MyMediaGridCard({ item, isSeries, expandAll, excludeUnmonitored, onDele
     const poster = item.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || item.remotePoster;
     const totalEps = item.statistics?.totalEpisodeCount || 0;
     const haveEps = item.statistics?.episodeFileCount || 0;
-    // If excludeUnmonitored, use episodeCount (monitored non-specials) vs episodeFileCount; fallback to totalEpisodeCount
     const denominator = excludeUnmonitored ? (item.statistics?.episodeCount || totalEps) : totalEps;
-    const pct = denominator > 0 ? Math.min(100, Math.round((haveEps / denominator) * 100)) : (item.hasFile ? 100 : 0);
+    const pct = isSeries ? (denominator > 0 ? Math.min(100, Math.round((haveEps / denominator) * 100)) : 0) : (item.hasFile ? 100 : 0);
 
     return (
-        <div className="group flex flex-col bg-[#090909] border border-zinc-900 hover:border-zinc-800 rounded-[2rem] overflow-hidden transition-all duration-300 shadow-xl hover:-translate-y-1">
+        <div className="group flex flex-col bg-[#090909] border border-zinc-900 hover:border-zinc-800 rounded-[2.5rem] overflow-hidden transition-all duration-300 shadow-xl hover:-translate-y-1">
             <div className="relative aspect-[2/3] overflow-hidden">
                 {poster
                     ? <img src={poster} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
                     : <div className="w-full h-full bg-zinc-900 flex items-center justify-center text-zinc-800">{isSeries ? <Tv size={48} /> : <Film size={48} />}</div>}
 
-                {isSeries && (
-                    <div className="absolute bottom-0 left-0 right-0 h-1 bg-zinc-900">
-                        <div className="h-full bg-emerald-500 transition-all" style={{ width: `${pct}%` }} />
-                    </div>
-                )}
+                {/* Progress Bar */}
+                <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-zinc-900/80 backdrop-blur-sm z-10">
+                    <div className={`h-full transition-all duration-1000 shadow-[0_0_10px_rgba(16,185,129,0.3)] ${pct === 100 ? 'bg-emerald-500' : 'bg-amber-500'}`} style={{ width: `${pct}%` }} />
+                </div>
 
                 <div className="absolute inset-0 bg-gradient-to-t from-[#090909] via-transparent to-transparent opacity-90" />
-                <div className="absolute top-4 left-4 right-4 flex justify-between items-start opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="absolute top-4 left-4 right-4 flex justify-between items-start opacity-0 group-hover:opacity-100 transition-all duration-300 translate-y-[-10px] group-hover:translate-y-0 z-20">
                     <div className="flex gap-1.5 ml-auto">
-                        <button onClick={(e) => { e.stopPropagation(); onTransfer(); }} className="p-2 rounded-xl bg-black/60 backdrop-blur-md border border-white/10 text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all">
+                        {!isSeries && (
+                            <button
+                                onClick={(e) => { e.stopPropagation(); onInteractiveSearch?.({ type: 'movie', id: item.id, instanceId: item.instanceId, title: item.title, poster }); }}
+                                className="p-2.5 rounded-xl bg-black/60 backdrop-blur-xl border border-white/10 text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all"
+                            >
+                                <Search size={14} />
+                            </button>
+                        )}
+                        <button onClick={(e) => { e.stopPropagation(); onTransfer(); }} className="p-2.5 rounded-xl bg-black/60 backdrop-blur-xl border border-white/10 text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all">
                             <MoveHorizontal size={14} />
                         </button>
-                        <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="p-2 rounded-xl bg-red-500/10 backdrop-blur-md border border-red-500/20 text-red-500 hover:bg-red-500/20 transition-all">
+                        <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="p-2.5 rounded-xl bg-red-500/10 backdrop-blur-xl border border-red-500/20 text-red-500 hover:bg-red-500 hover:text-white transition-all">
                             <Trash2 size={14} />
                         </button>
                     </div>
                 </div>
 
-                <div className="absolute bottom-4 left-5 right-5">
+                <div className="absolute bottom-4 left-5 right-5 z-20">
                     <h3 className="text-base font-black text-white leading-tight line-clamp-2 drop-shadow-lg">{item.title}</h3>
-                    <div className="flex items-center gap-2 mt-1.5 text-[10px] text-zinc-400 font-bold uppercase tracking-wider">
+                    <div className="flex items-center gap-2 mt-2 text-[10px] text-zinc-400 font-bold uppercase tracking-widest opacity-80">
                         {item.year && <span>{item.year}</span>}
-                        {isSeries && <><span className="opacity-40">•</span><span className="text-emerald-400">{pct}%</span></>}
+                        <span className="opacity-40">•</span>
+                        <span className={pct === 100 ? 'text-emerald-400' : 'text-amber-400'}>{pct}%</span>
                         <span className="opacity-30">•</span>
                         <span className="truncate text-zinc-500">{item.instanceName}</span>
                     </div>
@@ -193,20 +248,23 @@ function MyMediaGridCard({ item, isSeries, expandAll, excludeUnmonitored, onDele
                 <div className="px-4 pb-4">
                     <button
                         onClick={() => setExpanded(v => !v)}
-                        className="w-full flex items-center justify-between py-2.5 px-1 text-[10px] font-black uppercase tracking-wider text-zinc-600 hover:text-zinc-300 transition-colors"
+                        className={`w-full flex items-center justify-between py-3 px-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${expanded ? 'bg-zinc-900 text-zinc-300' : 'text-zinc-600 hover:text-zinc-400 hover:bg-zinc-900/30'}`}
                     >
-                        <span className="flex items-center gap-1.5"><PlaySquare size={12} /> {item.statistics?.episodeCount || 0} Episodes</span>
-                        {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                        <span className="flex items-center gap-2">
+                            <ListOrdered size={12} className={expanded ? 'text-emerald-500' : ''} />
+                            {item.statistics?.episodeCount || 0} Episodes
+                        </span>
+                        {expanded ? <ChevronUp size={12} className="text-emerald-500" /> : <ChevronDown size={12} />}
                     </button>
-                    {expanded && <EpisodeList instanceId={item.instanceId} seriesId={item.id} />}
+                    {expanded && <EpisodeList instanceId={item.instanceId} seriesId={item.id} onInteractiveSearch={(ep) => onInteractiveSearch?.({ type: 'episode', id: ep.id, instanceId: item.instanceId, title: `${item.title} - S${ep.seasonNumber}E${ep.episodeNumber}`, poster })} />}
                 </div>
             )}
         </div>
     );
 }
 
-function MyMediaListCard({ item, isSeries, expandAll, excludeUnmonitored, onDelete, onTransfer }: {
-    item: any; isSeries: boolean; expandAll: boolean; excludeUnmonitored: boolean; onDelete: () => void; onTransfer: () => void;
+function MyMediaListCard({ item, isSeries, expandAll, excludeUnmonitored, onDelete, onTransfer, onInteractiveSearch }: {
+    item: any; isSeries: boolean; expandAll: boolean; excludeUnmonitored: boolean; onDelete: () => void; onTransfer: () => void; onInteractiveSearch?: (payload: any) => void;
 }) {
     const [expanded, setExpanded] = useState(false);
 
@@ -215,37 +273,49 @@ function MyMediaListCard({ item, isSeries, expandAll, excludeUnmonitored, onDele
     }, [expandAll]);
 
     const poster = item.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || item.remotePoster;
-    const sizeMb = item.statistics?.sizeOnDisk || item.movieFile?.size || 0;
-    const sizeStr = sizeMb > 1e9 ? `${(sizeMb / 1e9).toFixed(1)} GB` : sizeMb > 1e6 ? `${(sizeMb / 1e6).toFixed(0)} MB` : sizeMb > 0 ? `${(sizeMb / 1024 / 1024).toFixed(1)} MB` : '0 MB';
+    const sizeMb = item.statistics?.sizeOnDisk || (item.movieFile?.size || 0);
+    const sizeStr = sizeMb > 1e12 ? `${(sizeMb / 1e12).toFixed(1)} TB` : sizeMb > 1e9 ? `${(sizeMb / 1e9).toFixed(1)} GB` : sizeMb > 1e6 ? `${(sizeMb / 1e6).toFixed(0)} MB` : '0 MB';
     const path = item.path || 'Unknown Path';
     const totalEps = item.statistics?.totalEpisodeCount || 0;
     const haveEps = item.statistics?.episodeFileCount || 0;
     const denominator = isSeries ? (excludeUnmonitored ? (item.statistics?.episodeCount || totalEps) : totalEps) : 1;
-    const pct = isSeries ? Math.min(100, Math.round((haveEps / (denominator || 1)) * 100)) : 100;
+    const pct = isSeries ? Math.min(100, Math.round((haveEps / (denominator || 1)) * 100)) : (item.hasFile ? 100 : 0);
 
     return (
-        <div className="flex flex-col bg-zinc-950/40 border border-zinc-900 rounded-2xl overflow-hidden transition-all hover:border-zinc-800">
+        <div className="flex flex-col bg-zinc-950/40 border border-zinc-900 rounded-2xl overflow-hidden transition-all hover:border-zinc-800 shadow-lg">
             <div className="p-4 flex gap-6 items-center">
-                <div className="w-16 aspect-[2/3] rounded-xl overflow-hidden bg-zinc-900 flex-shrink-0 shadow-lg">
+                <div className="w-16 aspect-[2/3] rounded-xl overflow-hidden bg-zinc-900 flex-shrink-0 shadow-lg border border-white/5">
                     {poster ? <img src={poster} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-zinc-800">{isSeries ? <Tv size={24} /> : <Film size={24} />}</div>}
                 </div>
                 <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-3 mb-1.5 flex-wrap">
+                    <div className="flex items-center gap-3 mb-2 flex-wrap">
                         <h3 className="font-bold text-white text-lg truncate">{item.title}</h3>
-                        <span className="px-2 py-0.5 rounded text-[9px] font-black border border-zinc-800 text-zinc-500 uppercase tracking-widest">{item.instanceName}</span>
-                        {isSeries && <span className="px-2 py-0.5 rounded text-[9px] font-black bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 uppercase tracking-widest">{pct}% READY</span>}
+                        <span className="px-2.5 py-1 rounded-lg text-[9px] font-black border border-zinc-800 text-zinc-500 uppercase tracking-widest bg-zinc-900/50">{item.instanceName}</span>
+                        <div className="flex items-center gap-2">
+                            <div className="w-24 h-1.5 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800">
+                                <div className={`h-full transition-all duration-1000 ${pct === 100 ? 'bg-emerald-500' : 'bg-amber-500'}`} style={{ width: `${pct}%` }} />
+                            </div>
+                            <span className={`text-[10px] font-black uppercase tracking-widest ${pct === 100 ? 'text-emerald-500' : 'text-amber-400'}`}>{pct}%</span>
+                        </div>
                     </div>
-                    <div className="flex items-center gap-5 text-xs text-zinc-500 font-medium">
-                        <span className="flex items-center gap-1.5"><Calendar size={12} /> {item.year}</span>
-                        <span className="flex items-center gap-1.5"><HardDrive size={12} /> {sizeStr}</span>
-                        <span className="flex items-center gap-1.5 truncate max-w-md"><Monitor size={12} className="text-zinc-700" /> <span className="text-zinc-600 truncate">{path}</span></span>
+                    <div className="flex items-center gap-5 text-[11px] text-zinc-500 font-semibold tracking-tight">
+                        <span className="flex items-center gap-1.5"><Calendar size={12} className="text-zinc-700" /> {item.year}</span>
+                        <span className="flex items-center gap-1.5"><HardDrive size={12} className="text-zinc-700" /> {sizeStr}</span>
+                        <span className="flex items-center gap-1.5 truncate max-w-md"><Monitor size={12} className="text-zinc-800" /> <span className="text-zinc-600 truncate">{path}</span></span>
                     </div>
                 </div>
                 <div className="flex items-center gap-2 pr-2">
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onInteractiveSearch?.({ type: isSeries ? 'series' : 'movie', id: item.id, instanceId: item.instanceId, title: item.title, poster }); }}
+                        className="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white hover:border-zinc-700 transition-all"
+                        title="Interactive Search"
+                    >
+                        <Search size={14} />
+                    </button>
                     {isSeries && (
                         <button
                             onClick={() => setExpanded(!expanded)}
-                            className={`p-2.5 rounded-xl border transition-all ${expanded ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-400' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-white'}`}
+                            className={`p-2.5 rounded-xl border transition-all ${expanded ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-white'}`}
                         >
                             <Rows size={14} />
                         </button>
@@ -253,46 +323,40 @@ function MyMediaListCard({ item, isSeries, expandAll, excludeUnmonitored, onDele
                     <button onClick={onTransfer} className="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-700 transition-all">
                         <MoveHorizontal size={14} />
                     </button>
-                    <button onClick={onDelete} className="p-2.5 rounded-xl bg-red-500/5 border border-red-500/20 text-red-500 hover:bg-red-500/10 transition-all">
+                    <button onClick={onDelete} className="p-2.5 rounded-xl bg-red-500/5 border border-red-500/20 text-red-500 hover:bg-red-500 hover:text-white transition-all">
                         <Trash2 size={14} />
                     </button>
                 </div>
             </div>
             {isSeries && expanded && (
                 <div className="px-6 pb-6 pt-2 border-t border-zinc-900/50 bg-black/20">
-                    <EpisodeList instanceId={item.instanceId} seriesId={item.id} />
+                    <EpisodeList instanceId={item.instanceId} seriesId={item.id} onInteractiveSearch={(ep) => onInteractiveSearch?.({ type: 'episode', id: ep.id, instanceId: item.instanceId, title: `${item.title} - S${ep.seasonNumber}E${ep.episodeNumber}`, poster })} />
                 </div>
             )}
         </div>
     );
 }
 
-function MyMediaCard({ item, viewMode, onRefresh, expandAll, excludeUnmonitored, onDelete, onTransfer }: {
-    item: any; viewMode: 'grid' | 'list'; onRefresh: () => void; expandAll: boolean; excludeUnmonitored: boolean; onDelete: () => void; onTransfer: () => void;
+function MyMediaCard({ item, viewMode, onRefresh, expandAll, excludeUnmonitored, onDelete, onTransfer, onInteractiveSearch }: {
+    item: any; viewMode: 'grid' | 'list'; onRefresh: () => void; expandAll: boolean; excludeUnmonitored: boolean; onDelete: () => void; onTransfer: () => void; onInteractiveSearch?: (payload: any) => void;
 }) {
     const isSeries = !!item.seasons || !!item.statistics;
-    if (viewMode === 'list') return <MyMediaListCard item={item} isSeries={isSeries} expandAll={expandAll} excludeUnmonitored={excludeUnmonitored} onDelete={onDelete} onTransfer={onTransfer} />;
-    return <MyMediaGridCard item={item} isSeries={isSeries} expandAll={expandAll} excludeUnmonitored={excludeUnmonitored} onDelete={onDelete} onTransfer={onTransfer} />;
+    if (viewMode === 'list') return <MyMediaListCard item={item} isSeries={isSeries} expandAll={expandAll} excludeUnmonitored={excludeUnmonitored} onDelete={onDelete} onTransfer={onTransfer} onInteractiveSearch={onInteractiveSearch} />;
+    return <MyMediaGridCard item={item} isSeries={isSeries} expandAll={expandAll} excludeUnmonitored={excludeUnmonitored} onDelete={onDelete} onTransfer={onTransfer} onInteractiveSearch={onInteractiveSearch} />;
 }
+
 
 // ──────────────────────────────────────────────
 // Discovery Card
 // ──────────────────────────────────────────────
-function DiscoveryCard({ item, isAdding, hasBeenAdded, onAdd, viewMode, onShowDetails }: {
-    item: any; isAdding: boolean; hasBeenAdded: boolean; onAdd: () => void; viewMode: 'grid' | 'list'; onShowDetails?: () => void;
+function DiscoveryCard({ item, isAdding, libStatus, onAdd, viewMode, onShowDetails, onInteractiveSearch }: {
+    item: any; isAdding: boolean; libStatus: { exists: boolean; hasFile: boolean; isDownloading: boolean; instances: { id: string; name: string }[] }; onAdd: () => void; viewMode: 'grid' | 'list'; onShowDetails?: () => void; onInteractiveSearch?: (media: any) => void;
 }) {
     const poster = item.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || item.remotePoster;
     const rating = item.ratings?.value;
     const platform = getPlatformBadge(item);
 
-    const libStatus = useMemo(() => {
-        const id = item.tmdbId || item.tvdbId;
-        // In this scope, isInLibrary is not yet defined if it's outside. 
-        // But in discover/page.tsx, DiscoveryCard is defined before DiscoverPage.
-        // Actually it's better to pass libStatus as a prop or define DiscoveryCard inside DiscoverPage.
-        // I'll move DiscoveryCard inside DiscoverPage to simplify or pass the status object.
-        return { exists: hasBeenAdded, hasFile: item.hasFile || false, isDownloading: item.isDownloading || false };
-    }, [item, hasBeenAdded]);
+    // Use libStatus from props
 
     if (viewMode === 'list') {
         return (
@@ -322,14 +386,29 @@ function DiscoveryCard({ item, isAdding, hasBeenAdded, onAdd, viewMode, onShowDe
                         {item.genres?.length > 0 && <span className="truncate">{item.genres.slice(0, 2).join(', ')}</span>}
                     </div>
                 </div>
-                <button
-                    onClick={onAdd}
-                    disabled={isAdding || libStatus.exists}
-                    className={`px-5 py-2.5 rounded-xl font-black text-xs transition-all flex items-center gap-2 ${libStatus.exists ? 'text-emerald-500/50 bg-zinc-900' : 'bg-white text-black hover:bg-emerald-400'}`}
-                >
-                    {isAdding ? <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> : libStatus.exists ? <CheckCircle size={14} /> : <Plus size={14} />}
-                    {isAdding ? 'Adding' : libStatus.exists ? (libStatus.hasFile ? 'Available' : 'In Library') : 'Add'}
-                </button>
+                <div className="flex items-center gap-2">
+                    {libStatus.exists && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                const instId = libStatus.instances?.[0]?.id;
+                                if (instId) onInteractiveSearch?.({ ...item, id: item.tmdbId || item.tvdbId, instanceId: instId, type: (item.tvdbId || item.seasons) ? 'series' : 'movie' });
+                            }}
+                            className="p-2.5 rounded-xl bg-indigo-600/10 border border-indigo-500/20 text-indigo-400 hover:bg-indigo-600 hover:text-white transition-all"
+                            title="Interactive Search"
+                        >
+                            <Search size={14} />
+                        </button>
+                    )}
+                    <button
+                        onClick={onAdd}
+                        disabled={isAdding || libStatus.exists}
+                        className={`px-5 py-2.5 rounded-xl font-black text-xs transition-all flex items-center gap-2 ${libStatus.exists ? 'text-emerald-500/50 bg-zinc-900 cursor-not-allowed' : 'bg-white text-black hover:bg-emerald-400 shadow-lg'}`}
+                    >
+                        {isAdding ? <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> : libStatus.exists ? <CheckCircle size={14} /> : <Plus size={14} />}
+                        {isAdding ? 'Adding' : libStatus.exists ? (libStatus.hasFile ? 'Available' : 'In Library') : 'Add'}
+                    </button>
+                </div>
             </div>
         );
     }
@@ -341,21 +420,36 @@ function DiscoveryCard({ item, isAdding, hasBeenAdded, onAdd, viewMode, onShowDe
                     ? <img src={poster} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
                     : <div className="w-full h-full bg-zinc-900 flex items-center justify-center text-zinc-800"><Film size={48} /></div>}
                 <div className="absolute inset-0 bg-gradient-to-t from-[#090909] via-transparent to-transparent opacity-90" />
-                <div className="absolute top-3 left-3 right-3 flex justify-between items-start">
+                <div className="absolute top-3 left-3 right-3 flex justify-between items-start opacity-0 group-hover:opacity-100 transition-all duration-300 z-30">
                     <div className="flex flex-col gap-1.5">
                         {platform && <span className={`w-fit px-2.5 py-1 rounded-lg text-[9px] font-black border backdrop-blur-sm ${platform.color}`}>{platform.label}</span>}
                         {rating != null && <span className="w-fit flex items-center gap-1 px-2.5 py-1 rounded-lg bg-black/60 backdrop-blur-sm border border-white/10 text-[9px] font-black text-amber-400">★ {rating.toFixed(1)}</span>}
                     </div>
-                    {libStatus.exists && (
-                        <div className={`p-1.5 rounded-full shadow-lg ${libStatus.hasFile ? 'bg-emerald-500' :
-                            libStatus.isDownloading ? 'bg-amber-500' :
-                                'bg-blue-500'
-                            }`}>
-                            <CheckCircle size={14} className="text-black" />
-                        </div>
-                    )}
+                    <div className="flex gap-2">
+                        {libStatus.exists && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    const instId = libStatus.instances?.[0]?.id;
+                                    if (instId) onInteractiveSearch?.({ ...item, id: item.tmdbId || item.tvdbId, instanceId: instId, type: (item.tvdbId || item.seasons) ? 'series' : 'movie' });
+                                }}
+                                className="p-2.5 rounded-xl bg-black/60 backdrop-blur-xl border border-white/10 text-indigo-400 hover:text-white hover:bg-indigo-600 transition-all shadow-xl"
+                                title="Interactive Search"
+                            >
+                                <Search size={14} />
+                            </button>
+                        )}
+                        {libStatus.exists && (
+                            <div className={`p-2.5 rounded-xl shadow-lg backdrop-blur-xl border border-white/10 ${libStatus.hasFile ? 'bg-emerald-500/20 text-emerald-400' :
+                                libStatus.isDownloading ? 'bg-amber-500/20 text-amber-400' :
+                                    'bg-blue-500/20 text-blue-400'
+                                }`}>
+                                <CheckCircle size={14} />
+                            </div>
+                        )}
+                    </div>
                 </div>
-                <div className="absolute bottom-4 left-4 right-4">
+                <div className="absolute bottom-4 left-4 right-4 z-20">
                     <h3 className="text-base font-black text-white leading-tight line-clamp-2 drop-shadow-lg">{item.title}</h3>
                     <div className="flex items-center gap-2 mt-0.5 text-[10px] text-zinc-400 font-bold">
                         {item.year && <span>{item.year}</span>}
@@ -427,6 +521,12 @@ export default function DiscoverPage() {
 
     const [serverTotalPages, setServerTotalPages] = useState(1);
     const [localRating, setLocalRating] = useState<number>(filterRating);
+
+    // Interactive Search State
+    const [interactiveSearchItem, setInteractiveSearchItem] = useState<any | null>(null);
+    const [interactiveReleases, setInteractiveReleases] = useState<any[]>([]);
+    const [loadingReleases, setLoadingReleases] = useState(false);
+    const [triggeringReleaseGuid, setTriggeringReleaseGuid] = useState<string | null>(null);
 
     // Debounce rating changes to avoid flickering and excessive API calls
     useEffect(() => {
@@ -500,20 +600,18 @@ export default function DiscoverPage() {
         let totalP = 1;
         try {
             const base = mediaType === 'movie' ? '/api/radarr' : '/api/sonarr';
-            let url = `${base}/lookup?instanceId=${selectedInstanceIds[0] || availableInstances[0].id}&page=${pageNum + 1}`;
-            if (filterPlatform !== 'All' && QUICK_STUDIOS.some(s => s.name === filterPlatform)) {
-                url += `&platform=${encodeURIComponent(filterPlatform)}`;
-            }
-            if (filterGenre !== 'All' && ALL_GENRES.includes(filterGenre)) {
-                url += `&genre=${encodeURIComponent(filterGenre)}`;
-            }
-            if (filterRating > 0) {
-                url += `&minRating=${filterRating}`;
-            }
-            if (filterYear !== 'All') {
-                url += `&year=${filterYear}`;
-            }
-            const res = await fetch(url);
+            // Stable params construction
+            const searchParams = new URLSearchParams({
+                instanceId: selectedInstanceIds[0] || availableInstances[0].id,
+                page: (pageNum + 1).toString()
+            });
+
+            if (filterPlatform !== 'All') searchParams.append('platform', filterPlatform);
+            if (filterGenre !== 'All') searchParams.append('genre', filterGenre);
+            if (filterRating > 0) searchParams.append('minRating', filterRating.toString());
+            if (filterYear !== 'All') searchParams.append('year', filterYear);
+
+            const res = await fetch(`${base}/lookup?${searchParams.toString()}`);
             if (res.ok) {
                 const data = await res.json();
                 fetchedData = Array.isArray(data.results) ? data.results : [];
@@ -525,13 +623,60 @@ export default function DiscoverPage() {
         } finally {
             setResults(fetchedData);
             setServerTotalPages(totalP);
-            // Only scroll to top if we are changing pages, not just filtering
             if (pageNum !== currentPage) {
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             }
             setIsSearching(false);
         }
-    }, [mediaType, selectedInstanceIds, availableInstances, filterPlatform, filterGenre, filterRating, currentPage]);
+    }, [mediaType, selectedInstanceIds.join(','), availableInstances.map(i => i.id).join(','), filterPlatform, filterGenre, filterRating, filterYear]);
+
+    // Interactive Search Handlers
+    const handleOpenInteractiveSearch = async (media: any) => {
+        setInteractiveSearchItem(media);
+        setLoadingReleases(true);
+        setInteractiveReleases([]);
+        try {
+            const endpoint = media.type === 'movie'
+                ? `/api/radarr/releases?movieId=${media.id}&instanceId=${media.instanceId}`
+                : `/api/sonarr/releases?episodeId=${media.id}&instanceId=${media.instanceId}`;
+            const res = await fetch(endpoint);
+            const data = await res.json();
+            setInteractiveReleases(Array.isArray(data) ? data : []);
+        } catch (e) {
+            toast.error('Failed to load releases');
+        } finally {
+            setLoadingReleases(false);
+        }
+    };
+
+    const handleTriggerDownload = async (guid: string, indexerId: number) => {
+        if (!interactiveSearchItem) return;
+        setTriggeringReleaseGuid(guid);
+        try {
+            const endpoint = interactiveSearchItem.type === 'movie' ? '/api/radarr/releases' : '/api/sonarr/releases';
+            const res = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    guid,
+                    indexerId,
+                    instanceId: interactiveSearchItem.instanceId
+                })
+            });
+
+            if (res.ok) {
+                toast.success('Grabbed release successfully!');
+                setInteractiveSearchItem(null);
+                loadLibrary();
+            } else {
+                toast.error('Failed to grab release');
+            }
+        } catch (e) {
+            toast.error('Error triggering download');
+        } finally {
+            setTriggeringReleaseGuid(null);
+        }
+    };
 
     const handleDelete = useCallback(async (item: any) => {
         if (!confirm(`Are you sure you want to delete "${item.title}"? This cannot be undone.`)) return;
@@ -1076,8 +1221,8 @@ export default function DiscoverPage() {
                             <>
                                 <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5' : 'space-y-3'}>
                                     {pageItems.map((item, idx) => {
-                                        if (pageMode === 'mylibrary') return <MyMediaCard key={`${item.instanceId}-${item.id}-${idx}`} item={item} viewMode={viewMode} onRefresh={loadLibrary} expandAll={expandAll} excludeUnmonitored={excludeUnmonitored} onDelete={() => handleDelete(item)} onTransfer={() => setTransferTarget(item)} />;
-                                        return <DiscoveryCard key={item.tmdbId ? `tmdb-${item.tmdbId}` : `tvdb-${item.tvdbId}`} item={item} isAdding={addingItemStr === (item.tmdbId ? `tmdb-${item.tmdbId}` : `tvdb-${item.tvdbId}`)} hasBeenAdded={isInLibrary(item).exists} onAdd={() => handleAdd(item)} viewMode={viewMode} onShowDetails={() => setShowDetailsFor(item)} />;
+                                        if (pageMode === 'mylibrary') return <MyMediaCard key={`${item.instanceId}-${item.id}-${idx}`} item={item} viewMode={viewMode} onRefresh={loadLibrary} expandAll={expandAll} excludeUnmonitored={excludeUnmonitored} onDelete={() => handleDelete(item)} onTransfer={() => setTransferTarget(item)} onInteractiveSearch={handleOpenInteractiveSearch} />;
+                                        return <DiscoveryCard key={item.tmdbId ? `tmdb-${item.tmdbId}` : `tvdb-${item.tvdbId}`} item={item} isAdding={addingItemStr === (item.tmdbId ? `tmdb-${item.tmdbId}` : `tvdb-${item.tvdbId}`)} libStatus={isInLibrary(item)} onAdd={() => handleAdd(item)} viewMode={viewMode} onShowDetails={() => setShowDetailsFor(item)} onInteractiveSearch={handleOpenInteractiveSearch} />;
                                     })}
                                 </div>
                                 {totalPages > 1 && (
@@ -1165,6 +1310,17 @@ export default function DiscoverPage() {
                     }}
                 />
             )}
+
+            {/* Interactive Search Modal */}
+            <InteractiveSearchModal
+                isOpen={!!interactiveSearchItem}
+                onClose={() => setInteractiveSearchItem(null)}
+                item={interactiveSearchItem}
+                releases={interactiveReleases}
+                isLoading={loadingReleases}
+                triggeringReleaseGuid={triggeringReleaseGuid}
+                onTriggerDownload={handleTriggerDownload}
+            />
         </div>
     );
 }

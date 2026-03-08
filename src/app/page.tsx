@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import HistoryLedger from "@/components/HistoryLedger";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
+import { X, ExternalLink, HelpCircle } from 'lucide-react';
 
 // --- Interfaces ---
 interface RecentDownload {
@@ -188,9 +189,10 @@ export default function Dashboard() {
   };
 
   const handleMouseLeave = () => {
+    // Increase delay to 1.5s to give user time to reach the tooltip
     const timeout = setTimeout(() => {
       setStickyTooltip(null);
-    }, 1000);
+    }, 1500);
     setTooltipTimeout(timeout);
   };
 
@@ -218,7 +220,7 @@ export default function Dashboard() {
 
       return (
         <div
-          className="bg-zinc-950/98 border border-zinc-800 p-4 rounded-xl shadow-2xl backdrop-blur-xl min-w-[280px] max-w-[450px] pointer-events-auto select-text z-50 relative"
+          className="bg-zinc-950/98 border border-zinc-800 p-4 rounded-xl shadow-2xl backdrop-blur-xl min-w-[320px] max-w-[500px] pointer-events-auto select-text z-[100] relative"
           onMouseEnter={() => {
             if (tooltipTimeout) {
               clearTimeout(tooltipTimeout);
@@ -226,35 +228,42 @@ export default function Dashboard() {
             }
           }}
           onMouseLeave={() => {
-            setStickyTooltip(null);
+            // Re-trigger the fade out if they leave the tooltip itself
+            handleMouseLeave();
           }}
         >
-          <p className="text-zinc-400 text-[10px] font-bold uppercase tracking-widest mb-3 border-b border-zinc-800 pb-2 flex justify-between items-center">
+          <div className="text-zinc-400 text-[10px] font-bold uppercase tracking-widest mb-3 border-b border-zinc-800 pb-2 flex justify-between items-center">
             <span>{displayLabel ? new Date(String(displayLabel)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}</span>
-            <div className="flex items-center gap-2">
-              <span className="text-[9px] text-zinc-600 normal-case font-medium">Scrollable Content</span>
-              <button onClick={() => setStickyTooltip(null)} className="text-zinc-600 hover:text-zinc-400 transition-colors">
-                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+            <div className="flex items-center gap-3">
+              <span className="text-[9px] text-zinc-600 normal-case font-medium animate-pulse">Scrollable Content</span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setStickyTooltip(null);
+                }}
+                className="p-1 rounded-md hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-all border border-transparent hover:border-zinc-700"
+              >
+                <X size={12} strokeWidth={3} />
               </button>
             </div>
-          </p>
+          </div>
 
-          <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+          <div className="space-y-4 max-h-[350px] overflow-y-auto pr-3 custom-scrollbar">
             {groups.map((group: any, index: number) => (
               <div key={index} className="space-y-2">
-                <div className="flex items-center justify-between gap-4 sticky top-0 bg-zinc-950/90 backdrop-blur-md py-1 z-10 border-b border-zinc-800/50 mb-1">
+                <div className="flex items-center justify-between gap-4 sticky top-0 bg-zinc-950/95 backdrop-blur-md py-2 z-10 border-b border-zinc-900/50 mb-1">
                   <div className="flex items-center gap-2">
-                    <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: group.fill }} />
-                    <span className="text-zinc-200 text-sm font-semibold">{group.name}</span>
+                    <div className="w-2.5 h-2.5 rounded-full shadow-[0_0_8px_rgba(255,255,255,0.2)]" style={{ backgroundColor: group.fill }} />
+                    <span className="text-zinc-100 text-sm font-bold">{group.name}</span>
                   </div>
-                  <span className="text-white text-sm font-black">{group.value}</span>
+                  <span className="text-white text-sm font-black bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800">{group.value}</span>
                 </div>
 
                 {group.titles.length > 0 && (
-                  <div className="pl-4 border-l-2 border-zinc-800/50 space-y-1.5 ml-1 pb-2">
+                  <div className="pl-4 border-l-2 border-zinc-800/80 space-y-2 ml-1 pb-3">
                     {group.titles.map((t: string, i: number) => (
-                      <p key={i} className="text-zinc-400 text-[11px] leading-tight font-medium opacity-80 hover:opacity-100 transition-opacity">
-                        • {t}
+                      <p key={i} className="text-zinc-400 text-[11px] leading-relaxed font-semibold hover:text-emerald-400 transition-colors cursor-default">
+                        {t}
                       </p>
                     ))}
                   </div>
@@ -262,11 +271,14 @@ export default function Dashboard() {
               </div>
             ))}
           </div>
+
+          <div className="absolute -bottom-2 -left-2 -right-2 h-4 bg-gradient-to-t from-black/20 to-transparent pointer-events-none rounded-b-xl" />
         </div>
       );
     }
     return null;
   };
+
 
   return (
     <div className="max-w-7xl mx-auto px-6 space-y-8 pb-12">

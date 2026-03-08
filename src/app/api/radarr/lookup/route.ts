@@ -40,13 +40,12 @@ export async function GET(request: Request) {
                 tmdbResults = response.results;
                 totalPages = response.total_pages;
             } else {
-                const genreId = genre ? TMDB_GENRES[genre] : undefined;
-                const providerId = platform ? TMDB_PROVIDERS[platform] : undefined;
                 const yearVal = searchParams.get('year') || undefined;
+                const providerId = platform ? TMDB_PROVIDERS[platform] : undefined;
 
                 // Call discover if ANY filter is present, otherwise get trending
-                if (providerId || genreId || minRating > 0 || (yearVal && yearVal !== 'All')) {
-                    const response = await discoverTMDB(tmdbApiKey, 'movie', providerId, genreId, minRating, yearVal, page);
+                if (providerId || genre || minRating > 0 || (yearVal && yearVal !== 'All')) {
+                    const response = await discoverTMDB(tmdbApiKey, 'movie', providerId, genre || undefined, minRating, yearVal, page);
                     tmdbResults = response.results;
                     totalPages = response.total_pages;
                 } else {

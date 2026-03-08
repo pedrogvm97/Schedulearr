@@ -97,6 +97,32 @@ export const TMDB_PROVIDERS: Record<string, string | number> = {
     'Peacock': 386
 };
 
+// Streamlined unified genre list
+export const UNIFIED_GENRES: Record<string, { movie?: number; tv?: number }> = {
+    'Action': { movie: 28, tv: 10759 },
+    'Adventure': { movie: 12, tv: 10759 },
+    'Animation': { movie: 16, tv: 16 },
+    'Anime': { movie: 16, tv: 16 }, // Special case: handled with origin_country=JP
+    'Comedy': { movie: 35, tv: 35 },
+    'Crime': { movie: 80, tv: 80 },
+    'Documentary': { movie: 99, tv: 99 },
+    'Drama': { movie: 18, tv: 18 },
+    'Family': { movie: 10751, tv: 10751 },
+    'Fantasy': { movie: 14, tv: 10765 },
+    'History': { movie: 36, tv: undefined },
+    'Horror': { movie: 27, tv: undefined },
+    'Music': { movie: 10402, tv: undefined },
+    'Mystery': { movie: 9648, tv: 9648 },
+    'Romance': { movie: 10749, tv: 10749 },
+    'Sci-Fi': { movie: 878, tv: 10765 },
+    'Science Fiction': { movie: 878, tv: 10765 },
+    'Thriller': { movie: 53, tv: undefined },
+    'War': { movie: 10752, tv: 10768 },
+    'Western': { movie: 37, tv: 37 },
+    'Talk': { movie: undefined, tv: 10767 },
+    'Reality': { movie: undefined, tv: 10764 }
+};
+
 export const TMDB_GENRES: Record<string, number> = {
     'Action': 28,
     'Adventure': 12,
@@ -113,12 +139,12 @@ export const TMDB_GENRES: Record<string, number> = {
     'Mystery': 9648,
     'Romance': 10749,
     'Science Fiction': 878,
-    'Sci-Fi & Fantasy': 10765, // TV only
+    'Sci-Fi & Fantasy': 10765,
     'TV Movie': 10770,
     'Thriller': 53,
     'War': 10752,
     'Western': 37,
-    'Action & Adventure': 10759, // TV only
+    'Action & Adventure': 10759,
     'Kids': 10762,
     'News': 10763,
     'Reality': 10764,
@@ -127,12 +153,19 @@ export const TMDB_GENRES: Record<string, number> = {
     'War & Politics': 10768
 };
 
-export const TMDB_REVERSE_GENRES: Record<number, string> = Object.entries(TMDB_GENRES).reduce((acc, [name, id]) => {
-    acc[id] = name;
-    return acc;
-}, {} as Record<number, string>);
+export const TMDB_REVERSE_GENRES: Record<number, string> = {
+    ...Object.entries(TMDB_GENRES).reduce((acc, [name, id]) => {
+        acc[id] = name;
+        return acc;
+    }, {} as Record<number, string>),
+    // Ensure "Sci-Fi & Fantasy" is mapped back to "Sci-Fi" for consistent UI
+    10765: 'Sci-Fi',
+    878: 'Sci-Fi',
+    10759: 'Action & Adventure',
+    10768: 'War'
+};
 
-export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', providerId?: string | number, genreId?: number, minRating: number = 0, year?: string, page: number = 1): Promise<TMDBPaginatedResponse> => {
+export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', providerId?: string | number, genre?: string, minRating: number = 0, year?: string, page: number = 1): Promise<TMDBPaginatedResponse> => {
     try {
         const params: any = {
             api_key: apiKey,
@@ -148,8 +181,17 @@ export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', provide
             params.with_watch_providers = providerId;
         }
 
-        if (genreId) {
-            params.with_genres = genreId;
+        if (genre) {
+            if (genre === 'Anime') {
+                params.with_genres = 16;
+                params.with_origin_country = 'JP';
+            } else {
+                const mapping = UNIFIED_GENRES[genre];
+                const genreIdForType = type === 'movie' ? mapping?.movie : mapping?.tv;
+                if (genreIdForType) {
+                    params.with_genres = genreIdForType;
+                }
+            }
         }
 
         if (year && year !== 'All') {
@@ -162,13 +204,24 @@ export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', provide
 
         if (minRating > 0) {
             params['vote_average.gte'] = minRating;
-            // Relax vote count requirement for high ratings to ensure results for specific providers/genres
-            params['vote_count.gte'] = minRating >= 8 ? 20 : 50;
+            // Relax vote count requirement significantly for high ratings 
+            // This ensures we get high quality results even if they aren't "mainstream" blockbusters
+            params['vote_count.gte'] = minRating >= 8.5 ? 5 : minRating >= 8 ? 20 : 50;
         }
 
+        // Add a fallback for popularity to ensure we get results even with very strict filters
         const response = await axios.get(`${BASE_URL}/discover/${type === 'movie' ? 'movie' : 'tv'}`, { params });
+
+        // If results are very sparse, try relaxing monetization
+        let results = response.data.results || [];
+        if (results.length < 5 && params.watch_monetization_types) {
+            delete params.watch_monetization_types;
+            const retryResponse = await axios.get(`${BASE_URL}/discover/${type === 'movie' ? 'movie' : 'tv'}`, { params });
+            results = retryResponse.data.results || [];
+        }
+
         return {
-            results: response.data.results || [],
+            results: results,
             total_pages: response.data.total_pages || 1,
             total_results: response.data.total_results || 0
         };
