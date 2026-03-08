@@ -15,6 +15,7 @@ export interface RadarrMovie {
     digitalRelease?: string;
     genres: string[];
     qualityProfileId: number;
+    path?: string;
     movieFile?: {
         size: number;
         quality: {
@@ -204,6 +205,31 @@ export const addMovie = async (url: string, apiKey: string, moviePayload: any): 
     } catch (error: any) {
         console.error(`Error adding movie to Radarr (${url}):`, error.response?.data || error.message);
         return { success: false, error: error.response?.data || error.message };
+    }
+};
+
+export const deleteMovie = async (url: string, apiKey: string, movieId: number, deleteFiles: boolean = true): Promise<boolean> => {
+    try {
+        await axios.delete(`${url}/api/v3/movie/${movieId}`, {
+            headers: { 'X-Api-Key': apiKey },
+            params: { deleteFiles }
+        });
+        return true;
+    } catch (error) {
+        console.error(`Error deleting movie from Radarr (${url}):`, error);
+        return false;
+    }
+};
+
+export const getMovieFile = async (url: string, apiKey: string, movieFileId: number): Promise<any | null> => {
+    try {
+        const response = await axios.get(`${url}/api/v3/moviefile/${movieFileId}`, {
+            headers: { 'X-Api-Key': apiKey }
+        });
+        return response.data;
+    } catch (error) {
+        console.error(`Error fetching movie file from Radarr (${url}):`, error);
+        return null;
     }
 };
 

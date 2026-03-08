@@ -8,7 +8,7 @@ import {
     ChevronDown, Tags, Monitor, ChevronRight,
     HardDrive, Percent, PlayCircle, ChevronUp,
     PlaySquare, Square, Trash2, MoveHorizontal, MoreVertical,
-    CheckCircle2
+    CheckCircle2, Copy
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import { CustomSelect } from '@/components/CustomSelect';
@@ -36,24 +36,31 @@ const ALL_GENRES = [
     'Western', 'Talk'
 ];
 
-// ──────────────────────────────────────────────
-// Helper: platform badge
-// ──────────────────────────────────────────────
+const QUICK_STUDIOS = [
+    { name: 'Netflix', color: 'text-red-500' },
+    { name: 'HBO', color: 'text-violet-500' },
+    { name: 'Disney+', color: 'text-blue-500' },
+    { name: 'Apple TV+', color: 'text-white' },
+    { name: 'Amazon', color: 'text-sky-500' },
+    { name: 'Hulu', color: 'text-emerald-500' },
+    { name: 'Paramount+', color: 'text-blue-400' },
+];
+
 function getPlatformBadge(item: any) {
     const all: string[] = [
         ...(item.productionCompanies || []),
         item.studio, item.network
     ].filter(Boolean).map((s: string) => s.toLowerCase());
-    if (all.some(c => c.includes('netflix'))) return { label: 'Netflix', color: 'bg-red-900/60 text-red-400 border-red-700/40' };
-    if (all.some(c => c.includes('hbo') || c.includes('max'))) return { label: 'HBO Max', color: 'bg-violet-900/60 text-violet-400 border-violet-700/40' };
-    if (all.some(c => c.includes('amazon') || c.includes('prime'))) return { label: 'Prime', color: 'bg-sky-900/60 text-sky-400 border-sky-700/40' };
-    if (all.some(c => c.includes('disney'))) return { label: 'Disney+', color: 'bg-blue-900/60 text-blue-400 border-blue-700/40' };
+
+    if (all.some(c => c.includes('netflix'))) return { label: 'Netflix', color: 'bg-red-900/40 text-red-400 border-red-700/30' };
+    if (all.some(c => c.includes('hbo') || c.includes('max'))) return { label: 'HBO Max', color: 'bg-violet-900/40 text-violet-400 border-violet-700/30' };
+    if (all.some(c => c.includes('amazon') || c.includes('prime'))) return { label: 'Prime', color: 'bg-sky-900/40 text-sky-400 border-sky-700/30' };
+    if (all.some(c => c.includes('disney'))) return { label: 'Disney+', color: 'bg-blue-900/40 text-blue-400 border-blue-700/30' };
     if (all.some(c => c.includes('apple'))) return { label: 'Apple TV+', color: 'bg-zinc-800 text-zinc-300 border-zinc-700' };
-    if (all.some(c => c.includes('hulu'))) return { label: 'Hulu', color: 'bg-emerald-900/60 text-emerald-400 border-emerald-700/40' };
-    if (all.some(c => c.includes('paramount'))) return { label: 'Paramount+', color: 'bg-blue-900/60 text-blue-300 border-blue-700/40' };
-    if (all.some(c => c.includes('peacock'))) return { label: 'Peacock', color: 'bg-yellow-900/60 text-yellow-400 border-yellow-700/40' };
-    if (all.some(c => c.includes('crunchyroll'))) return { label: 'Crunchyroll', color: 'bg-orange-900/60 text-orange-400 border-orange-700/40' };
-    if (item.studio) return { label: item.studio, color: 'bg-zinc-900 text-zinc-400 border-zinc-700' };
+    if (all.some(c => c.includes('hulu'))) return { label: 'Hulu', color: 'bg-emerald-900/40 text-emerald-400 border-emerald-700/30' };
+    if (all.some(c => c.includes('paramount'))) return { label: 'Paramount+', color: 'bg-blue-900/40 text-blue-300 border-blue-700/30' };
+    if (item.studio) return { label: item.studio, color: 'bg-zinc-900 text-zinc-500 border-zinc-800' };
+    if (item.network) return { label: item.network, color: 'bg-zinc-900 text-zinc-500 border-zinc-800' };
     return null;
 }
 
@@ -346,6 +353,11 @@ export default function DiscoverPage() {
     const [startSearch, setStartSearch] = useState(true);
     const [currentPage, setCurrentPage] = useState(0);
 
+    // Overseerr-style Add Modal state
+    const [selectedItemForAdd, setSelectedItemForAdd] = useState<any>(null);
+    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [isAddingInModal, setIsAddingInModal] = useState(false);
+
     // Filters
     const [filterGenre, setFilterGenre] = useState<string>('All');
     const [filterPlatform, setFilterPlatform] = useState<string>('All');
@@ -366,29 +378,12 @@ export default function DiscoverPage() {
         inst.type === (mediaType === 'movie' ? 'radarr' : 'sonarr')
     );
 
-    // Auto-select first instance
+    // Auto-select first instance for browsing ONLY if none selected
     useEffect(() => {
-        if (availableInstances.length > 0 && (!selectedInstanceId || !availableInstances.find(i => i.id === selectedInstanceId))) {
+        if (availableInstances.length > 0 && !selectedInstanceId) {
             setSelectedInstanceId(availableInstances[0].id);
         }
-    }, [availableInstances]);
-
-    // ── Load profiles + root folders ──
-    useEffect(() => {
-        if (!selectedInstanceId) return;
-        const base = mediaType === 'movie' ? '/api/radarr' : '/api/sonarr';
-        Promise.all([
-            fetch(`${base}/profiles?instanceId=${selectedInstanceId}`).then(r => r.ok ? r.json() : []),
-            fetch(`${base}/rootfolder?instanceId=${selectedInstanceId}`).then(r => r.ok ? r.json() : []),
-        ]).then(([profs, folders]) => {
-            const p = Array.isArray(profs) ? profs : [];
-            const f = Array.isArray(folders) ? folders : [];
-            setProfiles(p);
-            setRootFolders(f);
-            if (p.length > 0 && !selectedProfileId) setSelectedProfileId(p[0].id);
-            if (f.length > 0 && !selectedRootFolderId) setSelectedRootFolderId(f[0].id);
-        });
-    }, [selectedInstanceId, mediaType]);
+    }, [availableInstances, selectedInstanceId]);
 
     // ── Load library (for cross-referencing) ──
     const loadLibrary = useCallback(async () => {
@@ -406,12 +401,19 @@ export default function DiscoverPage() {
 
     // ── Discovery: load *arr trending/discovery ──
     const handleDiscovery = useCallback(async () => {
-        if (!selectedInstanceId) return;
+        // Use selectedInstanceId or fallback to the first available one of correct type
+        let targetId = selectedInstanceId;
+        if (!targetId && availableInstances.length > 0) {
+            targetId = availableInstances[0].id;
+        }
+
+        if (!targetId) return;
+
         setIsSearching(true);
         setResults([]);
         try {
             const endpoint = mediaType === 'movie' ? '/api/radarr/lookup' : '/api/sonarr/lookup';
-            const res = await fetch(`${endpoint}?instanceId=${selectedInstanceId}&term=`);
+            const res = await fetch(`${endpoint}?instanceId=${targetId}&term=`);
             if (res.ok) {
                 const data = await res.json();
                 setResults(Array.isArray(data) ? data : []);
@@ -422,14 +424,14 @@ export default function DiscoverPage() {
         } finally {
             setIsSearching(false);
         }
-    }, [mediaType, selectedInstanceId]);
+    }, [mediaType, selectedInstanceId, availableInstances]);
 
     // ── Trigger discovery on load / type change ──
     useEffect(() => {
         if (pageMode === 'discover' && !searchQuery) {
             handleDiscovery();
         }
-    }, [mediaType, pageMode]);
+    }, [mediaType, pageMode, searchQuery, handleDiscovery]);
 
     // ── Management Handlers ──
     const [transferTarget, setTransferTarget] = useState<any>(null);
@@ -461,55 +463,48 @@ export default function DiscoverPage() {
         }
     };
 
-    const handleTransfer = async (item: any, targetInstanceId: string, targetProfileId: number) => {
+    const handleTransfer = async (item: any, targetInstanceId: string, targetProfileId: number, targetRootFolder: string, action: 'transfer' | 'copy', moveFiles: boolean) => {
         setIsTransferring(true);
         try {
-            // Step 1: Add to target
-            const resAdd = await fetch('/api/media/add', {
+            const res = await fetch('/api/media/transfer', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    mediaId: item.tmdbId || item.tvdbId,
-                    mediaType,
-                    instanceId: targetInstanceId,
-                    profileId: targetProfileId,
-                    rootFolder: null, // Auto-select
+                    item,
+                    sourceInstanceId: item.instanceId,
+                    targetInstanceId,
+                    targetProfileId,
+                    targetRootFolder,
+                    action,
+                    moveFiles,
+                    mediaType
                 })
             });
 
-            if (!resAdd.ok) {
-                const err = await resAdd.json();
-                throw new Error(err.error || 'Failed to add to target instance');
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.error || `Failed to ${action}`);
             }
 
-            // Step 2: Delete from source
-            const deleteEndpoint = mediaType === 'movie' ? '/api/radarr/delete' : '/api/sonarr/delete';
-            const deleteParams = new URLSearchParams({
-                instanceId: item.instanceId,
-                deleteFiles: 'true'
-            });
-            if (mediaType === 'movie') deleteParams.append('movieId', item.id);
-            else deleteParams.append('seriesId', item.id);
-
-            await fetch(`${deleteEndpoint}?${deleteParams.toString()}`, { method: 'DELETE' });
-
-            toast.success(`Transferred ${item.title} successfully`);
+            toast.success(`${action === 'transfer' ? 'Transferred' : 'Copied'} ${item.title} successfully`);
             setTransferTarget(null);
             loadLibrary();
         } catch (e: any) {
-            toast.error(e.message || 'Transfer failed');
+            toast.error(e.message || `An error occurred while ${action === 'transfer' ? 'transferring' : 'copying'}`);
+        } finally {
+            setIsTransferring(false);
         }
-        setIsTransferring(false);
     };
 
     // ── Search ──
     const handleSearch = async (e?: React.FormEvent | null) => {
         if (e) e.preventDefault();
-        if (!searchQuery.trim() || !selectedInstanceId) return;
+        const targetId = selectedInstanceId || (availableInstances.length > 0 ? availableInstances[0].id : '');
+        if (!searchQuery.trim() || !targetId) return;
         setIsSearching(true);
         setResults([]);
         const endpoint = mediaType === 'movie' ? '/api/radarr/lookup' : '/api/sonarr/lookup';
-        const res = await fetch(`${endpoint}?instanceId=${selectedInstanceId}&term=${encodeURIComponent(searchQuery)}`).catch(() => null);
+        const res = await fetch(`${endpoint}?instanceId=${targetId}&term=${encodeURIComponent(searchQuery)}`).catch(() => null);
         if (res?.ok) {
             const data = await res.json();
             setResults(Array.isArray(data) ? data : []);
@@ -519,30 +514,33 @@ export default function DiscoverPage() {
         setIsSearching(false);
     };
 
-    // ── Add to library ──
-    const handleAdd = async (item: any) => {
-        if (!selectedInstanceId) return toast.error('Select an instance first');
-        if (!selectedProfileId) return toast.error('No quality profile loaded');
-        if (!selectedRootFolderId) return toast.error('No root folder loaded');
+    // ── Add to library via Modal ──
+    const handleAdd = (item: any) => {
+        setSelectedItemForAdd(item);
+        setIsAddModalOpen(true);
+    };
 
+    const handleFinalAdd = async (item: any, targetInstanceId: string, profileId: number, rootFolderPath: string, startSearch: boolean) => {
+        setIsAddingInModal(true);
         const idStr = item.tmdbId ? `tmdb-${item.tmdbId}` : `tvdb-${item.tvdbId}`;
-        setAddingItemStr(idStr);
         const endpoint = mediaType === 'movie' ? '/api/radarr/add' : '/api/sonarr/add';
         try {
             const res = await fetch(endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    instanceId: selectedInstanceId,
+                    instanceId: targetInstanceId,
                     item,
-                    qualityProfileId: selectedProfileId,
-                    rootFolderPath: rootFolders.find(rf => rf.id === selectedRootFolderId)?.path || '',
+                    qualityProfileId: profileId,
+                    rootFolderPath: rootFolderPath,
                     startSearch,
                 }),
             });
             if (res.ok) {
                 const added = await res.json();
                 toast.success(`Added ${item.title}!`);
+                setIsAddModalOpen(false);
+                setSelectedItemForAdd(null);
                 if (added?.id) {
                     const newId = item.tmdbId || item.tvdbId;
                     if (newId) setLibrarySet(prev => new Set([...prev, newId]));
@@ -558,7 +556,7 @@ export default function DiscoverPage() {
         } catch {
             toast.error('Error adding item');
         } finally {
-            setAddingItemStr('');
+            setIsAddingInModal(false);
         }
     };
 
@@ -575,7 +573,7 @@ export default function DiscoverPage() {
             const q = searchQuery.toLowerCase();
             items = items.filter(i => i.title?.toLowerCase().includes(q) || i.overview?.toLowerCase().includes(q));
         }
-        if (!searchQuery) items = items.filter(i => (i.ratings?.value || 0) >= 6);
+        // if (!searchQuery) items = items.filter(i => (i.ratings?.value || 0) >= 6);
         if (filterGenre !== 'All') items = items.filter(i => i.genres?.includes(filterGenre));
         if (filterPlatform !== 'All') {
             items = items.filter(i => {
@@ -630,7 +628,7 @@ export default function DiscoverPage() {
     }, [results, libraryItems, pageMode]);
 
     const displayItems = pageMode === 'discover' ? filteredDiscovery : filteredLibrary;
-    const PAGE_SIZE = 20;
+    const PAGE_SIZE = 24;
     const totalPages = Math.ceil(displayItems.length / PAGE_SIZE);
     const pageItems = displayItems.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
 
@@ -659,22 +657,24 @@ export default function DiscoverPage() {
                     <button onClick={() => setMediaType('series')} className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black rounded-xl transition-all ${mediaType === 'series' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30' : 'text-zinc-500 hover:text-zinc-400'}`}><Tv size={14} /> Series</button>
                 </div>
 
-                <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/50 overflow-x-auto gap-1 max-w-full">
-                    {availableInstances.map(inst => {
-                        const isSelected = selectedInstanceId === inst.id;
-                        const hex = inst.colorHex || '#3b82f6';
-                        return (
-                            <button
-                                key={inst.id}
-                                onClick={() => setSelectedInstanceId(inst.id)}
-                                className="flex items-center gap-2 px-5 py-2.5 text-xs font-bold rounded-xl border transition-all whitespace-nowrap"
-                                style={isSelected ? { backgroundColor: `${hex}22`, borderColor: `${hex}66`, color: hex } : { borderColor: 'transparent', color: '#52525b' }}
-                            >
-                                <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: hex }} /> {inst.name}
-                            </button>
-                        );
-                    })}
-                </div>
+                {pageMode === 'mylibrary' && (
+                    <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/50 overflow-x-auto gap-1 max-w-full">
+                        {availableInstances.map(inst => {
+                            const isSelected = selectedInstanceId === inst.id;
+                            const hex = inst.colorHex || '#3b82f6';
+                            return (
+                                <button
+                                    key={inst.id}
+                                    onClick={() => setSelectedInstanceId(inst.id)}
+                                    className="flex items-center gap-2 px-5 py-2.5 text-xs font-bold rounded-xl border transition-all whitespace-nowrap"
+                                    style={isSelected ? { backgroundColor: `${hex}22`, borderColor: `${hex}66`, color: hex } : { borderColor: 'transparent', color: '#52525b' }}
+                                >
+                                    <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: hex }} /> {inst.name}
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
 
                 <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/50 ml-auto gap-2">
                     {pageMode === 'mylibrary' && mediaType === 'series' && (
@@ -692,20 +692,14 @@ export default function DiscoverPage() {
                 </div>
             </div>
 
-            {pageMode === 'discover' && (
-                <div className="flex flex-wrap items-end gap-4 p-5 bg-zinc-950/40 border border-zinc-900/50 rounded-3xl backdrop-blur-md">
-                    <div className="min-w-[220px] max-w-[300px]">
-                        <CustomSelect label="Quality Profile" options={profiles} value={selectedProfileId} onChange={(val) => setSelectedProfileId(Number(val))} />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                        <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Auto-Search</label>
-                        <button onClick={() => setStartSearch(!startSearch)} className={`h-11 px-5 rounded-2xl border flex items-center gap-3 transition-all text-xs font-black uppercase tracking-wider ${startSearch ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-zinc-900 border-zinc-800 text-zinc-500'}`}>
-                            <div className={`w-2 h-2 rounded-full ${startSearch ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-700'}`} /> {startSearch ? 'Yes' : 'No'}
-                        </button>
-                    </div>
-                    <div className="flex flex-col gap-1">
-                        <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Filters</label>
-                        <button onClick={() => setShowFilters(!showFilters)} className={`h-11 px-5 rounded-2xl border flex items-center gap-2 text-xs font-black uppercase tracking-wider transition-all ${showFilters ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-zinc-900 border-zinc-800 text-zinc-500'}`}><Filter size={14} /> {showFilters ? 'Hide' : 'Show'}</button>
+            {pageMode === 'discover' && showFilters && (
+                <div className="flex flex-wrap items-center gap-6 p-5 bg-zinc-950/40 border border-zinc-900/50 rounded-3xl backdrop-blur-md">
+                    <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 shadow-sm">
+                            <TrendingUp size={12} className="text-emerald-500" />
+                            <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Auto-Discovery Active</span>
+                        </div>
+                        <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Browsing via your {mediaType} instance</p>
                     </div>
                 </div>
             )}
@@ -727,7 +721,24 @@ export default function DiscoverPage() {
                             <div className="flex flex-wrap gap-1.5">{ALL_GENRES.map(genre => <button key={genre} onClick={() => setFilterGenre(genre)} className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all border ${filterGenre === genre ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-transparent text-zinc-600 border-zinc-800 hover:text-zinc-400 hover:border-zinc-700'}`}>{genre}</button>)}</div>
                         </div>
 
-                        {pageMode === 'discover' && allPlatforms.length > 1 && <CustomSelect label="Platform / Studio" icon={<Monitor size={11} />} options={allPlatforms.map(p => ({ id: p, name: p }))} value={filterPlatform} onChange={val => setFilterPlatform(val)} />}
+                        <div className="space-y-3">
+                            <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center gap-1.5"><Monitor size={11} /> Studio / Network</label>
+                            <div className="flex flex-wrap gap-1.5">
+                                {QUICK_STUDIOS.map(s => (
+                                    <button
+                                        key={s.name}
+                                        onClick={() => setFilterPlatform(filterPlatform === s.name ? 'All' : s.name)}
+                                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all border ${filterPlatform === s.name ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-transparent text-zinc-600 border-zinc-800 hover:text-zinc-400 hover:border-zinc-700'}`}
+                                    >
+                                        <span className={s.color}>{s.name}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {pageMode === 'discover' && allPlatforms.length > QUICK_STUDIOS.length && (
+                            <CustomSelect label="All Platforms" icon={<Monitor size={11} />} options={allPlatforms.map(p => ({ id: p, name: p }))} value={filterPlatform} onChange={val => setFilterPlatform(val)} />
+                        )}
                         <CustomSelect label="Year" icon={<Calendar size={11} />} options={allYears.map(y => ({ id: y, name: y }))} value={filterYear} onChange={val => setFilterYear(val)} />
 
                         <div className="space-y-2">
@@ -739,11 +750,22 @@ export default function DiscoverPage() {
 
                 <div className="flex-1 min-w-0 space-y-5">
                     <div className="flex items-center justify-between">
-                        <h2 className="text-lg font-bold text-white flex items-center gap-2">{pageMode === 'discover' ? (searchQuery ? `Results for "${searchQuery}"` : 'Trending Now') : 'My Library'}<span className="bg-zinc-900 text-zinc-500 text-[10px] font-black px-2 py-0.5 rounded-full border border-zinc-800">{displayItems.length}</span></h2>
+                        <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                            {pageMode === 'discover' ? (searchQuery ? `Results for "${searchQuery}"` : 'Trending Now') : 'My Library'}
+                            <span className="bg-zinc-900 text-zinc-500 text-[10px] font-black px-2 py-0.5 rounded-full border border-zinc-800">{displayItems.length}</span>
+                        </h2>
                         {pageMode === 'discover' && !showFilters && <button onClick={() => setShowFilters(true)} className="flex items-center gap-1.5 text-[10px] font-black text-zinc-500 hover:text-zinc-300 uppercase tracking-widest"><Filter size={12} /> Filters</button>}
                     </div>
 
-                    {isSearching || (pageMode === 'mylibrary' && libraryLoading) ? (
+                    {availableInstances.length === 0 && pageMode === 'discover' ? (
+                        <div className="flex flex-col items-center justify-center py-40 bg-zinc-950/20 rounded-[3rem] border border-zinc-900/50 gap-6">
+                            <div className="p-8 bg-zinc-900/50 rounded-full text-zinc-700 opacity-50"><Monitor size={64} /></div>
+                            <div className="text-center">
+                                <p className="text-xl font-bold text-white mb-2">No {mediaType} instances found</p>
+                                <p className="text-zinc-500 font-medium max-w-xs mx-auto text-sm">You need to configure at least one {mediaType} instance in settings to browse and add content.</p>
+                            </div>
+                        </div>
+                    ) : isSearching || (pageMode === 'mylibrary' && libraryLoading) ? (
                         <div className="flex flex-col items-center justify-center py-40 gap-4">
                             <div className="w-12 h-12 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin" /><p className="text-zinc-600 text-xs font-bold uppercase tracking-widest">{pageMode === 'discover' ? 'Searching...' : 'Loading library...'}</p>
                         </div>
@@ -775,6 +797,18 @@ export default function DiscoverPage() {
                 </div>
             </div>
 
+            {/* Add Media Modal */}
+            {isAddModalOpen && selectedItemForAdd && (
+                <AddMediaModal
+                    item={selectedItemForAdd}
+                    mediaType={mediaType}
+                    instances={instances}
+                    onAdd={handleFinalAdd}
+                    onClose={() => setIsAddModalOpen(false)}
+                    loading={isAddingInModal}
+                />
+            )}
+
             {/* Transfer Modal */}
             {transferTarget && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
@@ -794,38 +828,218 @@ export default function DiscoverPage() {
 
 function TransferForm({ item, instances, onTransfer, onCancel, loading }: any) {
     const [targetInstanceId, setTargetInstanceId] = useState('');
-    const [profiles, setProfiles] = useState<any[]>([]);
+    const [targetProfiles, setTargetProfiles] = useState<any[]>([]);
     const [selectedProfileId, setSelectedProfileId] = useState<number | null>(null);
-    const [loadingProfiles, setLoadingProfiles] = useState(false);
+    const [rootFolders, setRootFolders] = useState<any[]>([]);
+    const [targetRootFolder, setTargetRootFolder] = useState('');
+    const [loadingConfig, setLoadingConfig] = useState(false);
+    const [action, setAction] = useState<'transfer' | 'copy'>('transfer');
+    const [copyFiles, setCopyFiles] = useState(true);
+    const [sourceProfiles, setSourceProfiles] = useState<any[]>([]);
+
+    useEffect(() => {
+        // Fetch source profiles to know current profile name
+        const sourceBase = item.instanceUrl ? (item.instanceUrl.includes('/api') ? item.instanceUrl : '/api/' + instances.find((i: any) => i.id === item.instanceId)?.type) : (instances.find((i: any) => i.id === item.instanceId)?.type === 'radarr' ? '/api/radarr' : '/api/sonarr');
+        fetch(`${sourceBase}/profiles?instanceId=${item.instanceId}`).then(r => r.json()).then(setSourceProfiles).catch(() => { });
+    }, [item.instanceId, instances]);
 
     useEffect(() => {
         if (targetInstanceId) {
-            setLoadingProfiles(true);
-            const base = instances.find((i: any) => i.id === targetInstanceId)?.type === 'radarr' ? '/api/radarr' : '/api/sonarr';
-            fetch(`${base}/profiles?instanceId=${targetInstanceId}`).then(r => r.json()).then(data => {
-                setProfiles(data);
-                if (data.length > 0) setSelectedProfileId(data[0].id);
-            }).finally(() => setLoadingProfiles(false));
-        }
-    }, [targetInstanceId, instances]);
+            setLoadingConfig(true);
+            const targetType = instances.find((i: any) => i.id === targetInstanceId)?.type;
+            const base = targetType === 'radarr' ? '/api/radarr' : '/api/sonarr';
+            Promise.all([
+                fetch(`${base}/profiles?instanceId=${targetInstanceId}`).then(r => r.json()),
+                fetch(`${base}/rootfolder?instanceId=${targetInstanceId}`).then(r => r.json())
+            ]).then(([pData, rData]) => {
+                setTargetProfiles(pData);
+                setRootFolders(rData);
 
-    const canSubmit = targetInstanceId && selectedProfileId && !loading;
+                // Logic: Match source profile name in target if possible
+                const sourceProfile = sourceProfiles.find(p => p.id === item.qualityProfileId);
+                const matchingTarget = sourceProfile ? pData.find((p: any) => p.name === sourceProfile.name) : null;
+
+                if (matchingTarget) setSelectedProfileId(matchingTarget.id);
+                else if (pData.length > 0) setSelectedProfileId(pData[0].id);
+
+                if (rData.length > 0) setTargetRootFolder(rData[0].path);
+            }).finally(() => setLoadingConfig(false));
+        }
+    }, [targetInstanceId, instances, sourceProfiles, item.qualityProfileId]);
+
+    const canSubmit = targetInstanceId && selectedProfileId && targetRootFolder && !loading;
 
     return (
         <div className="space-y-6">
-            <div className="space-y-4">
-                <CustomSelect label="Target Instance" value={targetInstanceId} onChange={setTargetInstanceId} options={instances.map((i: any) => ({ id: i.id, name: i.name }))} />
-                {targetInstanceId && (
-                    <div className="relative">
-                        {loadingProfiles && <div className="absolute right-3 top-3 z-10"><div className="w-4 h-4 border-2 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin" /></div>}
-                        <CustomSelect label="Quality Profile" value={selectedProfileId || ''} onChange={(v) => setSelectedProfileId(Number(v))} options={profiles.map(p => ({ id: p.id.toString(), name: p.name }))} />
+            <div className="space-y-5">
+                {/* Action Toggle */}
+                <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Select Action</label>
+                    <div className="flex bg-zinc-900 p-1 rounded-2xl border border-zinc-800">
+                        <button
+                            onClick={() => setAction('transfer')}
+                            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${action === 'transfer' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-400'}`}
+                        >
+                            <MoveHorizontal size={12} /> Transfer (Move)
+                        </button>
+                        <button
+                            onClick={() => setAction('copy')}
+                            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${action === 'copy' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-400'}`}
+                        >
+                            <Copy size={12} /> Copy (Keep Original)
+                        </button>
                     </div>
+                </div>
+
+                <CustomSelect label="Target Instance" value={targetInstanceId} onChange={setTargetInstanceId} options={instances.map((i: any) => ({ id: i.id, name: i.name }))} />
+
+                {targetInstanceId && (
+                    <>
+                        <div className="relative">
+                            {loadingConfig && <div className="absolute right-3 top-3 z-10"><div className="w-4 h-4 border-2 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin" /></div>}
+                            <CustomSelect label="Quality Profile" value={selectedProfileId || ''} onChange={(v) => setSelectedProfileId(Number(v))} options={targetProfiles.map((p: any) => ({ id: p.id.toString(), name: p.name }))} />
+                        </div>
+                        <CustomSelect label="Root Folder" value={targetRootFolder} onChange={setTargetRootFolder} options={rootFolders.map(rf => ({ id: rf.path, name: rf.path }))} />
+                    </>
                 )}
+
+                <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">File Management</label>
+                    <button
+                        onClick={() => setCopyFiles(!copyFiles)}
+                        className={`h-11 px-5 rounded-2xl border flex items-center gap-3 transition-all text-[10px] font-black uppercase tracking-wider ${copyFiles ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-400' : 'bg-zinc-900 border-zinc-800 text-zinc-500'}`}
+                    >
+                        <div className={`w-2 h-2 rounded-full ${copyFiles ? 'bg-indigo-500 animate-pulse' : 'bg-zinc-700'}`} />
+                        {action === 'transfer' ? 'Move Physical Files' : 'Copy Physical Files'}
+                    </button>
+                </div>
             </div>
-            <div className="bg-amber-500/5 border border-amber-500/10 p-4 rounded-2xl"><p className="text-[10px] font-bold text-amber-500/80 leading-relaxed">Note: Transferring will ADD the media to the target instance and DELETE it from the source instance (including files).</p></div>
+
+            <div className={`p-4 rounded-2xl border text-[10px] font-bold leading-relaxed ${action === 'transfer' ? 'bg-amber-500/5 border-amber-500/10 text-amber-500/80' : 'bg-indigo-500/5 border-indigo-500/10 text-indigo-400/80'}`}>
+                {action === 'transfer'
+                    ? "Note: Item will be ADDED to the target and REMOVED from the source (including files if selected)."
+                    : "Note: Item will be CLONED to the target instance. Original will remain untouched."
+                }
+            </div>
+
             <div className="flex gap-3 pt-2">
                 <button onClick={onCancel} className="flex-1 h-12 bg-zinc-900 border border-zinc-800 text-zinc-400 font-black uppercase text-[10px] tracking-widest rounded-2xl hover:text-white transition-all">Cancel</button>
-                <button disabled={!canSubmit} onClick={() => onTransfer(item, targetInstanceId, selectedProfileId)} className={`flex-[2] h-12 flex items-center justify-center gap-2 font-black uppercase text-[10px] tracking-widest rounded-2xl transition-all ${canSubmit ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'}`}>{loading ? <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" /> : <MoveHorizontal size={14} />} {loading ? 'Transferring...' : 'Confirm Transfer'}</button>
+                <button
+                    disabled={!canSubmit}
+                    onClick={() => onTransfer(item, targetInstanceId, selectedProfileId, targetRootFolder, action, copyFiles)}
+                    className={`flex-[2] h-12 flex items-center justify-center gap-2 font-black uppercase text-[10px] tracking-widest rounded-2xl transition-all ${canSubmit ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'}`}
+                >
+                    {loading ? <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" /> : (action === 'transfer' ? <MoveHorizontal size={14} /> : <Copy size={14} />)}
+                    {loading ? (action === 'transfer' ? 'Transferring...' : 'Copying...') : `Confirm ${action === 'transfer' ? 'Transfer' : 'Copy'}`}
+                </button>
+            </div>
+        </div>
+    );
+}
+
+function AddMediaModal({ item, mediaType, instances, onAdd, onClose, loading }: any) {
+    const [targetInstanceId, setTargetInstanceId] = useState('');
+    const [profiles, setProfiles] = useState<any[]>([]);
+    const [selectedProfileId, setSelectedProfileId] = useState<number | null>(null);
+    const [rootFolders, setRootFolders] = useState<any[]>([]);
+    const [selectedRootFolderPath, setSelectedRootFolderPath] = useState('');
+    const [loadingConfig, setLoadingConfig] = useState(false);
+    const [startSearch, setStartSearch] = useState(true);
+
+    const availableInstances = instances.filter((i: any) => i.type === (mediaType === 'movie' ? 'radarr' : 'sonarr'));
+
+    useEffect(() => {
+        if (availableInstances.length > 0) {
+            setTargetInstanceId(availableInstances[0].id);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (targetInstanceId) {
+            setLoadingConfig(true);
+            const base = mediaType === 'movie' ? '/api/radarr' : '/api/sonarr';
+            Promise.all([
+                fetch(`${base}/profiles?instanceId=${targetInstanceId}`).then(r => r.json()),
+                fetch(`${base}/rootfolder?instanceId=${targetInstanceId}`).then(r => r.json())
+            ]).then(([pData, rData]) => {
+                setProfiles(pData);
+                setRootFolders(rData);
+                if (pData.length > 0) setSelectedProfileId(pData[0].id);
+                if (rData.length > 0) setSelectedRootFolderPath(rData[0].path);
+            }).finally(() => setLoadingConfig(false));
+        }
+    }, [targetInstanceId, mediaType]);
+
+    const canSubmit = targetInstanceId && selectedProfileId && selectedRootFolderPath && !loading;
+
+    return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl relative">
+                <button onClick={onClose} className="absolute top-6 right-6 p-2 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all">
+                    <X size={20} />
+                </button>
+                <div className="flex items-center gap-4 mb-8">
+                    <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                        <Plus size={24} />
+                    </div>
+                    <div>
+                        <h2 className="text-xl font-black text-white">Add to Library</h2>
+                        <p className="text-sm text-zinc-500 font-bold">{item.title}</p>
+                    </div>
+                </div>
+
+                <div className="space-y-6">
+                    <div className="space-y-4">
+                        <CustomSelect
+                            label="Target Instance"
+                            value={targetInstanceId}
+                            onChange={setTargetInstanceId}
+                            options={availableInstances.map((i: any) => ({ id: i.id, name: i.name }))}
+                        />
+
+                        <div className="relative">
+                            {loadingConfig && <div className="absolute right-3 top-3 z-10"><div className="w-4 h-4 border-2 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin" /></div>}
+                            <CustomSelect
+                                label="Quality Profile"
+                                value={selectedProfileId || ''}
+                                onChange={(v) => setSelectedProfileId(Number(v))}
+                                options={profiles.map(p => ({ id: p.id.toString(), name: p.name }))}
+                            />
+                        </div>
+
+                        <CustomSelect
+                            label="Root Folder"
+                            value={selectedRootFolderPath}
+                            onChange={setSelectedRootFolderPath}
+                            options={rootFolders.map(rf => ({ id: rf.path, name: rf.path }))}
+                        />
+
+                        <div className="flex flex-col gap-1">
+                            <label className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Start Search Automatically</label>
+                            <button
+                                onClick={() => setStartSearch(!startSearch)}
+                                className={`h-11 px-5 rounded-2xl border flex items-center gap-3 transition-all text-xs font-black uppercase tracking-wider ${startSearch ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-zinc-900 border-zinc-800 text-zinc-500'}`}
+                            >
+                                <div className={`w-2 h-2 rounded-full ${startSearch ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-700'}`} />
+                                {startSearch ? 'Yes, search now' : 'No, just add'}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="flex gap-3 pt-2">
+                        <button onClick={onClose} className="flex-1 h-12 bg-zinc-900 border border-zinc-800 text-zinc-400 font-black uppercase text-[10px] tracking-widest rounded-2xl hover:text-white transition-all">
+                            Cancel
+                        </button>
+                        <button
+                            disabled={!canSubmit}
+                            onClick={() => onAdd(item, targetInstanceId, selectedProfileId, selectedRootFolderPath, startSearch)}
+                            className={`flex-[2] h-12 flex items-center justify-center gap-2 font-black uppercase text-[10px] tracking-widest rounded-2xl transition-all ${canSubmit ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/20' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'}`}
+                        >
+                            {loading ? <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" /> : <CheckCircle2 size={14} />}
+                            {loading ? 'Adding...' : 'Add to Library'}
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
     );

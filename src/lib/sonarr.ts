@@ -31,6 +31,7 @@ export interface SonarrSeries {
     episodes?: SonarrEpisode[];
     genres?: string[];
     qualityProfileId: number;
+    path?: string;
 }
 
 export interface SonarrQualityProfile {
@@ -279,6 +280,19 @@ export const addSeries = async (url: string, apiKey: string, seriesPayload: any)
     } catch (error: any) {
         console.error(`Error adding series to Sonarr (${url}):`, error.response?.data || error.message);
         return { success: false, error: error.response?.data || error.message };
+    }
+};
+
+export const deleteSeries = async (url: string, apiKey: string, seriesId: number, deleteFiles: boolean = true): Promise<boolean> => {
+    try {
+        await axios.delete(`${url}/api/v3/series/${seriesId}`, {
+            headers: { 'X-Api-Key': apiKey },
+            params: { deleteFiles }
+        });
+        return true;
+    } catch (error) {
+        console.error(`Error deleting series from Sonarr (${url}):`, error);
+        return false;
     }
 };
 export async function createQualityProfile(url: string, apiKey: string, profile: any) {
