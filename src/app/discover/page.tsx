@@ -433,7 +433,7 @@ export default function DiscoverPage() {
         } finally {
             setIsSearching(false);
         }
-    }, [mediaType, selectedInstanceId, availableInstances]);
+    }, [mediaType, selectedInstanceId, availableInstances, filterPlatform, filterGenre]);
 
     // ── Trigger discovery on load / type / platform / genre change ──
     useEffect(() => {
@@ -924,7 +924,7 @@ function TransferForm({ item, instances, targetType, onTransfer, onCancel, loadi
                 if (rData.length > 0) setTargetRootFolder(rData[0].path);
             }).finally(() => setLoadingConfig(false));
         }
-    }, [targetInstanceId, instances, sourceProfiles, item.qualityProfileId]);
+    }, [targetInstanceId, targetType, sourceProfiles, item.qualityProfileId]);
 
     const canSubmit = targetInstanceId && selectedProfileId && targetRootFolder && !loading;
 
@@ -950,7 +950,15 @@ function TransferForm({ item, instances, targetType, onTransfer, onCancel, loadi
                     </div>
                 </div>
 
-                <CustomSelect label="Target Instance" value={targetInstanceId} onChange={setTargetInstanceId} options={instances.map((i: any) => ({ id: i.id, name: i.name }))} />
+                <CustomSelect
+                    label="Target Instance"
+                    value={targetInstanceId}
+                    onChange={setTargetInstanceId}
+                    options={instances
+                        .filter((i: any) => i.type === targetType && i.id !== item.instanceId)
+                        .map((i: any) => ({ id: i.id, name: i.name }))
+                    }
+                />
 
                 {targetInstanceId && (
                     <>

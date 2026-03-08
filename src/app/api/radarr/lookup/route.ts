@@ -55,7 +55,19 @@ export async function GET(request: Request) {
 
         const results = await searchMovies(instance.url, instance.api_key, searchTerm);
 
-        return NextResponse.json(results);
+        const mappedSearch = results.map(m => ({
+            title: m.title,
+            year: m.year,
+            tmdbId: m.tmdbId,
+            overview: m.overview,
+            remotePoster: m.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || m.remotePoster,
+            ratings: m.ratings,
+            popularity: m.popularity,
+            genres: m.genres || [],
+            productionCompanies: []
+        }));
+
+        return NextResponse.json(mappedSearch);
     } catch (error) {
         console.error('API /radarr/lookup error:', error);
         return NextResponse.json({ error: 'Failed to lookup movies' }, { status: 500 });

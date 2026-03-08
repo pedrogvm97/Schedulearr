@@ -64,7 +64,20 @@ export async function GET(request: Request) {
 
         const results = await searchSeries(instance.url, instance.api_key, searchTerm);
 
-        return NextResponse.json(results);
+        const mappedSearch = results.map(s => ({
+            title: s.title,
+            year: s.year,
+            tmdbId: s.tmdbId,
+            tvdbId: s.tvdbId,
+            overview: s.overview,
+            remotePoster: s.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || s.remotePoster,
+            ratings: s.ratings,
+            popularity: s.popularity,
+            genres: s.genres || [],
+            productionCompanies: []
+        }));
+
+        return NextResponse.json(mappedSearch);
     } catch (error) {
         console.error('API /sonarr/lookup error:', error);
         return NextResponse.json({ error: 'Failed to lookup series' }, { status: 500 });
