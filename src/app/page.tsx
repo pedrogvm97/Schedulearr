@@ -331,14 +331,15 @@ export default function Dashboard() {
             <div>
               <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-widest mb-4">Instance Rankings</h3>
               <div className="space-y-4">
-                {Object.keys(instances).map(id => {
+                {Object.keys(instances).filter(id => recentDownloadFilters[id] !== false).map(id => {
                   const totals = summaryData.instanceTotals[id] || { grabbed: 0, imported: 0, failed: 0, sizeBytes: 0 };
                   const value = chartType === 'grabbed' ? totals.grabbed : (chartType === 'imported' ? totals.imported : (totals.sizeBytes / (1024 ** 3)));
 
                   // Calculate max for bar width
-                  const maxVal = Math.max(...Object.values(summaryData.instanceTotals).map((t: any) =>
-                    chartType === 'grabbed' ? t.grabbed : (chartType === 'imported' ? t.imported : (t.sizeBytes / (1024 ** 3)))
-                  ), 1);
+                  const maxVal = Math.max(...Object.keys(instances).filter(k => recentDownloadFilters[k] !== false).map((id: any) => {
+                    const t = summaryData.instanceTotals[id] || { grabbed: 0, imported: 0, sizeBytes: 0 };
+                    return chartType === 'grabbed' ? t.grabbed : (chartType === 'imported' ? t.imported : (t.sizeBytes / (1024 ** 3)));
+                  }), 1);
                   const percentage = Math.min(100, (value / maxVal) * 100);
 
                   return (
@@ -370,32 +371,52 @@ export default function Dashboard() {
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col">
             <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-widest mb-4">Top Indexers</h3>
             <div className="space-y-3 flex-1 flex flex-col justify-center">
-              {Object.entries(summaryData.indexerTotals || {})
-                .map(([name, stats]: [string, any]) => ({
-                  name,
-                  value: chartType === 'grabbed' ? stats.grabbed : (chartType === 'imported' ? stats.imported : (stats.sizeBytes / (1024 ** 3)))
-                }))
-                .filter(item => item.value > 0)
-                .sort((a, b) => b.value - a.value)
-                .slice(0, 3)
-                .map((indexer, idx) => (
-                  <div key={indexer.name} className="flex items-center justify-between p-2.5 rounded-xl bg-zinc-950 border border-zinc-800/80 hover:border-zinc-700 transition-colors">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black border ${idx === 0 ? 'bg-amber-500/10 border-amber-500/30 text-amber-500' :
-                        idx === 1 ? 'bg-zinc-400/10 border-zinc-400/30 text-zinc-400' :
-                          'bg-orange-500/10 border-orange-500/30 text-orange-400'
-                        }`}>
-                        {idx + 1}
+              {(() => {
+                // Determine filtered indexer stats on the fly
+                const filteredIndexerStats: Record<string, { grabbed: number, imported: number, sizeBytes: number }> = {};
+
+                // We use the full recentDownloads pool from API (which is now 500 records)
+                // BUT wait, recentDownloads is already finalized by date in the API. 
+                // Let's use it to calculate the top indexers for the current view.
+                recentDownloads.filter(dl => recentDownloadFilters[dl.instanceId] !== false).forEach(dl => {
+                  if (!dl.indexer || dl.indexer === 'Unknown') return;
+                  if (!filteredIndexerStats[dl.indexer]) {
+                    filteredIndexerStats[dl.indexer] = { grabbed: 0, imported: 0, sizeBytes: 0 };
+                  }
+                  if (dl.status === 'Grabbed') filteredIndexerStats[dl.indexer].grabbed++;
+                  if (dl.status === 'Finalized') {
+                    filteredIndexerStats[dl.indexer].imported++;
+                    filteredIndexerStats[dl.indexer].sizeBytes += dl.size || 0;
+                  }
+                });
+
+                return Object.entries(filteredIndexerStats)
+                  .map(([name, stats]: [string, any]) => ({
+                    name,
+                    value: chartType === 'grabbed' ? stats.grabbed : (chartType === 'imported' ? stats.imported : (stats.sizeBytes / (1024 ** 3)))
+                  }))
+                  .filter(item => item.value > 0)
+                  .sort((a, b) => b.value - a.value)
+                  .slice(0, 3)
+                  .map((indexer, idx) => (
+                    <div key={indexer.name} className="flex items-center justify-between p-2.5 rounded-xl bg-zinc-950 border border-zinc-800/80 hover:border-zinc-700 transition-colors">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black border ${idx === 0 ? 'bg-amber-500/10 border-amber-500/30 text-amber-500' :
+                          idx === 1 ? 'bg-zinc-400/10 border-zinc-400/30 text-zinc-400' :
+                            'bg-orange-500/10 border-orange-500/30 text-orange-400'
+                          }`}>
+                          {idx + 1}
+                        </div>
+                        <span className="text-xs font-bold text-zinc-200 truncate max-w-[100px]">{indexer.name}</span>
                       </div>
-                      <span className="text-xs font-bold text-zinc-200 truncate max-w-[100px]">{indexer.name}</span>
+                      <span className="text-xs font-black text-white px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800/50 min-w-[50px] text-center">
+                        {chartType === 'sizeGB' ? `${indexer.value.toFixed(1)}G` : indexer.value}
+                      </span>
                     </div>
-                    <span className="text-xs font-black text-white px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800/50 min-w-[50px] text-center">
-                      {chartType === 'sizeGB' ? `${indexer.value.toFixed(1)}G` : indexer.value}
-                    </span>
-                  </div>
-                ))}
-              {(!summaryData.indexerTotals || Object.keys(summaryData.indexerTotals).length === 0) && (
-                <div className="text-center py-4 text-zinc-500 text-xs italic">No indexer data available</div>
+                  ));
+              })()}
+              {(!recentDownloads || recentDownloads.filter(dl => recentDownloadFilters[dl.instanceId] !== false).length === 0) && (
+                <div className="text-center py-4 text-zinc-500 text-xs italic">No indexer data for selected filters</div>
               )}
             </div>
           </div>
@@ -440,22 +461,25 @@ export default function Dashboard() {
                     wrapperStyle={{ paddingTop: '20px', fontSize: '10px' }}
                     formatter={(value: string) => <span className="text-zinc-500 font-black uppercase tracking-tighter">{value}</span>}
                   />
-                  {Object.keys(instances).map((id) => (
-                    <React.Fragment key={id}>
-                      {(chartType === 'grabbed') && (
-                        <>
-                          <Bar dataKey={`${id}_grabbed`} name={instances[id].name} stackId="a" fill={instances[id].color} opacity={0.8} radius={[0, 0, 0, 0]} legendType="rect" />
-                          <Bar dataKey={`${id}_downloading`} name={`${instances[id].name} (DL)`} stackId="a" fill={instances[id].color} opacity={0.3} radius={[2, 2, 0, 0]} legendType="none" />
-                        </>
-                      )}
-                      {(chartType === 'imported') && (
-                        <Bar dataKey={`${id}_imported`} name={instances[id].name} stackId="a" fill={instances[id].color} opacity={1} radius={[2, 2, 0, 0]} legendType="rect" />
-                      )}
-                      {(chartType === 'sizeGB') && (
-                        <Bar dataKey={`${id}_sizeGB`} name={instances[id].name} stackId="a" fill={instances[id].color} opacity={0.9} radius={[2, 2, 0, 0]} legendType="rect" />
-                      )}
-                    </React.Fragment>
-                  ))}
+                  {Object.keys(instances).map((id) => {
+                    if (recentDownloadFilters[id] === false) return null;
+                    return (
+                      <React.Fragment key={id}>
+                        {(chartType === 'grabbed') && (
+                          <>
+                            <Bar dataKey={`${id}_grabbed`} name={instances[id].name} stackId="a" fill={instances[id].color} opacity={0.8} radius={[0, 0, 0, 0]} legendType="rect" />
+                            <Bar dataKey={`${id}_downloading`} name={`${instances[id].name} (DL)`} stackId="a" fill={instances[id].color} opacity={0.3} radius={[2, 2, 0, 0]} legendType="none" />
+                          </>
+                        )}
+                        {(chartType === 'imported') && (
+                          <Bar dataKey={`${id}_imported`} name={instances[id].name} stackId="a" fill={instances[id].color} opacity={1} radius={[2, 2, 0, 0]} legendType="rect" />
+                        )}
+                        {(chartType === 'sizeGB') && (
+                          <Bar dataKey={`${id}_sizeGB`} name={instances[id].name} stackId="a" fill={instances[id].color} opacity={0.9} radius={[2, 2, 0, 0]} legendType="rect" />
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -533,12 +557,12 @@ export default function Dashboard() {
             {loadingStats && (
               <div className="text-zinc-500 text-sm italic py-2">Loading recent history...</div>
             )}
-            {!loadingStats && recentDownloads.length === 0 && (
+            {!loadingStats && recentDownloads.filter(dl => recentDownloadFilters[dl.instanceId] !== false).length === 0 && (
               <div className="text-zinc-500 text-sm py-2 flex items-center justify-center p-8 bg-zinc-950/50 rounded-xl border border-zinc-800/50 border-dashed">
-                No history grabbed yet.
+                No history found for current filters.
               </div>
             )}
-            {!loadingStats && recentDownloads.filter(dl => recentDownloadFilters[dl.instanceId] !== false).slice(0, 15).map((dl, idx) => {
+            {!loadingStats && recentDownloads.filter(dl => recentDownloadFilters[dl.instanceId] !== false).slice(0, 20).map((dl, idx) => {
               const inst = instances[dl.instanceId];
               return (
                 <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-zinc-950 border border-zinc-800 flex-shrink-0 transition hover:border-zinc-700">
@@ -550,7 +574,7 @@ export default function Dashboard() {
                         title={dl.failureReason || (dl.status === 'Finalized' ? 'Download imported and completed' : dl.status === 'Grabbed' ? 'Sent to download client' : 'Currently in download queue')}
                         className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider cursor-help ${dl.status === 'Finalized' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' :
                           dl.status === 'Failed' ? 'bg-red-500/10 text-red-500 border border-red-500/20' :
-                            dl.status === 'Downloading' ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20' :
+                            dl.status === 'Downloading' ? 'bg-amber-500/10 text-amber-500 border border-emerald-500/20' : // Corrected color for Downloading
                               'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
                           }`}>
                         {dl.status}

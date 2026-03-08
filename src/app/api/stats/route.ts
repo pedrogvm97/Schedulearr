@@ -356,7 +356,7 @@ export async function GET(req: Request) {
             if (seen.has(key)) return false;
             seen.add(key);
             return true;
-        }).slice(0, 20);
+        }).slice(0, 500);
 
         return NextResponse.json({
             data: chartData,
