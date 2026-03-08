@@ -10,83 +10,85 @@ if (!fs.existsSync(dbDir)) {
 }
 
 const dbPath = path.join(dbDir, 'schedulearr.db');
-console.log('[DEBUG] INITIALIZING DB AT PATH:', dbPath, 'WITH NODE_ENV:', process.env.NODE_ENV);
-const db = new Database(dbPath);
 
-db.pragma('journal_mode = WAL');
+let _db: any;
+function getDb() {
+    if (!_db) {
+        console.log('[DEBUG] INITIALIZING DB AT PATH:', dbPath, 'WITH NODE_ENV:', process.env.NODE_ENV);
+        _db = new Database(dbPath);
+        _db.pragma('journal_mode = WAL');
+        initializeSchema(_db);
+    }
+    return _db;
+}
 
-// Initialize Schema
-db.exec(`
-  CREATE TABLE IF NOT EXISTS settings (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-  );
+const db = {
+    prepare: (sql: string) => getDb().prepare(sql),
+    exec: (sql: string) => getDb().exec(sql),
+    pragma: (sql: string) => getDb().pragma(sql),
+};
 
-  CREATE TABLE IF NOT EXISTS instances (
-    id TEXT PRIMARY KEY, -- Generate UUID
-    type TEXT NOT NULL, -- 'radarr', 'sonarr', 'prowlarr', 'qbittorrent'
-    name TEXT NOT NULL,
-    url TEXT NOT NULL,
-    api_key TEXT NOT NULL,
-    enabled INTEGER DEFAULT 1
-  );
+function initializeSchema(d: any) {
+    d.exec(`
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+    
+      CREATE TABLE IF NOT EXISTS instances (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        name TEXT NOT NULL,
+        url TEXT NOT NULL,
+        api_key TEXT NOT NULL,
+        enabled INTEGER DEFAULT 1
+      );
+    
+      CREATE TABLE IF NOT EXISTS search_history (
+        id TEXT PRIMARY KEY,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        profile TEXT NOT NULL,
+        movies_searched TEXT,
+        episodes_searched TEXT,
+        reason TEXT
+      );
+    
+      CREATE TABLE IF NOT EXISTS prowlarr_indexer_rules (
+        id TEXT PRIMARY KEY,
+        indexer_id INTEGER NOT NULL,
+        prowlarr_instance_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        max_snatches INTEGER,
+        max_size_bytes INTEGER,
+        interval TEXT DEFAULT 'monthly',
+        current_snatches INTEGER DEFAULT 0,
+        current_size_bytes INTEGER DEFAULT 0,
+        last_reset DATETIME DEFAULT CURRENT_TIMESTAMP,
+        auto_manage INTEGER DEFAULT 1,
+        UNIQUE(indexer_id, prowlarr_instance_id)
+      );
+    
+      CREATE TABLE IF NOT EXISTS scheduler_tracking (
+        media_id TEXT NOT NULL,
+        instance_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        attempts INTEGER DEFAULT 0,
+        last_search DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY(media_id, instance_id, type)
+      );
+    
+      CREATE TABLE IF NOT EXISTS torrent_activity (
+        hash TEXT PRIMARY KEY,
+        last_progress REAL NOT NULL,
+        last_change DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
 
-  CREATE TABLE IF NOT EXISTS search_history (
-    id TEXT PRIMARY KEY,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-    profile TEXT NOT NULL,
-    movies_searched TEXT,
-    episodes_searched TEXT,
-    reason TEXT
-  );
-
-  CREATE TABLE IF NOT EXISTS prowlarr_indexer_rules (
-    id TEXT PRIMARY KEY,
-    indexer_id INTEGER NOT NULL,
-    prowlarr_instance_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    max_snatches INTEGER,
-    max_size_bytes INTEGER,
-    interval TEXT DEFAULT 'monthly', -- 'daily', 'weekly', 'monthly'
-    current_snatches INTEGER DEFAULT 0,
-    current_size_bytes INTEGER DEFAULT 0,
-    last_reset DATETIME DEFAULT CURRENT_TIMESTAMP,
-    auto_manage INTEGER DEFAULT 1,
-    UNIQUE(indexer_id, prowlarr_instance_id)
-  );
-
-  CREATE TABLE IF NOT EXISTS scheduler_tracking (
-    media_id TEXT NOT NULL,
-    instance_id TEXT NOT NULL,
-    type TEXT NOT NULL, -- 'movie', 'episode'
-    attempts INTEGER DEFAULT 0,
-    last_search DATETIME DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY(media_id, instance_id, type)
-  );
-
-  CREATE TABLE IF NOT EXISTS torrent_activity (
-    hash TEXT PRIMARY KEY,
-    last_progress REAL NOT NULL,
-    last_change DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-`);
-
-// Simple schema migrations for existing databases
-try { db.exec("ALTER TABLE instances ADD COLUMN enabled INTEGER DEFAULT 1;"); } catch (e) { /* column exists */ }
-try { db.exec("ALTER TABLE instances ADD COLUMN color TEXT;"); } catch (e) { /* column exists */ }
-try { db.exec("ALTER TABLE search_history ADD COLUMN timestamp DATETIME DEFAULT CURRENT_TIMESTAMP;"); } catch (e) { /* column exists */ }
-try {
-    db.exec(`
-    CREATE TABLE IF NOT EXISTS scheduler_tracking (
-      media_id TEXT NOT NULL,
-      instance_id TEXT NOT NULL,
-      type TEXT NOT NULL,
-      attempts INTEGER DEFAULT 0,
-      last_search DATETIME DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY(media_id, instance_id, type)
-    );
-  `);
-} catch (e) { /* table exists */ }
+    // Migrations
+    try { d.exec("ALTER TABLE instances ADD COLUMN enabled INTEGER DEFAULT 1;"); } catch (e) { }
+    try { d.exec("ALTER TABLE instances ADD COLUMN color TEXT;"); } catch (e) { }
+    try { d.exec("ALTER TABLE search_history ADD COLUMN timestamp DATETIME DEFAULT CURRENT_TIMESTAMP;"); } catch (e) { }
+}
 
 export interface Setting {
     key: string;

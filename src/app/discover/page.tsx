@@ -429,12 +429,12 @@ function DiscoveryCard({ item, isAdding, libStatus, onAdd, viewMode, onShowDetai
                 {expanded && libStatus.exists && (
                     <div className="mt-3 px-2 pb-2">
                         <EpisodeList
-                            instanceId={libStatus.instances[0].id}
-                            seriesId={libStatus.instances[0].internalId!}
+                            instanceId={libStatus.instances[0]?.id}
+                            seriesId={libStatus.instances[0]?.internalId!}
                             onInteractiveSearch={(ep) => onInteractiveSearch?.({
                                 type: 'episode',
                                 id: ep.id,
-                                instanceId: libStatus.instances[0].id,
+                                instanceId: libStatus.instances[0]?.id,
                                 title: `${item.title} - S${ep.seasonNumber}E${ep.episodeNumber}`,
                                 poster
                             })}
@@ -519,12 +519,12 @@ function DiscoveryCard({ item, isAdding, libStatus, onAdd, viewMode, onShowDetai
                 {expanded && libStatus.exists && (
                     <div className="mt-4 border-t border-zinc-900 pt-4">
                         <EpisodeList
-                            instanceId={libStatus.instances[0].id}
-                            seriesId={libStatus.instances[0].internalId!}
+                            instanceId={libStatus.instances[0]?.id}
+                            seriesId={libStatus.instances[0]?.internalId!}
                             onInteractiveSearch={(ep) => onInteractiveSearch?.({
                                 type: 'episode',
                                 id: ep.id,
-                                instanceId: libStatus.instances[0].id,
+                                instanceId: libStatus.instances[0]?.id,
                                 title: `${item.title} - S${ep.seasonNumber}E${ep.episodeNumber}`,
                                 poster
                             })}
