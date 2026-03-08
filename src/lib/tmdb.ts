@@ -17,10 +17,10 @@ export interface TMDBResult {
     genre_ids: number[];
 }
 
-export const getTrending = async (apiKey: string, type: 'movie' | 'tv', timeWindow: 'day' | 'week' = 'day'): Promise<TMDBResult[]> => {
+export const getTrending = async (apiKey: string, type: 'movie' | 'tv', timeWindow: 'day' | 'week' = 'day', page: number = 1): Promise<TMDBResult[]> => {
     try {
         const response = await axios.get(`${BASE_URL}/trending/${type === 'movie' ? 'movie' : 'tv'}/${timeWindow}`, {
-            params: { api_key: apiKey }
+            params: { api_key: apiKey, page }
         });
         return response.data.results || [];
     } catch (error) {
@@ -117,14 +117,14 @@ export const TMDB_REVERSE_GENRES: Record<number, string> = Object.entries(TMDB_G
     return acc;
 }, {} as Record<number, string>);
 
-export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', providerId?: number, genreId?: number): Promise<TMDBResult[]> => {
+export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', providerId?: number, genreId?: number, minRating: number = 0, page: number = 1): Promise<TMDBResult[]> => {
     try {
         const params: any = {
             api_key: apiKey,
             sort_by: 'popularity.desc',
             include_adult: false,
             include_video: false,
-            page: 1,
+            page: page,
             watch_region: 'US'
         };
 
@@ -134,6 +134,11 @@ export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', provide
 
         if (genreId) {
             params.with_genres = genreId;
+        }
+
+        if (minRating > 0) {
+            params['vote_average.gte'] = minRating;
+            params['vote_count.gte'] = 50; // Ensure some reliability for high ratings
         }
 
         const response = await axios.get(`${BASE_URL}/discover/${type === 'movie' ? 'movie' : 'tv'}`, { params });

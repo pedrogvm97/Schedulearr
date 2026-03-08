@@ -526,6 +526,9 @@ export default function DiscoverPage() {
             if (filterGenre !== 'All' && ALL_GENRES.includes(filterGenre)) {
                 url += `&genre=${encodeURIComponent(filterGenre)}`;
             }
+            if (filterRating > 0) {
+                url += `&minRating=${filterRating}`;
+            }
             const res = await fetch(url);
             if (res.ok) {
                 const data = await res.json();
@@ -537,14 +540,14 @@ export default function DiscoverPage() {
         } finally {
             setIsSearching(false);
         }
-    }, [mediaType, selectedInstanceIds, availableInstances, filterPlatform, filterGenre]);
+    }, [mediaType, selectedInstanceIds, availableInstances, filterPlatform, filterGenre, filterRating]);
 
     // ── Trigger discovery on load / type / platform / genre / year change ──
     useEffect(() => {
         if (pageMode === 'discover' && !searchQuery) {
             handleDiscovery();
         }
-    }, [mediaType, pageMode, searchQuery, filterPlatform, filterGenre, filterYear, handleDiscovery]);
+    }, [mediaType, pageMode, searchQuery, filterPlatform, filterGenre, filterYear, filterRating, handleDiscovery]);
 
     // ── Management Handlers ──
     const [transferTarget, setTransferTarget] = useState<any>(null);

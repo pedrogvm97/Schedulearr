@@ -11,6 +11,7 @@ export async function GET(request: Request) {
     const term = searchParams.get('term');
     const platform = searchParams.get('platform');
     const genre = searchParams.get('genre');
+    const minRating = parseFloat(searchParams.get('minRating') || '0');
 
     if (!instanceId) {
         return NextResponse.json({ error: 'Missing instanceId' }, { status: 400 });
@@ -28,7 +29,7 @@ export async function GET(request: Request) {
 
         // Use TMDB for discovery or text search if API key is available
         if (tmdbApiKey) {
-            console.log(`[LOOKUP] Using TMDB for ${searchTerm ? 'search' : 'discovery'} (Term: ${searchTerm}, Platform: ${platform || 'Any'}, Genre: ${genre || 'Any'})`);
+            console.log(`[LOOKUP] Using TMDB for ${searchTerm ? 'search' : 'discovery'} (Term: ${searchTerm}, Platform: ${platform || 'Any'}, Genre: ${genre || 'Any'}, MinRating: ${minRating})`);
 
             let tmdbResults = [];
 
@@ -39,9 +40,17 @@ export async function GET(request: Request) {
                 const providerId = platform ? TMDB_PROVIDERS[platform] : undefined;
 
                 if (providerId || genreId) {
-                    tmdbResults = await discoverTMDB(tmdbApiKey, 'movie', providerId, genreId);
+                    tmdbResults = await discoverTMDB(tmdbApiKey, 'movie', providerId, genreId, minRating);
+                    if (tmdbResults.length < 10 && minRating > 0) {
+                        const more = await discoverTMDB(tmdbApiKey, 'movie', providerId, genreId, minRating, 2);
+                        tmdbResults = [...tmdbResults, ...more];
+                    }
                 } else {
                     tmdbResults = await getTrending(tmdbApiKey, 'movie');
+                    if (minRating > 0) {
+                        const more = await getTrending(tmdbApiKey, 'movie', 'day', 2);
+                        tmdbResults = [...tmdbResults, ...more];
+                    }
                 }
             }
 

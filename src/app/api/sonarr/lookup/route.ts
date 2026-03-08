@@ -11,6 +11,7 @@ export async function GET(request: Request) {
     const term = searchParams.get('term');
     const platform = searchParams.get('platform');
     const genre = searchParams.get('genre');
+    const minRating = parseFloat(searchParams.get('minRating') || '0');
 
     if (!instanceId) {
         return NextResponse.json({ error: 'Missing instanceId' }, { status: 400 });
@@ -28,7 +29,7 @@ export async function GET(request: Request) {
 
         // Use TMDB for discovery or text search if API key is available
         if (tmdbApiKey) {
-            console.log(`[LOOKUP] TMDB ${searchTerm ? 'search' : 'discovery'} (series, Term: ${searchTerm}, Platform: ${platform || 'Any'}, Genre: ${genre || 'Any'})`);
+            console.log(`[LOOKUP] TMDB ${searchTerm ? 'search' : 'discovery'} (series, Term: ${searchTerm}, Platform: ${platform || 'Any'}, Genre: ${genre || 'Any'}, MinRating: ${minRating})`);
 
             let tmdbResults = [];
 
@@ -39,9 +40,19 @@ export async function GET(request: Request) {
                 const providerId = platform ? TMDB_PROVIDERS[platform] : undefined;
 
                 if (providerId || genreId) {
-                    tmdbResults = await discoverTMDB(tmdbApiKey, 'tv', providerId, genreId);
+                    tmdbResults = await discoverTMDB(tmdbApiKey, 'tv', providerId, genreId, minRating);
+                    // If results are sparse and we have a filter, try to get one more page to populate the list
+                    if (tmdbResults.length < 10 && minRating > 0) {
+                        const more = await discoverTMDB(tmdbApiKey, 'tv', providerId, genreId, minRating, 2);
+                        tmdbResults = [...tmdbResults, ...more];
+                    }
                 } else {
                     tmdbResults = await getTrending(tmdbApiKey, 'tv');
+                    // Trending doesn't support server-side rating filter, but we can fetch more if needed
+                    if (minRating > 0) {
+                        const more = await getTrending(tmdbApiKey, 'tv', 'day', 2);
+                        tmdbResults = [...tmdbResults, ...more];
+                    }
                 }
             }
 
