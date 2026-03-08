@@ -510,6 +510,9 @@ export default function DiscoverPage() {
             if (filterRating > 0) {
                 url += `&minRating=${filterRating}`;
             }
+            if (filterYear !== 'All') {
+                url += `&year=${filterYear}`;
+            }
             const res = await fetch(url);
             if (res.ok) {
                 const data = await res.json();
@@ -681,24 +684,26 @@ export default function DiscoverPage() {
             const q = searchQuery.toLowerCase();
             items = items.filter(i => i.title?.toLowerCase().includes(q) || i.overview?.toLowerCase().includes(q));
         }
-        if (filterGenre !== 'All') items = items.filter(i => i.genres?.includes(filterGenre));
-        if (filterPlatform !== 'All') {
-            const platformLower = filterPlatform.toLowerCase();
-            items = items.filter(i => {
-                const all: string[] = [
-                    ...(i.productionCompanies || []),
-                    i.studio,
-                    i.network
-                ].filter(Boolean).map((s: string) => s.toLowerCase());
-                return all.some(c => c.includes(platformLower));
-            });
-        }
-        if (filterYear !== 'All') items = items.filter(i => i.year?.toString() === filterYear);
-        if (filterRating > 0) {
-            items = items.filter(i => {
-                const r = i.ratings?.value ?? i.vote_average ?? 0;
-                return r >= filterRating;
-            });
+        if (pageMode === 'mylibrary') {
+            if (filterGenre !== 'All') items = items.filter(i => i.genres?.includes(filterGenre));
+            if (filterPlatform !== 'All') {
+                const platformLower = filterPlatform.toLowerCase();
+                items = items.filter(i => {
+                    const all: string[] = [
+                        ...(i.productionCompanies || []),
+                        i.studio,
+                        i.network
+                    ].filter(Boolean).map((s: string) => s.toLowerCase());
+                    return all.some(c => c.includes(platformLower));
+                });
+            }
+            if (filterYear !== 'All') items = items.filter(i => i.year?.toString() === filterYear);
+            if (filterRating > 0) {
+                items = items.filter(i => {
+                    const r = i.ratings?.value ?? i.vote_average ?? 0;
+                    return r >= filterRating;
+                });
+            }
         }
 
         items.sort((a, b) => {
@@ -977,8 +982,22 @@ export default function DiscoverPage() {
                                         <span>8+</span>
                                         <span>10</span>
                                     </div>
-                                    <div className="px-3 py-2 rounded-xl bg-zinc-900/50 border border-zinc-800/50 text-center animate-in fade-in slide-in-from-bottom-1 duration-300">
-                                        <p className="text-[9px] font-black uppercase tracking-[0.15em] transition-colors" style={{
+                                    <div className="px-3 py-3 rounded-[2rem] bg-zinc-900/50 border border-zinc-800/50 flex flex-col items-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                                        <div className="w-20 h-20 relative">
+                                            <img
+                                                src={
+                                                    localRating >= 9 ? '/ratings/awesometacular.png' :
+                                                        localRating >= 7.5 ? '/ratings/bluray.png' :
+                                                            localRating >= 6 ? '/ratings/goodtime.png' :
+                                                                localRating >= 4 ? '/ratings/drunk.png' :
+                                                                    localRating >= 2 ? '/ratings/forgettable.png' : '/ratings/dogshit.png'
+                                                }
+                                                className="w-full h-full object-contain drop-shadow-[0_0_15px_rgba(255,255,255,0.1)]"
+                                                alt="Rating Icon"
+                                                key={localRating >= 9 ? 'a' : localRating >= 7.5 ? 'b' : localRating >= 6 ? 'g' : localRating >= 4 ? 'd' : localRating >= 2 ? 'f' : 'ds'}
+                                            />
+                                        </div>
+                                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-center" style={{
                                             color: localRating >= 9 ? '#10b981' :
                                                 localRating >= 7.5 ? '#22c55e' :
                                                     localRating >= 6 ? '#3b82f6' :
@@ -986,8 +1005,8 @@ export default function DiscoverPage() {
                                                             localRating >= 2 ? '#f97316' : '#ef4444'
                                         }}>
                                             {localRating >= 9 ? 'AWESOMETACULAR!' :
-                                                localRating >= 7.5 ? 'A good time no matter what' :
-                                                    localRating >= 6 ? 'Wait for Blu-ray / Streaming' :
+                                                localRating >= 7.5 ? 'Buying it on Blu-ray' :
+                                                    localRating >= 6 ? 'A good time no alcohol required' :
                                                         localRating >= 4 ? "A good time if you're drunk" :
                                                             localRating >= 2 ? 'Not going to remember it tomorrow' : 'DOGSHIT!'}
                                         </p>

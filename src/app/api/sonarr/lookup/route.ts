@@ -42,9 +42,11 @@ export async function GET(request: Request) {
             } else {
                 const genreId = genre ? TMDB_GENRES[genre] : undefined;
                 const providerId = platform ? TMDB_PROVIDERS[platform] : undefined;
+                const yearVal = searchParams.get('year') || undefined;
 
-                if (providerId || genreId) {
-                    const response = await discoverTMDB(tmdbApiKey, 'tv', providerId, genreId, minRating, page);
+                // Call discover if ANY filter is present, otherwise get trending
+                if (providerId || genreId || minRating > 0 || (yearVal && yearVal !== 'All')) {
+                    const response = await discoverTMDB(tmdbApiKey, 'tv', providerId, genreId, minRating, yearVal, page);
                     tmdbResults = response.results;
                     totalPages = response.total_pages;
                 } else {

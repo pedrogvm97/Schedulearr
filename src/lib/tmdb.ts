@@ -132,7 +132,7 @@ export const TMDB_REVERSE_GENRES: Record<number, string> = Object.entries(TMDB_G
     return acc;
 }, {} as Record<number, string>);
 
-export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', providerId?: string | number, genreId?: number, minRating: number = 0, page: number = 1): Promise<TMDBPaginatedResponse> => {
+export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', providerId?: string | number, genreId?: number, minRating: number = 0, year?: string, page: number = 1): Promise<TMDBPaginatedResponse> => {
     try {
         const params: any = {
             api_key: apiKey,
@@ -150,6 +150,14 @@ export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', provide
 
         if (genreId) {
             params.with_genres = genreId;
+        }
+
+        if (year && year !== 'All') {
+            if (type === 'movie') {
+                params.primary_release_year = year;
+            } else {
+                params.first_air_date_year = year;
+            }
         }
 
         if (minRating > 0) {
