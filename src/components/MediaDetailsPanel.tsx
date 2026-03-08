@@ -20,17 +20,22 @@ export function MediaDetailsPanel({ item, tmdbApiKey, libStatus, onClose, onSele
     const [credits, setCredits] = useState<any[]>([]);
     const [recommendations, setRecommendations] = useState<any[]>([]);
 
-    const tmdbId = item.tmdbId || item.id;
     const isSeries = item.type === 'series' || item.tvdbId || !!item.seasons;
+    const tmdbId = item.tmdbId || (item.type === 'movie' || !isSeries ? item.id : null);
 
     useEffect(() => {
         if (!tmdbApiKey || !tmdbId) {
-            setLoading(false);
+            if (!tmdbId) setLoading(false);
             return;
         }
 
+        // Deep reset
+        setDetails(null);
+        setCredits([]);
+        setRecommendations([]);
+        setLoading(true);
+
         const fetchDetails = async () => {
-            setLoading(true);
             try {
                 const type = isSeries ? 'tv' : 'movie';
                 const [detailsRes, creditsRes, recRes] = await Promise.all([

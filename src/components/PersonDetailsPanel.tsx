@@ -19,6 +19,10 @@ export function PersonDetailsPanel({ personId, tmdbApiKey, onClose, onSelectMedi
     useEffect(() => {
         if (!tmdbApiKey || !personId) return;
 
+        // Clear previous state to prevent stale data
+        setDetails(null);
+        setCredits([]);
+
         const fetchPerson = async () => {
             setLoading(true);
             try {

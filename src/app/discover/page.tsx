@@ -392,8 +392,8 @@ export default function DiscoverPage() {
     const [libraryItems, setLibraryItems] = useState<any[]>([]);
     const [libraryLoading, setLibraryLoading] = useState(false);
 
-    // Library cross-reference Map (tmdbId -> { hasFile, isDownloading, instances: {id, name}[] })
-    const [libraryMap, setLibraryMap] = useState<Map<number, { hasFile: boolean; isDownloading: boolean; instances: { id: string; name: string }[] }>>(new Map());
+    // Library cross-reference Map (prefixed-id -> { hasFile, isDownloading, instances: {id, name}[] })
+    const [libraryMap, setLibraryMap] = useState<Map<string, { hasFile: boolean; isDownloading: boolean; instances: { id: string; name: string }[] }>>(new Map());
 
     // Instances & config
     const [instances, setInstances] = useState<Instance[]>([]);
@@ -453,33 +453,44 @@ export default function DiscoverPage() {
     // ── Load library (for cross-referencing) ──
     const loadLibrary = useCallback(async () => {
         setLibraryLoading(true);
-        const endpoint = mediaType === 'movie' ? '/api/radarr/all' : '/api/sonarr/all';
-        const data = await fetch(endpoint).then(r => r.ok ? r.json() : []).catch(() => []);
-        const items = Array.isArray(data) ? data : [];
-        setLibraryItems(items);
+        try {
+            const endpoint = mediaType === 'movie' ? '/api/radarr/all' : '/api/sonarr/all';
+            const data = await fetch(endpoint).then(r => r.ok ? r.json() : []).catch(() => []);
+            const items = Array.isArray(data) ? data : [];
+            setLibraryItems(items);
 
-        // Build a Map for efficient status checking
-        const map = new Map<number, { hasFile: boolean; isDownloading: boolean; instances: { id: string; name: string }[] }>();
-        items.forEach((item: any) => {
-            const ids = [item.tmdbId, item.tvdbId].filter(Boolean);
-            ids.forEach(id => {
-                const existing = map.get(id);
-                const itemInstances = existing ? existing.instances : [];
-                if (!itemInstances.some(i => i.id === item.instanceId)) {
-                    itemInstances.push({ id: item.instanceId, name: item.instanceName || 'Unknown' });
+            const map = new Map<string, { hasFile: boolean; isDownloading: boolean; instances: { id: string; name: string }[] }>();
+
+            items.forEach((m: any) => {
+                const id = m.tmdbId || m.tvdbId;
+                const typeKey = m.tvdbId ? 'series' : 'movie';
+                if (id) {
+                    const key = `${typeKey}-${id}`;
+                    const existing = map.get(key);
+                    const itemInstances = existing ? [...existing.instances] : [];
+
+                    if (!itemInstances.some(i => i.id === m.instanceId)) {
+                        itemInstances.push({ id: m.instanceId, name: m.instanceName || 'Unknown' });
+                    }
+
+                    map.set(key, {
+                        hasFile: (existing?.hasFile || m.hasFile || (m.statistics?.percentOfEpisodes === 100)) ?? false,
+                        isDownloading: (existing?.isDownloading || m.isDownloading || (m.queuedEpisodeIds?.length > 0)) ?? false,
+                        instances: itemInstances
+                    });
                 }
-                map.set(id, {
-                    hasFile: (existing?.hasFile || item.hasFile || item.statistics?.percentOfEpisodes === 100) ?? false,
-                    isDownloading: (existing?.isDownloading || item.isDownloading || (item.queuedEpisodeIds?.length > 0)) ?? false,
-                    instances: itemInstances
-                });
             });
-        });
-        setLibraryMap(map);
-        setLibraryLoading(false);
+            setLibraryMap(map);
+        } catch (error) {
+            console.error('Error loading library:', error);
+        } finally {
+            setLibraryLoading(false);
+        }
     }, [mediaType]);
 
-    useEffect(() => { loadLibrary(); }, [loadLibrary]);
+    useEffect(() => {
+        loadLibrary();
+    }, [loadLibrary]);
 
     // ── Discovery: load *arr trending/discovery ──
     const handleDiscovery = useCallback(async () => {
@@ -661,11 +672,15 @@ export default function DiscoverPage() {
 
     // ── Filtering ──
     const isInLibrary = (item: any) => {
-        const id = item.tmdbId || item.tvdbId;
-        if (!id) return { exists: false, hasFile: false, isDownloading: false };
-        const status = libraryMap.get(id);
+        const id = item.tmdbId || item.id || item.tvdbId;
+        if (!id) return { exists: false, hasFile: false, isDownloading: false, instances: [] };
+
+        const type = (item.type === 'series' || item.tvdbId || !!item.seasons) ? 'series' : 'movie';
+        const key = `${type}-${id}`;
+
+        const status = libraryMap.get(key);
         if (status) return { exists: true, ...status };
-        return { exists: (typeof item.id === 'number' && item.id > 0), hasFile: false, isDownloading: false, instances: [] };
+        return { exists: (typeof item.id === 'number' && item.id > 0 && pageMode === 'mylibrary'), hasFile: false, isDownloading: false, instances: [] };
     };
 
     useEffect(() => {
@@ -1030,6 +1045,7 @@ export default function DiscoverPage() {
                     onClose={() => setShowPersonDetailsFor(null)}
                     onSelectMedia={(media: any) => {
                         setShowDetailsFor(media);
+                        setShowPersonDetailsFor(null);
                     }}
                 />
             )}
