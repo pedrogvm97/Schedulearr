@@ -374,9 +374,10 @@ export default function DiscoverPage() {
         });
     }, []);
 
-    const availableInstances = instances.filter((inst: Instance) =>
-        inst.type === (mediaType === 'movie' ? 'radarr' : 'sonarr')
-    );
+    const availableInstances = useMemo(() =>
+        instances.filter((inst: Instance) =>
+            inst.type === (mediaType === 'movie' ? 'radarr' : 'sonarr')
+        ), [instances, mediaType]);
 
     // Auto-select first instance for browsing ONLY if none selected
     useEffect(() => {
