@@ -35,10 +35,10 @@ export default function Settings() {
             if (Array.isArray(data)) setInstances(data);
 
             // Fetch TMDB API Key
-            const sRes = await fetch('/api/settings?key=tmdb_api_key');
+            const sRes = await fetch('/api/settings');
             if (sRes.ok) {
                 const sData = await sRes.json();
-                setTmdbApiKey(sData.value || "");
+                setTmdbApiKey(sData.tmdb_api_key || "");
             }
         } catch (e) {
             console.error(e);
@@ -52,12 +52,16 @@ export default function Settings() {
 
     const updateSetting = async (key: string, value: any) => {
         try {
-            await fetch('/api/settings', {
+            const res = await fetch('/api/settings', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ key, value: String(value) })
             });
-            if (key === 'tmdb_api_key') toast.success("TMDB API Key updated");
+            if (res.ok) {
+                if (key === 'tmdb_api_key') toast.success("TMDB API Key updated");
+            } else {
+                throw new Error("Failed to save");
+            }
         } catch (e) {
             console.error('Failed to update setting', key, e);
             toast.error("Failed to update setting");
@@ -232,20 +236,23 @@ export default function Settings() {
                 <h2 className="text-xl font-semibold text-white mb-4">General Settings</h2>
                 <div className="space-y-4">
                     <div className="space-y-1">
-                        <label className="text-sm font-medium text-zinc-300">TMDB API Key (Optional)</label>
+                        <label className="text-sm font-medium text-zinc-300 flex items-center justify-between">
+                            TMDB API Key (Optional)
+                            {tmdbApiKey && <span className="text-[10px] text-emerald-500 font-bold bg-emerald-500/10 px-2 py-0.5 rounded-full">Active: {tmdbApiKey.slice(0, 4)}••••••••</span>}
+                        </label>
                         <div className="flex gap-2">
                             <input
                                 type="password"
-                                placeholder="Your TMDB API Key for high-quality discovery"
+                                placeholder={tmdbApiKey ? "••••••••••••••••" : "Your TMDB API Key for high-quality discovery"}
                                 value={tmdbApiKey}
                                 onChange={e => setTmdbApiKey(e.target.value)}
-                                className="flex-1 bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                                className="flex-1 bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none placeholder:text-zinc-600"
                             />
                             <button
                                 onClick={() => updateSetting('tmdb_api_key', tmdbApiKey)}
                                 className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold text-xs transition-colors"
                             >
-                                Save Key
+                                {tmdbApiKey ? 'Update Key' : 'Save Key'}
                             </button>
                         </div>
                         <p className="text-[10px] text-zinc-500">Enable this for better trending and discovery results on the discovery page.</p>

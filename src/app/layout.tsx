@@ -17,6 +17,8 @@ export const metadata: Metadata = {
   },
 };
 
+import { Toaster } from 'sonner';
+
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
@@ -26,6 +28,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <main className="py-8">
           {children}
         </main>
+        <Toaster position="top-right" theme="dark" closeButton richColors />
       </body>
     </html>
   );
