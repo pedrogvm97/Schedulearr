@@ -12,6 +12,7 @@ export async function GET(request: Request) {
     const platform = searchParams.get('platform');
     const genre = searchParams.get('genre');
     const minRating = parseFloat(searchParams.get('minRating') || '0');
+    const minPopularity = parseFloat(searchParams.get('minPopularity') || '0');
     const page = parseInt(searchParams.get('page') || '1');
 
     if (!instanceId) {
@@ -44,8 +45,8 @@ export async function GET(request: Request) {
                 const providerId = platform ? TMDB_PROVIDERS[platform] : undefined;
 
                 // Call discover if ANY filter is present, otherwise get trending
-                if (providerId || genre || minRating > 0 || (yearVal && yearVal !== 'All')) {
-                    const response = await discoverTMDB(tmdbApiKey, 'movie', providerId, genre || undefined, minRating, yearVal, page);
+                if (providerId || genre || minRating > 0 || minPopularity > 0 || (yearVal && yearVal !== 'All')) {
+                    const response = await discoverTMDB(tmdbApiKey, 'movie', providerId, genre || undefined, minRating, yearVal, page, minPopularity);
                     tmdbResults = response.results;
                     totalPages = response.total_pages;
                 } else {

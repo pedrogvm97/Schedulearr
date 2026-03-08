@@ -165,7 +165,7 @@ export const TMDB_REVERSE_GENRES: Record<number, string> = {
     10768: 'War'
 };
 
-export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', providerId?: string | number, genre?: string, minRating: number = 0, year?: string, page: number = 1): Promise<TMDBPaginatedResponse> => {
+export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', providerId?: string | number, genre?: string, minRating: number = 0, year?: string, page: number = 1, minPopularity: number = 0): Promise<TMDBPaginatedResponse> => {
     try {
         const params: any = {
             api_key: apiKey,
@@ -174,6 +174,10 @@ export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', provide
             include_video: false,
             page: page,
         };
+
+        if (minPopularity > 0) {
+            params['popularity.gte'] = minPopularity;
+        }
 
         if (providerId) {
             params.watch_region = 'US';
