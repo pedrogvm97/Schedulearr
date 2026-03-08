@@ -173,11 +173,11 @@ export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', provide
             include_adult: false,
             include_video: false,
             page: page,
-            watch_region: 'US',
-            watch_monetization_types: 'flatrate|free'
         };
 
         if (providerId) {
+            params.watch_region = 'US';
+            params.watch_monetization_types = 'flatrate|free';
             params.with_watch_providers = providerId;
         }
 
@@ -185,6 +185,7 @@ export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', provide
             if (genre === 'Anime') {
                 params.with_genres = 16;
                 params.with_origin_country = 'JP';
+                // Don't restrict by region/monetization for anime as it's often globally licensed differently
             } else {
                 const mapping = UNIFIED_GENRES[genre];
                 const genreIdForType = type === 'movie' ? mapping?.movie : mapping?.tv;
@@ -204,21 +205,14 @@ export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', provide
 
         if (minRating > 0) {
             params['vote_average.gte'] = minRating;
-            // Relax vote count requirement significantly for high ratings 
+            // Relax vote count requirement significantly for high ratings
             // This ensures we get high quality results even if they aren't "mainstream" blockbusters
-            params['vote_count.gte'] = minRating >= 8.5 ? 5 : minRating >= 8 ? 20 : 50;
+            params['vote_count.gte'] = minRating >= 9 ? 2 : minRating >= 8.5 ? 5 : minRating >= 8 ? 10 : 20;
         }
 
-        // Add a fallback for popularity to ensure we get results even with very strict filters
         const response = await axios.get(`${BASE_URL}/discover/${type === 'movie' ? 'movie' : 'tv'}`, { params });
 
-        // If results are very sparse, try relaxing monetization
         let results = response.data.results || [];
-        if (results.length < 5 && params.watch_monetization_types) {
-            delete params.watch_monetization_types;
-            const retryResponse = await axios.get(`${BASE_URL}/discover/${type === 'movie' ? 'movie' : 'tv'}`, { params });
-            results = retryResponse.data.results || [];
-        }
 
         return {
             results: results,

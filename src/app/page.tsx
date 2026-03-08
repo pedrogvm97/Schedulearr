@@ -468,6 +468,8 @@ export default function Dashboard() {
                   <Tooltip
                     cursor={{ fill: '#27272a', opacity: 0.4 }}
                     content={<CustomTooltip />}
+                    allowEscapeViewBox={{ x: true, y: true }}
+                    wrapperStyle={{ zIndex: 1000, pointerEvents: 'auto' }}
                   />
                   <Legend
                     wrapperStyle={{ paddingTop: '20px', fontSize: '10px' }}

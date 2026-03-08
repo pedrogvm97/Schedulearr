@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
     Search, Plus, Film, Tv, CheckCircle,
     Filter, X, Star, Calendar,
@@ -24,6 +24,7 @@ interface Instance {
     type: 'radarr' | 'sonarr';
     color?: string;
     colorHex?: string;
+    internalId?: number;
 }
 
 interface QualityProfile { id: number; name: string; }
@@ -350,8 +351,9 @@ function MyMediaCard({ item, viewMode, onRefresh, expandAll, excludeUnmonitored,
 // Discovery Card
 // ──────────────────────────────────────────────
 function DiscoveryCard({ item, isAdding, libStatus, onAdd, viewMode, onShowDetails, onInteractiveSearch }: {
-    item: any; isAdding: boolean; libStatus: { exists: boolean; hasFile: boolean; isDownloading: boolean; instances: { id: string; name: string }[] }; onAdd: () => void; viewMode: 'grid' | 'list'; onShowDetails?: () => void; onInteractiveSearch?: (media: any) => void;
+    item: any; isAdding: boolean; libStatus: { exists: boolean; hasFile: boolean; isDownloading: boolean; instances: { id: string; name: string; internalId?: number }[] }; onAdd: () => void; viewMode: 'grid' | 'list'; onShowDetails?: () => void; onInteractiveSearch?: (media: any) => void;
 }) {
+    const [expanded, setExpanded] = useState(false);
     const poster = item.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || item.remotePoster;
     const rating = item.ratings?.value;
     const platform = getPlatformBadge(item);
@@ -391,13 +393,28 @@ function DiscoveryCard({ item, isAdding, libStatus, onAdd, viewMode, onShowDetai
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();
-                                const instId = libStatus.instances?.[0]?.id;
-                                if (instId) onInteractiveSearch?.({ ...item, id: item.tmdbId || item.tvdbId, instanceId: instId, type: (item.tvdbId || item.seasons) ? 'series' : 'movie' });
+                                const inst = libStatus.instances?.[0];
+                                if (inst) {
+                                    onInteractiveSearch?.({
+                                        ...item,
+                                        id: inst.internalId || item.tmdbId || item.tvdbId,
+                                        instanceId: inst.id,
+                                        type: (item.tvdbId || item.seasons) ? 'series' : 'movie'
+                                    });
+                                }
                             }}
                             className="p-2.5 rounded-xl bg-indigo-600/10 border border-indigo-500/20 text-indigo-400 hover:bg-indigo-600 hover:text-white transition-all"
                             title="Interactive Search"
                         >
                             <Search size={14} />
+                        </button>
+                    )}
+                    {libStatus.exists && (item.tvdbId || item.seasons) && (
+                        <button
+                            onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
+                            className={`p-2.5 rounded-xl border transition-all ${expanded ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-white'}`}
+                        >
+                            <Rows size={14} />
                         </button>
                     )}
                     <button
@@ -409,6 +426,21 @@ function DiscoveryCard({ item, isAdding, libStatus, onAdd, viewMode, onShowDetai
                         {isAdding ? 'Adding' : libStatus.exists ? (libStatus.hasFile ? 'Available' : 'In Library') : 'Add'}
                     </button>
                 </div>
+                {expanded && libStatus.exists && (
+                    <div className="mt-3 px-2 pb-2">
+                        <EpisodeList
+                            instanceId={libStatus.instances[0].id}
+                            seriesId={libStatus.instances[0].internalId!}
+                            onInteractiveSearch={(ep) => onInteractiveSearch?.({
+                                type: 'episode',
+                                id: ep.id,
+                                instanceId: libStatus.instances[0].id,
+                                title: `${item.title} - S${ep.seasonNumber}E${ep.episodeNumber}`,
+                                poster
+                            })}
+                        />
+                    </div>
+                )}
             </div>
         );
     }
@@ -430,13 +462,28 @@ function DiscoveryCard({ item, isAdding, libStatus, onAdd, viewMode, onShowDetai
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    const instId = libStatus.instances?.[0]?.id;
-                                    if (instId) onInteractiveSearch?.({ ...item, id: item.tmdbId || item.tvdbId, instanceId: instId, type: (item.tvdbId || item.seasons) ? 'series' : 'movie' });
+                                    const inst = libStatus.instances?.[0];
+                                    if (inst) {
+                                        onInteractiveSearch?.({
+                                            ...item,
+                                            id: inst.internalId || item.tmdbId || item.tvdbId,
+                                            instanceId: inst.id,
+                                            type: (item.tvdbId || item.seasons) ? 'series' : 'movie'
+                                        });
+                                    }
                                 }}
                                 className="p-2.5 rounded-xl bg-black/60 backdrop-blur-xl border border-white/10 text-indigo-400 hover:text-white hover:bg-indigo-600 transition-all shadow-xl"
                                 title="Interactive Search"
                             >
                                 <Search size={14} />
+                            </button>
+                        )}
+                        {libStatus.exists && (item.tvdbId || item.seasons) && (
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
+                                className={`p-2.5 rounded-xl backdrop-blur-xl border transition-all shadow-xl ${expanded ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-black/60 border-white/10 text-zinc-500 hover:text-white'}`}
+                            >
+                                <Rows size={14} />
                             </button>
                         )}
                         {libStatus.exists && (
@@ -469,6 +516,21 @@ function DiscoveryCard({ item, isAdding, libStatus, onAdd, viewMode, onShowDetai
                         {isAdding ? 'Adding...' : libStatus.exists ? (libStatus.hasFile ? 'Available' : 'In Library') : 'Add to Library'}
                     </button>
                 </div>
+                {expanded && libStatus.exists && (
+                    <div className="mt-4 border-t border-zinc-900 pt-4">
+                        <EpisodeList
+                            instanceId={libStatus.instances[0].id}
+                            seriesId={libStatus.instances[0].internalId!}
+                            onInteractiveSearch={(ep) => onInteractiveSearch?.({
+                                type: 'episode',
+                                id: ep.id,
+                                instanceId: libStatus.instances[0].id,
+                                title: `${item.title} - S${ep.seasonNumber}E${ep.episodeNumber}`,
+                                poster
+                            })}
+                        />
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -485,7 +547,7 @@ export default function DiscoverPage() {
     const [results, setResults] = useState<any[]>([]);
     const [libraryItems, setLibraryItems] = useState<any[]>([]);
     const [libraryLoading, setLibraryLoading] = useState(false);
-    const [libraryMap, setLibraryMap] = useState<Map<string, { hasFile: boolean; isDownloading: boolean; instances: { id: string; name: string }[] }>>(new Map());
+    const [libraryMap, setLibraryMap] = useState<Map<string, { hasFile: boolean; isDownloading: boolean; instances: { id: string; name: string; internalId?: number }[] }>>(new Map());
 
     const [instances, setInstances] = useState<Instance[]>([]);
     const [selectedInstanceIds, setSelectedInstanceIds] = useState<string[]>([]);
@@ -527,6 +589,7 @@ export default function DiscoverPage() {
     const [interactiveReleases, setInteractiveReleases] = useState<any[]>([]);
     const [loadingReleases, setLoadingReleases] = useState(false);
     const [triggeringReleaseGuid, setTriggeringReleaseGuid] = useState<string | null>(null);
+    const lastFetchParams = useRef<string>("");
 
     // Debounce rating changes to avoid flickering and excessive API calls
     useEffect(() => {
@@ -552,7 +615,7 @@ export default function DiscoverPage() {
             const items = Array.isArray(data) ? data : [];
             setLibraryItems(items);
 
-            const map = new Map<string, { hasFile: boolean; isDownloading: boolean; instances: { id: string; name: string }[] }>();
+            const map = new Map<string, { hasFile: boolean; isDownloading: boolean; instances: { id: string; name: string; internalId?: number }[] }>();
 
             items.forEach((m: any) => {
                 const isSeries = !!(m.tvdbId || m.seasons);
@@ -575,7 +638,11 @@ export default function DiscoverPage() {
                     const itemInstances = existing ? [...existing.instances] : [];
 
                     if (!itemInstances.some((i: any) => i.id === m.instanceId)) {
-                        itemInstances.push({ id: m.instanceId, name: m.instanceName || 'Unknown' });
+                        itemInstances.push({
+                            id: m.instanceId,
+                            name: m.instanceName || 'Unknown',
+                            internalId: m.id // Store the Sonarr/Radarr internal ID
+                        });
                     }
 
                     map.set(key, {
@@ -956,6 +1023,13 @@ export default function DiscoverPage() {
 
     useEffect(() => {
         if (pageMode === 'discover') {
+            const currentParams = JSON.stringify({
+                mediaType, pageMode, searchQuery, filterPlatform, filterGenre, filterYear, filterRating, currentPage
+            });
+
+            if (currentParams === lastFetchParams.current) return;
+            lastFetchParams.current = currentParams;
+
             if (searchQuery) {
                 handleSearch();
             } else {
