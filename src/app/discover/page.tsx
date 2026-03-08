@@ -404,29 +404,24 @@ export default function DiscoverPage() {
 
     useEffect(() => { loadLibrary(); }, [loadLibrary]);
 
-    // ── Discovery: load TMDB trending ──
+    // ── Discovery: load *arr trending/discovery ──
     const handleDiscovery = useCallback(async () => {
+        if (!selectedInstanceId) return;
         setIsSearching(true);
         setResults([]);
         try {
-            const type = mediaType === 'movie' ? 'movie' : 'tv';
-            const res = await fetch(`/api/tmdb/trending?type=${type}`);
+            const endpoint = mediaType === 'movie' ? '/api/radarr/lookup' : '/api/sonarr/lookup';
+            const res = await fetch(`${endpoint}?instanceId=${selectedInstanceId}&term=`);
             if (res.ok) {
                 const data = await res.json();
                 setResults(Array.isArray(data) ? data : []);
-                return;
             }
-        } catch { /* fall through */ }
-
-        // Fallback: Sonarr/Radarr empty-term lookup
-        if (!selectedInstanceId) { setIsSearching(false); return; }
-        const endpoint = mediaType === 'movie' ? '/api/radarr/lookup' : '/api/sonarr/lookup';
-        const res = await fetch(`${endpoint}?instanceId=${selectedInstanceId}&term=`).catch(() => null);
-        if (res?.ok) {
-            const data = await res.json();
-            setResults(Array.isArray(data) ? data : []);
+        } catch (e) {
+            console.error('Discovery error:', e);
+            toast.error('Failed to load discovery content');
+        } finally {
+            setIsSearching(false);
         }
-        setIsSearching(false);
     }, [mediaType, selectedInstanceId]);
 
     // ── Trigger discovery on load / type change ──
