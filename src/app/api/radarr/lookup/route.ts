@@ -12,6 +12,7 @@ export async function GET(request: Request) {
     const platform = searchParams.get('platform');
     const genre = searchParams.get('genre');
     const minRating = parseFloat(searchParams.get('minRating') || '0');
+    const page = parseInt(searchParams.get('page') || '1');
 
     if (!instanceId) {
         return NextResponse.json({ error: 'Missing instanceId' }, { status: 400 });
@@ -40,14 +41,15 @@ export async function GET(request: Request) {
                 const providerId = platform ? TMDB_PROVIDERS[platform] : undefined;
 
                 if (providerId || genreId) {
-                    tmdbResults = await discoverTMDB(tmdbApiKey, 'movie', providerId, genreId, minRating);
-                    if (tmdbResults.length < 10 && minRating > 0) {
+                    tmdbResults = await discoverTMDB(tmdbApiKey, 'movie', providerId, genreId, minRating, page);
+                    // Only auto-fetch second page if we are on page 1 and results are sparse
+                    if (tmdbResults.length < 10 && minRating > 0 && page === 1) {
                         const more = await discoverTMDB(tmdbApiKey, 'movie', providerId, genreId, minRating, 2);
                         tmdbResults = [...tmdbResults, ...more];
                     }
                 } else {
-                    tmdbResults = await getTrending(tmdbApiKey, 'movie');
-                    if (minRating > 0) {
+                    tmdbResults = await getTrending(tmdbApiKey, 'movie', 'day', page);
+                    if (minRating > 0 && page === 1) {
                         const more = await getTrending(tmdbApiKey, 'movie', 'day', 2);
                         tmdbResults = [...tmdbResults, ...more];
                     }
