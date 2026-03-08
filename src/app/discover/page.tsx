@@ -982,8 +982,8 @@ export default function DiscoverPage() {
                                         <span>8+</span>
                                         <span>10</span>
                                     </div>
-                                    <div className="px-3 py-3 rounded-[2rem] bg-zinc-900/50 border border-zinc-800/50 flex flex-col items-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                                        <div className="w-20 h-20 relative">
+                                    <div className="px-1 py-4 flex flex-col items-center gap-4 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                                        <div className="w-full aspect-square max-w-[240px] relative">
                                             <img
                                                 src={
                                                     localRating >= 9 ? '/ratings/awesometacular.png' :
@@ -992,12 +992,12 @@ export default function DiscoverPage() {
                                                                 localRating >= 4 ? '/ratings/drunk.png' :
                                                                     localRating >= 2 ? '/ratings/forgettable.png' : '/ratings/dogshit.png'
                                                 }
-                                                className="w-full h-full object-contain drop-shadow-[0_0_15px_rgba(255,255,255,0.1)]"
+                                                className="w-full h-full object-contain drop-shadow-[0_10px_30px_rgba(0,0,0,0.5)]"
                                                 alt="Rating Icon"
                                                 key={localRating >= 9 ? 'a' : localRating >= 7.5 ? 'b' : localRating >= 6 ? 'g' : localRating >= 4 ? 'd' : localRating >= 2 ? 'f' : 'ds'}
                                             />
                                         </div>
-                                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-center" style={{
+                                        <p className="text-sm font-black uppercase tracking-[0.2em] text-center" style={{
                                             color: localRating >= 9 ? '#10b981' :
                                                 localRating >= 7.5 ? '#22c55e' :
                                                     localRating >= 6 ? '#3b82f6' :
