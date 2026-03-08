@@ -959,7 +959,7 @@ export default function DiscoverPage() {
                             <div className="space-y-3">
                                 <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center justify-between">
                                     <span className="flex items-center gap-1.5"><Star size={11} /> Minimum Rating</span>
-                                    <span className="text-emerald-500">{localRating}</span>
+                                    <span className="text-emerald-500 font-black">{localRating}</span>
                                 </label>
                                 <input
                                     type="range"
@@ -970,11 +970,28 @@ export default function DiscoverPage() {
                                     onChange={e => setLocalRating(parseFloat(e.target.value))}
                                     className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500 hover:accent-emerald-400 transition-all"
                                 />
-                                <div className="flex justify-between text-[8px] font-black text-zinc-700 uppercase tracking-tighter">
-                                    <span>Any</span>
-                                    <span>5+</span>
-                                    <span>8+</span>
-                                    <span>10</span>
+                                <div className="flex flex-col gap-2">
+                                    <div className="flex justify-between text-[8px] font-black text-zinc-700 uppercase tracking-tighter">
+                                        <span>Any</span>
+                                        <span>5+</span>
+                                        <span>8+</span>
+                                        <span>10</span>
+                                    </div>
+                                    <div className="px-3 py-2 rounded-xl bg-zinc-900/50 border border-zinc-800/50 text-center animate-in fade-in slide-in-from-bottom-1 duration-300">
+                                        <p className="text-[9px] font-black uppercase tracking-[0.15em] transition-colors" style={{
+                                            color: localRating >= 9 ? '#10b981' :
+                                                localRating >= 7.5 ? '#22c55e' :
+                                                    localRating >= 6 ? '#3b82f6' :
+                                                        localRating >= 4 ? '#eab308' :
+                                                            localRating >= 2 ? '#f97316' : '#ef4444'
+                                        }}>
+                                            {localRating >= 9 ? 'AWESOMETACULAR!' :
+                                                localRating >= 7.5 ? 'A good time no matter what' :
+                                                    localRating >= 6 ? 'Wait for Blu-ray / Streaming' :
+                                                        localRating >= 4 ? "A good time if you're drunk" :
+                                                            localRating >= 2 ? 'Not going to remember it tomorrow' : 'DOGSHIT!'}
+                                        </p>
+                                    </div>
                                 </div>
                             </div>
 
