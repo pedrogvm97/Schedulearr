@@ -66,7 +66,8 @@ export default function Dashboard() {
 
   // Tooltip States
   const [stickyTooltip, setStickyTooltip] = useState<any>(null);
-  const [tooltipTimeout, setTooltipTimeout] = useState<any>(null);
+  const [isTooltipHovered, setIsTooltipHovered] = useState(false);
+  const [tooltipTimeout, setTooltipTimeout] = useState<NodeJS.Timeout | null>(null);
 
   const toggleRecentFilter = (id: string) => {
     setRecentDownloadFilters((prev: Record<string, boolean>) => ({
@@ -189,49 +190,68 @@ export default function Dashboard() {
   };
 
   const handleMouseLeave = () => {
-    // Increase delay to 1.5s to give user time to reach the tooltip
+    // 1.5s delay to allow user to reach the tooltip
     const timeout = setTimeout(() => {
-      setStickyTooltip(null);
+      if (!isTooltipHovered) {
+        setStickyTooltip(null);
+      }
     }, 1500);
     setTooltipTimeout(timeout);
   };
 
   const CustomTooltip = ({ active, payload, label }: { active?: boolean, payload?: any[], label?: string }) => {
-    const displayActive = active || !!stickyTooltip;
-    const displayPayload = (active && payload && payload.length) ? payload : (stickyTooltip?.payload || []);
-    const displayLabel = (active && label) ? label : (stickyTooltip?.label || '');
+    // The actual tooltip is now rendered by StickyTooltipOverlay for persistence.
+    // This just acts as a trigger/hidden element for Recharts internal logic if needed.
+    return null;
+  };
 
-    if (displayActive && displayPayload && displayPayload.length) {
-      const groups = displayPayload.filter((p: any) => p.value > 0).map((entry: any) => {
-        const dataKey = entry.dataKey as string;
-        const titlesKey = `${dataKey}_titles`;
-        const itemTitles = entry.payload[titlesKey] || [];
+  const StickyTooltipOverlay = () => {
+    if (!stickyTooltip || !stickyTooltip.payload || !stickyTooltip.payload.length) return null;
 
-        return {
-          dataKey,
-          name: entry.name,
-          value: entry.value,
-          fill: entry.fill,
-          titles: itemTitles
-        };
-      });
+    const displayPayload = stickyTooltip.payload;
+    const displayLabel = stickyTooltip.label;
 
-      if (groups.length === 0) return null;
+    // Calculate position based on the chart mouse event or center it
+    // For now, let's keep it in a fixed but floating position near the right edge
+    // or relative to the chart container.
 
-      return (
-        <div
-          className="bg-zinc-950/98 border border-zinc-800 p-4 rounded-xl shadow-2xl backdrop-blur-xl min-w-[320px] max-w-[500px] pointer-events-auto select-text z-[100] relative"
-          onMouseEnter={() => {
-            if (tooltipTimeout) {
-              clearTimeout(tooltipTimeout);
-              setTooltipTimeout(null);
-            }
-          }}
-          onMouseLeave={() => {
-            // Re-trigger the fade out if they leave the tooltip itself
-            handleMouseLeave();
-          }}
-        >
+    const groups = displayPayload.filter((p: any) => p.value > 0).map((entry: any) => {
+      const dataKey = entry.dataKey as string;
+      const titlesKey = `${dataKey}_titles`;
+      const itemTitles = entry.payload[titlesKey] || [];
+
+      return {
+        dataKey,
+        name: entry.name,
+        value: entry.value,
+        fill: entry.fill,
+        titles: itemTitles
+      };
+    });
+
+    if (groups.length === 0) return null;
+
+    return (
+      <div
+        className="fixed z-[2000] pointer-events-auto"
+        style={{
+          top: stickyTooltip.chartY ? stickyTooltip.chartY + 100 : '20%',
+          left: stickyTooltip.chartX ? Math.min(stickyTooltip.chartX + 400, window.innerWidth - 520) : '50%',
+          transform: stickyTooltip.chartX ? 'none' : 'translateX(-50%)'
+        }}
+        onMouseEnter={() => {
+          setIsTooltipHovered(true);
+          if (tooltipTimeout) {
+            clearTimeout(tooltipTimeout);
+            setTooltipTimeout(null);
+          }
+        }}
+        onMouseLeave={() => {
+          setIsTooltipHovered(false);
+          handleMouseLeave();
+        }}
+      >
+        <div className="bg-zinc-950/98 border border-zinc-800 p-4 rounded-xl shadow-2xl backdrop-blur-xl min-w-[320px] max-w-[500px] select-text relative ring-1 ring-white/10">
           <div className="text-zinc-400 text-[10px] font-bold uppercase tracking-widest mb-3 border-b border-zinc-800 pb-2 flex justify-between items-center">
             <span>{displayLabel ? new Date(String(displayLabel)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}</span>
             <div className="flex items-center gap-3">
@@ -240,6 +260,7 @@ export default function Dashboard() {
                 onClick={(e) => {
                   e.stopPropagation();
                   setStickyTooltip(null);
+                  setIsTooltipHovered(false);
                 }}
                 className="p-1 rounded-md hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-all border border-transparent hover:border-zinc-700"
               >
@@ -271,12 +292,10 @@ export default function Dashboard() {
               </div>
             ))}
           </div>
-
           <div className="absolute -bottom-2 -left-2 -right-2 h-4 bg-gradient-to-t from-black/20 to-transparent pointer-events-none rounded-b-xl" />
         </div>
-      );
-    }
-    return null;
+      </div>
+    );
   };
 
 
@@ -733,6 +752,7 @@ export default function Dashboard() {
           </div>
         )
       }
-    </div >
+      <StickyTooltipOverlay />
+    </div>
   );
 }

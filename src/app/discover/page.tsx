@@ -1024,7 +1024,8 @@ export default function DiscoverPage() {
     useEffect(() => {
         if (pageMode === 'discover') {
             const currentParams = JSON.stringify({
-                mediaType, pageMode, searchQuery, filterPlatform, filterGenre, filterYear, filterRating, currentPage
+                mediaType, pageMode, searchQuery, filterPlatform, filterGenre, filterYear, filterRating, currentPage,
+                instance: selectedInstanceIds[0] || (availableInstances[0] ? availableInstances[0].id : null)
             });
 
             if (currentParams === lastFetchParams.current) return;
@@ -1131,11 +1132,7 @@ export default function DiscoverPage() {
             {pageMode === 'discover' && showFilters && (
                 <div className="flex flex-wrap items-center gap-6 p-5 bg-zinc-950/40 border border-zinc-900/50 rounded-3xl backdrop-blur-md">
                     <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 shadow-sm">
-                            <TrendingUp size={12} className="text-emerald-500" />
-                            <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Auto-Discovery Active</span>
-                        </div>
-                        <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Browsing via your {mediaType} instance</p>
+                        <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider px-2">Browsing via your {mediaType} instance</p>
                     </div>
                 </div>
             )}
@@ -1202,7 +1199,7 @@ export default function DiscoverPage() {
                                         <span>10</span>
                                     </div>
                                     <div className="px-1 py-4 flex flex-col items-center gap-4 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                                        <div className="w-full aspect-square max-w-[240px] relative">
+                                        <div className="w-full aspect-square max-w-[320px] relative">
                                             <img
                                                 src={
                                                     localRating >= 9 ? '/ratings/awesometacular.png' :
@@ -1211,24 +1208,11 @@ export default function DiscoverPage() {
                                                                 localRating >= 4 ? '/ratings/drunk.png' :
                                                                     localRating >= 2 ? '/ratings/forgettable.png' : '/ratings/dogshit.png'
                                                 }
-                                                className="w-full h-full object-contain drop-shadow-[0_10px_30px_rgba(0,0,0,0.5)]"
+                                                className="w-full h-full object-contain drop-shadow-[0_20px_40px_rgba(0,0,0,0.6)]"
                                                 alt="Rating Icon"
                                                 key={localRating >= 9 ? 'a' : localRating >= 7.5 ? 'b' : localRating >= 6 ? 'g' : localRating >= 4 ? 'd' : localRating >= 2 ? 'f' : 'ds'}
                                             />
                                         </div>
-                                        <p className="text-sm font-black uppercase tracking-[0.2em] text-center" style={{
-                                            color: localRating >= 9 ? '#10b981' :
-                                                localRating >= 7.5 ? '#22c55e' :
-                                                    localRating >= 6 ? '#3b82f6' :
-                                                        localRating >= 4 ? '#eab308' :
-                                                            localRating >= 2 ? '#f97316' : '#ef4444'
-                                        }}>
-                                            {localRating >= 9 ? 'AWESOMETACULAR!' :
-                                                localRating >= 7.5 ? 'Buying it on Blu-ray' :
-                                                    localRating >= 6 ? 'A good time no alcohol required' :
-                                                        localRating >= 4 ? "A good time if you're drunk" :
-                                                            localRating >= 2 ? 'Not going to remember it tomorrow' : 'DOGSHIT!'}
-                                        </p>
                                     </div>
                                 </div>
                             </div>

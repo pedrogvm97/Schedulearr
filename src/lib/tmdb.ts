@@ -179,6 +179,15 @@ export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', provide
             params.watch_region = 'US';
             params.watch_monetization_types = 'flatrate|free';
             params.with_watch_providers = providerId;
+
+            // Fallback to company IDs for better result density on specific platforms
+            // Apple TV+ (350) -> Company ID 2553
+            // Netflix (8) -> Company ID 213
+            // Disney+ (337) -> Company ID 2
+            // HBO (118) -> Company ID 3287
+            if (providerId === 350 || providerId === '350') params.with_companies = 2553;
+            if (providerId === 8 || providerId === '8') params.with_companies = 213;
+            if (providerId === 337 || providerId === '337') params.with_companies = 2;
         }
 
         if (genre) {
