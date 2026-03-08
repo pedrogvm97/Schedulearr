@@ -179,13 +179,19 @@ export default function Dashboard() {
     setIsTriggering(false);
   };
 
-  const handleMouseMove = (state: any) => {
-    if (state.activePayload) {
+  const handleMouseMove = (e: any) => {
+    if (e.activePayload) {
       if (tooltipTimeout) {
         clearTimeout(tooltipTimeout);
         setTooltipTimeout(null);
       }
-      setStickyTooltip(state);
+      // Capture event for positioning
+      setStickyTooltip({
+        ...e,
+        // Use client coordinates if available for better fixed positioning
+        pageX: e.chartX + (e.target?.getBoundingClientRect?.().left || 0),
+        pageY: e.chartY + (e.target?.getBoundingClientRect?.().top || 0)
+      });
     }
   };
 
@@ -233,11 +239,11 @@ export default function Dashboard() {
 
     return (
       <div
-        className="fixed z-[2000] pointer-events-auto"
+        className="fixed z-[9999] pointer-events-auto"
         style={{
-          top: stickyTooltip.chartY ? stickyTooltip.chartY + 100 : '20%',
-          left: stickyTooltip.chartX ? Math.min(stickyTooltip.chartX + 400, window.innerWidth - 520) : '50%',
-          transform: stickyTooltip.chartX ? 'none' : 'translateX(-50%)'
+          top: stickyTooltip.pageY ? Math.min(stickyTooltip.pageY - 100, window.innerHeight - 450) : '20%',
+          left: stickyTooltip.pageX ? Math.min(stickyTooltip.pageX + 40, window.innerWidth - 520) : '50%',
+          transform: stickyTooltip.pageX ? 'none' : 'translateX(-50%)'
         }}
         onMouseEnter={() => {
           setIsTooltipHovered(true);

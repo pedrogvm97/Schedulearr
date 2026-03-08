@@ -177,17 +177,17 @@ export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', provide
 
         if (providerId) {
             params.watch_region = 'US';
-            params.watch_monetization_types = 'flatrate|free';
+            params.watch_monetization_types = 'flatrate|free|ads|rent|buy';
             params.with_watch_providers = providerId;
 
-            // Fallback to company IDs for better result density on specific platforms
-            // Apple TV+ (350) -> Company ID 2553
-            // Netflix (8) -> Company ID 213
-            // Disney+ (337) -> Company ID 2
-            // HBO (118) -> Company ID 3287
-            if (providerId === 350 || providerId === '350') params.with_companies = 2553;
-            if (providerId === 8 || providerId === '8') params.with_companies = 213;
-            if (providerId === 337 || providerId === '337') params.with_companies = 2;
+            // For Apple TV+ (350), if searching for future/unscheduled content (2025+), 
+            // use company ID (2553) instead of watch provider to ensure result density.
+            if ((providerId === 350 || providerId === '350') && year && parseInt(year) >= 2025) {
+                delete params.with_watch_providers;
+                params.with_companies = 2553;
+                delete params.watch_region;
+                delete params.watch_monetization_types;
+            }
         }
 
         if (genre) {
