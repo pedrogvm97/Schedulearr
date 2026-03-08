@@ -34,11 +34,24 @@ export function PersonDetailsPanel({ personId, tmdbApiKey, onClose, onSelectMedi
                 if (detailsRes.ok) setDetails(await detailsRes.json());
                 if (creditsRes.ok) {
                     const cData = await creditsRes.json();
-                    // Sort by popularity and filter to those with posters
+                    // Robust sorting: prioritize famous/iconic roles over minor appearances
                     const sorted = (cData.cast || [])
-                        .filter((m: any) => m.poster_path)
-                        .sort((a: any, b: any) => b.popularity - a.popularity)
-                        .slice(0, 12);
+                        .filter((m: any) => {
+                            const char = (m.character || '').toLowerCase();
+                            const title = (m.title || m.name || '').toLowerCase();
+                            const isMinor = char.includes('self') ||
+                                char.includes('thanks') ||
+                                char.includes('uncredited') ||
+                                char.includes('voice') ||
+                                title.includes('documentary');
+                            return m.poster_path && !isMinor;
+                        })
+                        .sort((a: any, b: any) => {
+                            const scoreA = (a.vote_count || 0) * (a.popularity || 1);
+                            const scoreB = (b.vote_count || 0) * (b.popularity || 1);
+                            return scoreB - scoreA;
+                        })
+                        .slice(0, 24);
                     setCredits(sorted);
                 }
             } catch (error) {
@@ -118,7 +131,7 @@ export function PersonDetailsPanel({ personId, tmdbApiKey, onClose, onSelectMedi
 
                             <div className="space-y-6">
                                 <h3 className="text-[12px] font-black text-zinc-500 uppercase tracking-[0.3em]">Filmography</h3>
-                                <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4">
+                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-6">
                                     {credits.map(media => (
                                         <div
                                             key={`${media.id}-${media.media_type}`}

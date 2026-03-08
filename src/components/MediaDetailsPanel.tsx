@@ -18,6 +18,7 @@ export function MediaDetailsPanel({ item, tmdbApiKey, libStatus, onClose, onSele
     const [details, setDetails] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [credits, setCredits] = useState<any[]>([]);
+    const [directors, setDirectors] = useState<any[]>([]);
     const [recommendations, setRecommendations] = useState<any[]>([]);
 
     const isSeries = item.type === 'series' || (item.tvdbId && !item.tmdbId) || !!item.seasons;
@@ -32,6 +33,7 @@ export function MediaDetailsPanel({ item, tmdbApiKey, libStatus, onClose, onSele
         // Deep reset
         setDetails(null);
         setCredits([]);
+        setDirectors([]);
         setRecommendations([]);
         setLoading(true);
 
@@ -48,6 +50,7 @@ export function MediaDetailsPanel({ item, tmdbApiKey, libStatus, onClose, onSele
                 if (creditsRes.ok) {
                     const cData = await creditsRes.json();
                     setCredits(cData.cast?.slice(0, 10) || []);
+                    setDirectors(cData.crew?.filter((p: any) => p.job === 'Director') || []);
                 }
                 if (recRes.ok) {
                     const rData = await recRes.json();
@@ -159,12 +162,30 @@ export function MediaDetailsPanel({ item, tmdbApiKey, libStatus, onClose, onSele
                         </div>
 
                         {details?.genres && (
-                            <div className="flex flex-wrap gap-2">
+                            <div className="flex flex-wrap gap-2 pt-2">
                                 {details.genres.map((g: any) => (
                                     <span key={g.id} className="px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest text-zinc-500">
                                         {g.name}
                                     </span>
                                 ))}
+                            </div>
+                        )}
+
+                        {directors.length > 0 && (
+                            <div className="p-6 rounded-[2rem] bg-zinc-950 border border-white/5 space-y-3 shadow-inner">
+                                <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">Director</span>
+                                <div className="flex flex-wrap gap-2">
+                                    {directors.map((d: any) => (
+                                        <button
+                                            key={d.id}
+                                            onClick={() => onSelectPerson?.(d.id)}
+                                            className="px-4 py-2 rounded-xl bg-white/5 border border-white/5 text-sm font-bold text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/30 transition-all flex items-center gap-2"
+                                        >
+                                            <User size={14} />
+                                            {d.name}
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
                         )}
                     </div>
