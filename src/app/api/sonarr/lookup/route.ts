@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getInstanceById, getSetting } from '@/lib/db';
 import { searchSeries } from '@/lib/sonarr';
-import { getTrending, getTMDBDetails, discoverTMDB, TMDB_PROVIDERS } from '@/lib/tmdb';
+import { getTrending, getTMDBDetails, discoverTMDB, TMDB_PROVIDERS, TMDB_GENRES } from '@/lib/tmdb';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,6 +10,7 @@ export async function GET(request: Request) {
     const instanceId = searchParams.get('instanceId');
     const term = searchParams.get('term');
     const platform = searchParams.get('platform');
+    const genre = searchParams.get('genre');
 
     if (!instanceId) {
         return NextResponse.json({ error: 'Missing instanceId' }, { status: 400 });
@@ -26,11 +27,14 @@ export async function GET(request: Request) {
         const tmdbApiKey = getSetting('tmdb_api_key');
 
         if (!searchTerm && tmdbApiKey) {
-            console.log(`[LOOKUP] Using TMDB for discovery (series, Platform: ${platform || 'Trending'})`);
+            console.log(`[LOOKUP] Using TMDB for discovery (series, Platform: ${platform || 'Any'}, Genre: ${genre || 'Any'})`);
 
             let tmdbResults = [];
-            if (platform && TMDB_PROVIDERS[platform]) {
-                tmdbResults = await discoverTMDB(tmdbApiKey, 'tv', TMDB_PROVIDERS[platform]);
+            const genreId = genre ? TMDB_GENRES[genre] : undefined;
+            const providerId = platform ? TMDB_PROVIDERS[platform] : undefined;
+
+            if (providerId || genreId) {
+                tmdbResults = await discoverTMDB(tmdbApiKey, 'tv', providerId, genreId);
             } else {
                 tmdbResults = await getTrending(tmdbApiKey, 'tv');
             }

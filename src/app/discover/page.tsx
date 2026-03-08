@@ -419,6 +419,9 @@ export default function DiscoverPage() {
             if (filterPlatform !== 'All' && QUICK_STUDIOS.some(s => s.name === filterPlatform)) {
                 url += `&platform=${encodeURIComponent(filterPlatform)}`;
             }
+            if (filterGenre !== 'All' && ALL_GENRES.includes(filterGenre)) {
+                url += `&genre=${encodeURIComponent(filterGenre)}`;
+            }
             const res = await fetch(url);
             if (res.ok) {
                 const data = await res.json();
@@ -432,12 +435,12 @@ export default function DiscoverPage() {
         }
     }, [mediaType, selectedInstanceId, availableInstances]);
 
-    // ── Trigger discovery on load / type / platform change ──
+    // ── Trigger discovery on load / type / platform / genre change ──
     useEffect(() => {
         if (pageMode === 'discover' && !searchQuery) {
             handleDiscovery();
         }
-    }, [mediaType, pageMode, searchQuery, filterPlatform, handleDiscovery]);
+    }, [mediaType, pageMode, searchQuery, filterPlatform, filterGenre, handleDiscovery]);
 
     // ── Management Handlers ──
     const [transferTarget, setTransferTarget] = useState<any>(null);
@@ -868,7 +871,14 @@ export default function DiscoverPage() {
                             <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center text-indigo-500"><MoveHorizontal size={24} /></div>
                             <div><h2 className="text-xl font-black text-white">Transfer Media</h2><p className="text-sm text-zinc-500 font-bold">{transferTarget.title}</p></div>
                         </div>
-                        <TransferForm item={transferTarget} instances={instances.filter(i => i.type === (mediaType === 'movie' ? 'radarr' : 'sonarr') && i.id !== transferTarget.instanceId)} onTransfer={handleTransfer} onCancel={() => setTransferTarget(null)} loading={isTransferring} />
+                        <TransferForm
+                            item={transferTarget}
+                            instances={instances}
+                            targetType={mediaType === 'movie' ? 'radarr' : 'sonarr'}
+                            onTransfer={handleTransfer}
+                            onCancel={() => setTransferTarget(null)}
+                            loading={isTransferring}
+                        />
                     </div>
                 </div>
             )}
@@ -876,7 +886,7 @@ export default function DiscoverPage() {
     );
 }
 
-function TransferForm({ item, instances, onTransfer, onCancel, loading }: any) {
+function TransferForm({ item, instances, targetType, onTransfer, onCancel, loading }: any) {
     const [targetInstanceId, setTargetInstanceId] = useState('');
     const [targetProfiles, setTargetProfiles] = useState<any[]>([]);
     const [selectedProfileId, setSelectedProfileId] = useState<number | null>(null);
@@ -896,7 +906,6 @@ function TransferForm({ item, instances, onTransfer, onCancel, loading }: any) {
     useEffect(() => {
         if (targetInstanceId) {
             setLoadingConfig(true);
-            const targetType = instances.find((i: any) => i.id === targetInstanceId)?.type;
             const base = targetType === 'radarr' ? '/api/radarr' : '/api/sonarr';
             Promise.all([
                 fetch(`${base}/profiles?instanceId=${targetInstanceId}`).then(r => r.json()),

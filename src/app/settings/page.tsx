@@ -563,7 +563,7 @@ export default function Settings() {
                             I built Schedulearr to scratch my own itch, and it's amazing to see others finding it useful. Your support helps me keep improving it and motivates me to build more cool things.
                         </p>
                         <p className="text-[10px] text-zinc-500 mb-8 italic">
-                            * Note: While not strictly enforced by the license, I politely ask that if you modify or redistribute this software, you keep this attribution link intact to support the original project.
+                            * Note: I'm a PhD student in Nanotechnology from Portugal, and this project helps me pay my tuition. While not strictly enforced by the license, I politely ask that if you modify or redistribute this software, you keep this attribution link intact to support the original project.
                         </p>
 
                         <a

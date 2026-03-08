@@ -70,7 +70,37 @@ export const TMDB_PROVIDERS: Record<string, number> = {
     'Peacock': 386
 };
 
-export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', providerId?: number): Promise<TMDBResult[]> => {
+export const TMDB_GENRES: Record<string, number> = {
+    'Action': 28,
+    'Adventure': 12,
+    'Animation': 16,
+    'Comedy': 35,
+    'Crime': 80,
+    'Documentary': 99,
+    'Drama': 18,
+    'Family': 10751,
+    'Fantasy': 14,
+    'History': 36,
+    'Horror': 27,
+    'Music': 10402,
+    'Mystery': 9648,
+    'Romance': 10749,
+    'Science Fiction': 878,
+    'Sci-Fi & Fantasy': 10765, // TV only
+    'TV Movie': 10770,
+    'Thriller': 533,
+    'War': 10752,
+    'Western': 37,
+    'Action & Adventure': 10759, // TV only
+    'Kids': 10762,
+    'News': 10763,
+    'Reality': 10764,
+    'Soap': 10766,
+    'Talk': 10767,
+    'War & Politics': 10768
+};
+
+export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', providerId?: number, genreId?: number): Promise<TMDBResult[]> => {
     try {
         const params: any = {
             api_key: apiKey,
@@ -83,6 +113,10 @@ export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', provide
 
         if (providerId) {
             params.with_watch_providers = providerId;
+        }
+
+        if (genreId) {
+            params.with_genres = genreId;
         }
 
         const response = await axios.get(`${BASE_URL}/discover/${type === 'movie' ? 'movie' : 'tv'}`, { params });
