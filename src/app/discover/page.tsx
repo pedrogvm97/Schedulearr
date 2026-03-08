@@ -134,8 +134,8 @@ function EpisodeList({ instanceId, seriesId }: { instanceId: string; seriesId: n
 // ──────────────────────────────────────────────
 // My Media Card Components
 // ──────────────────────────────────────────────
-function MyMediaGridCard({ item, isSeries, expandAll, onDelete, onTransfer }: {
-    item: any; isSeries: boolean; expandAll: boolean; onDelete: () => void; onTransfer: () => void;
+function MyMediaGridCard({ item, isSeries, expandAll, excludeUnmonitored, onDelete, onTransfer }: {
+    item: any; isSeries: boolean; expandAll: boolean; excludeUnmonitored: boolean; onDelete: () => void; onTransfer: () => void;
 }) {
     const [expanded, setExpanded] = useState(false);
 
@@ -146,7 +146,9 @@ function MyMediaGridCard({ item, isSeries, expandAll, onDelete, onTransfer }: {
     const poster = item.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || item.remotePoster;
     const totalEps = item.statistics?.totalEpisodeCount || 0;
     const haveEps = item.statistics?.episodeFileCount || 0;
-    const pct = totalEps > 0 ? Math.round((haveEps / totalEps) * 100) : (item.hasFile ? 100 : 0);
+    // If excludeUnmonitored, use episodeCount (monitored non-specials) vs episodeFileCount; fallback to totalEpisodeCount
+    const denominator = excludeUnmonitored ? (item.statistics?.episodeCount || totalEps) : totalEps;
+    const pct = denominator > 0 ? Math.min(100, Math.round((haveEps / denominator) * 100)) : (item.hasFile ? 100 : 0);
 
     return (
         <div className="group flex flex-col bg-[#090909] border border-zinc-900 hover:border-zinc-800 rounded-[2rem] overflow-hidden transition-all duration-300 shadow-xl hover:-translate-y-1">
@@ -200,8 +202,8 @@ function MyMediaGridCard({ item, isSeries, expandAll, onDelete, onTransfer }: {
     );
 }
 
-function MyMediaListCard({ item, isSeries, expandAll, onDelete, onTransfer }: {
-    item: any; isSeries: boolean; expandAll: boolean; onDelete: () => void; onTransfer: () => void;
+function MyMediaListCard({ item, isSeries, expandAll, excludeUnmonitored, onDelete, onTransfer }: {
+    item: any; isSeries: boolean; expandAll: boolean; excludeUnmonitored: boolean; onDelete: () => void; onTransfer: () => void;
 }) {
     const [expanded, setExpanded] = useState(false);
 
@@ -213,7 +215,10 @@ function MyMediaListCard({ item, isSeries, expandAll, onDelete, onTransfer }: {
     const sizeMb = item.statistics?.sizeOnDisk || item.movieFile?.size || 0;
     const sizeStr = sizeMb > 1e9 ? `${(sizeMb / 1e9).toFixed(1)} GB` : sizeMb > 1e6 ? `${(sizeMb / 1e6).toFixed(0)} MB` : sizeMb > 0 ? `${(sizeMb / 1024 / 1024).toFixed(1)} MB` : '0 MB';
     const path = item.path || 'Unknown Path';
-    const pct = isSeries ? Math.round((item.statistics?.episodeFileCount / item.statistics?.totalEpisodeCount) * 100) : 100;
+    const totalEps = item.statistics?.totalEpisodeCount || 0;
+    const haveEps = item.statistics?.episodeFileCount || 0;
+    const denominator = isSeries ? (excludeUnmonitored ? (item.statistics?.episodeCount || totalEps) : totalEps) : 1;
+    const pct = isSeries ? Math.min(100, Math.round((haveEps / (denominator || 1)) * 100)) : 100;
 
     return (
         <div className="flex flex-col bg-zinc-950/40 border border-zinc-900 rounded-2xl overflow-hidden transition-all hover:border-zinc-800">
@@ -259,12 +264,12 @@ function MyMediaListCard({ item, isSeries, expandAll, onDelete, onTransfer }: {
     );
 }
 
-function MyMediaCard({ item, viewMode, onRefresh, expandAll, onDelete, onTransfer }: {
-    item: any; viewMode: 'grid' | 'list'; onRefresh: () => void; expandAll: boolean; onDelete: () => void; onTransfer: () => void;
+function MyMediaCard({ item, viewMode, onRefresh, expandAll, excludeUnmonitored, onDelete, onTransfer }: {
+    item: any; viewMode: 'grid' | 'list'; onRefresh: () => void; expandAll: boolean; excludeUnmonitored: boolean; onDelete: () => void; onTransfer: () => void;
 }) {
     const isSeries = !!item.seasons || !!item.statistics;
-    if (viewMode === 'list') return <MyMediaListCard item={item} isSeries={isSeries} expandAll={expandAll} onDelete={onDelete} onTransfer={onTransfer} />;
-    return <MyMediaGridCard item={item} isSeries={isSeries} expandAll={expandAll} onDelete={onDelete} onTransfer={onTransfer} />;
+    if (viewMode === 'list') return <MyMediaListCard item={item} isSeries={isSeries} expandAll={expandAll} excludeUnmonitored={excludeUnmonitored} onDelete={onDelete} onTransfer={onTransfer} />;
+    return <MyMediaGridCard item={item} isSeries={isSeries} expandAll={expandAll} excludeUnmonitored={excludeUnmonitored} onDelete={onDelete} onTransfer={onTransfer} />;
 }
 
 // ──────────────────────────────────────────────
@@ -633,6 +638,7 @@ export default function DiscoverPage() {
     }, [results, searchQuery, isSearching, filterGenre, filterPlatform, filterYear, sortBy, sortOrder]);
 
     const [expandAll, setExpandAll] = useState(false);
+    const [excludeUnmonitored, setExcludeUnmonitored] = useState(true);
 
     const filteredLibrary = useMemo(() => {
         let items = [...libraryItems];
@@ -727,12 +733,22 @@ export default function DiscoverPage() {
 
                 <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/50 ml-auto gap-2">
                     {pageMode === 'mylibrary' && mediaType === 'series' && (
-                        <button
-                            onClick={() => setExpandAll(!expandAll)}
-                            className={`flex items-center gap-2 px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${expandAll ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-zinc-900 text-zinc-500 border border-zinc-800 hover:text-zinc-300'}`}
-                        >
-                            {expandAll ? 'Hide Episodes' : 'Expand All'}
-                        </button>
+                        <>
+                            <button
+                                onClick={() => setExpandAll(!expandAll)}
+                                className={`flex items-center gap-2 px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${expandAll ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-zinc-900 text-zinc-500 border border-zinc-800 hover:text-zinc-300'}`}
+                            >
+                                {expandAll ? 'Hide Episodes' : 'Expand All'}
+                            </button>
+                            <button
+                                onClick={() => setExcludeUnmonitored(!excludeUnmonitored)}
+                                title={excludeUnmonitored ? 'Currently excluding unmonitored/specials from % calculation' : 'Currently including all episodes in % calculation'}
+                                className={`flex items-center gap-2 px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${excludeUnmonitored ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' : 'bg-zinc-900 text-zinc-500 border border-zinc-800 hover:text-zinc-300'
+                                    }`}
+                            >
+                                {excludeUnmonitored ? 'Excl. Unmonitored' : 'Incl. All Eps'}
+                            </button>
+                        </>
                     )}
                     <div className="flex bg-zinc-900/50 rounded-xl p-0.5">
                         <button onClick={() => setViewMode('grid')} className={`p-2 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-zinc-700 text-white' : 'text-zinc-600'}`}><LayoutGrid size={15} /></button>
@@ -851,7 +867,7 @@ export default function DiscoverPage() {
                         <>
                             <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5' : 'space-y-3'}>
                                 {pageItems.map((item, idx) => {
-                                    if (pageMode === 'mylibrary') return <MyMediaCard key={`${item.instanceId}-${item.id}-${idx}`} item={item} viewMode={viewMode} onRefresh={loadLibrary} expandAll={expandAll} onDelete={() => handleDelete(item)} onTransfer={() => setTransferTarget(item)} />;
+                                    if (pageMode === 'mylibrary') return <MyMediaCard key={`${item.instanceId}-${item.id}-${idx}`} item={item} viewMode={viewMode} onRefresh={loadLibrary} expandAll={expandAll} excludeUnmonitored={excludeUnmonitored} onDelete={() => handleDelete(item)} onTransfer={() => setTransferTarget(item)} />;
                                     return <DiscoveryCard key={item.tmdbId ? `tmdb-${item.tmdbId}` : `tvdb-${item.tvdbId}`} item={item} isAdding={addingItemStr === (item.tmdbId ? `tmdb-${item.tmdbId}` : `tvdb-${item.tvdbId}`)} hasBeenAdded={isInLibrary(item)} onAdd={() => handleAdd(item)} viewMode={viewMode} />;
                                 })}
                             </div>
@@ -924,30 +940,31 @@ function TransferForm({ item, instances, targetType, onTransfer, onCancel, loadi
 
     useEffect(() => {
         // Fetch source profiles to know current profile name
-        const sourceBase = item.instanceUrl ? (item.instanceUrl.includes('/api') ? item.instanceUrl : '/api/' + instances.find((i: any) => i.id === item.instanceId)?.type) : (instances.find((i: any) => i.id === item.instanceId)?.type === 'radarr' ? '/api/radarr' : '/api/sonarr');
-        fetch(`${sourceBase}/profiles?instanceId=${item.instanceId}`).then(r => r.json()).then(setSourceProfiles).catch(() => { });
-    }, [item.instanceId, instances]);
+        fetch(`/api/profiles?instanceId=${item.instanceId}`).then(r => r.json()).then(d => setSourceProfiles(Array.isArray(d) ? d : [])).catch(() => { });
+    }, [item.instanceId]);
 
     useEffect(() => {
         if (targetInstanceId) {
             setLoadingConfig(true);
             const base = targetType === 'radarr' ? '/api/radarr' : '/api/sonarr';
             Promise.all([
-                fetch(`${base}/profiles?instanceId=${targetInstanceId}`).then(r => r.json()),
+                fetch(`/api/profiles?instanceId=${targetInstanceId}`).then(r => r.json()),
                 fetch(`${base}/rootfolder?instanceId=${targetInstanceId}`).then(r => r.json())
             ]).then(([pData, rData]) => {
-                setTargetProfiles(pData);
-                setRootFolders(rData);
+                const profiles = Array.isArray(pData) ? pData : [];
+                const folders = Array.isArray(rData) ? rData : [];
+                setTargetProfiles(profiles);
+                setRootFolders(folders);
 
                 // Logic: Match source profile name in target if possible
                 const sourceProfile = sourceProfiles.find(p => p.id === item.qualityProfileId);
-                const matchingTarget = sourceProfile ? pData.find((p: any) => p.name === sourceProfile.name) : null;
+                const matchingTarget = sourceProfile ? profiles.find((p: any) => p.name === sourceProfile.name) : null;
 
                 if (matchingTarget) setSelectedProfileId(matchingTarget.id);
-                else if (pData.length > 0) setSelectedProfileId(pData[0].id);
+                else if (profiles.length > 0) setSelectedProfileId(profiles[0].id);
 
-                if (rData.length > 0) setTargetRootFolder(rData[0].path);
-            }).finally(() => setLoadingConfig(false));
+                if (folders.length > 0) setTargetRootFolder(folders[0].path);
+            }).catch(e => console.error('Failed to load target config', e)).finally(() => setLoadingConfig(false));
         }
     }, [targetInstanceId, targetType, sourceProfiles, item.qualityProfileId]);
 
@@ -1051,14 +1068,16 @@ function AddMediaModal({ item, mediaType, instances, onAdd, onClose, loading }: 
             setLoadingConfig(true);
             const base = mediaType === 'movie' ? '/api/radarr' : '/api/sonarr';
             Promise.all([
-                fetch(`${base}/profiles?instanceId=${targetInstanceId}`).then(r => r.json()),
+                fetch(`/api/profiles?instanceId=${targetInstanceId}`).then(r => r.json()),
                 fetch(`${base}/rootfolder?instanceId=${targetInstanceId}`).then(r => r.json())
             ]).then(([pData, rData]) => {
-                setProfiles(pData);
-                setRootFolders(rData);
-                if (pData.length > 0) setSelectedProfileId(pData[0].id);
-                if (rData.length > 0) setSelectedRootFolderPath(rData[0].path);
-            }).finally(() => setLoadingConfig(false));
+                const profiles = Array.isArray(pData) ? pData : [];
+                const folders = Array.isArray(rData) ? rData : [];
+                setProfiles(profiles);
+                setRootFolders(folders);
+                if (profiles.length > 0) setSelectedProfileId(profiles[0].id);
+                if (folders.length > 0) setSelectedRootFolderPath(folders[0].path);
+            }).catch(e => console.error('Failed to load instance config', e)).finally(() => setLoadingConfig(false));
         }
     }, [targetInstanceId, mediaType]);
 
