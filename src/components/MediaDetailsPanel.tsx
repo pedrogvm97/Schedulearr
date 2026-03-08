@@ -20,8 +20,8 @@ export function MediaDetailsPanel({ item, tmdbApiKey, libStatus, onClose, onSele
     const [credits, setCredits] = useState<any[]>([]);
     const [recommendations, setRecommendations] = useState<any[]>([]);
 
-    const isSeries = item.type === 'series' || item.tvdbId || !!item.seasons;
-    const tmdbId = item.tmdbId || (item.type === 'movie' || !isSeries ? item.id : null);
+    const isSeries = item.type === 'series' || (item.tvdbId && !item.tmdbId) || !!item.seasons;
+    const tmdbId = item.tmdbId || (item.type === 'movie' ? item.id : !isSeries ? item.id : null);
 
     useEffect(() => {
         if (!tmdbApiKey || !tmdbId) {
