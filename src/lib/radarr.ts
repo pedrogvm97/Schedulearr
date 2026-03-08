@@ -297,3 +297,10 @@ export async function deleteQualityProfile(url: string, apiKey: string, profileI
     });
     return res.data;
 }
+
+export async function getCustomFormats(url: string, apiKey: string) {
+    const res = await axios.get(`${url}/api/v3/customformat`, {
+        headers: { 'X-Api-Key': apiKey }
+    });
+    return res.data;
+}

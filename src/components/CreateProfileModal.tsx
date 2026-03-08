@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Check, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, Check, ChevronDown, ChevronUp, Star, Languages } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface Instance {
@@ -89,10 +89,42 @@ export function CreateProfileModal({ instances, onClose, onCreated }: Props) {
     const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['4K / 2160p', '1080p', '720p']));
     const [saving, setSaving] = useState(false);
 
+    // Custom Formats State
+    const [availableFormats, setAvailableFormats] = useState<any[]>([]);
+    const [formatScores, setFormatScores] = useState<Record<number, number>>({});
+    const [loadingFormats, setLoadingFormats] = useState(false);
+
     const toggleInstance = (id: string) => {
-        setSelectedInstances(prev =>
-            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-        );
+        const next = selectedInstances.includes(id)
+            ? selectedInstances.filter(i => i !== id)
+            : [...selectedInstances, id];
+        setSelectedInstances(next);
+
+        // Fetch custom formats if we have instances selected
+        if (next.length > 0) {
+            fetchFormats(next[0]); // Fetch from the first selected instance for discovery
+        } else {
+            setAvailableFormats([]);
+        }
+    };
+
+    const fetchFormats = async (instanceId: string) => {
+        setLoadingFormats(true);
+        try {
+            const res = await fetch(`/api/customformats?instanceId=${instanceId}`);
+            if (res.ok) {
+                const data = await res.json();
+                setAvailableFormats(data.formats || []);
+            }
+        } catch (e) {
+            console.error('Failed to fetch formats:', e);
+        } finally {
+            setLoadingFormats(false);
+        }
+    };
+
+    const updateFormatScore = (formatId: number, score: number) => {
+        setFormatScores(prev => ({ ...prev, [formatId]: score }));
     };
 
     const toggleQuality = (id: number) => {
@@ -135,6 +167,11 @@ export function CreateProfileModal({ instances, onClose, onCreated }: Props) {
             allowed: enabledQuality.has(id),
         }));
 
+        // Build custom formats array
+        const customFormats = Object.entries(formatScores)
+            .filter(([_, score]) => score !== 0)
+            .map(([id, score]) => ({ customFormatId: parseInt(id), score }));
+
         try {
             const results = await Promise.all(selectedInstances.map(instId =>
                 fetch('/api/profiles', {
@@ -142,7 +179,13 @@ export function CreateProfileModal({ instances, onClose, onCreated }: Props) {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         instanceId: instId,
-                        profile: { name: name.trim(), upgradeAllowed, cutoff, items },
+                        profile: {
+                            name: name.trim(),
+                            upgradeAllowed,
+                            cutoff,
+                            items,
+                            customFormats: customFormats // Radarr & Sonarr v4 support
+                        },
                     }),
                 })
             ));
@@ -278,6 +321,41 @@ export function CreateProfileModal({ instances, onClose, onCreated }: Props) {
                             })}
                         </div>
                     </div>
+
+                    {/* Custom Formats / Language Priority */}
+                    {availableFormats.length > 0 && (
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em]">Prioritized Formats (Scores)</label>
+                                <div className="text-[9px] text-zinc-600 font-bold uppercase flex items-center gap-1.5">
+                                    <Star size={10} className="text-amber-500" />
+                                    Higher score = Higher Priority
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-1 gap-2">
+                                {availableFormats.map(f => (
+                                    <div key={f.id} className="flex items-center gap-4 p-4 rounded-2xl bg-zinc-950 border border-zinc-900">
+                                        <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-500 flex-shrink-0">
+                                            <Languages size={18} />
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="text-xs font-bold text-white">{f.name}</div>
+                                            <div className="text-[9px] text-zinc-600 font-medium truncate italic">Custom Format ID: {f.id}</div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <input
+                                                type="number"
+                                                value={formatScores[f.id] || 0}
+                                                onChange={e => updateFormatScore(f.id, parseInt(e.target.value) || 0)}
+                                                className="w-20 bg-black border border-zinc-800 rounded-xl px-3 py-2 text-xs font-black text-amber-400 focus:outline-none focus:border-amber-500/50 text-center"
+                                                placeholder="Score"
+                                            />
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
 
                     {/* Cutoff + Upgrade */}
                     <div className="grid grid-cols-2 gap-4">
