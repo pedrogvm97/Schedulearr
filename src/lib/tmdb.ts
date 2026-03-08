@@ -58,3 +58,37 @@ export const getTMDBDetails = async (apiKey: string, id: number, type: 'movie' |
         return null;
     }
 };
+
+export const TMDB_PROVIDERS: Record<string, number> = {
+    'Netflix': 8,
+    'HBO': 118,
+    'Disney+': 337,
+    'Amazon': 9,
+    'Apple TV+': 350,
+    'Hulu': 15,
+    'Paramount+': 531,
+    'Peacock': 386
+};
+
+export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', providerId?: number): Promise<TMDBResult[]> => {
+    try {
+        const params: any = {
+            api_key: apiKey,
+            sort_by: 'popularity.desc',
+            include_adult: false,
+            include_video: false,
+            page: 1,
+            watch_region: 'US'
+        };
+
+        if (providerId) {
+            params.with_watch_providers = providerId;
+        }
+
+        const response = await axios.get(`${BASE_URL}/discover/${type === 'movie' ? 'movie' : 'tv'}`, { params });
+        return response.data.results || [];
+    } catch (error) {
+        console.error(`TMDB discover error (${type}):`, error);
+        return [];
+    }
+};

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getInstanceById, getSetting } from '@/lib/db';
 import { searchSeries } from '@/lib/sonarr';
-import { getTrending, getTMDBDetails } from '@/lib/tmdb';
+import { getTrending, getTMDBDetails, discoverTMDB, TMDB_PROVIDERS } from '@/lib/tmdb';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,6 +9,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const instanceId = searchParams.get('instanceId');
     const term = searchParams.get('term');
+    const platform = searchParams.get('platform');
 
     if (!instanceId) {
         return NextResponse.json({ error: 'Missing instanceId' }, { status: 400 });
@@ -25,8 +26,14 @@ export async function GET(request: Request) {
         const tmdbApiKey = getSetting('tmdb_api_key');
 
         if (!searchTerm && tmdbApiKey) {
-            console.log('[LOOKUP] Using TMDB for discovery (series)');
-            const tmdbResults = await getTrending(tmdbApiKey, 'tv');
+            console.log(`[LOOKUP] Using TMDB for discovery (series, Platform: ${platform || 'Trending'})`);
+
+            let tmdbResults = [];
+            if (platform && TMDB_PROVIDERS[platform]) {
+                tmdbResults = await discoverTMDB(tmdbApiKey, 'tv', TMDB_PROVIDERS[platform]);
+            } else {
+                tmdbResults = await getTrending(tmdbApiKey, 'tv');
+            }
 
             // Map and resolve TVDB IDs if possible
             const mappedResults = await Promise.all(tmdbResults.map(async m => {
@@ -44,7 +51,7 @@ export async function GET(request: Request) {
                     ratings: { value: m.vote_average },
                     popularity: m.popularity,
                     genres: [],
-                    productionCompanies: details?.production_companies?.map((c: any) => c.name) || []
+                    productionCompanies: details?.production_companies?.map((c: any) => c.name) || (platform ? [platform] : [])
                 };
             }));
 

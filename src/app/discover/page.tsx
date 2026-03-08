@@ -40,8 +40,8 @@ const QUICK_STUDIOS = [
     { name: 'Netflix', color: 'text-red-500' },
     { name: 'HBO', color: 'text-violet-500' },
     { name: 'Disney+', color: 'text-blue-500' },
-    { name: 'Apple TV+', color: 'text-white' },
     { name: 'Amazon', color: 'text-sky-500' },
+    { name: 'Apple TV+', color: 'text-white' },
     { name: 'Hulu', color: 'text-emerald-500' },
     { name: 'Paramount+', color: 'text-blue-400' },
 ];
@@ -414,8 +414,12 @@ export default function DiscoverPage() {
         setIsSearching(true);
         setResults([]);
         try {
-            const endpoint = mediaType === 'movie' ? '/api/radarr/lookup' : '/api/sonarr/lookup';
-            const res = await fetch(`${endpoint}?instanceId=${targetId}&term=`);
+            const type = mediaType === 'movie' ? 'radarr' : 'sonarr';
+            let url = `/api/${type}/lookup?instanceId=${targetId}&term=`;
+            if (filterPlatform !== 'All' && QUICK_STUDIOS.some(s => s.name === filterPlatform)) {
+                url += `&platform=${encodeURIComponent(filterPlatform)}`;
+            }
+            const res = await fetch(url);
             if (res.ok) {
                 const data = await res.json();
                 setResults(Array.isArray(data) ? data : []);
@@ -428,12 +432,12 @@ export default function DiscoverPage() {
         }
     }, [mediaType, selectedInstanceId, availableInstances]);
 
-    // ── Trigger discovery on load / type change ──
+    // ── Trigger discovery on load / type / platform change ──
     useEffect(() => {
         if (pageMode === 'discover' && !searchQuery) {
             handleDiscovery();
         }
-    }, [mediaType, pageMode, searchQuery, handleDiscovery]);
+    }, [mediaType, pageMode, searchQuery, filterPlatform, handleDiscovery]);
 
     // ── Management Handlers ──
     const [transferTarget, setTransferTarget] = useState<any>(null);
