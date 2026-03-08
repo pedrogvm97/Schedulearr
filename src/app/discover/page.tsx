@@ -463,14 +463,26 @@ export default function DiscoverPage() {
             const map = new Map<string, { hasFile: boolean; isDownloading: boolean; instances: { id: string; name: string }[] }>();
 
             items.forEach((m: any) => {
-                const id = m.tmdbId || m.tvdbId;
-                const typeKey = m.tvdbId ? 'series' : 'movie';
-                if (id) {
-                    const key = `${typeKey}-${id}`;
+                const isSeries = !!(m.tvdbId || m.seasons);
+                const type = isSeries ? 'series' : 'movie';
+
+                // Collect all possible keys for this item to ensure matching regardless of ID source
+                const keys = [];
+                if (m.tmdbId) keys.push(`${type}-tmdb-${m.tmdbId}`);
+                if (m.tvdbId) keys.push(`${type}-tvdb-${m.tvdbId}`);
+
+                // Backward compatibility with legacy plain ID keys
+                const plainId = m.tmdbId || m.tvdbId;
+                if (plainId) {
+                    const legacyType = m.tvdbId ? 'series' : 'movie';
+                    keys.push(`${legacyType}-${plainId}`);
+                }
+
+                keys.forEach(key => {
                     const existing = map.get(key);
                     const itemInstances = existing ? [...existing.instances] : [];
 
-                    if (!itemInstances.some(i => i.id === m.instanceId)) {
+                    if (!itemInstances.some((i: any) => i.id === m.instanceId)) {
                         itemInstances.push({ id: m.instanceId, name: m.instanceName || 'Unknown' });
                     }
 
@@ -479,7 +491,7 @@ export default function DiscoverPage() {
                         isDownloading: (existing?.isDownloading || m.isDownloading || (m.queuedEpisodeIds?.length > 0)) ?? false,
                         instances: itemInstances
                     });
-                }
+                });
             });
             setLibraryMap(map);
         } catch (error) {
@@ -673,14 +685,25 @@ export default function DiscoverPage() {
 
     // ── Filtering ──
     const isInLibrary = (item: any) => {
-        const id = item.tmdbId || item.id || item.tvdbId;
-        if (!id) return { exists: false, hasFile: false, isDownloading: false, instances: [] };
+        const isSeries = item.type === 'series' || !!item.tvdbId || !!item.seasons;
+        const type = isSeries ? 'series' : 'movie';
 
-        const type = (item.type === 'series' || item.tvdbId || !!item.seasons) ? 'series' : 'movie';
-        const key = `${type}-${id}`;
+        const checkKeys = [];
+        if (item.tmdbId) checkKeys.push(`${type}-tmdb-${item.tmdbId}`);
+        if (item.tvdbId) checkKeys.push(`${type}-tvdb-${item.tvdbId}`);
 
-        const status = libraryMap.get(key);
-        if (status) return { exists: true, ...status };
+        // Some discovery results (TMDB) use .id for the TMDB ID
+        if (item.id && typeof item.id === 'number' && item.id > 0) {
+            checkKeys.push(`${type}-tmdb-${item.id}`);
+            checkKeys.push(`${type}-${item.id}`); // Legacy plain ID check
+        }
+
+        // Final fallback: check for any existing status in the map
+        for (const key of checkKeys) {
+            const status = libraryMap.get(key);
+            if (status) return { exists: true, ...status };
+        }
+
         return { exists: (typeof item.id === 'number' && item.id > 0 && pageMode === 'mylibrary'), hasFile: false, isDownloading: false, instances: [] };
     };
 
