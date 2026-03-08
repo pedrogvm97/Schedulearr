@@ -200,40 +200,61 @@ function MyMediaGridCard({ item, isSeries, expandAll, onDelete, onTransfer }: {
     );
 }
 
-function MyMediaListCard({ item, isSeries, onDelete, onTransfer }: {
-    item: any; isSeries: boolean; onDelete: () => void; onTransfer: () => void;
+function MyMediaListCard({ item, isSeries, expandAll, onDelete, onTransfer }: {
+    item: any; isSeries: boolean; expandAll: boolean; onDelete: () => void; onTransfer: () => void;
 }) {
+    const [expanded, setExpanded] = useState(false);
+
+    useEffect(() => {
+        setExpanded(expandAll);
+    }, [expandAll]);
+
     const poster = item.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || item.remotePoster;
     const sizeMb = item.statistics?.sizeOnDisk || item.movieFile?.size || 0;
-    const sizeStr = sizeMb > 1e9 ? `${(sizeMb / 1e9).toFixed(1)} GB` : sizeMb > 1e6 ? `${(sizeMb / 1e6).toFixed(0)} MB` : '0 MB';
+    const sizeStr = sizeMb > 1e9 ? `${(sizeMb / 1e9).toFixed(1)} GB` : sizeMb > 1e6 ? `${(sizeMb / 1e6).toFixed(0)} MB` : sizeMb > 0 ? `${(sizeMb / 1024 / 1024).toFixed(1)} MB` : '0 MB';
     const path = item.path || 'Unknown Path';
     const pct = isSeries ? Math.round((item.statistics?.episodeFileCount / item.statistics?.totalEpisodeCount) * 100) : 100;
 
     return (
-        <div className="group bg-zinc-950/40 border border-zinc-900 rounded-2xl p-4 flex gap-6 hover:border-zinc-800 transition-all items-center">
-            <div className="w-16 aspect-[2/3] rounded-xl overflow-hidden bg-zinc-900 flex-shrink-0 shadow-lg">
-                {poster ? <img src={poster} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-zinc-800">{isSeries ? <Tv size={24} /> : <Film size={24} />}</div>}
-            </div>
-            <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-3 mb-1.5 flex-wrap">
-                    <h3 className="font-bold text-white text-lg truncate">{item.title}</h3>
-                    <span className="px-2 py-0.5 rounded text-[9px] font-black border border-zinc-800 text-zinc-500 uppercase tracking-widest">{item.instanceName}</span>
-                    {isSeries && <span className="px-2 py-0.5 rounded text-[9px] font-black bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 uppercase tracking-widest">{pct}% READY</span>}
+        <div className="flex flex-col bg-zinc-950/40 border border-zinc-900 rounded-2xl overflow-hidden transition-all hover:border-zinc-800">
+            <div className="p-4 flex gap-6 items-center">
+                <div className="w-16 aspect-[2/3] rounded-xl overflow-hidden bg-zinc-900 flex-shrink-0 shadow-lg">
+                    {poster ? <img src={poster} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-zinc-800">{isSeries ? <Tv size={24} /> : <Film size={24} />}</div>}
                 </div>
-                <div className="flex items-center gap-5 text-xs text-zinc-500 font-medium">
-                    <span className="flex items-center gap-1.5"><Calendar size={12} /> {item.year}</span>
-                    <span className="flex items-center gap-1.5"><HardDrive size={12} /> {sizeStr}</span>
-                    <span className="flex items-center gap-1.5 truncate max-w-md"><Monitor size={12} className="text-zinc-700" /> <span className="text-zinc-600 truncate">{path}</span></span>
+                <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-3 mb-1.5 flex-wrap">
+                        <h3 className="font-bold text-white text-lg truncate">{item.title}</h3>
+                        <span className="px-2 py-0.5 rounded text-[9px] font-black border border-zinc-800 text-zinc-500 uppercase tracking-widest">{item.instanceName}</span>
+                        {isSeries && <span className="px-2 py-0.5 rounded text-[9px] font-black bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 uppercase tracking-widest">{pct}% READY</span>}
+                    </div>
+                    <div className="flex items-center gap-5 text-xs text-zinc-500 font-medium">
+                        <span className="flex items-center gap-1.5"><Calendar size={12} /> {item.year}</span>
+                        <span className="flex items-center gap-1.5"><HardDrive size={12} /> {sizeStr}</span>
+                        <span className="flex items-center gap-1.5 truncate max-w-md"><Monitor size={12} className="text-zinc-700" /> <span className="text-zinc-600 truncate">{path}</span></span>
+                    </div>
+                </div>
+                <div className="flex items-center gap-2 pr-2">
+                    {isSeries && (
+                        <button
+                            onClick={() => setExpanded(!expanded)}
+                            className={`p-2.5 rounded-xl border transition-all ${expanded ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-400' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-white'}`}
+                        >
+                            <Rows size={14} />
+                        </button>
+                    )}
+                    <button onClick={onTransfer} className="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-700 transition-all">
+                        <MoveHorizontal size={14} />
+                    </button>
+                    <button onClick={onDelete} className="p-2.5 rounded-xl bg-red-500/5 border border-red-500/20 text-red-500 hover:bg-red-500/10 transition-all">
+                        <Trash2 size={14} />
+                    </button>
                 </div>
             </div>
-            <div className="flex items-center gap-2 pr-2">
-                <button onClick={onTransfer} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-bold text-zinc-400 hover:text-white hover:border-zinc-700 transition-all">
-                    <MoveHorizontal size={14} /> Transfer
-                </button>
-                <button onClick={onDelete} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-500/5 border border-red-500/20 text-xs font-bold text-red-500 hover:bg-red-500/10 transition-all">
-                    <Trash2 size={14} /> Delete
-                </button>
-            </div>
+            {isSeries && expanded && (
+                <div className="px-6 pb-6 pt-2 border-t border-zinc-900/50 bg-black/20">
+                    <EpisodeList instanceId={item.instanceId} seriesId={item.id} />
+                </div>
+            )}
         </div>
     );
 }
@@ -242,7 +263,7 @@ function MyMediaCard({ item, viewMode, onRefresh, expandAll, onDelete, onTransfe
     item: any; viewMode: 'grid' | 'list'; onRefresh: () => void; expandAll: boolean; onDelete: () => void; onTransfer: () => void;
 }) {
     const isSeries = !!item.seasons || !!item.statistics;
-    if (viewMode === 'list') return <MyMediaListCard item={item} isSeries={isSeries} onDelete={onDelete} onTransfer={onTransfer} />;
+    if (viewMode === 'list') return <MyMediaListCard item={item} isSeries={isSeries} expandAll={expandAll} onDelete={onDelete} onTransfer={onTransfer} />;
     return <MyMediaGridCard item={item} isSeries={isSeries} expandAll={expandAll} onDelete={onDelete} onTransfer={onTransfer} />;
 }
 
@@ -349,7 +370,7 @@ export default function DiscoverPage() {
     // UI
     const [addingItemStr, setAddingItemStr] = useState<string>('');
     const [showFilters, setShowFilters] = useState(true);
-    const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+    const [viewMode, setViewMode] = useState<'grid' | 'list'>(pageMode === 'mylibrary' ? 'list' : 'grid');
     const [startSearch, setStartSearch] = useState(true);
     const [currentPage, setCurrentPage] = useState(0);
 
@@ -575,6 +596,10 @@ export default function DiscoverPage() {
             (item.tmdbId && librarySet.has(item.tmdbId)) ||
             (item.tvdbId && librarySet.has(item.tvdbId));
     };
+
+    useEffect(() => {
+        if (pageMode === 'mylibrary') setViewMode('list');
+    }, [pageMode]);
 
     const filteredDiscovery = useMemo(() => {
         let items = [...results];

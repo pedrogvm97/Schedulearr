@@ -100,6 +100,11 @@ export const TMDB_GENRES: Record<string, number> = {
     'War & Politics': 10768
 };
 
+export const TMDB_REVERSE_GENRES: Record<number, string> = Object.entries(TMDB_GENRES).reduce((acc, [name, id]) => {
+    acc[id] = name;
+    return acc;
+}, {} as Record<number, string>);
+
 export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', providerId?: number, genreId?: number): Promise<TMDBResult[]> => {
     try {
         const params: any = {

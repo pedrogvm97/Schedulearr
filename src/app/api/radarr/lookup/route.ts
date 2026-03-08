@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getInstanceById, getSetting } from '@/lib/db';
 import { searchMovies } from '@/lib/radarr';
-import { getTrending, discoverTMDB, TMDB_PROVIDERS, TMDB_GENRES } from '@/lib/tmdb';
+import { getTrending, discoverTMDB, TMDB_PROVIDERS, TMDB_GENRES, TMDB_REVERSE_GENRES } from '@/lib/tmdb';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,7 +47,7 @@ export async function GET(request: Request) {
                 remotePoster: m.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : undefined,
                 ratings: { value: m.vote_average },
                 popularity: m.popularity,
-                genres: [],
+                genres: Array.from(new Set([...(m.genre_ids?.map(id => TMDB_REVERSE_GENRES[id]).filter(Boolean) || []), ...(genre ? [genre] : [])])),
                 productionCompanies: platform ? [platform] : []
             }));
             return NextResponse.json(mappedResults);

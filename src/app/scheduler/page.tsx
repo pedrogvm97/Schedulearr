@@ -259,7 +259,7 @@ export default function SchedulerQueue() {
     const [isRunningBatch, setIsRunningBatch] = useState(false);
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
-    const [interactiveSearchItem, setInteractiveSearchItem] = useState<{ type: 'movie' | 'series' | 'episode', id: number, instanceId: string, title: string } | null>(null);
+    const [interactiveSearchItem, setInteractiveSearchItem] = useState<{ type: 'movie' | 'series' | 'episode', id: number, instanceId: string, title: string, poster?: string } | null>(null);
     const [interactiveReleases, setInteractiveReleases] = useState<Release[]>([]);
     const [loadingReleases, setLoadingReleases] = useState(false);
     const [triggeringReleaseGuid, setTriggeringReleaseGuid] = useState<string | null>(null);
@@ -315,8 +315,8 @@ export default function SchedulerQueue() {
     };
 
     // --- Interactive Search Feature Handlers ---
-    const handleInteractiveSearch = async (type: 'movie' | 'series' | 'episode', id: number, instanceId: string, title: string) => {
-        setInteractiveSearchItem({ type, id, instanceId, title });
+    const handleInteractiveSearch = async (type: 'movie' | 'series' | 'episode', id: number, instanceId: string, title: string, poster?: string) => {
+        setInteractiveSearchItem({ type, id, instanceId, title, poster });
         setLoadingReleases(true);
         setInteractiveReleases([]);
         try {
@@ -943,7 +943,7 @@ export default function SchedulerQueue() {
                 </div>
 
                 {/* Scheduler Controls - Moved Below Header and Styled */}
-                <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-5 mb-6 shadow-sm w-full overflow-x-auto">
+                <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-5 mb-6 shadow-sm w-full">
                     <div className="flex flex-nowrap items-center gap-4 min-w-max">
                         <div className="flex items-center gap-3 mr-4">
                             <span className="text-sm font-semibold text-zinc-300 flex-shrink-0">Scheduler:</span>
@@ -1064,21 +1064,28 @@ export default function SchedulerQueue() {
                     </div>
                 </div>
 
-                {/* Filter & Controls Box - New Layout */}
+
+                {/* Optimized Controls Area */}
                 <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-5 mb-6 shadow-sm w-full mt-4">
-                    {/* Row 1: Search & Core Filters */}
-                    <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 mb-5 pb-5 border-b border-zinc-800/60">
-                        <div className="w-full lg:flex-1 relative">
-                            <input
-                                type="text"
-                                placeholder="Search active media..."
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                className="w-full bg-zinc-950/50 border border-zinc-700/50 text-white text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block p-2.5 outline-none placeholder-zinc-500"
-                            />
-                            <div className="flex w-full lg:w-auto items-center gap-3 flex-wrap justify-start lg:justify-end">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-sm font-medium text-zinc-400 whitespace-nowrap">Sort By:</span>
+                    <div className="flex flex-col gap-5">
+                        {/* Row 1: Search & Core Config */}
+                        <div className="flex flex-col lg:flex-row items-center justify-between gap-4">
+                            <div className="w-full lg:flex-1 relative">
+                                <input
+                                    type="text"
+                                    placeholder="Search active media..."
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="w-full bg-zinc-950/50 border border-zinc-800 text-white text-sm rounded-xl focus:ring-emerald-500/50 focus:border-emerald-500/50 block p-3 outline-none placeholder-zinc-600 shadow-inner"
+                                />
+                                <div className="absolute right-3 top-3 text-zinc-600">
+                                    <Search size={18} />
+                                </div>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-3 bg-zinc-950/50 border border-zinc-800 p-1.5 rounded-xl">
+                                <div className="flex items-center gap-2 px-2 border-r border-zinc-800/50">
+                                    <span className="text-xs font-bold text-zinc-500 uppercase">Sort:</span>
                                     <CustomSelect
                                         minimal
                                         options={[
@@ -1093,69 +1100,50 @@ export default function SchedulerQueue() {
                                         onChange={(val) => handleSaveProfile(val)}
                                     />
                                 </div>
-                                <div className="flex items-center gap-2">
-                                    <span className="text-sm font-medium text-zinc-400 whitespace-nowrap">Library Filter:</span>
+                                <div className="flex items-center gap-2 px-2 border-r border-zinc-800/50">
+                                    <span className="text-xs font-bold text-zinc-500 uppercase">Library:</span>
                                     <CustomSelect
                                         value={qualityFilter}
                                         onChange={(val) => setQualityFilter(val)}
+                                        minimal
                                         options={[
                                             { id: 'all', name: 'All Statuses' },
                                             { id: 'missing', name: 'Missing' },
                                             { id: 'upgradeable', name: 'Upgradeable' }
                                         ]}
-                                        small
                                     />
                                 </div>
-
-                                <div className="flex items-center gap-2 w-full sm:w-auto mt-1 sm:mt-0">
-                                    <button
-                                        onClick={handleSaveConfiguration}
-                                        disabled={isSaving}
-                                        className={`px-4 py-2 w-full sm:w-auto text-xs font-semibold rounded-lg shadow-sm border transition-all whitespace-nowrap ${saveSuccess ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/40' : 'bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 border-indigo-500/30'}`}
-                                    >
-                                        {isSaving ? 'Saving...' : saveSuccess ? 'Saved ✓' : 'Save Configuration'}
-                                    </button>
-                                    {hasUnsavedChanges && !saveSuccess && (
-                                        <span className="text-[10px] text-amber-500 font-medium animate-pulse ml-1 whitespace-nowrap">Unsaved changes</span>
-                                    )}
-                                </div>
+                                <button
+                                    onClick={handleSaveConfiguration}
+                                    disabled={isSaving}
+                                    className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${saveSuccess ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/30' : 'bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 border-indigo-500/30'}`}
+                                >
+                                    {isSaving ? 'Saving...' : saveSuccess ? 'Saved ✓' : 'Save Changes'}
+                                </button>
                             </div>
                         </div>
 
-                        {/* Row 2: Genres (Full Width) */}
-                        <div className="w-full">
-                            <div className="flex flex-col mb-4 gap-2">
-                                <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wider block">Filter by Genre</span>
-
-                                {/* Enlarged Logic Buttons matching user request */}
-                                <div className="flex items-center bg-zinc-950 border border-zinc-800 rounded-lg p-1 w-fit shadow-inner mb-2">
-                                    <button
-                                        onClick={() => setGenreLogic('OR')}
-                                        className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${genreLogic === 'OR' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                        title="Match ANY selected genre"
-                                    >OR</button>
-                                    <button
-                                        onClick={() => setGenreLogic('AND')}
-                                        className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${genreLogic === 'AND' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                        title="Match ALL selected genres"
-                                    >AND</button>
-                                    <button
-                                        onClick={() => setGenreLogic('EXCLUDE')}
-                                        className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${genreLogic === 'EXCLUDE' ? 'bg-rose-900/40 text-rose-400 shadow-sm border border-rose-800/30' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                        title="Match NO selected genres"
-                                    >EXCLUDE</button>
+                        {/* Row 2: Genre Filters & Logic */}
+                        <div className="flex flex-col lg:flex-row lg:items-start gap-4 pt-4 border-t border-zinc-800/60">
+                            <div className="flex flex-col gap-2 shrink-0">
+                                <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Filter Logic</span>
+                                <div className="flex items-center bg-zinc-950 border border-zinc-800 rounded-lg p-1 shadow-inner">
+                                    <button onClick={() => setGenreLogic('OR')} className={`px-3 py-1 text-[10px] font-bold rounded ${genreLogic === 'OR' ? 'bg-zinc-800 text-white' : 'text-zinc-600 hover:text-zinc-400'}`}>OR</button>
+                                    <button onClick={() => setGenreLogic('AND')} className={`px-3 py-1 text-[10px] font-bold rounded ${genreLogic === 'AND' ? 'bg-zinc-800 text-white' : 'text-zinc-600 hover:text-zinc-400'}`}>AND</button>
+                                    <button onClick={() => setGenreLogic('EXCLUDE')} className={`px-3 py-1 text-[10px] font-bold rounded ${genreLogic === 'EXCLUDE' ? 'bg-rose-900/40 text-rose-400' : 'text-zinc-600 hover:text-zinc-400'}`}>X</button>
                                 </div>
                             </div>
-                            <div className="flex flex-wrap gap-2 w-full">
+                            <div className="flex-1 flex flex-wrap gap-2 items-center">
+                                <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest mr-2">Genres:</span>
                                 {uniqueGenres.map(g => {
                                     const isSelected = selectedGenres.includes(g);
                                     return (
                                         <button
                                             key={g}
                                             onClick={() => handleGenreToggle(g)}
-                                            className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-all ${isSelected
-                                                ? 'bg-purple-500/20 text-purple-300 border-purple-500/50 hover:bg-purple-500/30 shadow-sm'
-                                                : 'bg-zinc-950/50 text-zinc-400 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/50'
+                                            className={`px-3 py-1 text-[10px] font-bold rounded-full border transition-all ${isSelected
+                                                ? 'bg-purple-500/20 text-purple-300 border-purple-500/50 shadow-[0_0_10px_rgba(168,85,247,0.15)]'
+                                                : 'bg-zinc-950/30 text-zinc-500 border-zinc-900 hover:border-zinc-700'
                                                 }`}
                                         >
                                             {g}
@@ -1171,42 +1159,11 @@ export default function SchedulerQueue() {
                 <div>
                     <div className="flex flex-col border-b border-zinc-800 pb-4 mb-4 gap-4">
                         <div className="flex flex-col gap-3">
-                            <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+                            <div className="flex flex-wrap items-center gap-3">
                                 <h2 className="text-2xl font-bold text-white tracking-tight">Media</h2>
                                 {!loading && combined.length > 0 && (
-                                    <div className="flex flex-wrap items-center gap-y-3 gap-x-4 bg-zinc-900/40 border border-zinc-800/60 px-4 py-2.5 rounded-xl">
-                                        <div className="flex items-center gap-2">
-                                            <button onClick={() => handleSelectAll(targetItemsForBulkActions)} className="px-3 py-1.5 text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md border border-zinc-700 transition-colors shadow-sm whitespace-nowrap">Activate all</button>
-                                            <button onClick={() => handleDeselectAll(targetItemsForBulkActions)} className="px-3 py-1.5 text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md border border-zinc-700 transition-colors shadow-sm whitespace-nowrap">Deactivate all</button>
-                                        </div>
-                                        <div className="w-px h-6 bg-zinc-700 hidden lg:block"></div>
-                                        <label className="flex items-center cursor-pointer group" title="When items are clicked to download, they remain on this list if this is ON">
-                                            <div className="relative">
-                                                <input type="checkbox" className="sr-only" checked={showDownloading} onChange={() => setShowDownloading(!showDownloading)} />
-                                                <div className={`block w-9 h-5 rounded-full transition-colors ${showDownloading ? 'bg-blue-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
-                                                <div className={`absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full transition-transform ${showDownloading ? 'translate-x-4' : ''}`}></div>
-                                            </div>
-                                            <span className="text-sm font-medium text-zinc-300 ml-2 whitespace-nowrap">Show Downloading</span>
-                                        </label>
-                                        <div className="w-px h-6 bg-zinc-700 hidden lg:block"></div>
-                                        <label className="flex items-center cursor-pointer group">
-                                            <div className="relative">
-                                                <input type="checkbox" className="sr-only" checked={showActiveOnly} onChange={() => setShowActiveOnly(!showActiveOnly)} />
-                                                <div className={`block w-9 h-5 rounded-full transition-colors ${showActiveOnly ? 'bg-purple-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
-                                                <div className={`absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full transition-transform ${showActiveOnly ? 'translate-x-4' : ''}`}></div>
-                                            </div>
-                                            <span className="text-sm font-medium text-zinc-300 ml-2 whitespace-nowrap">Show active only</span>
-                                        </label>
-
-                                        <div className="w-px h-6 bg-zinc-700 hidden lg:block"></div>
-                                        <label className="flex items-center cursor-pointer group">
-                                            <div className="relative">
-                                                <input type="checkbox" className="sr-only" checked={hideUnmonitored} onChange={() => setHideUnmonitored(!hideUnmonitored)} />
-                                                <div className={`block w-9 h-5 rounded-full transition-colors ${hideUnmonitored ? 'bg-emerald-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
-                                                <div className={`absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full transition-transform ${hideUnmonitored ? 'translate-x-4' : ''}`}></div>
-                                            </div>
-                                            <span className="text-sm font-medium text-zinc-300 ml-2 whitespace-nowrap">Hide Unmonitored</span>
-                                        </label>
+                                    <div className="flex items-center bg-zinc-900/40 border border-zinc-800/60 px-3 py-1 rounded-lg">
+                                        <span className="text-[10px] font-black text-emerald-500/80 uppercase tracking-widest">{displayItems.length} Shown</span>
                                     </div>
                                 )}
                             </div>
@@ -1242,17 +1199,55 @@ export default function SchedulerQueue() {
                             </div>
                         </div>
 
-                        <label className="flex items-center cursor-pointer group shrink-0">
-                            <div className="relative">
-                                <input type="checkbox" className="sr-only" checked={showNextBatchOnly} onChange={() => setShowNextBatchOnly(!showNextBatchOnly)} />
-                                <div className={`block w-12 h-6 rounded-full transition-colors ${showNextBatchOnly ? 'bg-amber-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
-                                <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${showNextBatchOnly ? 'translate-x-6' : ''}`}></div>
+                        <div className="flex flex-wrap items-center gap-4 bg-zinc-900/40 border border-zinc-800/60 px-4 py-2.5 rounded-xl ml-auto">
+                            <label className="flex items-center cursor-pointer group shrink-0">
+                                <div className="relative">
+                                    <input type="checkbox" className="sr-only" checked={showNextBatchOnly} onChange={() => setShowNextBatchOnly(!showNextBatchOnly)} />
+                                    <div className={`block w-10 h-5 rounded-full transition-colors ${showNextBatchOnly ? 'bg-amber-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
+                                    <div className={`absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full transition-transform ${showNextBatchOnly ? 'translate-x-5' : ''}`}></div>
+                                </div>
+                                <div className="ml-3 flex flex-col">
+                                    <span className="text-xs font-bold text-amber-500">Preview Upcoming Batch</span>
+                                    <span className="text-[9px] text-zinc-500 leading-tight">Cycle search preview</span>
+                                </div>
+                            </label>
+
+                            <div className="w-px h-6 bg-zinc-800 hidden lg:block"></div>
+
+                            <div className="flex items-center gap-2">
+                                <button onClick={() => handleSelectAll(targetItemsForBulkActions)} className="px-3 py-1.5 text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md border border-zinc-700 transition-colors shadow-sm whitespace-nowrap">Activate all</button>
+                                <button onClick={() => handleDeselectAll(targetItemsForBulkActions)} className="px-3 py-1.5 text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md border border-zinc-700 transition-colors shadow-sm whitespace-nowrap">Deactivate all</button>
                             </div>
-                            <div className="ml-3 flex flex-col">
-                                <span className="text-sm font-bold text-amber-500">Preview Upcoming Batch</span>
-                                <span className="text-[10px] text-zinc-400 leading-tight">Shows exactly what will be searched next cycle</span>
-                            </div>
-                        </label>
+
+                            <div className="w-px h-6 bg-zinc-800 hidden lg:block"></div>
+
+                            <label className="flex items-center cursor-pointer group" title="Keep items on list after download">
+                                <div className="relative">
+                                    <input type="checkbox" className="sr-only" checked={showDownloading} onChange={() => setShowDownloading(!showDownloading)} />
+                                    <div className={`block w-8 h-4 rounded-full transition-colors ${showDownloading ? 'bg-blue-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
+                                    <div className={`absolute left-0.5 top-0.5 bg-white w-3 h-3 rounded-full transition-transform ${showDownloading ? 'translate-x-4' : ''}`}></div>
+                                </div>
+                                <span className="text-xs font-medium text-zinc-400 ml-2 whitespace-nowrap">Downloading</span>
+                            </label>
+
+                            <label className="flex items-center cursor-pointer group">
+                                <div className="relative">
+                                    <input type="checkbox" className="sr-only" checked={showActiveOnly} onChange={() => setShowActiveOnly(!showActiveOnly)} />
+                                    <div className={`block w-8 h-4 rounded-full transition-colors ${showActiveOnly ? 'bg-purple-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
+                                    <div className={`absolute left-0.5 top-0.5 bg-white w-3 h-3 rounded-full transition-transform ${showActiveOnly ? 'translate-x-4' : ''}`}></div>
+                                </div>
+                                <span className="text-xs font-medium text-zinc-400 ml-2 whitespace-nowrap">Active Only</span>
+                            </label>
+
+                            <label className="flex items-center cursor-pointer group">
+                                <div className="relative">
+                                    <input type="checkbox" className="sr-only" checked={hideUnmonitored} onChange={() => setHideUnmonitored(!hideUnmonitored)} />
+                                    <div className={`block w-8 h-4 rounded-full transition-colors ${hideUnmonitored ? 'bg-emerald-500' : 'bg-zinc-700 group-hover:bg-zinc-600'}`}></div>
+                                    <div className={`absolute left-0.5 top-0.5 bg-white w-3 h-3 rounded-full transition-transform ${hideUnmonitored ? 'translate-x-4' : ''}`}></div>
+                                </div>
+                                <span className="text-xs font-medium text-zinc-400 ml-2 whitespace-nowrap">Monitored</span>
+                            </label>
+                        </div>
                     </div>
 
                     {displayItems.length === 0 ? (
@@ -1551,10 +1546,19 @@ export default function SchedulerQueue() {
                                     </button>
                                 </div>
                                 <div className="flex-1 overflow-y-auto p-5">
-                                    <div className="flex flex-col items-end">
-                                        <div className="text-[10px] font-black text-zinc-600 uppercase tracking-widest mb-1.5 opacity-40 group-hover:opacity-100 transition-opacity">Storage</div>
-                                        <div className="text-sm font-black text-white bg-zinc-900 border border-zinc-800/50 px-3 py-1.5 rounded-xl shadow-inner group-hover:border-zinc-700/50 transition-all">
-                                            {(interactiveSearchItem as any)?.type === 'movie' ? formatSize((interactiveSearchItem as any)?.sizeOnDisk || 0) : formatSize((interactiveSearchItem as any)?.statistics?.sizeOnDisk || 0)}
+                                    <div className="flex flex-col md:flex-row gap-6 mb-6">
+                                        {interactiveSearchItem?.poster && (
+                                            <div className="w-32 aspect-[2/3] rounded-xl overflow-hidden border border-zinc-800 shrink-0 shadow-lg">
+                                                <img src={interactiveSearchItem.poster} className="w-full h-full object-cover" alt="" />
+                                            </div>
+                                        )}
+                                        <div className="flex-1 flex flex-col justify-end gap-4">
+                                            <div className="flex flex-col">
+                                                <div className="text-[10px] font-black text-zinc-600 uppercase tracking-widest mb-1.5 opacity-40">Storage on Disk</div>
+                                                <div className="text-sm font-black text-white bg-zinc-900 border border-zinc-800/50 px-3 py-1.5 rounded-xl shadow-inner inline-block self-start">
+                                                    {(interactiveSearchItem as any)?.type === 'movie' ? formatSize((interactiveSearchItem as any)?.sizeOnDisk || 0) : formatSize((interactiveSearchItem as any)?.statistics?.sizeOnDisk || 0)}
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                     {loadingReleases ? (
