@@ -88,7 +88,7 @@ export const TMDB_GENRES: Record<string, number> = {
     'Science Fiction': 878,
     'Sci-Fi & Fantasy': 10765, // TV only
     'TV Movie': 10770,
-    'Thriller': 533,
+    'Thriller': 53,
     'War': 10752,
     'Western': 37,
     'Action & Adventure': 10759, // TV only
