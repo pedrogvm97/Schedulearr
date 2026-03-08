@@ -67,6 +67,7 @@ export default function Dashboard() {
   // Tooltip States
   const [stickyTooltip, setStickyTooltip] = useState<any>(null);
   const [isTooltipHovered, setIsTooltipHovered] = useState(false);
+  const [isBarHovered, setIsBarHovered] = useState(false);
   const [tooltipTimeout, setTooltipTimeout] = useState<NodeJS.Timeout | null>(null);
 
   const toggleRecentFilter = (id: string) => {
@@ -181,29 +182,59 @@ export default function Dashboard() {
 
   const handleMouseMove = (e: any) => {
     if (e.activePayload) {
+      setIsBarHovered(true);
       if (tooltipTimeout) {
         clearTimeout(tooltipTimeout);
         setTooltipTimeout(null);
       }
-      // Capture event for positioning
-      setStickyTooltip({
-        ...e,
-        // Use client coordinates if available for better fixed positioning
-        pageX: e.chartX + (e.target?.getBoundingClientRect?.().left || 0),
-        pageY: e.chartY + (e.target?.getBoundingClientRect?.().top || 0)
+
+      setStickyTooltip((prev: any) => {
+        // If we already have a sticky tooltip for this label, don't update position (no follow)
+        if (prev && prev.label === e.label) {
+          return { ...prev, ...e };
+        }
+        // New bar hovered: set position stationary
+        return {
+          ...e,
+          pageX: e.chartX + (e.target?.getBoundingClientRect?.().left || 0),
+          pageY: e.chartY + (e.target?.getBoundingClientRect?.().top || 0)
+        };
       });
     }
   };
 
   const handleMouseLeave = () => {
-    // 1.5s delay to allow user to reach the tooltip
+    setIsBarHovered(false);
+    // 1s delay to allow user to reach the tooltip OR hover back over a bar
+    if (tooltipTimeout) clearTimeout(tooltipTimeout);
+
     const timeout = setTimeout(() => {
-      if (!isTooltipHovered) {
-        setStickyTooltip(null);
-      }
-    }, 1500);
+      // After 1s, check if we are NOT hovering over the panel AND NOT hovering over a bar
+      setStickyTooltip((prev: any) => {
+        // We use functional update to get current hover states if possible, 
+        // but since they are in state, we check them here.
+        // If the user has moved to the panel or another bar, don't clear.
+        return null;
+      });
+    }, 1000);
     setTooltipTimeout(timeout);
   };
+
+  // Dedicated effect to handle the exit logic based on hover states
+  useEffect(() => {
+    if (!isBarHovered && !isTooltipHovered && stickyTooltip) {
+      if (tooltipTimeout) clearTimeout(tooltipTimeout);
+      const timeout = setTimeout(() => {
+        setStickyTooltip(null);
+      }, 1000);
+      setTooltipTimeout(timeout);
+    } else if (isBarHovered || isTooltipHovered) {
+      if (tooltipTimeout) {
+        clearTimeout(tooltipTimeout);
+        setTooltipTimeout(null);
+      }
+    }
+  }, [isBarHovered, isTooltipHovered]);
 
   const CustomTooltip = ({ active, payload, label }: { active?: boolean, payload?: any[], label?: string }) => {
     // The actual tooltip is now rendered by StickyTooltipOverlay for persistence.
