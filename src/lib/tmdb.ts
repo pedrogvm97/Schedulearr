@@ -1,0 +1,60 @@
+import axios from 'axios';
+
+const BASE_URL = 'https://api.themoviedb.org/3';
+
+export interface TMDBResult {
+    id: number;
+    title?: string;
+    name?: string;
+    overview: string;
+    poster_path: string | null;
+    backdrop_path: string | null;
+    release_date?: string;
+    first_air_date?: string;
+    vote_average: number;
+    popularity: number;
+    media_type?: 'movie' | 'tv';
+    genre_ids: number[];
+}
+
+export const getTrending = async (apiKey: string, type: 'movie' | 'tv', timeWindow: 'day' | 'week' = 'day'): Promise<TMDBResult[]> => {
+    try {
+        const response = await axios.get(`${BASE_URL}/trending/${type === 'movie' ? 'movie' : 'tv'}/${timeWindow}`, {
+            params: { api_key: apiKey }
+        });
+        return response.data.results || [];
+    } catch (error) {
+        console.error(`TMDB getTrending error (${type}):`, error);
+        return [];
+    }
+};
+
+export const searchTMDB = async (apiKey: string, query: string, type: 'movie' | 'tv'): Promise<TMDBResult[]> => {
+    try {
+        const response = await axios.get(`${BASE_URL}/search/${type === 'movie' ? 'movie' : 'tv'}`, {
+            params: {
+                api_key: apiKey,
+                query: query
+            }
+        });
+        return response.data.results || [];
+    } catch (error) {
+        console.error(`TMDB search error (${type}):`, error);
+        return [];
+    }
+};
+
+export const getTMDBDetails = async (apiKey: string, id: number, type: 'movie' | 'tv'): Promise<any> => {
+    try {
+        const response = await axios.get(`${BASE_URL}/${type === 'movie' ? 'movie' : 'tv'}/${id}`, {
+            params: {
+                api_key: apiKey,
+                append_to_response: 'external_ids'
+            }
+        });
+        return response.data;
+    } catch (error) {
+        console.error(`TMDB getDetails error (${id}):`, error);
+        return null;
+    }
+};

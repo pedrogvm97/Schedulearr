@@ -8,6 +8,8 @@ export default function Settings() {
     const [instances, setInstances] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
+    const [tmdbApiKey, setTmdbApiKey] = useState("");
+
     // Form state
     const [editTargetId, setEditTargetId] = useState<string | null>(null);
     const [type, setType] = useState("radarr");
@@ -31,6 +33,13 @@ export default function Settings() {
             const res = await fetch('/api/instances');
             const data = await res.json();
             if (Array.isArray(data)) setInstances(data);
+
+            // Fetch TMDB API Key
+            const sRes = await fetch('/api/settings?key=tmdb_api_key');
+            if (sRes.ok) {
+                const sData = await sRes.json();
+                setTmdbApiKey(sData.value || "");
+            }
         } catch (e) {
             console.error(e);
         }
@@ -38,11 +47,6 @@ export default function Settings() {
     };
 
     useEffect(() => {
-        const fetchSettings = async () => {
-            // Settings are now managed in the Downloads page
-        };
-
-        fetchSettings();
         fetchInstances();
     }, []);
 
@@ -53,8 +57,10 @@ export default function Settings() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ key, value: String(value) })
             });
+            if (key === 'tmdb_api_key') toast.success("TMDB API Key updated");
         } catch (e) {
             console.error('Failed to update setting', key, e);
+            toast.error("Failed to update setting");
         }
     };
 
@@ -125,7 +131,7 @@ export default function Settings() {
         }
     };
 
-    // Health Badge internal component to fetch its own status
+    // Health Badge internal component to fetch its status
     const HealthBadge = ({ id }: { id: string }) => {
         const [status, setStatus] = useState<'loading' | 'online' | 'offline'>('loading');
 
@@ -220,6 +226,31 @@ export default function Settings() {
             <div>
                 <h1 className="text-3xl font-bold text-white mb-2">Settings</h1>
                 <p className="text-zinc-400">Configure your connections to Radarr, Sonarr, and Prowlarr.</p>
+            </div>
+
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+                <h2 className="text-xl font-semibold text-white mb-4">General Settings</h2>
+                <div className="space-y-4">
+                    <div className="space-y-1">
+                        <label className="text-sm font-medium text-zinc-300">TMDB API Key (Optional)</label>
+                        <div className="flex gap-2">
+                            <input
+                                type="password"
+                                placeholder="Your TMDB API Key for high-quality discovery"
+                                value={tmdbApiKey}
+                                onChange={e => setTmdbApiKey(e.target.value)}
+                                className="flex-1 bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                            />
+                            <button
+                                onClick={() => updateSetting('tmdb_api_key', tmdbApiKey)}
+                                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold text-xs transition-colors"
+                            >
+                                Save Key
+                            </button>
+                        </div>
+                        <p className="text-[10px] text-zinc-500">Enable this for better trending and discovery results on the discovery page.</p>
+                    </div>
+                </div>
             </div>
 
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">

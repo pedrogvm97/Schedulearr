@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getInstances } from '@/lib/db';
+import db from '@/lib/db';
 import { encrypt } from '@/lib/encryption';
 
 export const dynamic = 'force-dynamic';
@@ -13,12 +14,18 @@ export async function POST(req: Request) {
         }
 
         const instances = getInstances();
-        const encryptedData = encrypt(instances, password);
+        const settings: Record<string, string> = {};
+        const rows = db.prepare('SELECT * FROM settings').all() as { key: string; value: string }[];
+        rows.forEach(row => {
+            settings[row.key] = row.value;
+        });
+
+        const encryptedData = encrypt({ instances, settings }, password);
 
         return NextResponse.json({
             success: true,
             encryptedData,
-            filename: `instances_backup_${new Date().toISOString().split('T')[0]}.json`
+            filename: `backup_${new Date().toISOString().split('T')[0]}.json`
         });
     } catch (error) {
         console.error('Export error:', error);

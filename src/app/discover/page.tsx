@@ -363,6 +363,7 @@ export default function DiscoverPage() {
     const [filterPlatform, setFilterPlatform] = useState<string>('All');
     const [filterYear, setFilterYear] = useState<string>('All');
     const [sortBy, setSortBy] = useState<'popularity' | 'year' | 'alphabetical'>('popularity');
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
     // Reset page on filter/mode/type change
     useEffect(() => { setCurrentPage(0); }, [filterGenre, filterPlatform, filterYear, mediaType, pageMode, searchQuery]);
@@ -574,22 +575,30 @@ export default function DiscoverPage() {
             const q = searchQuery.toLowerCase();
             items = items.filter(i => i.title?.toLowerCase().includes(q) || i.overview?.toLowerCase().includes(q));
         }
-        // if (!searchQuery) items = items.filter(i => (i.ratings?.value || 0) >= 6);
         if (filterGenre !== 'All') items = items.filter(i => i.genres?.includes(filterGenre));
         if (filterPlatform !== 'All') {
+            const platformLower = filterPlatform.toLowerCase();
             items = items.filter(i => {
-                const all: string[] = [...(i.productionCompanies || []), i.studio, i.network].filter(Boolean);
-                return all.includes(filterPlatform);
+                const all: string[] = [
+                    ...(i.productionCompanies || []),
+                    i.studio,
+                    i.network
+                ].filter(Boolean).map((s: string) => s.toLowerCase());
+                return all.some(c => c.includes(platformLower));
             });
         }
         if (filterYear !== 'All') items = items.filter(i => i.year?.toString() === filterYear);
+
         items.sort((a, b) => {
-            if (sortBy === 'popularity') return (b.popularity || b.ratings?.votes || 0) - (a.popularity || a.ratings?.votes || 0);
-            if (sortBy === 'year') return (b.year || 0) - (a.year || 0);
-            return a.title?.localeCompare(b.title || '') || 0;
+            let comparison = 0;
+            if (sortBy === 'popularity') comparison = (b.popularity || b.ratings?.votes || 0) - (a.popularity || a.ratings?.votes || 0);
+            else if (sortBy === 'year') comparison = (b.year || 0) - (a.year || 0);
+            else comparison = a.title?.localeCompare(b.title || '') || 0;
+
+            return sortOrder === 'desc' ? comparison : -comparison;
         });
         return items;
-    }, [results, searchQuery, isSearching, filterGenre, filterPlatform, filterYear, sortBy]);
+    }, [results, searchQuery, isSearching, filterGenre, filterPlatform, filterYear, sortBy, sortOrder]);
 
     const [expandAll, setExpandAll] = useState(false);
 
@@ -608,10 +617,17 @@ export default function DiscoverPage() {
         }
         if (filterGenre !== 'All') items = items.filter(i => i.genres?.includes(filterGenre));
         if (filterYear !== 'All') items = items.filter(i => i.year?.toString() === filterYear);
-        if (sortBy === 'year') items.sort((a, b) => (b.year || 0) - (a.year || 0));
-        else if (sortBy === 'alphabetical') items.sort((a, b) => a.title?.localeCompare(b.title || '') || 0);
+
+        items.sort((a, b) => {
+            let comparison = 0;
+            if (sortBy === 'year') comparison = (b.year || 0) - (a.year || 0);
+            else if (sortBy === 'popularity') comparison = (b.popularity || 0) - (a.popularity || 0);
+            else comparison = a.title?.localeCompare(b.title || '') || 0;
+
+            return sortOrder === 'desc' ? comparison : -comparison;
+        });
         return items;
-    }, [libraryItems, instances, mediaType, searchQuery, filterGenre, filterYear, sortBy, selectedInstanceId]);
+    }, [libraryItems, instances, mediaType, searchQuery, filterGenre, filterYear, sortBy, sortOrder, selectedInstanceId]);
 
     const allPlatforms = useMemo(() => {
         const ps = new Set<string>();
@@ -742,20 +758,49 @@ export default function DiscoverPage() {
                         )}
                         <CustomSelect label="Year" icon={<Calendar size={11} />} options={allYears.map(y => ({ id: y, name: y }))} value={filterYear} onChange={val => setFilterYear(val)} />
 
-                        <div className="space-y-2">
-                            <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center gap-1.5"><TrendingUp size={11} /> Sort</label>
-                            <div className="space-y-1">{[{ id: 'popularity', label: 'Trending First' }, { id: 'year', label: 'Newest First' }, { id: 'alphabetical', label: 'Alphabetical' }].map(s => <button key={s.id} onClick={() => setSortBy(s.id as any)} className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-all border ${sortBy === s.id ? 'bg-zinc-800 text-white border-zinc-700' : 'text-zinc-600 border-transparent hover:text-zinc-400'}`}>{s.label}</button>)}</div>
-                        </div>
                     </div>
                 )}
 
                 <div className="flex-1 min-w-0 space-y-5">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                         <h2 className="text-lg font-bold text-white flex items-center gap-2">
                             {pageMode === 'discover' ? (searchQuery ? `Results for "${searchQuery}"` : 'Trending Now') : 'My Library'}
                             <span className="bg-zinc-900 text-zinc-500 text-[10px] font-black px-2 py-0.5 rounded-full border border-zinc-800">{displayItems.length}</span>
                         </h2>
-                        {pageMode === 'discover' && !showFilters && <button onClick={() => setShowFilters(true)} className="flex items-center gap-1.5 text-[10px] font-black text-zinc-500 hover:text-zinc-300 uppercase tracking-widest"><Filter size={12} /> Filters</button>}
+
+                        <div className="flex items-center gap-3">
+                            <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-900">
+                                {[
+                                    { id: 'popularity', label: 'Popularity', icon: <TrendingUp size={12} /> },
+                                    { id: 'year', label: 'Year', icon: <Calendar size={12} /> },
+                                    { id: 'alphabetical', label: 'A-Z', icon: <Rows size={12} /> }
+                                ].map(s => (
+                                    <button
+                                        key={s.id}
+                                        onClick={() => setSortBy(s.id as any)}
+                                        className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-tight transition-all ${sortBy === s.id ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                    >
+                                        {s.icon} {s.label}
+                                    </button>
+                                ))}
+                            </div>
+
+                            <button
+                                onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+                                className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-900 text-zinc-500 hover:text-white hover:border-zinc-700 transition-all"
+                                title={sortOrder === 'desc' ? 'Descending' : 'Ascending'}
+                            >
+                                <div className={`transition-transform duration-300 ${sortOrder === 'asc' ? 'rotate-180' : ''}`}>
+                                    <ChevronDown size={14} />
+                                </div>
+                            </button>
+
+                            {pageMode === 'discover' && !showFilters && (
+                                <button onClick={() => setShowFilters(true)} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-900 text-[10px] font-black text-zinc-500 hover:text-zinc-300 uppercase tracking-widest transition-all">
+                                    <Filter size={12} /> Filters
+                                </button>
+                            )}
+                        </div>
                     </div>
 
                     {availableInstances.length === 0 && pageMode === 'discover' ? (

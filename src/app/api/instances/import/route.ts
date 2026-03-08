@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { addInstance, updateInstance, getInstanceById, getInstances, Instance } from '@/lib/db';
+import { addInstance, updateInstance, getInstanceById, getInstances, Instance, setSetting } from '@/lib/db';
 import { decrypt } from '@/lib/encryption';
 
 export const dynamic = 'force-dynamic';
@@ -12,15 +12,31 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: 'Encrypted data and password are required' }, { status: 400 });
         }
 
-        let instances: Instance[];
+        let importData: any;
         try {
-            instances = decrypt(encryptedData, password);
+            importData = decrypt(encryptedData, password);
         } catch (e) {
             return NextResponse.json({ error: 'Incorrect password or invalid data format' }, { status: 401 });
         }
 
+        let instances: Instance[] = [];
+        let settings: Record<string, string> = {};
+
+        if (Array.isArray(importData)) {
+            // Legacy backup
+            instances = importData;
+        } else {
+            instances = importData.instances || [];
+            settings = importData.settings || {};
+        }
+
         if (!Array.isArray(instances)) {
             return NextResponse.json({ error: 'Invalid data structure in backup' }, { status: 400 });
+        }
+
+        // Import settings
+        for (const [key, value] of Object.entries(settings)) {
+            setSetting(key, value as string);
         }
 
         // Fetch all existing instances once for efficient matching
