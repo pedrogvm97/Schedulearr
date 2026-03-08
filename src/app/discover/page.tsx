@@ -426,6 +426,18 @@ export default function DiscoverPage() {
     const [excludeUnmonitored, setExcludeUnmonitored] = useState(true);
 
     const [serverTotalPages, setServerTotalPages] = useState(1);
+    const [localRating, setLocalRating] = useState<number>(filterRating);
+
+    // Debounce rating changes to avoid flickering and excessive API calls
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            if (localRating !== filterRating) {
+                setFilterRating(localRating);
+                setCurrentPage(0);
+            }
+        }, 600);
+        return () => clearTimeout(timer);
+    }, [localRating, filterRating]);
 
     const availableInstances = useMemo(() =>
         instances.filter((inst: Instance) =>
@@ -510,7 +522,10 @@ export default function DiscoverPage() {
         } finally {
             setResults(fetchedData);
             setServerTotalPages(totalP);
-            window.scrollTo({ top: 0, behavior: 'smooth' });
+            // Only scroll to top if we are changing pages, not just filtering
+            if (pageNum !== currentPage) {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
             setIsSearching(false);
         }
     }, [mediaType, selectedInstanceIds, availableInstances, filterPlatform, filterGenre, filterRating, currentPage]);
@@ -679,11 +694,17 @@ export default function DiscoverPage() {
             });
         }
         if (filterYear !== 'All') items = items.filter(i => i.year?.toString() === filterYear);
-        if (filterRating > 0) items = items.filter(i => (i.ratings?.value || i.ratings?.votes || i.vote_average || 0) >= filterRating);
+        if (filterRating > 0) {
+            items = items.filter(i => {
+                const r = i.ratings?.value ?? i.vote_average ?? 0;
+                return r >= filterRating;
+            });
+        }
 
         items.sort((a, b) => {
             let comparison = 0;
             if (sortBy === 'popularity') {
+                // Higher popularity or vote count first
                 const popA = a.popularity || a.ratings?.votes || 0;
                 const popB = b.popularity || b.ratings?.votes || 0;
                 comparison = popA - popB;
@@ -691,7 +712,7 @@ export default function DiscoverPage() {
                 comparison = (a.year || 0) - (b.year || 0);
             } else if (sortBy === 'alphabetical') {
                 comparison = (a.title || '').localeCompare(b.title || '');
-            } else if (sortBy === 'size') { // 'size' is not applicable for discovery, but included for consistency
+            } else if (sortBy === 'size') {
                 const sizeA = a.sizeOnDisk || a.statistics?.sizeOnDisk || 0;
                 const sizeB = b.sizeOnDisk || b.statistics?.sizeOnDisk || 0;
                 comparison = sizeA - sizeB;
@@ -936,14 +957,17 @@ export default function DiscoverPage() {
                             <CustomSelect label="Year" icon={<Calendar size={11} />} options={allYears.map(y => ({ id: y, name: y }))} value={filterYear} onChange={val => setFilterYear(val)} />
 
                             <div className="space-y-3">
-                                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center gap-1.5"><Star size={11} /> Minimum Rating ({filterRating})</label>
+                                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center justify-between">
+                                    <span className="flex items-center gap-1.5"><Star size={11} /> Minimum Rating</span>
+                                    <span className="text-emerald-500">{localRating}</span>
+                                </label>
                                 <input
                                     type="range"
                                     min="0"
                                     max="10"
                                     step="0.5"
-                                    value={filterRating}
-                                    onChange={e => setFilterRating(parseFloat(e.target.value))}
+                                    value={localRating}
+                                    onChange={e => setLocalRating(parseFloat(e.target.value))}
                                     className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500 hover:accent-emerald-400 transition-all"
                                 />
                                 <div className="flex justify-between text-[8px] font-black text-zinc-700 uppercase tracking-tighter">

@@ -86,11 +86,11 @@ export const getPersonCredits = async (apiKey: string, personId: number): Promis
     }
 };
 
-export const TMDB_PROVIDERS: Record<string, number> = {
+export const TMDB_PROVIDERS: Record<string, string | number> = {
     'Netflix': 8,
-    'HBO': 118,
+    'HBO': '118|1899|384', // HBO, Max, HBO Max
     'Disney+': 337,
-    'Amazon': 9,
+    'Amazon': '119|9|10', // Prime Video, Amazon Video
     'Apple TV+': 350,
     'Hulu': 15,
     'Paramount+': 531,
@@ -132,7 +132,7 @@ export const TMDB_REVERSE_GENRES: Record<number, string> = Object.entries(TMDB_G
     return acc;
 }, {} as Record<number, string>);
 
-export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', providerId?: number, genreId?: number, minRating: number = 0, page: number = 1): Promise<TMDBPaginatedResponse> => {
+export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', providerId?: string | number, genreId?: number, minRating: number = 0, page: number = 1): Promise<TMDBPaginatedResponse> => {
     try {
         const params: any = {
             api_key: apiKey,
@@ -140,7 +140,8 @@ export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', provide
             include_adult: false,
             include_video: false,
             page: page,
-            watch_region: 'US'
+            watch_region: 'US',
+            watch_monetization_types: 'flatrate|free'
         };
 
         if (providerId) {
@@ -153,7 +154,8 @@ export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', provide
 
         if (minRating > 0) {
             params['vote_average.gte'] = minRating;
-            params['vote_count.gte'] = 50; // Ensure some reliability for high ratings
+            // Relax vote count requirement for high ratings to ensure results for specific providers/genres
+            params['vote_count.gte'] = minRating >= 8 ? 20 : 50;
         }
 
         const response = await axios.get(`${BASE_URL}/discover/${type === 'movie' ? 'movie' : 'tv'}`, { params });
