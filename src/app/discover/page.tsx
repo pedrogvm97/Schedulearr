@@ -14,6 +14,7 @@ import { toast, Toaster } from 'sonner';
 import { CustomSelect } from '@/components/CustomSelect';
 import { twColorToHex } from '@/lib/instanceColor';
 import { SchedulerQueuePanel } from '@/components/SchedulerQueuePanel';
+import { MediaDetailsPanel } from '@/components/MediaDetailsPanel';
 
 interface Instance {
     id: string;
@@ -276,24 +277,43 @@ function MyMediaCard({ item, viewMode, onRefresh, expandAll, excludeUnmonitored,
 // ──────────────────────────────────────────────
 // Discovery Card
 // ──────────────────────────────────────────────
-function DiscoveryCard({ item, isAdding, hasBeenAdded, onAdd, viewMode }: {
-    item: any; isAdding: boolean; hasBeenAdded: boolean; onAdd: () => void; viewMode: 'grid' | 'list';
+function DiscoveryCard({ item, isAdding, hasBeenAdded, onAdd, viewMode, onShowDetails }: {
+    item: any; isAdding: boolean; hasBeenAdded: boolean; onAdd: () => void; viewMode: 'grid' | 'list'; onShowDetails?: () => void;
 }) {
     const poster = item.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || item.remotePoster;
     const rating = item.ratings?.value;
     const platform = getPlatformBadge(item);
 
+    const libStatus = useMemo(() => {
+        const id = item.tmdbId || item.tvdbId;
+        // In this scope, isInLibrary is not yet defined if it's outside. 
+        // But in discover/page.tsx, DiscoveryCard is defined before DiscoverPage.
+        // Actually it's better to pass libStatus as a prop or define DiscoveryCard inside DiscoverPage.
+        // I'll move DiscoveryCard inside DiscoverPage to simplify or pass the status object.
+        return { exists: hasBeenAdded, hasFile: item.hasFile || false, isDownloading: item.isDownloading || false };
+    }, [item, hasBeenAdded]);
+
     if (viewMode === 'list') {
         return (
             <div className="group bg-zinc-950/40 border border-zinc-900 rounded-2xl p-4 flex gap-5 hover:border-zinc-800 transition-all items-center">
-                <div className="w-16 aspect-[2/3] rounded-xl overflow-hidden bg-zinc-900 flex-shrink-0">
+                <div
+                    className="w-16 aspect-[2/3] rounded-xl overflow-hidden bg-zinc-900 flex-shrink-0 cursor-pointer"
+                    onClick={onShowDetails}
+                >
                     {poster ? <img src={poster} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-zinc-800"><Film size={20} /></div>}
                 </div>
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <h3 className="font-bold text-white truncate">{item.title}</h3>
+                        <h3 className="font-bold text-white truncate cursor-pointer hover:text-emerald-400" onClick={onShowDetails}>{item.title}</h3>
                         {platform && <span className={`px-2 py-0.5 rounded text-[9px] font-black border ${platform.color}`}>{platform.label}</span>}
-                        {hasBeenAdded && <span className="px-2 py-0.5 rounded text-[9px] font-black border border-emerald-500/30 text-emerald-400 bg-emerald-500/10">IN LIBRARY</span>}
+                        {libStatus.exists && (
+                            <span className={`px-2 py-0.5 rounded text-[9px] font-black border ${libStatus.hasFile ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
+                                libStatus.isDownloading ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' :
+                                    'bg-blue-500/10 text-blue-400 border-blue-500/30'
+                                }`}>
+                                {libStatus.hasFile ? 'AVAILABLE' : libStatus.isDownloading ? 'DOWNLOADING' : 'IN LIBRARY'}
+                            </span>
+                        )}
                     </div>
                     <div className="flex items-center gap-3 text-xs text-zinc-500">
                         {item.year && <span>{item.year}</span>}
@@ -303,11 +323,11 @@ function DiscoveryCard({ item, isAdding, hasBeenAdded, onAdd, viewMode }: {
                 </div>
                 <button
                     onClick={onAdd}
-                    disabled={isAdding || hasBeenAdded}
-                    className={`px-5 py-2.5 rounded-xl font-black text-xs transition-all flex items-center gap-2 ${hasBeenAdded ? 'text-emerald-500/50 bg-zinc-900' : 'bg-white text-black hover:bg-emerald-400'}`}
+                    disabled={isAdding || libStatus.exists}
+                    className={`px-5 py-2.5 rounded-xl font-black text-xs transition-all flex items-center gap-2 ${libStatus.exists ? 'text-emerald-500/50 bg-zinc-900' : 'bg-white text-black hover:bg-emerald-400'}`}
                 >
-                    {isAdding ? <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> : hasBeenAdded ? <CheckCircle size={14} /> : <Plus size={14} />}
-                    {isAdding ? 'Adding' : hasBeenAdded ? 'Added' : 'Add'}
+                    {isAdding ? <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> : libStatus.exists ? <CheckCircle size={14} /> : <Plus size={14} />}
+                    {isAdding ? 'Adding' : libStatus.exists ? (libStatus.hasFile ? 'Available' : 'In Library') : 'Add'}
                 </button>
             </div>
         );
@@ -315,7 +335,7 @@ function DiscoveryCard({ item, isAdding, hasBeenAdded, onAdd, viewMode }: {
 
     return (
         <div className="group flex flex-col bg-[#090909] border border-zinc-900 hover:border-zinc-800 rounded-[2rem] overflow-hidden transition-all duration-500 shadow-2xl hover:-translate-y-1">
-            <div className="relative aspect-[2/3] overflow-hidden">
+            <div className="relative aspect-[2/3] overflow-hidden cursor-pointer" onClick={onShowDetails}>
                 {poster
                     ? <img src={poster} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
                     : <div className="w-full h-full bg-zinc-900 flex items-center justify-center text-zinc-800"><Film size={48} /></div>}
@@ -325,7 +345,14 @@ function DiscoveryCard({ item, isAdding, hasBeenAdded, onAdd, viewMode }: {
                         {platform && <span className={`w-fit px-2.5 py-1 rounded-lg text-[9px] font-black border backdrop-blur-sm ${platform.color}`}>{platform.label}</span>}
                         {rating != null && <span className="w-fit flex items-center gap-1 px-2.5 py-1 rounded-lg bg-black/60 backdrop-blur-sm border border-white/10 text-[9px] font-black text-amber-400">★ {rating.toFixed(1)}</span>}
                     </div>
-                    {hasBeenAdded && <div className="p-1.5 bg-emerald-500 rounded-full shadow-[0_0_15px_rgba(16,185,129,0.6)]"><CheckCircle size={14} className="text-black" /></div>}
+                    {libStatus.exists && (
+                        <div className={`p-1.5 rounded-full shadow-lg ${libStatus.hasFile ? 'bg-emerald-500' :
+                            libStatus.isDownloading ? 'bg-amber-500' :
+                                'bg-blue-500'
+                            }`}>
+                            <CheckCircle size={14} className="text-black" />
+                        </div>
+                    )}
                 </div>
                 <div className="absolute bottom-4 left-4 right-4">
                     <h3 className="text-base font-black text-white leading-tight line-clamp-2 drop-shadow-lg">{item.title}</h3>
@@ -337,14 +364,16 @@ function DiscoveryCard({ item, isAdding, hasBeenAdded, onAdd, viewMode }: {
             </div>
             <div className="p-5 pt-2">
                 <p className="text-xs text-zinc-600 line-clamp-2 mb-4 h-8">{item.overview || ''}</p>
-                <button
-                    onClick={onAdd}
-                    disabled={isAdding || hasBeenAdded}
-                    className={`w-full py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${hasBeenAdded ? 'bg-zinc-900/50 text-emerald-500/40 cursor-not-allowed' : 'bg-white text-black hover:bg-emerald-400 shadow-lg'}`}
-                >
-                    {isAdding ? <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin" /> : hasBeenAdded ? <CheckCircle size={14} /> : <Plus size={14} />}
-                    {isAdding ? 'Adding...' : hasBeenAdded ? 'In Library' : 'Add to Library'}
-                </button>
+                <div className="flex gap-2">
+                    <button
+                        onClick={onAdd}
+                        disabled={isAdding || libStatus.exists}
+                        className={`flex-1 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${libStatus.exists ? 'bg-zinc-900/50 text-emerald-500/40 cursor-not-allowed' : 'bg-white text-black hover:bg-emerald-400 shadow-lg'}`}
+                    >
+                        {isAdding ? <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin" /> : libStatus.exists ? <CheckCircle size={14} /> : <Plus size={14} />}
+                        {isAdding ? 'Adding...' : libStatus.exists ? (libStatus.hasFile ? 'Available' : 'In Library') : 'Add to Library'}
+                    </button>
+                </div>
             </div>
         </div>
     );
@@ -362,15 +391,17 @@ export default function DiscoverPage() {
     const [libraryItems, setLibraryItems] = useState<any[]>([]);
     const [libraryLoading, setLibraryLoading] = useState(false);
 
-    // Library cross-reference set (tmdbIds + tvdbIds that are in library)
-    const [librarySet, setLibrarySet] = useState<Set<number>>(new Set());
+    // Library cross-reference Map (tmdbId -> { hasFile, isDownloading, instances: {id, name}[] })
+    const [libraryMap, setLibraryMap] = useState<Map<number, { hasFile: boolean; isDownloading: boolean; instances: { id: string; name: string }[] }>>(new Map());
 
     // Instances & config
     const [instances, setInstances] = useState<Instance[]>([]);
-    const [selectedInstanceId, setSelectedInstanceId] = useState<string>('');
+    const [selectedInstanceIds, setSelectedInstanceIds] = useState<string[]>([]);
     const [profiles, setProfiles] = useState<QualityProfile[]>([]);
     const [selectedProfileId, setSelectedProfileId] = useState<number>(0);
     const [rootFolders, setRootFolders] = useState<RootFolder[]>([]);
+    const [tmdbApiKey, setTmdbApiKey] = useState<string>('');
+    const [showDetailsFor, setShowDetailsFor] = useState<any>(null);
     const [selectedRootFolderId, setSelectedRootFolderId] = useState<number>(0);
 
     // UI
@@ -395,10 +426,13 @@ export default function DiscoverPage() {
     // Reset page on filter/mode/type change
     useEffect(() => { setCurrentPage(0); }, [filterGenre, filterPlatform, filterYear, mediaType, pageMode, searchQuery]);
 
-    // ── Load instances ──
+    // ── Load config ──
     useEffect(() => {
         fetch('/api/instances').then(r => r.ok ? r.json() : []).then(data => {
             if (Array.isArray(data)) setInstances(data);
+        });
+        fetch('/api/settings').then(r => r.ok ? r.json() : {}).then((data: any) => {
+            if (data.tmdb_api_key) setTmdbApiKey(data.tmdb_api_key);
         });
     }, []);
 
@@ -409,10 +443,10 @@ export default function DiscoverPage() {
 
     // Auto-select first instance for browsing ONLY if none selected
     useEffect(() => {
-        if (availableInstances.length > 0 && !selectedInstanceId) {
-            setSelectedInstanceId(availableInstances[0].id);
+        if (availableInstances.length > 0 && selectedInstanceIds.length === 0) {
+            setSelectedInstanceIds([availableInstances[0].id]);
         }
-    }, [availableInstances, selectedInstanceId]);
+    }, [availableInstances, selectedInstanceIds]);
 
     // ── Load library (for cross-referencing) ──
     const loadLibrary = useCallback(async () => {
@@ -421,8 +455,25 @@ export default function DiscoverPage() {
         const data = await fetch(endpoint).then(r => r.ok ? r.json() : []).catch(() => []);
         const items = Array.isArray(data) ? data : [];
         setLibraryItems(items);
-        const ids = new Set<number>(items.flatMap((m: any) => [m.tmdbId, m.tvdbId].filter(Boolean)));
-        setLibrarySet(ids);
+
+        // Build a Map for efficient status checking
+        const map = new Map<number, { hasFile: boolean; isDownloading: boolean; instances: { id: string; name: string }[] }>();
+        items.forEach((item: any) => {
+            const ids = [item.tmdbId, item.tvdbId].filter(Boolean);
+            ids.forEach(id => {
+                const existing = map.get(id);
+                const itemInstances = existing ? existing.instances : [];
+                if (!itemInstances.some(i => i.id === item.instanceId)) {
+                    itemInstances.push({ id: item.instanceId, name: item.instanceName || 'Unknown' });
+                }
+                map.set(id, {
+                    hasFile: (existing?.hasFile || item.hasFile || item.statistics?.percentOfEpisodes === 100) ?? false,
+                    isDownloading: (existing?.isDownloading || item.isDownloading || (item.queuedEpisodeIds?.length > 0)) ?? false,
+                    instances: itemInstances
+                });
+            });
+        });
+        setLibraryMap(map);
         setLibraryLoading(false);
     }, [mediaType]);
 
@@ -430,8 +481,8 @@ export default function DiscoverPage() {
 
     // ── Discovery: load *arr trending/discovery ──
     const handleDiscovery = useCallback(async () => {
-        // Use selectedInstanceId or fallback to the first available one of correct type
-        let targetId = selectedInstanceId;
+        // Use first selected instance or fallback to basic discover
+        let targetId = selectedInstanceIds[0];
         if (!targetId && availableInstances.length > 0) {
             targetId = availableInstances[0].id;
         }
@@ -460,7 +511,7 @@ export default function DiscoverPage() {
         } finally {
             setIsSearching(false);
         }
-    }, [mediaType, selectedInstanceId, availableInstances, filterPlatform, filterGenre]);
+    }, [mediaType, selectedInstanceIds, availableInstances, filterPlatform, filterGenre]);
 
     // ── Trigger discovery on load / type / platform / genre change ──
     useEffect(() => {
@@ -543,7 +594,7 @@ export default function DiscoverPage() {
     // ── Search ──
     const handleSearch = async (e?: React.FormEvent | null) => {
         if (e) e.preventDefault();
-        const targetId = selectedInstanceId || (availableInstances.length > 0 ? availableInstances[0].id : '');
+        const targetId = selectedInstanceIds[0] || (availableInstances.length > 0 ? availableInstances[0].id : '');
         if (!searchQuery.trim() || !targetId) return;
         setIsSearching(true);
         setResults([]);
@@ -585,9 +636,11 @@ export default function DiscoverPage() {
                 toast.success(`Added ${item.title}!`);
                 setIsAddModalOpen(false);
                 setSelectedItemForAdd(null);
+
+                // Refresh library map
+                loadLibrary();
+
                 if (added?.id) {
-                    const newId = item.tmdbId || item.tvdbId;
-                    if (newId) setLibrarySet(prev => new Set([...prev, newId]));
                     setResults(prev => prev.map(r => {
                         const rId = r.tmdbId ? `tmdb-${r.tmdbId}` : `tvdb-${r.tvdbId}`;
                         return rId === idStr ? { ...r, id: added.id } : r;
@@ -605,10 +658,12 @@ export default function DiscoverPage() {
     };
 
     // ── Filtering ──
-    const isInLibrary = (item: any): boolean => {
-        return (typeof item.id === 'number' && item.id > 0) ||
-            (item.tmdbId && librarySet.has(item.tmdbId)) ||
-            (item.tvdbId && librarySet.has(item.tvdbId));
+    const isInLibrary = (item: any) => {
+        const id = item.tmdbId || item.tvdbId;
+        if (!id) return { exists: false, hasFile: false, isDownloading: false };
+        const status = libraryMap.get(id);
+        if (status) return { exists: true, ...status };
+        return { exists: (typeof item.id === 'number' && item.id > 0), hasFile: false, isDownloading: false };
     };
 
     useEffect(() => {
@@ -651,8 +706,8 @@ export default function DiscoverPage() {
 
     const filteredLibrary = useMemo(() => {
         let items = [...libraryItems];
-        if (selectedInstanceId) {
-            items = items.filter(i => i.instanceId === selectedInstanceId);
+        if (selectedInstanceIds.length > 0) {
+            items = items.filter(i => selectedInstanceIds.includes(i.instanceId));
         } else {
             items = items.filter(i =>
                 i.instanceId && instances.some(inst => inst.type === (mediaType === 'movie' ? 'radarr' : 'sonarr') && inst.id === i.instanceId)
@@ -674,7 +729,7 @@ export default function DiscoverPage() {
             return sortOrder === 'desc' ? comparison : -comparison;
         });
         return items;
-    }, [libraryItems, instances, mediaType, searchQuery, filterGenre, filterYear, sortBy, sortOrder, selectedInstanceId]);
+    }, [libraryItems, instances, mediaType, searchQuery, filterGenre, filterYear, sortBy, sortOrder, selectedInstanceIds]);
 
     const allPlatforms = useMemo(() => {
         const ps = new Set<string>();
@@ -727,12 +782,18 @@ export default function DiscoverPage() {
                 {pageMode === 'mylibrary' && (
                     <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/50 overflow-x-auto gap-1 max-w-full">
                         {availableInstances.map(inst => {
-                            const isSelected = selectedInstanceId === inst.id;
+                            const isSelected = selectedInstanceIds.includes(inst.id);
                             const hex = inst.colorHex || '#3b82f6';
                             return (
                                 <button
                                     key={inst.id}
-                                    onClick={() => setSelectedInstanceId(inst.id)}
+                                    onClick={() => {
+                                        setSelectedInstanceIds(prev =>
+                                            prev.includes(inst.id)
+                                                ? (prev.length > 1 ? prev.filter(id => id !== inst.id) : prev)
+                                                : [...prev, inst.id]
+                                        );
+                                    }}
                                     className="flex items-center gap-2 px-5 py-2.5 text-xs font-bold rounded-xl border transition-all whitespace-nowrap"
                                     style={isSelected ? { backgroundColor: `${hex}22`, borderColor: `${hex}66`, color: hex } : { borderColor: 'transparent', color: '#52525b' }}
                                 >
@@ -883,7 +944,7 @@ export default function DiscoverPage() {
                                 <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5' : 'space-y-3'}>
                                     {pageItems.map((item, idx) => {
                                         if (pageMode === 'mylibrary') return <MyMediaCard key={`${item.instanceId}-${item.id}-${idx}`} item={item} viewMode={viewMode} onRefresh={loadLibrary} expandAll={expandAll} excludeUnmonitored={excludeUnmonitored} onDelete={() => handleDelete(item)} onTransfer={() => setTransferTarget(item)} />;
-                                        return <DiscoveryCard key={item.tmdbId ? `tmdb-${item.tmdbId}` : `tvdb-${item.tvdbId}`} item={item} isAdding={addingItemStr === (item.tmdbId ? `tmdb-${item.tmdbId}` : `tvdb-${item.tvdbId}`)} hasBeenAdded={isInLibrary(item)} onAdd={() => handleAdd(item)} viewMode={viewMode} />;
+                                        return <DiscoveryCard key={item.tmdbId ? `tmdb-${item.tmdbId}` : `tvdb-${item.tvdbId}`} item={item} isAdding={addingItemStr === (item.tmdbId ? `tmdb-${item.tmdbId}` : `tvdb-${item.tvdbId}`)} hasBeenAdded={isInLibrary(item).exists} onAdd={() => handleAdd(item)} viewMode={viewMode} onShowDetails={() => setShowDetailsFor(item)} />;
                                     })}
                                 </div>
                                 {totalPages > 1 && (
@@ -938,6 +999,18 @@ export default function DiscoverPage() {
                         />
                     </div>
                 </div>
+            )}
+
+            {/* Media Details Panel */}
+            {showDetailsFor && (
+                <MediaDetailsPanel
+                    item={showDetailsFor}
+                    tmdbApiKey={tmdbApiKey}
+                    onClose={() => setShowDetailsFor(null)}
+                    onSelectRecommended={(rec) => {
+                        setShowDetailsFor(rec);
+                    }}
+                />
             )}
         </div>
     );

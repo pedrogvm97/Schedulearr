@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getInstanceById, getSetting } from '@/lib/db';
 import { searchMovies } from '@/lib/radarr';
-import { getTrending, discoverTMDB, TMDB_PROVIDERS, TMDB_GENRES, TMDB_REVERSE_GENRES } from '@/lib/tmdb';
+import { getTrending, searchTMDB, discoverTMDB, TMDB_PROVIDERS, TMDB_GENRES, TMDB_REVERSE_GENRES } from '@/lib/tmdb';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,17 +26,23 @@ export async function GET(request: Request) {
 
         const tmdbApiKey = getSetting('tmdb_api_key');
 
-        if (!searchTerm && tmdbApiKey) {
-            console.log(`[LOOKUP] Using TMDB for discovery (Platform: ${platform || 'Any'}, Genre: ${genre || 'Any'})`);
+        // Use TMDB for discovery or text search if API key is available
+        if (tmdbApiKey) {
+            console.log(`[LOOKUP] Using TMDB for ${searchTerm ? 'search' : 'discovery'} (Term: ${searchTerm}, Platform: ${platform || 'Any'}, Genre: ${genre || 'Any'})`);
 
             let tmdbResults = [];
-            const genreId = genre ? TMDB_GENRES[genre] : undefined;
-            const providerId = platform ? TMDB_PROVIDERS[platform] : undefined;
 
-            if (providerId || genreId) {
-                tmdbResults = await discoverTMDB(tmdbApiKey, 'movie', providerId, genreId);
+            if (searchTerm) {
+                tmdbResults = await searchTMDB(tmdbApiKey, searchTerm, 'movie');
             } else {
-                tmdbResults = await getTrending(tmdbApiKey, 'movie');
+                const genreId = genre ? TMDB_GENRES[genre] : undefined;
+                const providerId = platform ? TMDB_PROVIDERS[platform] : undefined;
+
+                if (providerId || genreId) {
+                    tmdbResults = await discoverTMDB(tmdbApiKey, 'movie', providerId, genreId);
+                } else {
+                    tmdbResults = await getTrending(tmdbApiKey, 'movie');
+                }
             }
 
             const mappedResults = tmdbResults.map(m => ({
@@ -53,6 +59,7 @@ export async function GET(request: Request) {
             return NextResponse.json(mappedResults);
         }
 
+        // Fallback to Radarr lookup if no TMDB key
         const results = await searchMovies(instance.url, instance.api_key, searchTerm);
 
         const mappedSearch = results.map(m => ({

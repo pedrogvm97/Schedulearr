@@ -73,7 +73,7 @@ export function CustomSelect({
             </button>
 
             {isOpen && (
-                <div className="absolute z-[100] w-full mt-3 bg-[#0a0a0a]/95 backdrop-blur-xl border border-zinc-800/50 rounded-[1.5rem] shadow-[0_30px_60px_rgba(0,0,0,0.8),0_0_0_1px_rgba(255,255,255,0.05)] overflow-hidden animate-in fade-in zoom-in-95 duration-300 ease-out">
+                <div className="absolute z-[100] min-w-[80px] w-max mt-3 bg-[#0a0a0a]/95 backdrop-blur-xl border border-zinc-800/50 rounded-[1.5rem] shadow-[0_30px_60px_rgba(0,0,0,0.8),0_0_0_1px_rgba(255,255,255,0.05)] overflow-hidden animate-in fade-in zoom-in-95 duration-300 ease-out">
                     <div className="max-h-[320px] overflow-y-auto custom-scrollbar p-2 space-y-1">
                         {options.length === 0 ? (
                             <div className="px-4 py-8 text-center text-zinc-600 font-bold text-[10px] uppercase tracking-widest">

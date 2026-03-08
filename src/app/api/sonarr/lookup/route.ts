@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getInstanceById, getSetting } from '@/lib/db';
 import { searchSeries } from '@/lib/sonarr';
-import { getTrending, discoverTMDB, TMDB_PROVIDERS, TMDB_GENRES, TMDB_REVERSE_GENRES } from '@/lib/tmdb';
+import { getTrending, searchTMDB, discoverTMDB, TMDB_PROVIDERS, TMDB_GENRES, TMDB_REVERSE_GENRES } from '@/lib/tmdb';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,21 +26,26 @@ export async function GET(request: Request) {
 
         const tmdbApiKey = getSetting('tmdb_api_key');
 
-        // Auto-discovery mode (no search term): use TMDB
-        if (!searchTerm && tmdbApiKey) {
-            console.log(`[LOOKUP] TMDB discovery (series, Platform: ${platform || 'Any'}, Genre: ${genre || 'Any'})`);
+        // Use TMDB for discovery or text search if API key is available
+        if (tmdbApiKey) {
+            console.log(`[LOOKUP] TMDB ${searchTerm ? 'search' : 'discovery'} (series, Term: ${searchTerm}, Platform: ${platform || 'Any'}, Genre: ${genre || 'Any'})`);
 
-            const genreId = genre ? TMDB_GENRES[genre] : undefined;
-            const providerId = platform ? TMDB_PROVIDERS[platform] : undefined;
+            let tmdbResults = [];
 
-            let tmdbResults: any[] = [];
-            if (providerId || genreId) {
-                tmdbResults = await discoverTMDB(tmdbApiKey, 'tv', providerId, genreId);
+            if (searchTerm) {
+                tmdbResults = await searchTMDB(tmdbApiKey, searchTerm, 'tv');
             } else {
-                tmdbResults = await getTrending(tmdbApiKey, 'tv');
+                const genreId = genre ? TMDB_GENRES[genre] : undefined;
+                const providerId = platform ? TMDB_PROVIDERS[platform] : undefined;
+
+                if (providerId || genreId) {
+                    tmdbResults = await discoverTMDB(tmdbApiKey, 'tv', providerId, genreId);
+                } else {
+                    tmdbResults = await getTrending(tmdbApiKey, 'tv');
+                }
             }
 
-            // Map WITHOUT per-result detail fetches (those were causing timeouts and empty results)
+            // Map results WITHOUT per-result detail fetches (those were causing timeouts and empty results)
             // TVDB ID is resolved on-demand when the user adds the show via Sonarr lookup
             const mappedResults = tmdbResults.map((m: any) => ({
                 title: m.name,
