@@ -39,11 +39,12 @@ export default function Downloads() {
     // Auto-Cleanup State
     const [qbitCleanupEnabled, setQbitCleanupEnabled] = useState(false);
     const [qbitCleanupIntervalMin, setQbitCleanupIntervalMin] = useState(15);
+    const [qbitStagnationEnabled, setQbitStagnationEnabled] = useState(true);
     const [qbitStagnationMin, setQbitStagnationMin] = useState(60);
     const [qbitDeleteFiles, setQbitDeleteFiles] = useState(true);
     const [qbitBlacklist, setQbitBlacklist] = useState(true);
     const [qbitSizeCleanupEnabled, setQbitSizeCleanupEnabled] = useState(false);
-    const [qbitMaxSizeGb, setQbitMaxSizeGb] = useState(100);
+    const [qbitMaxSizeGb, setQbitMaxSizeGb] = useState(15);
     const [isCleanupSettingsOpen, setIsCleanupSettingsOpen] = useState(false);
 
     const fetchTorrents = async () => {
@@ -67,6 +68,7 @@ export default function Downloads() {
 
             if (data.qbit_cleanup_enabled === 'true') setQbitCleanupEnabled(true);
             if (data.qbit_cleanup_interval_min) setQbitCleanupIntervalMin(parseInt(data.qbit_cleanup_interval_min));
+            if (data.qbit_cleanup_stagnation_enabled === 'false') setQbitStagnationEnabled(false);
             if (data.qbit_cleanup_stagnation_min) setQbitStagnationMin(parseInt(data.qbit_cleanup_stagnation_min));
             if (data.qbit_cleanup_delete_files === 'false') setQbitDeleteFiles(false);
             if (data.qbit_cleanup_blacklist === 'false') setQbitBlacklist(false);
@@ -256,17 +258,30 @@ export default function Downloads() {
                             </div>
 
                             <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-3 flex-1 flex flex-col justify-center min-h-[140px]">
-                                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Stagnation (Minutes)</label>
+                                <div className="flex items-center justify-between mb-1">
+                                    <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Stagnation (Minutes)</label>
+                                    <button
+                                        onClick={() => {
+                                            const next = !qbitStagnationEnabled;
+                                            setQbitStagnationEnabled(next);
+                                            updateSetting('qbit_cleanup_stagnation_enabled', next);
+                                        }}
+                                        className={`w-10 h-5 rounded-full transition-all relative ${qbitStagnationEnabled ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-zinc-700'}`}
+                                    >
+                                        <div className={`w-3 h-3 rounded-full bg-white absolute top-1 transition-all ${qbitStagnationEnabled ? 'left-6' : 'left-1'}`} />
+                                    </button>
+                                </div>
                                 <input
                                     type="number"
                                     min="1"
+                                    disabled={!qbitStagnationEnabled}
                                     value={qbitStagnationMin}
                                     onChange={e => {
                                         const val = parseInt(e.target.value) || 60;
                                         setQbitStagnationMin(val);
                                         updateSetting('qbit_cleanup_stagnation_min', val);
                                     }}
-                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2 text-sm text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all"
+                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2 text-sm text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all disabled:opacity-30"
                                 />
                                 <p className="text-[10px] text-zinc-500 font-medium leading-relaxed">Items with no progress changes for longer than this will be purged.</p>
                             </div>
@@ -309,11 +324,6 @@ export default function Downloads() {
                                     min="1"
                                     disabled={!qbitSizeCleanupEnabled}
                                     value={qbitMaxSizeGb}
-                                    onChange={e => {
-                                        const val = parseInt(e.target.value) || 100;
-                                        setQbitMaxSizeGb(val);
-                                        updateSetting('qbit_cleanup_max_size_gb', val);
-                                    }}
                                     className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2 text-sm text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all disabled:opacity-30"
                                 />
                                 <p className="text-[10px] text-zinc-500 font-medium leading-relaxed">Releases larger than this will be rejected and purged.</p>

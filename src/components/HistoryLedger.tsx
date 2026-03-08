@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { PackageOpen, Clock, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { PackageOpen, Clock, AlertCircle, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
 
 interface HistoryEntry {
     id: string;
@@ -76,8 +76,8 @@ export default function HistoryLedger() {
                                 </div>
                                 <div>
                                     <h4 className="text-slate-200 font-medium">
-                                        Searched {totalSearched} Items
-                                        <span className="ml-2 text-xs font-mono px-2 py-0.5 rounded-full bg-slate-900 border border-slate-700 text-emerald-400 uppercase tracking-wider">
+                                        {entry.profile === 'qBit Cleaner' ? 'Cleaner Action' : `Searched ${totalSearched} Items`}
+                                        <span className={`ml-2 text-xs font-mono px-2 py-0.5 rounded-full border uppercase tracking-wider ${entry.profile === 'qBit Cleaner' ? 'bg-red-500/10 border-red-500/50 text-red-400' : 'bg-slate-900 border-slate-700 text-emerald-400'}`}>
                                             {entry.profile.replace('_', ' ')}
                                         </span>
                                     </h4>
@@ -87,10 +87,16 @@ export default function HistoryLedger() {
                                 </div>
                             </div>
                             <div className="flex items-center space-x-4">
-                                {totalSearched === 0 && (
+                                {totalSearched === 0 && entry.profile !== 'qBit Cleaner' && (
                                     <div className="flex items-center text-sm text-yellow-500/80 bg-yellow-500/10 px-3 py-1 rounded-full">
                                         <AlertCircle size={14} className="mr-1.5" />
                                         Skipped
+                                    </div>
+                                )}
+                                {entry.profile === 'qBit Cleaner' && (
+                                    <div className="flex items-center text-sm text-red-500/80 bg-red-500/10 px-3 py-1 rounded-full border border-red-500/20">
+                                        <Trash2 size={14} className="mr-1.5" />
+                                        Cleaned
                                     </div>
                                 )}
                                 {isExpanded ? <ChevronUp size={20} className="text-slate-500" /> : <ChevronDown size={20} className="text-slate-500" />}

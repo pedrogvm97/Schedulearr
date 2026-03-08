@@ -1,4 +1,4 @@
-import { getInstances, getSetting, getTorrentActivity, updateTorrentActivity, deleteTorrentActivity } from '@/lib/db';
+import { getInstances, getSetting, getTorrentActivity, updateTorrentActivity, deleteTorrentActivity, logSearchHistory } from '@/lib/db';
 import { authenticateQbittorrent, getActiveTorrents, deleteTorrents } from '@/lib/qbittorrent';
 import { getQueue as getRadarrQueue, deleteFromQueue as deleteFromRadarrQueue } from '@/lib/radarr';
 import { getQueue as getSonarrQueue, deleteFromQueue as deleteFromSonarrQueue } from '@/lib/sonarr';
@@ -9,11 +9,12 @@ export async function runAutoCleanup() {
         return { success: true, message: 'Auto-cleanup is disabled.' };
     }
 
+    const stagnationEnabled = getSetting('qbit_cleanup_stagnation_enabled') !== 'false'; // default true
     const stagnationMin = parseInt(getSetting('qbit_cleanup_stagnation_min') || '60');
     const deleteFiles = getSetting('qbit_cleanup_delete_files') !== 'false'; // default true
     const blacklist = getSetting('qbit_cleanup_blacklist') !== 'false'; // default true
     const sizeCleanupEnabled = getSetting('qbit_cleanup_max_size_enabled') === 'true';
-    const maxSizeGb = parseInt(getSetting('qbit_cleanup_max_size_gb') || '100');
+    const maxSizeGb = parseInt(getSetting('qbit_cleanup_max_size_gb') || '15');
     const maxSizeBytes = maxSizeGb * 1024 * 1024 * 1024;
 
     const qbInstances = getInstances('qbittorrent', true);
@@ -42,6 +43,7 @@ export async function runAutoCleanup() {
     }
 
     let totalCleaned = 0;
+    const cleanupLogs: string[] = [];
 
     for (const qb of qbInstances) {
         try {
@@ -49,11 +51,19 @@ export async function runAutoCleanup() {
             const torrents = await getActiveTorrents(qb.url, cookie);
 
             // Identify items to remove (stalled, oversized, or stagnant progress)
-            const toRemove = torrents.filter(t => {
+            const toRemoveWithReason: { torrent: any; reason: string }[] = [];
+
+            for (const t of torrents) {
                 // 1. Max Size Check
                 if (sizeCleanupEnabled && t.size > maxSizeBytes) {
-                    return true;
+                    toRemoveWithReason.push({
+                        torrent: t,
+                        reason: `Oversized release (${(t.size / (1024 ** 3)).toFixed(2)}GB > ${maxSizeGb}GB)`
+                    });
+                    continue;
                 }
+
+                if (!stagnationEnabled) continue;
 
                 // 2. Filter states: only consider downloading/stalled/meta states
                 const monitoringStates = ['downloading', 'stalleddl', 'metadl', 'forceddl'];
@@ -64,7 +74,7 @@ export async function runAutoCleanup() {
                     // Item is seeding, paused, or completed - ignore for stagnation
                     // Also delete tracking info to save space
                     deleteTorrentActivity(t.hash);
-                    return false;
+                    continue;
                 }
 
                 // 3. Progress Tracking
@@ -74,30 +84,33 @@ export async function runAutoCleanup() {
                 if (!activity) {
                     // First time seeing this torrent, start tracking
                     updateTorrentActivity(t.hash, currentProgress, true); // initial timestamp
-                    return false;
+                    continue;
                 }
 
                 // If progress has changed, update tracking and reset timestamp
                 if (currentProgress > activity.last_progress) {
                     updateTorrentActivity(t.hash, currentProgress, true);
-                    return false;
+                    continue;
                 }
 
                 // Progress hasn't changed. Check how long it's been since the last change.
                 const lastChangeMs = new Date(activity.last_change + 'Z').getTime(); // Add Z for UTF
                 const minutesSinceChange = (Date.now() - lastChangeMs) / (1000 * 60);
 
-                return minutesSinceChange >= stagnationMin;
-            });
+                if (minutesSinceChange >= stagnationMin) {
+                    toRemoveWithReason.push({
+                        torrent: t,
+                        reason: `Stagnant progress (${Math.floor(minutesSinceChange)}m without change)`
+                    });
+                }
+            }
 
-            if (toRemove.length > 0) {
-                let unhandledHashes = toRemove.map(t => t.hash.toLowerCase());
+            if (toRemoveWithReason.length > 0) {
+                for (const { torrent, reason } of toRemoveWithReason) {
+                    let handled = false;
+                    const hash = torrent.hash.toLowerCase();
 
-                if (blacklist) {
-                    const hashesToProcess = [...unhandledHashes];
-                    for (const hash of hashesToProcess) {
-                        let handled = false;
-
+                    if (blacklist) {
                         // Check Radarr queues
                         for (const rq of radarrQueues) {
                             const match = rq.records.find((r: any) => r.downloadId && r.downloadId.toLowerCase() === hash);
@@ -119,23 +132,24 @@ export async function runAutoCleanup() {
                                 }
                             }
                         }
-
-                        if (handled) {
-                            unhandledHashes = unhandledHashes.filter(h => h !== hash);
-                            totalCleaned++;
-                        }
                     }
-                }
 
-                // Fallback to qbittorrent manual delete for any remaining
-                if (unhandledHashes.length > 0) {
-                    await deleteTorrents(qb.url, cookie, unhandledHashes, deleteFiles);
-                    totalCleaned += unhandledHashes.length;
+                    // Fallback to qbittorrent manual delete for any remaining or if blacklist is off
+                    if (!handled) {
+                        await deleteTorrents(qb.url, cookie, [hash], deleteFiles);
+                    }
+
+                    cleanupLogs.push(`[${torrent.name}] ${reason}`);
+                    totalCleaned++;
                 }
             }
         } catch (instError) {
             console.error(`Failed to cleanup qBittorrent instance ${qb.name}:`, instError);
         }
+    }
+
+    if (cleanupLogs.length > 0) {
+        logSearchHistory('qBit Cleaner', [], [], `Removed ${totalCleaned} items: ${cleanupLogs.join(' | ')}`);
     }
 
     return { success: true, message: `Auto-cleanup complete. Cleaned ${totalCleaned} torrents.` };
