@@ -422,7 +422,8 @@ export default function DiscoverPage() {
     const [filterGenre, setFilterGenre] = useState<string>('All');
     const [filterPlatform, setFilterPlatform] = useState<string>('All');
     const [filterYear, setFilterYear] = useState<string>('All');
-    const [sortBy, setSortBy] = useState<'popularity' | 'year' | 'alphabetical'>('popularity');
+    const [filterRating, setFilterRating] = useState<number>(0);
+    const [sortBy, setSortBy] = useState<'popularity' | 'year' | 'alphabetical' | 'size'>('popularity');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
     // Reset page on filter/mode/type change
@@ -706,17 +707,19 @@ export default function DiscoverPage() {
             });
         }
         if (filterYear !== 'All') items = items.filter(i => i.year?.toString() === filterYear);
+        if (filterRating > 0) items = items.filter(i => (i.ratings?.value || i.ratings?.votes || i.vote_average || 0) >= filterRating);
 
         items.sort((a, b) => {
             let comparison = 0;
             if (sortBy === 'popularity') comparison = (b.popularity || b.ratings?.votes || 0) - (a.popularity || a.ratings?.votes || 0);
             else if (sortBy === 'year') comparison = (b.year || 0) - (a.year || 0);
+            else if (sortBy === 'size') comparison = (b.sizeOnDisk || 0) - (a.sizeOnDisk || 0);
             else comparison = a.title?.localeCompare(b.title || '') || 0;
 
             return sortOrder === 'desc' ? comparison : -comparison;
         });
         return items;
-    }, [results, searchQuery, isSearching, filterGenre, filterPlatform, filterYear, sortBy, sortOrder]);
+    }, [results, searchQuery, isSearching, filterGenre, filterPlatform, filterYear, filterRating, sortBy, sortOrder]);
 
     const [expandAll, setExpandAll] = useState(false);
     const [excludeUnmonitored, setExcludeUnmonitored] = useState(true);
@@ -736,17 +739,19 @@ export default function DiscoverPage() {
         }
         if (filterGenre !== 'All') items = items.filter(i => i.genres?.includes(filterGenre));
         if (filterYear !== 'All') items = items.filter(i => i.year?.toString() === filterYear);
+        if (filterRating > 0) items = items.filter(i => (i.ratings?.value || i.ratings?.votes || i.vote_average || 0) >= filterRating);
 
         items.sort((a, b) => {
             let comparison = 0;
             if (sortBy === 'year') comparison = (b.year || 0) - (a.year || 0);
             else if (sortBy === 'popularity') comparison = (b.popularity || 0) - (a.popularity || 0);
+            else if (sortBy === 'size') comparison = (b.sizeOnDisk || 0) - (a.sizeOnDisk || 0);
             else comparison = a.title?.localeCompare(b.title || '') || 0;
 
             return sortOrder === 'desc' ? comparison : -comparison;
         });
         return items;
-    }, [libraryItems, instances, mediaType, searchQuery, filterGenre, filterYear, sortBy, sortOrder, selectedInstanceIds]);
+    }, [libraryItems, instances, mediaType, searchQuery, filterGenre, filterYear, filterRating, sortBy, sortOrder, selectedInstanceIds]);
 
     const allPlatforms = useMemo(() => {
         const ps = new Set<string>();
@@ -899,6 +904,25 @@ export default function DiscoverPage() {
                             )}
                             <CustomSelect label="Year" icon={<Calendar size={11} />} options={allYears.map(y => ({ id: y, name: y }))} value={filterYear} onChange={val => setFilterYear(val)} />
 
+                            <div className="space-y-3">
+                                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center gap-1.5"><Star size={11} /> Minimum Rating ({filterRating})</label>
+                                <input
+                                    type="range"
+                                    min="0"
+                                    max="10"
+                                    step="0.5"
+                                    value={filterRating}
+                                    onChange={e => setFilterRating(parseFloat(e.target.value))}
+                                    className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500 hover:accent-emerald-400 transition-all"
+                                />
+                                <div className="flex justify-between text-[8px] font-black text-zinc-700 uppercase tracking-tighter">
+                                    <span>Any</span>
+                                    <span>5+</span>
+                                    <span>8+</span>
+                                    <span>10</span>
+                                </div>
+                            </div>
+
                         </div>
                     )}
 
@@ -914,8 +938,9 @@ export default function DiscoverPage() {
                                     {[
                                         { id: 'popularity', label: 'Popularity', icon: <TrendingUp size={12} /> },
                                         { id: 'year', label: 'Year', icon: <Calendar size={12} /> },
-                                        { id: 'alphabetical', label: 'A-Z', icon: <Rows size={12} /> }
-                                    ].map(s => (
+                                        { id: 'alphabetical', label: 'A-Z', icon: <Rows size={12} /> },
+                                        { id: 'size', label: 'Size', icon: <HardDrive size={12} /> }
+                                    ].filter(s => s.id !== 'size' || pageMode === 'mylibrary').map(s => (
                                         <button
                                             key={s.id}
                                             onClick={() => setSortBy(s.id as any)}
