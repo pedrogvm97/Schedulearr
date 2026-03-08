@@ -32,27 +32,25 @@ export async function GET(request: Request) {
         if (tmdbApiKey) {
             console.log(`[LOOKUP] Using TMDB for ${searchTerm ? 'search' : 'discovery'} (Term: ${searchTerm}, Platform: ${platform || 'Any'}, Genre: ${genre || 'Any'}, MinRating: ${minRating})`);
 
-            let tmdbResults = [];
+            let tmdbResults: any[] = [];
+            let totalPages = 1;
 
             if (searchTerm) {
-                tmdbResults = await searchTMDB(tmdbApiKey, searchTerm, 'movie');
+                const response = await searchTMDB(tmdbApiKey, searchTerm, 'movie', page);
+                tmdbResults = response.results;
+                totalPages = response.total_pages;
             } else {
                 const genreId = genre ? TMDB_GENRES[genre] : undefined;
                 const providerId = platform ? TMDB_PROVIDERS[platform] : undefined;
 
                 if (providerId || genreId) {
-                    tmdbResults = await discoverTMDB(tmdbApiKey, 'movie', providerId, genreId, minRating, page);
-                    // Only auto-fetch second page if we are on page 1 and results are sparse
-                    if (tmdbResults.length < 10 && minRating > 0 && page === 1) {
-                        const more = await discoverTMDB(tmdbApiKey, 'movie', providerId, genreId, minRating, 2);
-                        tmdbResults = [...tmdbResults, ...more];
-                    }
+                    const response = await discoverTMDB(tmdbApiKey, 'movie', providerId, genreId, minRating, page);
+                    tmdbResults = response.results;
+                    totalPages = response.total_pages;
                 } else {
-                    tmdbResults = await getTrending(tmdbApiKey, 'movie', 'day', page);
-                    if (minRating > 0 && page === 1) {
-                        const more = await getTrending(tmdbApiKey, 'movie', 'day', 2);
-                        tmdbResults = [...tmdbResults, ...more];
-                    }
+                    const response = await getTrending(tmdbApiKey, 'movie', 'day', page);
+                    tmdbResults = response.results;
+                    totalPages = response.total_pages;
                 }
             }
 
@@ -65,10 +63,11 @@ export async function GET(request: Request) {
                 remotePoster: m.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : undefined,
                 ratings: { value: m.vote_average },
                 popularity: m.popularity,
-                genres: Array.from(new Set([...(m.genre_ids?.map(id => TMDB_REVERSE_GENRES[id]).filter(Boolean) || []), ...(genre ? [genre] : [])])),
+                genres: Array.from(new Set([...(m.genre_ids?.map((id: number) => TMDB_REVERSE_GENRES[id]).filter(Boolean) || []), ...(genre ? [genre] : [])])),
                 productionCompanies: platform ? [platform] : []
             }));
-            return NextResponse.json(mappedResults);
+
+            return NextResponse.json({ results: mappedResults, total_pages: totalPages });
         }
 
         // Fallback to Radarr lookup if no TMDB key
@@ -87,7 +86,7 @@ export async function GET(request: Request) {
             productionCompanies: []
         }));
 
-        return NextResponse.json(mappedSearch);
+        return NextResponse.json({ results: mappedSearch, total_pages: 1 });
     } catch (error) {
         console.error('API /radarr/lookup error:', error);
         return NextResponse.json({ error: 'Failed to lookup movies' }, { status: 500 });

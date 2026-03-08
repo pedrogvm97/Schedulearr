@@ -32,28 +32,25 @@ export async function GET(request: Request) {
         if (tmdbApiKey) {
             console.log(`[LOOKUP] TMDB ${searchTerm ? 'search' : 'discovery'} (series, Term: ${searchTerm}, Platform: ${platform || 'Any'}, Genre: ${genre || 'Any'}, MinRating: ${minRating})`);
 
-            let tmdbResults = [];
+            let tmdbResults: any[] = [];
+            let totalPages = 1;
 
             if (searchTerm) {
-                tmdbResults = await searchTMDB(tmdbApiKey, searchTerm, 'tv');
+                const response = await searchTMDB(tmdbApiKey, searchTerm, 'tv', page);
+                tmdbResults = response.results;
+                totalPages = response.total_pages;
             } else {
                 const genreId = genre ? TMDB_GENRES[genre] : undefined;
                 const providerId = platform ? TMDB_PROVIDERS[platform] : undefined;
 
                 if (providerId || genreId) {
-                    tmdbResults = await discoverTMDB(tmdbApiKey, 'tv', providerId, genreId, minRating, page);
-                    // If results are sparse and we have a filter, try to get one more page to populate the list (only on page 1)
-                    if (tmdbResults.length < 10 && minRating > 0 && page === 1) {
-                        const more = await discoverTMDB(tmdbApiKey, 'tv', providerId, genreId, minRating, 2);
-                        tmdbResults = [...tmdbResults, ...more];
-                    }
+                    const response = await discoverTMDB(tmdbApiKey, 'tv', providerId, genreId, minRating, page);
+                    tmdbResults = response.results;
+                    totalPages = response.total_pages;
                 } else {
-                    tmdbResults = await getTrending(tmdbApiKey, 'tv', 'day', page);
-                    // Trending doesn't support server-side rating filter, but we can fetch more if needed (only on page 1)
-                    if (minRating > 0 && page === 1) {
-                        const more = await getTrending(tmdbApiKey, 'tv', 'day', 2);
-                        tmdbResults = [...tmdbResults, ...more];
-                    }
+                    const response = await getTrending(tmdbApiKey, 'tv', 'day', page);
+                    tmdbResults = response.results;
+                    totalPages = response.total_pages;
                 }
             }
 
@@ -73,7 +70,7 @@ export async function GET(request: Request) {
                 productionCompanies: platform ? [platform] : []
             }));
 
-            return NextResponse.json(mappedResults);
+            return NextResponse.json({ results: mappedResults, total_pages: totalPages });
         }
 
         // Text search mode: use Sonarr's own search
@@ -94,7 +91,7 @@ export async function GET(request: Request) {
             productionCompanies: s.network ? [s.network] : []
         }));
 
-        return NextResponse.json(mappedSearch);
+        return NextResponse.json({ results: mappedSearch, total_pages: 1 });
     } catch (error) {
         console.error('API /sonarr/lookup error:', error);
         return NextResponse.json({ error: 'Failed to lookup series' }, { status: 500 });

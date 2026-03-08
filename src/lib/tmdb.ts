@@ -17,30 +17,45 @@ export interface TMDBResult {
     genre_ids: number[];
 }
 
-export const getTrending = async (apiKey: string, type: 'movie' | 'tv', timeWindow: 'day' | 'week' = 'day', page: number = 1): Promise<TMDBResult[]> => {
+export interface TMDBPaginatedResponse {
+    results: TMDBResult[];
+    total_pages: number;
+    total_results: number;
+}
+
+export const getTrending = async (apiKey: string, type: 'movie' | 'tv', timeWindow: 'day' | 'week' = 'day', page: number = 1): Promise<TMDBPaginatedResponse> => {
     try {
         const response = await axios.get(`${BASE_URL}/trending/${type === 'movie' ? 'movie' : 'tv'}/${timeWindow}`, {
             params: { api_key: apiKey, page }
         });
-        return response.data.results || [];
+        return {
+            results: response.data.results || [],
+            total_pages: response.data.total_pages || 1,
+            total_results: response.data.total_results || 0
+        };
     } catch (error) {
         console.error(`TMDB getTrending error (${type}):`, error);
-        return [];
+        return { results: [], total_pages: 0, total_results: 0 };
     }
 };
 
-export const searchTMDB = async (apiKey: string, query: string, type: 'movie' | 'tv'): Promise<TMDBResult[]> => {
+export const searchTMDB = async (apiKey: string, query: string, type: 'movie' | 'tv', page: number = 1): Promise<TMDBPaginatedResponse> => {
     try {
         const response = await axios.get(`${BASE_URL}/search/${type === 'movie' ? 'movie' : 'tv'}`, {
             params: {
                 api_key: apiKey,
-                query: query
+                query: query,
+                page
             }
         });
-        return response.data.results || [];
+        return {
+            results: response.data.results || [],
+            total_pages: response.data.total_pages || 1,
+            total_results: response.data.total_results || 0
+        };
     } catch (error) {
         console.error(`TMDB search error (${type}):`, error);
-        return [];
+        return { results: [], total_pages: 0, total_results: 0 };
     }
 };
 
@@ -117,7 +132,7 @@ export const TMDB_REVERSE_GENRES: Record<number, string> = Object.entries(TMDB_G
     return acc;
 }, {} as Record<number, string>);
 
-export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', providerId?: number, genreId?: number, minRating: number = 0, page: number = 1): Promise<TMDBResult[]> => {
+export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', providerId?: number, genreId?: number, minRating: number = 0, page: number = 1): Promise<TMDBPaginatedResponse> => {
     try {
         const params: any = {
             api_key: apiKey,
@@ -142,9 +157,13 @@ export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', provide
         }
 
         const response = await axios.get(`${BASE_URL}/discover/${type === 'movie' ? 'movie' : 'tv'}`, { params });
-        return response.data.results || [];
+        return {
+            results: response.data.results || [],
+            total_pages: response.data.total_pages || 1,
+            total_results: response.data.total_results || 0
+        };
     } catch (error) {
         console.error(`TMDB discover error (${type}):`, error);
-        return [];
+        return { results: [], total_pages: 0, total_results: 0 };
     }
 };

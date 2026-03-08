@@ -34,25 +34,39 @@ export function PersonDetailsPanel({ personId, tmdbApiKey, onClose, onSelectMedi
                 if (detailsRes.ok) setDetails(await detailsRes.json());
                 if (creditsRes.ok) {
                     const cData = await creditsRes.json();
-                    // Robust sorting: prioritize famous/iconic roles over minor appearances
-                    const sorted = (cData.cast || [])
+
+                    // Combine cast and crew to find both acting and directing roles
+                    const cast = cData.cast || [];
+                    const crew = (cData.crew || []).filter((m: any) => m.job === 'Director');
+
+                    const combined = [...cast, ...crew]
                         .filter((m: any) => {
                             const char = (m.character || '').toLowerCase();
+                            const job = (m.job || '').toLowerCase();
                             const title = (m.title || m.name || '').toLowerCase();
+
                             const isMinor = char.includes('self') ||
                                 char.includes('thanks') ||
                                 char.includes('uncredited') ||
                                 char.includes('voice') ||
-                                title.includes('documentary');
+                                char.includes('additional') ||
+                                char.includes('undetermined') ||
+                                char.includes('unknown') ||
+                                title.includes('documentary') ||
+                                title.includes('making of');
+
                             return m.poster_path && !isMinor;
                         })
+                        // Remove duplicates (sometimes person is both actor and director)
+                        .filter((v, i, a) => a.findIndex(t => t.id === v.id && t.media_type === v.media_type) === i)
                         .sort((a: any, b: any) => {
-                            const scoreA = (a.vote_count || 0) * (a.popularity || 1);
-                            const scoreB = (b.vote_count || 0) * (b.popularity || 1);
+                            // Weight: (vote_count * vote_average) * popularity
+                            const scoreA = (a.vote_count || 0) * (a.vote_average || 1) * (a.popularity || 1);
+                            const scoreB = (b.vote_count || 0) * (b.vote_average || 1) * (b.popularity || 1);
                             return scoreB - scoreA;
                         })
-                        .slice(0, 24);
-                    setCredits(sorted);
+                        .slice(0, 48);
+                    setCredits(combined);
                 }
             } catch (error) {
                 console.error('Error fetching person details:', error);
