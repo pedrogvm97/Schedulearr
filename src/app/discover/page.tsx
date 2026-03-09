@@ -17,6 +17,7 @@ import { SchedulerQueuePanel } from '@/components/SchedulerQueuePanel';
 import { MediaDetailsPanel } from '@/components/MediaDetailsPanel';
 import { PersonDetailsPanel } from '@/components/PersonDetailsPanel';
 import { InteractiveSearchModal } from '@/components/InteractiveSearchModal';
+import { DeleteMediaModal } from '@/components/DeleteMediaModal';
 
 interface Instance {
     id: string;
@@ -186,8 +187,8 @@ function EpisodeList({ instanceId, seriesId, onInteractiveSearch }: { instanceId
 // ──────────────────────────────────────────────
 // My Media Card Components
 // ──────────────────────────────────────────────
-function MyMediaGridCard({ item, isSeries, expandAll, excludeUnmonitored, onDelete, onTransfer, onInteractiveSearch }: {
-    item: any; isSeries: boolean; expandAll: boolean; excludeUnmonitored: boolean; onDelete: () => void; onTransfer: () => void; onInteractiveSearch?: (payload: any) => void;
+function MyMediaGridCard({ item, isSeries, expandAll, excludeUnmonitored, onDelete, onTransfer, onInteractiveSearch, onOpenDetails }: {
+    item: any; isSeries: boolean; expandAll: boolean; excludeUnmonitored: boolean; onDelete: () => void; onTransfer: () => void; onInteractiveSearch?: (payload: any) => void; onOpenDetails?: (item: any) => void;
 }) {
     const [expanded, setExpanded] = useState(false);
 
@@ -196,14 +197,15 @@ function MyMediaGridCard({ item, isSeries, expandAll, excludeUnmonitored, onDele
     }, [expandAll]);
 
     const poster = item.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || item.remotePoster;
+    const sizeMb = item.statistics?.sizeOnDisk || (item.movieFile?.size || 0);
     const totalEps = item.statistics?.totalEpisodeCount || 0;
     const haveEps = item.statistics?.episodeFileCount || 0;
     const denominator = excludeUnmonitored ? (item.statistics?.episodeCount || totalEps) : totalEps;
-    const pct = isSeries ? (denominator > 0 ? Math.min(100, Math.round((haveEps / denominator) * 100)) : 0) : (item.hasFile ? 100 : 0);
+    const pct = isSeries ? (denominator > 0 ? Math.min(100, Math.round((haveEps / denominator) * 100)) : 0) : ((item.hasFile || sizeMb > 0) ? 100 : 0);
 
     return (
         <div className="group flex flex-col bg-[#090909] border border-zinc-900 hover:border-zinc-800 rounded-[2.5rem] overflow-hidden transition-all duration-300 shadow-xl hover:-translate-y-1">
-            <div className="relative aspect-[2/3] overflow-hidden">
+            <div className="relative aspect-[2/3] overflow-hidden cursor-pointer" onClick={() => onOpenDetails?.(item)}>
                 {poster
                     ? <img src={poster} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
                     : <div className="w-full h-full bg-zinc-900 flex items-center justify-center text-zinc-800">{isSeries ? <Tv size={48} /> : <Film size={48} />}</div>}
@@ -264,8 +266,8 @@ function MyMediaGridCard({ item, isSeries, expandAll, excludeUnmonitored, onDele
     );
 }
 
-function MyMediaListCard({ item, isSeries, expandAll, excludeUnmonitored, onDelete, onTransfer, onInteractiveSearch }: {
-    item: any; isSeries: boolean; expandAll: boolean; excludeUnmonitored: boolean; onDelete: () => void; onTransfer: () => void; onInteractiveSearch?: (payload: any) => void;
+function MyMediaListCard({ item, isSeries, expandAll, excludeUnmonitored, onDelete, onTransfer, onInteractiveSearch, onOpenDetails }: {
+    item: any; isSeries: boolean; expandAll: boolean; excludeUnmonitored: boolean; onDelete: () => void; onTransfer: () => void; onInteractiveSearch?: (payload: any) => void; onOpenDetails?: (item: any) => void;
 }) {
     const [expanded, setExpanded] = useState(false);
 
@@ -274,18 +276,21 @@ function MyMediaListCard({ item, isSeries, expandAll, excludeUnmonitored, onDele
     }, [expandAll]);
 
     const poster = item.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || item.remotePoster;
-    const sizeMb = item.statistics?.sizeOnDisk || (item.movieFile?.size || 0);
-    const sizeStr = sizeMb > 1e12 ? `${(sizeMb / 1e12).toFixed(1)} TB` : sizeMb > 1e9 ? `${(sizeMb / 1e9).toFixed(1)} GB` : sizeMb > 1e6 ? `${(sizeMb / 1e6).toFixed(0)} MB` : '0 MB';
+    const sizeBytes = item.statistics?.sizeOnDisk || (item.movieFile?.size || 0);
+    const sizeStr = sizeBytes > 1e12 ? `${(sizeBytes / 1e12).toFixed(1)} TB` : sizeBytes > 1e9 ? `${(sizeBytes / 1e9).toFixed(1)} GB` : sizeBytes > 1e6 ? `${(sizeBytes / 1e6).toFixed(0)} MB` : '0 MB';
     const path = item.path || 'Unknown Path';
     const totalEps = item.statistics?.totalEpisodeCount || 0;
     const haveEps = item.statistics?.episodeFileCount || 0;
     const denominator = isSeries ? (excludeUnmonitored ? (item.statistics?.episodeCount || totalEps) : totalEps) : 1;
-    const pct = isSeries ? Math.min(100, Math.round((haveEps / (denominator || 1)) * 100)) : (item.hasFile ? 100 : 0);
+    const pct = isSeries ? Math.min(100, Math.round((haveEps / (denominator || 1)) * 100)) : ((item.hasFile || sizeBytes > 0) ? 100 : 0);
 
     return (
         <div className="flex flex-col bg-zinc-950/40 border border-zinc-900 rounded-2xl overflow-hidden transition-all hover:border-zinc-800 shadow-lg">
             <div className="p-4 flex gap-6 items-center">
-                <div className="w-16 aspect-[2/3] rounded-xl overflow-hidden bg-zinc-900 flex-shrink-0 shadow-lg border border-white/5">
+                <div
+                    className="w-16 aspect-[2/3] rounded-xl overflow-hidden bg-zinc-900 flex-shrink-0 shadow-lg border border-white/5 cursor-pointer hover:scale-105 transition-transform"
+                    onClick={() => onOpenDetails?.(item)}
+                >
                     {poster ? <img src={poster} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-zinc-800">{isSeries ? <Tv size={24} /> : <Film size={24} />}</div>}
                 </div>
                 <div className="flex-1 min-w-0">
@@ -338,12 +343,12 @@ function MyMediaListCard({ item, isSeries, expandAll, excludeUnmonitored, onDele
     );
 }
 
-function MyMediaCard({ item, viewMode, onRefresh, expandAll, excludeUnmonitored, onDelete, onTransfer, onInteractiveSearch }: {
-    item: any; viewMode: 'grid' | 'list'; onRefresh: () => void; expandAll: boolean; excludeUnmonitored: boolean; onDelete: () => void; onTransfer: () => void; onInteractiveSearch?: (payload: any) => void;
+function MyMediaCard({ item, viewMode, onRefresh, expandAll, excludeUnmonitored, onDelete, onTransfer, onInteractiveSearch, onOpenDetails }: {
+    item: any; viewMode: 'grid' | 'list'; onRefresh: () => void; expandAll: boolean; excludeUnmonitored: boolean; onDelete: () => void; onTransfer: () => void; onInteractiveSearch?: (payload: any) => void; onOpenDetails?: (item: any) => void;
 }) {
-    const isSeries = !!item.seasons || !!item.statistics;
-    if (viewMode === 'list') return <MyMediaListCard item={item} isSeries={isSeries} expandAll={expandAll} excludeUnmonitored={excludeUnmonitored} onDelete={onDelete} onTransfer={onTransfer} onInteractiveSearch={onInteractiveSearch} />;
-    return <MyMediaGridCard item={item} isSeries={isSeries} expandAll={expandAll} excludeUnmonitored={excludeUnmonitored} onDelete={onDelete} onTransfer={onTransfer} onInteractiveSearch={onInteractiveSearch} />;
+    const isSeries = !!(item.tvdbId || item.seasons);
+    if (viewMode === 'list') return <MyMediaListCard item={item} isSeries={isSeries} expandAll={expandAll} excludeUnmonitored={excludeUnmonitored} onDelete={onDelete} onTransfer={onTransfer} onInteractiveSearch={onInteractiveSearch} onOpenDetails={onOpenDetails} />;
+    return <MyMediaGridCard item={item} isSeries={isSeries} expandAll={expandAll} excludeUnmonitored={excludeUnmonitored} onDelete={onDelete} onTransfer={onTransfer} onInteractiveSearch={onInteractiveSearch} onOpenDetails={onOpenDetails} />;
 }
 
 
@@ -585,6 +590,13 @@ export default function DiscoverPage() {
     const [serverTotalPages, setServerTotalPages] = useState(1);
     const [localRating, setLocalRating] = useState<number>(filterRating);
     const [localPopularity, setLocalPopularity] = useState<number>(0);
+    const [filterSize, setFilterSize] = useState<number>(0); // Min size in GB
+    const [localSize, setLocalSize] = useState<number>(0);
+
+    // Delete Modal State
+    const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+    const [itemToDelete, setItemToDelete] = useState<any>(null);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     // Interactive Search State
     const [interactiveSearchItem, setInteractiveSearchItem] = useState<any | null>(null);
@@ -596,14 +608,15 @@ export default function DiscoverPage() {
     // Debounce rating changes to avoid flickering and excessive API calls
     useEffect(() => {
         const timer = setTimeout(() => {
-            if (localRating !== filterRating || localPopularity !== filterPopularity) {
+            if (localRating !== filterRating || localPopularity !== filterPopularity || localSize !== filterSize) {
                 setFilterRating(localRating);
                 setFilterPopularity(localPopularity);
+                setFilterSize(localSize);
                 setCurrentPage(0);
             }
         }, 600);
         return () => clearTimeout(timer);
-    }, [localRating, filterRating, localPopularity, filterPopularity]);
+    }, [localRating, filterRating, localPopularity, filterPopularity, localSize, filterSize]);
 
     const availableInstances = useMemo(() =>
         instances.filter((inst: Instance) =>
@@ -750,21 +763,32 @@ export default function DiscoverPage() {
     };
 
     const handleDelete = useCallback(async (item: any) => {
-        if (!confirm(`Are you sure you want to delete "${item.title}"? This cannot be undone.`)) return;
-        const deleteFiles = confirm(`Do you also want to delete the files from disk?`);
+        setItemToDelete(item);
+        setDeleteModalOpen(true);
+    }, []);
 
+    const handleFinalDelete = async (options: { deleteFiles: boolean; removeFromApp: boolean; deleteFilesOnly?: boolean }) => {
+        if (!itemToDelete) return;
+        setIsDeleting(true);
         try {
             const endpoint = mediaType === 'movie' ? '/api/radarr/delete' : '/api/sonarr/delete';
             const params = new URLSearchParams({
-                instanceId: item.instanceId,
-                deleteFiles: deleteFiles.toString()
+                instanceId: itemToDelete.instanceId,
+                deleteFiles: options.deleteFiles.toString()
             });
-            if (mediaType === 'movie') params.append('movieId', item.id);
-            else params.append('seriesId', item.id);
+
+            if (options.deleteFilesOnly) {
+                params.append('deleteFilesOnly', 'true');
+            }
+
+            if (mediaType === 'movie') params.append('movieId', itemToDelete.id);
+            else params.append('seriesId', itemToDelete.id);
 
             const res = await fetch(`${endpoint}?${params.toString()}`, { method: 'DELETE' });
             if (res.ok) {
-                toast.success(`Deleted ${item.title}`);
+                toast.success(options.deleteFilesOnly ? `Cleared files for ${itemToDelete.title}` : `Deleted ${itemToDelete.title}`);
+                setDeleteModalOpen(false);
+                setItemToDelete(null);
                 loadLibrary();
             } else {
                 const err = await res.json().catch(() => ({}));
@@ -772,8 +796,10 @@ export default function DiscoverPage() {
             }
         } catch (e) {
             toast.error('An error occurred while deleting');
+        } finally {
+            setIsDeleting(false);
         }
-    }, [mediaType, loadLibrary]);
+    };
 
     const handleTransfer = useCallback(async (item: any, targetInstanceId: string, targetProfileId: number, targetRootFolder: string, action: 'transfer' | 'copy', moveFiles: boolean) => {
         setIsTransferring(true);
@@ -956,9 +982,33 @@ export default function DiscoverPage() {
             const q = searchQuery.toLowerCase();
             items = items.filter(i => i.title?.toLowerCase().includes(q));
         }
-        if (filterGenre !== 'All') items = items.filter(i => i.genres?.includes(filterGenre));
+        if (filterGenre !== 'All') {
+            const target = filterGenre.toLowerCase();
+            items = items.filter(i =>
+                i.genres?.some((g: string) => {
+                    const lowG = g.toLowerCase();
+                    if (target === 'sci-fi' && (lowG.includes('science fiction') || lowG.includes('sci-fi') || lowG.includes('scifi'))) return true;
+                    return lowG.includes(target);
+                })
+            );
+        }
         if (filterYear !== 'All') items = items.filter(i => i.year?.toString() === filterYear);
         if (filterRating > 0) items = items.filter(i => (i.ratings?.value || i.ratings?.votes || i.vote_average || 0) >= filterRating);
+
+        if (filterPopularity > 0) {
+            items = items.filter(i => {
+                const pop = i.popularity || i.ratings?.value || i.ratings?.votes || 0;
+                return pop >= filterPopularity;
+            });
+        }
+
+        if (filterSize > 0) {
+            items = items.filter(i => {
+                const sizeBytes = i.sizeOnDisk || i.statistics?.sizeOnDisk || i.movieFile?.size || 0;
+                const sizeGB = sizeBytes / (1024 * 1024 * 1024);
+                return sizeGB >= filterSize;
+            });
+        }
 
         items.sort((a, b) => {
             let comparison = 0;
@@ -979,7 +1029,7 @@ export default function DiscoverPage() {
             return sortOrder === 'asc' ? comparison : -comparison;
         });
         return items;
-    }, [libraryItems, instances, mediaType, searchQuery, filterGenre, filterYear, filterRating, sortBy, sortOrder, selectedInstanceIds]);
+    }, [libraryItems, instances, mediaType, searchQuery, filterGenre, filterYear, filterRating, filterPopularity, filterSize, sortBy, sortOrder, selectedInstanceIds]);
 
     const allPlatforms = useMemo(() => {
         const ps = new Set<string>();
@@ -1218,6 +1268,30 @@ export default function DiscoverPage() {
                                     <span>500+</span>
                                 </div>
                             </div>
+
+                            {pageMode === 'mylibrary' && (
+                                <div className="space-y-3">
+                                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center justify-between">
+                                        <span className="flex items-center gap-1.5"><HardDrive size={11} /> Min. Size (GB)</span>
+                                        <span className="text-emerald-500 font-black">{localSize === 0 ? 'Any' : `${localSize} GB+`}</span>
+                                    </label>
+                                    <input
+                                        type="range"
+                                        min="0"
+                                        max="100"
+                                        step="1"
+                                        value={localSize}
+                                        onChange={e => setLocalSize(parseInt(e.target.value))}
+                                        className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500 hover:accent-emerald-400 transition-all"
+                                    />
+                                    <div className="flex justify-between text-[8px] font-black text-zinc-700 uppercase tracking-tighter">
+                                        <span>Any</span>
+                                        <span>25GB</span>
+                                        <span>50GB</span>
+                                        <span>100GB</span>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -1280,7 +1354,18 @@ export default function DiscoverPage() {
                             <>
                                 <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5' : 'space-y-3'}>
                                     {pageItems.map((item, idx) => {
-                                        if (pageMode === 'mylibrary') return <MyMediaCard key={`${item.instanceId}-${item.id}-${idx}`} item={item} viewMode={viewMode} onRefresh={loadLibrary} expandAll={expandAll} excludeUnmonitored={excludeUnmonitored} onDelete={() => handleDelete(item)} onTransfer={() => setTransferTarget(item)} onInteractiveSearch={handleOpenInteractiveSearch} />;
+                                        if (pageMode === 'mylibrary') return <MyMediaCard
+                                            key={`${item.instanceId}-${item.id}-${idx}`}
+                                            item={item}
+                                            viewMode={viewMode}
+                                            onRefresh={loadLibrary}
+                                            expandAll={expandAll}
+                                            excludeUnmonitored={excludeUnmonitored}
+                                            onDelete={() => handleDelete(item)}
+                                            onTransfer={() => setTransferTarget(item)}
+                                            onInteractiveSearch={handleOpenInteractiveSearch}
+                                            onOpenDetails={(m) => setShowDetailsFor(m)}
+                                        />;
                                         return <DiscoveryCard key={item.tmdbId ? `tmdb-${item.tmdbId}` : `tvdb-${item.tvdbId}`} item={item} isAdding={addingItemStr === (item.tmdbId ? `tmdb-${item.tmdbId}` : `tvdb-${item.tvdbId}`)} libStatus={isInLibrary(item)} onAdd={() => handleAdd(item)} viewMode={viewMode} onShowDetails={() => setShowDetailsFor(item)} onInteractiveSearch={handleOpenInteractiveSearch} />;
                                     })}
                                 </div>
