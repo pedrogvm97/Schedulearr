@@ -1195,114 +1195,114 @@ export default function DiscoverPage() {
                                     onChange={e => setLocalRating(parseFloat(e.target.value))}
                                     className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500 hover:accent-emerald-400 transition-all"
                                 />
-                                <div className="space-y-3 pt-2">
-                                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center justify-between">
-                                        <span className="flex items-center gap-1.5"><TrendingUp size={11} /> Min. Popularity</span>
-                                        <span className="text-emerald-500 font-black">{localPopularity === 0 ? 'Any' : localPopularity}</span>
-                                    </label>
-                                    <input
-                                        type="range"
-                                        min="0"
-                                        max="500"
-                                        step="10"
-                                        value={localPopularity}
-                                        onChange={e => setLocalPopularity(parseInt(e.target.value))}
-                                        className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500 hover:accent-emerald-400 transition-all"
-                                    />
-                                    <div className="flex justify-between text-[8px] font-black text-zinc-700 uppercase tracking-tighter">
-                                        <span>Any</span>
-                                        <span>100+</span>
-                                        <span>250+</span>
-                                        <span>500+</span>
-                                    </div>
-                                </div>
                             </div>
-                        )}
 
-                            <div className="flex-1 min-w-0 space-y-5">
-                                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                    <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                                        {pageMode === 'discover' ? (searchQuery ? `Results for "${searchQuery}"` : 'Trending Now') : 'My Library'}
-                                        <span className="bg-zinc-900 text-zinc-500 text-[10px] font-black px-2 py-0.5 rounded-full border border-zinc-800">{displayItems.length}</span>
-                                    </h2>
-
-                                    <div className="flex items-center gap-3">
-                                        <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-900">
-                                            {[
-                                                { id: 'popularity', label: 'Popularity', icon: <TrendingUp size={12} /> },
-                                                { id: 'year', label: 'Year', icon: <Calendar size={12} /> },
-                                                { id: 'alphabetical', label: 'A-Z', icon: <Rows size={12} /> },
-                                                { id: 'size', label: 'Size', icon: <HardDrive size={12} /> }
-                                            ].filter(s => s.id !== 'size' || pageMode === 'mylibrary').map(s => (
-                                                <button
-                                                    key={s.id}
-                                                    onClick={() => setSortBy(s.id as any)}
-                                                    className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-tight transition-all ${sortBy === s.id ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                                >
-                                                    {s.icon} {s.label}
-                                                </button>
-                                            ))}
-                                        </div>
-
-                                        <button
-                                            onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
-                                            className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-900 text-zinc-500 hover:text-white hover:border-zinc-700 transition-all"
-                                            title={sortOrder === 'desc' ? 'Descending' : 'Ascending'}
-                                        >
-                                            <div className={`transition-transform duration-300 ${sortOrder === 'asc' ? 'rotate-180' : ''}`}>
-                                                <ChevronDown size={14} />
-                                            </div>
-                                        </button>
-
-                                        {pageMode === 'discover' && !showFilters && (
-                                            <button onClick={() => setShowFilters(true)} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-900 text-[10px] font-black text-zinc-500 hover:text-zinc-300 uppercase tracking-widest transition-all">
-                                                <Filter size={12} /> Filters
-                                            </button>
-                                        )}
-                                    </div>
+                            <div className="space-y-3">
+                                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] flex items-center justify-between">
+                                    <span className="flex items-center gap-1.5"><TrendingUp size={11} /> Min. Popularity</span>
+                                    <span className="text-emerald-500 font-black">{localPopularity === 0 ? 'Any' : localPopularity}</span>
+                                </label>
+                                <input
+                                    type="range"
+                                    min="0"
+                                    max="500"
+                                    step="10"
+                                    value={localPopularity}
+                                    onChange={e => setLocalPopularity(parseInt(e.target.value))}
+                                    className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500 hover:accent-emerald-400 transition-all"
+                                />
+                                <div className="flex justify-between text-[8px] font-black text-zinc-700 uppercase tracking-tighter">
+                                    <span>Any</span>
+                                    <span>100+</span>
+                                    <span>250+</span>
+                                    <span>500+</span>
                                 </div>
-
-                                {availableInstances.length === 0 && pageMode === 'discover' ? (
-                                    <div className="flex flex-col items-center justify-center py-40 bg-zinc-950/20 rounded-[3rem] border border-zinc-900/50 gap-6">
-                                        <div className="p-8 bg-zinc-900/50 rounded-full text-zinc-700 opacity-50"><Monitor size={64} /></div>
-                                        <div className="text-center">
-                                            <p className="text-xl font-bold text-white mb-2">No {mediaType} instances found</p>
-                                            <p className="text-zinc-500 font-medium max-w-xs mx-auto text-sm">You need to configure at least one {mediaType} instance in settings to browse and add content.</p>
-                                        </div>
-                                    </div>
-                                ) : isSearching || (pageMode === 'mylibrary' && libraryLoading) ? (
-                                    <div className="flex flex-col items-center justify-center py-40 gap-4">
-                                        <div className="w-12 h-12 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin" /><p className="text-zinc-600 text-xs font-bold uppercase tracking-widest">{pageMode === 'discover' ? 'Searching...' : 'Loading library...'}</p>
-                                    </div>
-                                ) : pageItems.length > 0 ? (
-                                    <>
-                                        <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5' : 'space-y-3'}>
-                                            {pageItems.map((item, idx) => {
-                                                if (pageMode === 'mylibrary') return <MyMediaCard key={`${item.instanceId}-${item.id}-${idx}`} item={item} viewMode={viewMode} onRefresh={loadLibrary} expandAll={expandAll} excludeUnmonitored={excludeUnmonitored} onDelete={() => handleDelete(item)} onTransfer={() => setTransferTarget(item)} onInteractiveSearch={handleOpenInteractiveSearch} />;
-                                                return <DiscoveryCard key={item.tmdbId ? `tmdb-${item.tmdbId}` : `tvdb-${item.tvdbId}`} item={item} isAdding={addingItemStr === (item.tmdbId ? `tmdb-${item.tmdbId}` : `tvdb-${item.tvdbId}`)} libStatus={isInLibrary(item)} onAdd={() => handleAdd(item)} viewMode={viewMode} onShowDetails={() => setShowDetailsFor(item)} onInteractiveSearch={handleOpenInteractiveSearch} />;
-                                            })}
-                                        </div>
-                                        {totalPages > 1 && (
-                                            <div className="flex items-center justify-center gap-4 pt-4">
-                                                <button onClick={() => setCurrentPage(p => Math.max(0, p - 1))} disabled={currentPage === 0} className="px-5 py-2.5 rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-400 text-xs font-black uppercase tracking-widest hover:border-zinc-700 hover:text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed">← Prev</button>
-                                                <span className="text-zinc-600 text-xs font-bold">Page {currentPage + 1} of {totalPages}</span>
-                                                <button onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))} disabled={currentPage >= totalPages - 1} className="px-5 py-2.5 rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-400 text-xs font-black uppercase tracking-widest hover:border-zinc-700 hover:text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed">Next →</button>
-                                            </div>
-                                        )}
-                                    </>
-                                ) : (
-                                    <div className="flex flex-col items-center justify-center py-40 bg-zinc-950/20 rounded-[3rem] border border-zinc-900/50 gap-6">
-                                        <div className="p-8 bg-zinc-900/50 rounded-full opacity-20"><Search size={64} /></div>
-                                        <div className="text-center">
-                                            <p className="text-xl font-bold text-white mb-2">{pageMode === 'mylibrary' ? 'Library is empty' : 'No results found'}</p>
-                                            <p className="text-zinc-500 font-medium">{pageMode === 'mylibrary' ? 'Add media in Discover mode.' : 'Try adjusting your filters.'}</p>
-                                        </div>
-                                    </div>
-                                )}
                             </div>
                         </div>
                     )}
-                </div >
+
+                    <div className="flex-1 min-w-0 space-y-5">
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                                {pageMode === 'discover' ? (searchQuery ? `Results for "${searchQuery}"` : 'Trending Now') : 'My Library'}
+                                <span className="bg-zinc-900 text-zinc-500 text-[10px] font-black px-2 py-0.5 rounded-full border border-zinc-800">{displayItems.length}</span>
+                            </h2>
+
+                            <div className="flex items-center gap-3">
+                                <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-900">
+                                    {[
+                                        { id: 'popularity', label: 'Popularity', icon: <TrendingUp size={12} /> },
+                                        { id: 'year', label: 'Year', icon: <Calendar size={12} /> },
+                                        { id: 'alphabetical', label: 'A-Z', icon: <Rows size={12} /> },
+                                        { id: 'size', label: 'Size', icon: <HardDrive size={12} /> }
+                                    ].filter(s => s.id !== 'size' || pageMode === 'mylibrary').map(s => (
+                                        <button
+                                            key={s.id}
+                                            onClick={() => setSortBy(s.id as any)}
+                                            className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-tight transition-all ${sortBy === s.id ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                        >
+                                            {s.icon} {s.label}
+                                        </button>
+                                    ))}
+                                </div>
+
+                                <button
+                                    onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+                                    className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-900 text-zinc-500 hover:text-white hover:border-zinc-700 transition-all"
+                                    title={sortOrder === 'desc' ? 'Descending' : 'Ascending'}
+                                >
+                                    <div className={`transition-transform duration-300 ${sortOrder === 'asc' ? 'rotate-180' : ''}`}>
+                                        <ChevronDown size={14} />
+                                    </div>
+                                </button>
+
+                                {pageMode === 'discover' && !showFilters && (
+                                    <button onClick={() => setShowFilters(true)} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-900 text-[10px] font-black text-zinc-500 hover:text-zinc-300 uppercase tracking-widest transition-all">
+                                        <Filter size={12} /> Filters
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {availableInstances.length === 0 && pageMode === 'discover' ? (
+                            <div className="flex flex-col items-center justify-center py-40 bg-zinc-950/20 rounded-[3rem] border border-zinc-900/50 gap-6">
+                                <div className="p-8 bg-zinc-900/50 rounded-full text-zinc-700 opacity-50"><Monitor size={64} /></div>
+                                <div className="text-center">
+                                    <p className="text-xl font-bold text-white mb-2">No {mediaType} instances found</p>
+                                    <p className="text-zinc-500 font-medium max-w-xs mx-auto text-sm">You need to configure at least one {mediaType} instance in settings to browse and add content.</p>
+                                </div>
+                            </div>
+                        ) : isSearching || (pageMode === 'mylibrary' && libraryLoading) ? (
+                            <div className="flex flex-col items-center justify-center py-40 gap-4">
+                                <div className="w-12 h-12 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin" /><p className="text-zinc-600 text-xs font-bold uppercase tracking-widest">{pageMode === 'discover' ? 'Searching...' : 'Loading library...'}</p>
+                            </div>
+                        ) : pageItems.length > 0 ? (
+                            <>
+                                <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5' : 'space-y-3'}>
+                                    {pageItems.map((item, idx) => {
+                                        if (pageMode === 'mylibrary') return <MyMediaCard key={`${item.instanceId}-${item.id}-${idx}`} item={item} viewMode={viewMode} onRefresh={loadLibrary} expandAll={expandAll} excludeUnmonitored={excludeUnmonitored} onDelete={() => handleDelete(item)} onTransfer={() => setTransferTarget(item)} onInteractiveSearch={handleOpenInteractiveSearch} />;
+                                        return <DiscoveryCard key={item.tmdbId ? `tmdb-${item.tmdbId}` : `tvdb-${item.tvdbId}`} item={item} isAdding={addingItemStr === (item.tmdbId ? `tmdb-${item.tmdbId}` : `tvdb-${item.tvdbId}`)} libStatus={isInLibrary(item)} onAdd={() => handleAdd(item)} viewMode={viewMode} onShowDetails={() => setShowDetailsFor(item)} onInteractiveSearch={handleOpenInteractiveSearch} />;
+                                    })}
+                                </div>
+                                {totalPages > 1 && (
+                                    <div className="flex items-center justify-center gap-4 pt-4">
+                                        <button onClick={() => setCurrentPage(p => Math.max(0, p - 1))} disabled={currentPage === 0} className="px-5 py-2.5 rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-400 text-xs font-black uppercase tracking-widest hover:border-zinc-700 hover:text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed">← Prev</button>
+                                        <span className="text-zinc-600 text-xs font-bold">Page {currentPage + 1} of {totalPages}</span>
+                                        <button onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))} disabled={currentPage >= totalPages - 1} className="px-5 py-2.5 rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-400 text-xs font-black uppercase tracking-widest hover:border-zinc-700 hover:text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed">Next →</button>
+                                    </div>
+                                )}
+                            </>
+                        ) : (
+                            <div className="flex flex-col items-center justify-center py-40 bg-zinc-950/20 rounded-[3rem] border border-zinc-900/50 gap-6">
+                                <div className="p-8 bg-zinc-900/50 rounded-full opacity-20"><Search size={64} /></div>
+                                <div className="text-center">
+                                    <p className="text-xl font-bold text-white mb-2">{pageMode === 'mylibrary' ? 'Library is empty' : 'No results found'}</p>
+                                    <p className="text-zinc-500 font-medium">{pageMode === 'mylibrary' ? 'Add media in Discover mode.' : 'Try adjusting your filters.'}</p>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
             )}
 
             {/* Add Media Modal */}
