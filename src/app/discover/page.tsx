@@ -356,7 +356,7 @@ function MyMediaCard({ item, viewMode, onRefresh, expandAll, excludeUnmonitored,
 // Discovery Card
 // ──────────────────────────────────────────────
 function DiscoveryCard({ item, isAdding, libStatus, onAdd, viewMode, onShowDetails, onInteractiveSearch }: {
-    item: any; isAdding: boolean; libStatus: { exists: boolean; hasFile: boolean; isDownloading: boolean; percentage?: number; instances: { id: string; name: string; internalId?: number }[] }; onAdd: () => void; viewMode: 'grid' | 'list'; onShowDetails?: () => void; onInteractiveSearch?: (media: any) => void;
+    item: any; isAdding: boolean; libStatus: { exists: boolean; hasFile: boolean; isDownloading: boolean; percentage?: number; qualityProfileId?: number; instances: { id: string; name: string; internalId?: number }[] }; onAdd: () => void; viewMode: 'grid' | 'list'; onShowDetails?: () => void; onInteractiveSearch?: (media: any) => void;
 }) {
     const [expanded, setExpanded] = useState(false);
     const poster = item.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || item.remotePoster;
@@ -637,7 +637,7 @@ export default function DiscoverPage() {
             const items = Array.isArray(data) ? data : [];
             setLibraryItems(items);
 
-            const map = new Map<string, { hasFile: boolean; isDownloading: boolean; percentage: number; sizeOnDisk: number; instances: { id: string; name: string; internalId?: number }[] }>();
+            const map = new Map<string, { hasFile: boolean; isDownloading: boolean; percentage: number; sizeOnDisk: number; qualityProfileId?: number; instances: { id: string; name: string; internalId?: number }[] }>();
 
             items.forEach((m: any) => {
                 const isSeries = !!(m.tvdbId || m.seasons);

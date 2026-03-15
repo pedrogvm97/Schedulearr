@@ -7,7 +7,15 @@ import { toast } from 'sonner';
 interface MediaDetailsPanelProps {
     item: any;
     tmdbApiKey?: string;
-    libStatus?: { exists: boolean; hasFile: boolean; isDownloading: boolean; sizeOnDisk: number; percentage: number; instances: { id: string; name: string; internalId?: number }[] };
+    libStatus?: { 
+        exists: boolean; 
+        hasFile: boolean; 
+        isDownloading: boolean; 
+        sizeOnDisk: number; 
+        percentage: number; 
+        qualityProfileId?: number;
+        instances: { id: string; name: string; internalId?: number }[] 
+    };
     onClose: () => void;
     onSelectRecommended?: (media: any) => void;
     onSelectPerson?: (personId: number) => void;
