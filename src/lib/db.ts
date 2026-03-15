@@ -82,6 +82,12 @@ function initializeSchema(d: any) {
         last_progress REAL NOT NULL,
         last_change DATETIME DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS network_speed (
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        download_speed REAL NOT NULL,
+        upload_speed REAL NOT NULL
+      );
     `);
 
     // Migrations
@@ -327,6 +333,22 @@ export const updateIndexerRuleMetrics = (id: string, newSnatches: number, newByt
         const stmt = db.prepare('UPDATE prowlarr_indexer_rules SET current_snatches = ?, current_size_bytes = ? WHERE id = ?');
         stmt.run(newSnatches, newBytes, id);
     }
+};
+
+// --- Network Speed History ---
+export const logNetworkSpeed = (downloadSpeed: number, uploadSpeed: number) => {
+    const stmt = db.prepare('INSERT INTO network_speed (download_speed, upload_speed) VALUES (?, ?)');
+    stmt.run(downloadSpeed, uploadSpeed);
+};
+
+export const getNetworkSpeedHistory = (limit: number = 60) => {
+    const stmt = db.prepare('SELECT * FROM network_speed ORDER BY timestamp DESC LIMIT ?');
+    return stmt.all(limit);
+};
+
+export const pruneNetworkSpeedHistory = (daysToKeep: number = 7) => {
+    const stmt = db.prepare("DELETE FROM network_speed WHERE timestamp < datetime('now', '-' || ? || ' days')");
+    stmt.run(daysToKeep);
 };
 
 export default db;

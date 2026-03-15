@@ -90,9 +90,25 @@ export const getActiveTorrents = async (url: string, cookie: string): Promise<Qb
 };
 
 /**
- * Delete torrents from qBittorrent. 
- * @param deleteFiles true to also delete the downloaded data payload.
+ * Fetch global transfer info (speeds) from qBittorrent
  */
+export const getTransferInfo = async (url: string, cookie: string): Promise<{ dl_info_speed: number, up_info_speed: number }> => {
+    try {
+        const response = await axios.get(`${url}/api/v2/transfer/info`, {
+            headers: {
+                'Cookie': cookie
+            }
+        });
+        return {
+            dl_info_speed: response.data.dl_info_speed || 0,
+            up_info_speed: response.data.up_info_speed || 0
+        };
+    } catch (error) {
+        console.error(`Error fetching transfer info from qBittorrent at ${url}:`, error);
+        throw error;
+    }
+};
+
 export const deleteTorrents = async (url: string, cookie: string, hashes: string[], deleteFiles: boolean = false): Promise<void> => {
     try {
         const params = new URLSearchParams();

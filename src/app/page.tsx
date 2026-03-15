@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import HistoryLedger from "@/components/HistoryLedger";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, AreaChart, Area } from 'recharts';
 import { X, ExternalLink, HelpCircle } from 'lucide-react';
 
 // --- Interfaces ---
@@ -14,6 +14,13 @@ interface RecentDownload {
   size: number;
   failureReason?: string;
   indexer?: string;
+  poster?: string;
+}
+
+interface SpeedHistory {
+  timestamp: string;
+  download_speed: number;
+  upload_speed: number;
 }
 
 interface IndexerHealth {
@@ -54,6 +61,7 @@ export default function Dashboard() {
     instanceTotals: Record<string, any>,
     indexerTotals: Record<string, any>
   }>({ instanceTotals: {}, indexerTotals: {} });
+  const [speedHistory, setSpeedHistory] = useState<SpeedHistory[]>([]);
 
   // UI States
   const [loadingStats, setLoadingStats] = useState(true);
@@ -137,8 +145,25 @@ export default function Dashboard() {
     setLoadingStats(false);
   };
 
+  const fetchSpeedHistory = async () => {
+    try {
+      const res = await fetch('/api/stats/speed');
+      if (res.ok) {
+        const data = await res.json();
+        setSpeedHistory(data);
+      }
+    } catch (e) {
+      console.error("Failed to load speed history", e);
+    }
+  };
+
   useEffect(() => {
     fetchStats(timeframe);
+    fetchSpeedHistory();
+    
+    // Refresh speed history more frequently
+    const interval = setInterval(fetchSpeedHistory, 30000);
+    return () => clearInterval(interval);
   }, [timeframe]);
 
   useEffect(() => {
@@ -593,10 +618,10 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* Recent History */}
+          {/* Recent Downloads */}
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col max-h-[500px]">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-white">Recent History</h2>
+              <h2 className="text-xl font-bold text-white">Recent Downloads</h2>
               <div className="flex gap-1.5 flex-wrap">
                 {Object.keys(instances).map(id => (
                   <button
@@ -621,22 +646,31 @@ export default function Dashboard() {
               )}
               {!loadingStats && recentDownloads.filter(dl => recentDownloadFilters[dl.instanceId] !== false).length === 0 && (
                 <div className="text-zinc-500 text-sm py-2 flex items-center justify-center p-8 bg-zinc-950/50 rounded-xl border border-zinc-800/50 border-dashed">
-                  No history found for current filters.
+                  No downloads found for current filters.
                 </div>
               )}
               {!loadingStats && recentDownloads.filter(dl => recentDownloadFilters[dl.instanceId] !== false).slice(0, 20).map((dl, idx) => {
                 const inst = instances[dl.instanceId];
                 return (
-                  <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-zinc-950 border border-zinc-800 flex-shrink-0 transition hover:border-zinc-700">
-                    <div className="flex flex-col min-w-0 pr-4">
+                  <div key={idx} className="flex items-center gap-4 p-3 rounded-xl bg-zinc-950 border border-zinc-800 flex-shrink-0 transition hover:border-zinc-700">
+                    <div className="w-12 h-18 rounded-lg overflow-hidden flex-shrink-0 bg-zinc-900 border border-zinc-800">
+                      {dl.poster ? (
+                        <img src={dl.poster} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-zinc-700">
+                          <HelpCircle size={16} />
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex flex-col min-w-0 flex-1 pr-4">
                       <span className="text-sm font-semibold text-zinc-200 truncate" title={dl.title}>{dl.title}</span>
-                      <div className="flex items-center gap-2 mt-0.5">
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                         <span className="text-xs text-zinc-500 font-medium">{getAge(dl.date)}</span>
                         <span
                           title={dl.failureReason || (dl.status === 'Finalized' ? 'Download imported and completed' : dl.status === 'Grabbed' ? 'Sent to download client' : 'Currently in download queue')}
                           className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider cursor-help ${dl.status === 'Finalized' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' :
                             dl.status === 'Failed' ? 'bg-red-500/10 text-red-500 border border-red-500/20' :
-                              dl.status === 'Downloading' ? 'bg-amber-500/10 text-amber-500 border border-emerald-500/20' : // Corrected color for Downloading
+                              dl.status === 'Downloading' ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20' :
                                 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
                             }`}>
                           {dl.status}
@@ -662,6 +696,80 @@ export default function Dashboard() {
                 );
               })}
             </div>
+          </div>
+
+          {/* Network Speed History */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col max-h-[500px]">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-white">Network Speed History</h2>
+              <div className="flex gap-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                  <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Download</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />
+                  <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Upload</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex-1 min-h-[300px]">
+              {speedHistory.length === 0 ? (
+                <div className="w-full h-full flex flex-col items-center justify-center text-zinc-500 gap-2 p-8 border border-zinc-800/50 border-dashed rounded-xl">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-emerald-500" />
+                  <p className="text-sm italic">Monitoring network traffic...</p>
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={speedHistory} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="colorDl" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                      </linearGradient>
+                      <linearGradient id="colorUp" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                    <XAxis 
+                      dataKey="timestamp" 
+                      hide={true} 
+                    />
+                    <YAxis 
+                      stroke="#52525b" 
+                      fontSize={10} 
+                      tickFormatter={(val) => `${(val / (1024 * 1024)).toFixed(1)}`}
+                    />
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: '#09090b', border: '1px solid #27272a', borderRadius: '8px', fontSize: '11px' }}
+                      labelStyle={{ color: '#71717a' }}
+                      formatter={(value: any) => [`${((value || 0) / (1024 * 1024)).toFixed(2)} MB/s`]}
+                      labelFormatter={(label) => new Date(label).toLocaleTimeString()}
+                    />
+                    <Area type="monotone" dataKey="download_speed" name="Download" stroke="#10b981" fillOpacity={1} fill="url(#colorDl)" strokeWidth={2} isAnimationActive={false} />
+                    <Area type="monotone" dataKey="upload_speed" name="Upload" stroke="#3b82f6" fillOpacity={1} fill="url(#colorUp)" strokeWidth={2} isAnimationActive={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+            {speedHistory.length > 0 && (
+              <div className="mt-4 flex justify-between text-[11px] font-bold">
+                <div className="flex gap-4">
+                  <div className="flex flex-col">
+                    <span className="text-zinc-500 uppercase tracking-tighter">Current DL</span>
+                    <span className="text-emerald-400">{(speedHistory[speedHistory.length-1].download_speed / (1024*1024)).toFixed(2)} MB/s</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-zinc-500 uppercase tracking-tighter">Current UP</span>
+                    <span className="text-blue-400">{(speedHistory[speedHistory.length-1].upload_speed / (1024*1024)).toFixed(2)} MB/s</span>
+                  </div>
+                </div>
+                <div className="text-zinc-600 self-end italic">Last 60 mins</div>
+              </div>
+            )}
           </div>
         </div>
 

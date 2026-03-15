@@ -36,8 +36,8 @@ interface HistoryRecord {
     date: string;
     eventType: number | string;
     sourceTitle?: string;
-    movie?: { title: string };
-    series?: { title: string };
+    movie?: { title: string, images?: { url: string, remoteUrl: string }[] };
+    series?: { title: string, images?: { url: string, remoteUrl: string }[] };
     episode?: { seasonNumber: number, episodeNumber: number };
     data?: {
         importedSize?: string;
@@ -104,7 +104,8 @@ export async function GET(req: Request) {
             status: string,
             size?: number,
             failureReason?: string,
-            indexer?: string
+            indexer?: string,
+            poster?: string
         }[] = [];
 
         // Aggregate totals for the left panel
@@ -187,7 +188,8 @@ export async function GET(req: Request) {
                         instanceId: id,
                         status: 'Downloading',
                         size: item.size || 0,
-                        indexer: (item as any).indexer || 'Unknown'
+                        indexer: (item as any).indexer || 'Unknown',
+                        poster: (item as any).movie?.images?.[0]?.remoteUrl || (item as any).series?.images?.[0]?.remoteUrl
                     });
 
                     // Add to chart stats for "today"
@@ -308,7 +310,8 @@ export async function GET(req: Request) {
                                 status,
                                 size,
                                 failureReason: isFailed ? (record.data?.message || record.data?.reason || 'Unknown failure reason') : '',
-                                indexer: indexerName
+                                indexer: indexerName,
+                                poster: (record as any).movie?.images?.[0]?.remoteUrl || (record as any).series?.images?.[0]?.remoteUrl
                             });
                         }
                     }

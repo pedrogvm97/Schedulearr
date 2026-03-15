@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
@@ -993,7 +993,7 @@ export default function DiscoverPage() {
             );
         }
         if (filterYear !== 'All') items = items.filter(i => i.year?.toString() === filterYear);
-        if (filterRating > 0) items = items.filter(i => (i.ratings?.value || i.ratings?.votes || i.vote_average || 0) >= filterRating);
+        if (filterRating > 0) items = items.filter(i => (i.ratings?.value || i.vote_average || 0) >= filterRating);
 
         if (filterPopularity > 0) {
             items = items.filter(i => {

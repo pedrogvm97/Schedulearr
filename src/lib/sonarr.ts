@@ -283,6 +283,18 @@ export const addSeries = async (url: string, apiKey: string, seriesPayload: any)
     }
 };
 
+export const updateSeries = async (url: string, apiKey: string, seriesPayload: any): Promise<any> => {
+    try {
+        const response = await axios.put(`${url}/api/v3/series/${seriesPayload.id}`, seriesPayload, {
+            headers: { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' }
+        });
+        return { success: true, data: response.data };
+    } catch (error: any) {
+        console.error(`Error updating series in Sonarr (${url}):`, error.response?.data || error.message);
+        return { success: false, error: error.response?.data || error.message };
+    }
+};
+
 export const deleteSeries = async (url: string, apiKey: string, seriesId: number, deleteFiles: boolean = true): Promise<boolean> => {
     try {
         await axios.delete(`${url}/api/v3/series/${seriesId}`, {

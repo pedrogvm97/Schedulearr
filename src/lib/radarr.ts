@@ -208,6 +208,18 @@ export const addMovie = async (url: string, apiKey: string, moviePayload: any): 
     }
 };
 
+export const updateMovie = async (url: string, apiKey: string, moviePayload: any): Promise<any> => {
+    try {
+        const response = await axios.put(`${url}/api/v3/movie/${moviePayload.id}`, moviePayload, {
+            headers: { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' }
+        });
+        return { success: true, data: response.data };
+    } catch (error: any) {
+        console.error(`Error updating movie in Radarr (${url}):`, error.response?.data || error.message);
+        return { success: false, error: error.response?.data || error.message };
+    }
+};
+
 export const deleteMovie = async (url: string, apiKey: string, movieId: number, deleteFiles: boolean = true): Promise<boolean> => {
     try {
         await axios.delete(`${url}/api/v3/movie/${movieId}`, {

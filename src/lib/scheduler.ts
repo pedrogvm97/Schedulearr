@@ -11,6 +11,8 @@ declare global {
     var globalNextSchedulerRun: number | null;
 }
 
+import { startSpeedMonitor } from '@/lib/speedMonitor';
+
 if (!global.globalSchedulerRunning) {
     global.globalSchedulerRunning = true;
 
@@ -20,6 +22,9 @@ if (!global.globalSchedulerRunning) {
 
     const startScheduler = () => {
         console.log('🏁 Schedulearr background orchestrator started.');
+        
+        // Start network speed monitor (30s interval)
+        startSpeedMonitor(30);
 
         const runCycle = async () => {
             const now = new Date().toISOString();
@@ -72,16 +77,19 @@ export function getNextSchedulerRun() {
     return global.globalNextSchedulerRun || null;
 }
 
-export async function runBatchSearch() {
+export async function runBatchSearch(manualTrigger: boolean = false) {
     const defaultRes = { success: false, reason: '', movies: [], episodes: [] };
-    const prowlarrs = getInstances('prowlarr');
-    const { enabled, batchBehavior, maxAttempts, batchSize: configBatchSize } = getSchedulerConfig();
-    if (!enabled) {
-        console.log('⏸️  Scheduler is disabled in settings. Skipping run.');
-        defaultRes.reason = 'Scheduler is disabled in settings';
-        logSearchHistory('N/A', [], [], defaultRes.reason); // Log disabled status
+    const config = getSchedulerConfig();
+
+    if (!config.enabled && !manualTrigger) {
+        if (process.env.NODE_ENV !== 'production') {
+            console.log('[SCHEDULER] Skipping execution because it is disabled in config.');
+        }
         return defaultRes;
     }
+
+    const prowlarrs = getInstances('prowlarr');
+    const { batchBehavior, maxAttempts, batchSize: configBatchSize } = config;
 
     let allowedBatchSize = configBatchSize || 10;
     const profile = getSetting('priority_profile') || 'recently_added';

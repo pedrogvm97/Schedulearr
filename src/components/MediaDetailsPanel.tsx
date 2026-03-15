@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 interface MediaDetailsPanelProps {
     item: any;
     tmdbApiKey?: string;
-    libStatus?: { exists: boolean; hasFile: boolean; isDownloading: boolean; instances: { id: string; name: string }[] };
+    libStatus?: { exists: boolean; hasFile: boolean; isDownloading: boolean; instances: { id: string; name: string; internalId?: number }[] };
     onClose: () => void;
     onSelectRecommended?: (media: any) => void;
     onSelectPerson?: (personId: number) => void;
@@ -20,6 +20,8 @@ export function MediaDetailsPanel({ item, tmdbApiKey, libStatus, onClose, onSele
     const [credits, setCredits] = useState<any[]>([]);
     const [directors, setDirectors] = useState<any[]>([]);
     const [recommendations, setRecommendations] = useState<any[]>([]);
+    const [availableProfiles, setAvailableProfiles] = useState<any[]>([]);
+    const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
 
     const isSeries = item.type === 'series' || (item.tvdbId && !item.tmdbId) || !!item.seasons;
     const tmdbId = item.tmdbId || (item.type === 'movie' ? item.id : !isSeries ? item.id : null);
@@ -66,6 +68,44 @@ export function MediaDetailsPanel({ item, tmdbApiKey, libStatus, onClose, onSele
 
         fetchDetails();
     }, [tmdbId, tmdbApiKey, isSeries]);
+
+    useEffect(() => {
+        if (libStatus?.exists && libStatus.instances.length > 0) {
+            fetch(`/api/instances/profiles?instanceId=${libStatus.instances[0].id}`)
+                .then(r => r.ok ? r.json() : [])
+                .then(data => setAvailableProfiles(data))
+                .catch(err => console.error('Error fetching profiles:', err));
+        }
+    }, [libStatus]);
+
+    const handleUpdateProfile = async (profileId: number) => {
+        if (!libStatus?.instances?.[0]?.internalId) {
+            toast.error('Internal ID missing. Cannot update profile.');
+            return;
+        }
+        setIsUpdatingProfile(true);
+        try {
+            const res = await fetch('/api/media/profile', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    instanceId: libStatus.instances[0].id,
+                    type: isSeries ? 'series' : 'movie',
+                    mediaId: libStatus.instances[0].internalId,
+                    profileId
+                })
+            });
+            if (res.ok) {
+                toast.success('Quality profile updated');
+            } else {
+                toast.error('Failed to update quality profile');
+            }
+        } catch (e) {
+            toast.error('Error updating quality profile');
+        } finally {
+            setIsUpdatingProfile(false);
+        }
+    };
 
     if (!item) return null;
 
@@ -130,6 +170,28 @@ export function MediaDetailsPanel({ item, tmdbApiKey, libStatus, onClose, onSele
                                             ))}
                                         </div>
                                     </div>
+
+                                    {libStatus.exists && availableProfiles.length > 0 && (
+                                        <div className="pt-2 space-y-2 border-t border-white/5">
+                                            <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">Quality Profile</span>
+                                            <div className="relative group/select">
+                                                <select
+                                                    disabled={isUpdatingProfile}
+                                                    defaultValue={item.qualityProfileId}
+                                                    onChange={(e) => handleUpdateProfile(parseInt(e.target.value))}
+                                                    className="w-full bg-zinc-900 border border-white/5 rounded-xl px-4 py-2 text-xs font-bold text-zinc-300 appearance-none cursor-pointer focus:outline-none focus:border-emerald-500/50 transition-all disabled:opacity-50"
+                                                >
+                                                    {availableProfiles.map(p => (
+                                                        <option key={p.id} value={p.id}>{p.name}</option>
+                                                    ))}
+                                                </select>
+                                                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-600 transition-transform group-hover/select:translate-y-[-40%]">
+                                                    <Calendar size={10} className="hidden" /> {/* Spacer */}
+                                                    <Plus size={12} className="rotate-45" />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </>
                             ) : (
                                 <div className="space-y-4">
@@ -160,6 +222,21 @@ export function MediaDetailsPanel({ item, tmdbApiKey, libStatus, onClose, onSele
                                 </div>
                             </div>
                         </div>
+
+                        {libStatus?.exists && (
+                            <div className="p-4 rounded-2xl bg-emerald-500/5 border border-emerald-500/10">
+                                <span className="block text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1">Size on Disk</span>
+                                <span className="text-sm font-bold text-emerald-400">
+                                    {(() => {
+                                        const bytes = item.statistics?.sizeOnDisk || item.movieFile?.size || 0;
+                                        if (bytes === 0) return '0 GB';
+                                        if (bytes > 1024**4) return `${(bytes / 1024**4).toFixed(2)} TB`;
+                                        if (bytes > 1024**3) return `${(bytes / 1024**3).toFixed(2)} GB`;
+                                        return `${(bytes / 1024**2).toFixed(0)} MB`;
+                                    })()}
+                                </span>
+                            </div>
+                        )}
 
                         {details?.genres && (
                             <div className="flex flex-wrap gap-2 pt-2">
