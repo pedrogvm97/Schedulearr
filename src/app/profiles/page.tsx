@@ -50,6 +50,7 @@ export default function ProfilesPage() {
     const [searchQuery, setSearchQuery] = useState('');
     const [filterInstances, setFilterInstances] = useState<string[]>([]);
     const [filterType, setFilterType] = useState<'All' | 'radarr' | 'sonarr'>('All');
+    const [editingProfile, setEditingProfile] = useState<{ instanceId: string, profile: Profile } | null>(null);
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [expandingProfile, setExpandingProfile] = useState<string | null>(null); // "instanceId-profileId"
     const [profileMedia, setProfileMedia] = useState<Record<string, any[]>>({}); // items grouped by profile key
@@ -304,6 +305,13 @@ export default function ProfilesPage() {
                                 </div>
                                 <div className="flex gap-2">
                                     <button
+                                        onClick={() => setEditingProfile({ instanceId: profile.instanceId, profile })}
+                                        className="p-3 rounded-2xl bg-zinc-900/50 text-zinc-600 hover:bg-emerald-500/10 hover:text-emerald-500 transition-all border border-zinc-800"
+                                        title="Edit Profile"
+                                    >
+                                        <Settings size={18} />
+                                    </button>
+                                    <button
                                         onClick={() => handleDelete(profile)}
                                         className="p-3 rounded-2xl bg-zinc-900/50 text-zinc-600 hover:bg-red-500/10 hover:text-red-500 transition-all border border-zinc-800"
                                         title="Delete Profile"
@@ -426,12 +434,20 @@ export default function ProfilesPage() {
                 </div>
             )}
 
-            {/* Create Profile Modal */}
-            {showCreateModal && (
+            {/* Create/Edit Profile Modal */}
+            {(showCreateModal || editingProfile) && (
                 <CreateProfileModal
                     instances={instances}
-                    onClose={() => setShowCreateModal(false)}
-                    onCreated={() => { setShowCreateModal(false); fetchProfiles(); }}
+                    initialData={editingProfile || undefined}
+                    onClose={() => {
+                        setShowCreateModal(false);
+                        setEditingProfile(null);
+                    }}
+                    onCreated={() => { 
+                        setShowCreateModal(false); 
+                        setEditingProfile(null);
+                        fetchProfiles(); 
+                    }}
                 />
             )}
         </div>

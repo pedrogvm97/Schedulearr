@@ -25,6 +25,12 @@ interface SpeedHistory {
   timestamp: string;
   download_speed: number;
   upload_speed: number;
+  qbit_dl: number;
+  qbit_up: number;
+  plex_dl: number;
+  plex_up: number;
+  total_dl: number;
+  total_up: number;
 }
 
 interface IndexerHealth {
@@ -78,8 +84,9 @@ export default function Dashboard() {
   const [chartType, setChartType] = useState<'grabbed' | 'imported' | 'sizeGB'>('grabbed');
   const [timeframe, setTimeframe] = useState<'day' | 'week' | 'month' | 'year' | 'all'>('month');
   const [recentDownloadFilters, setRecentDownloadFilters] = useState<Record<string, boolean>>({});
-  const [showQbit, setShowQbit] = useState(true);
-  const [showPlex, setShowPlex] = useState(true);
+  const [showQbit, setShowQbit] = useState(false);
+  const [showPlex, setShowPlex] = useState(false);
+  const [showTotal, setShowTotal] = useState(true);
 
   // Tooltip States
   const [stickyTooltip, setStickyTooltip] = useState<any>(null);
@@ -608,7 +615,8 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8 items-stretch">
+        {/* Indexers and Downloads */}
+        <div className="space-y-8 mb-8">
           {/* Prowlarr Indexers Health */}
           {!loadingProwlarr && prowlarrHealth.length > 0 && (
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col max-h-[500px]">
@@ -743,32 +751,32 @@ export default function Dashboard() {
               })}
             </div>
           </div>
+        </div>
 
+        {/* Side-by-Side: Network Speed & Search History */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8 items-stretch">
           {/* Network Speed History */}
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col max-h-[500px]">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-white">Network Speed History</h2>
-              <div className="flex gap-4">
-                <div className="flex items-center gap-2">
-                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                  <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Download</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />
-                  <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Upload</span>
-                </div>
-                <div className="h-4 w-[1px] bg-zinc-800 mx-1" />
+              <h2 className="text-xl font-bold text-white">Network Speed</h2>
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => setShowTotal(!showTotal)}
+                  className={`px-2 py-1 rounded border text-[9px] font-bold uppercase transition-all ${showTotal ? 'bg-zinc-100 text-black border-white' : 'bg-zinc-900 border-zinc-800 text-zinc-500'}`}
+                >
+                  Main
+                </button>
                 <button 
                   onClick={() => setShowQbit(!showQbit)}
-                  className={`flex items-center gap-2 px-2 py-1 rounded-md border transition-all ${showQbit ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400'}`}
+                  className={`px-2 py-1 rounded border text-[9px] font-bold uppercase transition-all ${showQbit ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-zinc-900 border-zinc-800 text-zinc-500'}`}
                 >
-                  <span className="text-[9px] font-black uppercase tracking-tight">qBit</span>
+                  qBit
                 </button>
                 <button 
                   onClick={() => setShowPlex(!showPlex)}
-                  className={`flex items-center gap-2 px-2 py-1 rounded-md border transition-all ${showPlex ? 'bg-orange-500/10 border-orange-500/30 text-orange-400' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400'}`}
+                  className={`px-2 py-1 rounded border text-[9px] font-bold uppercase transition-all ${showPlex ? 'bg-orange-500 text-white border-orange-500' : 'bg-zinc-900 border-zinc-800 text-zinc-500'}`}
                 >
-                  <span className="text-[9px] font-black uppercase tracking-tight">Plex</span>
+                  Plex
                 </button>
               </div>
             </div>
@@ -793,10 +801,7 @@ export default function Dashboard() {
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
-                    <XAxis 
-                      dataKey="timestamp" 
-                      hide={true} 
-                    />
+                    <XAxis dataKey="timestamp" hide={true} />
                     <YAxis 
                       stroke="#52525b" 
                       fontSize={10} 
@@ -805,11 +810,30 @@ export default function Dashboard() {
                     <Tooltip 
                       contentStyle={{ backgroundColor: '#09090b', border: '1px solid #27272a', borderRadius: '8px', fontSize: '11px' }}
                       labelStyle={{ color: '#71717a' }}
-                      formatter={(value: any) => [`${((value || 0) / (1024 * 1024)).toFixed(2)} MB/s`]}
+                      formatter={(value: any, name: string | undefined) => [`${((value || 0) / (1024 * 1024)).toFixed(2)} MB/s`, name || 'Speed']}
                       labelFormatter={(label) => new Date(label).toLocaleTimeString()}
                     />
-                    <Area type="monotone" dataKey="download_speed" name="Download" stroke="#10b981" fillOpacity={1} fill="url(#colorDl)" strokeWidth={2} isAnimationActive={false} />
-                    <Area type="monotone" dataKey="upload_speed" name="Upload" stroke="#3b82f6" fillOpacity={1} fill="url(#colorUp)" strokeWidth={2} isAnimationActive={false} />
+                    {showTotal && (
+                      <>
+                        <Area type="monotone" dataKey="total_dl" name="Total DL" stroke="#10b981" fillOpacity={1} fill="url(#colorDl)" strokeWidth={2} isAnimationActive={false} />
+                        <Area type="monotone" dataKey="total_up" name="Total UP" stroke="#3b82f6" fillOpacity={0} strokeWidth={2} strokeDasharray="5 5" isAnimationActive={false} />
+                      </>
+                    )}
+                    {showQbit && (
+                      <>
+                        <Area type="monotone" dataKey="qbit_dl" name="qBit DL" stroke="#0ea5e9" fillOpacity={0} strokeWidth={1} isAnimationActive={false} />
+                        <Area type="monotone" dataKey="qbit_up" name="qBit UP" stroke="#0ea5e9" fillOpacity={0} strokeWidth={1} strokeDasharray="3 3" isAnimationActive={false} />
+                      </>
+                    )}
+                    {showPlex && (
+                      <Area type="monotone" dataKey="plex_up" name="Plex UP" stroke="#f97316" fillOpacity={0.1} fill="#f97316" strokeWidth={1} strokeDasharray="4 4" isAnimationActive={false} />
+                    )}
+                    {!showTotal && !showQbit && !showPlex && (
+                      <>
+                        <Area type="monotone" dataKey="download_speed" name="Download" stroke="#10b981" fillOpacity={1} fill="url(#colorDl)" strokeWidth={2} isAnimationActive={false} />
+                        <Area type="monotone" dataKey="upload_speed" name="Upload" stroke="#3b82f6" fillOpacity={0} strokeWidth={2} strokeDasharray="5 5" isAnimationActive={false} />
+                      </>
+                    )}
                   </AreaChart>
                 </ResponsiveContainer>
               )}
@@ -819,21 +843,21 @@ export default function Dashboard() {
                 <div className="flex gap-4">
                   <div className="flex flex-col">
                     <span className="text-zinc-500 uppercase tracking-tighter">Current DL</span>
-                    <span className="text-emerald-400">{(speedHistory[speedHistory.length-1].download_speed / (1024*1024)).toFixed(2)} MB/s</span>
+                    <span className="text-emerald-400">{((showTotal ? speedHistory[speedHistory.length-1].total_dl : speedHistory[speedHistory.length-1].download_speed) / (1024*1024)).toFixed(2)} MB/s</span>
                   </div>
                   <div className="flex flex-col">
                     <span className="text-zinc-500 uppercase tracking-tighter">Current UP</span>
-                    <span className="text-blue-400">{(speedHistory[speedHistory.length-1].upload_speed / (1024*1024)).toFixed(2)} MB/s</span>
+                    <span className="text-blue-400">{((showTotal ? speedHistory[speedHistory.length-1].total_up : speedHistory[speedHistory.length-1].upload_speed) / (1024*1024)).toFixed(2)} MB/s</span>
                   </div>
                 </div>
                 <div className="text-zinc-600 self-end italic">Last 60 mins</div>
               </div>
             )}
           </div>
-        </div>
 
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-          <HistoryLedger />
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col max-h-[500px]">
+            <HistoryLedger />
+          </div>
         </div>
 
         {/* Manual Trigger Result Modal */}

@@ -3,11 +3,13 @@ import { getInstances, getInstanceById } from '@/lib/db';
 import {
     getQualityProfiles as getRadarrProfiles,
     createQualityProfile as createRadarrProfile,
+    updateQualityProfile as updateRadarrProfile,
     deleteQualityProfile as deleteRadarrProfile
 } from '@/lib/radarr';
 import {
     getQualityProfiles as getSonarrProfiles,
     createQualityProfile as createSonarrProfile,
+    updateQualityProfile as updateSonarrProfile,
     deleteQualityProfile as deleteSonarrProfile
 } from '@/lib/sonarr';
 
@@ -99,6 +101,34 @@ export async function POST(request: Request) {
     } catch (error: any) {
         console.error('API /profiles POST error:', error);
         return NextResponse.json({ error: error.response?.data?.message || 'Failed to create profile' }, { status: 500 });
+    }
+}
+
+export async function PUT(request: Request) {
+    try {
+        const body = await request.json();
+        const { instanceId, profile } = body;
+
+        if (!instanceId || !profile || !profile.id) {
+            return NextResponse.json({ error: 'Missing instanceId, profile data, or profile ID' }, { status: 400 });
+        }
+
+        const instance = getInstanceById(instanceId);
+        if (!instance) {
+            return NextResponse.json({ error: 'Instance not found' }, { status: 404 });
+        }
+
+        let updatedProfile;
+        if (instance.type === 'radarr') {
+            updatedProfile = await updateRadarrProfile(instance.url, instance.api_key, profile);
+        } else if (instance.type === 'sonarr') {
+            updatedProfile = await updateSonarrProfile(instance.url, instance.api_key, profile);
+        }
+
+        return NextResponse.json(updatedProfile);
+    } catch (error: any) {
+        console.error('API /profiles PUT error:', error);
+        return NextResponse.json({ error: error.response?.data?.[0]?.errorMessage || error.message || 'Failed to update profile' }, { status: 500 });
     }
 }
 

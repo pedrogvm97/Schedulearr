@@ -85,8 +85,14 @@ function initializeSchema(d: any) {
 
       CREATE TABLE IF NOT EXISTS network_speed (
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-        download_speed REAL NOT NULL,
-        upload_speed REAL NOT NULL
+        download_speed REAL DEFAULT 0,
+        upload_speed REAL DEFAULT 0,
+        qbit_dl REAL DEFAULT 0,
+        qbit_up REAL DEFAULT 0,
+        plex_dl REAL DEFAULT 0,
+        plex_up REAL DEFAULT 0,
+        total_dl REAL DEFAULT 0,
+        total_up REAL DEFAULT 0
       );
     `);
 
@@ -94,6 +100,12 @@ function initializeSchema(d: any) {
     try { d.exec("ALTER TABLE instances ADD COLUMN enabled INTEGER DEFAULT 1;"); } catch (e) { }
     try { d.exec("ALTER TABLE instances ADD COLUMN color TEXT;"); } catch (e) { }
     try { d.exec("ALTER TABLE search_history ADD COLUMN timestamp DATETIME DEFAULT CURRENT_TIMESTAMP;"); } catch (e) { }
+    try { d.exec("ALTER TABLE network_speed ADD COLUMN qbit_dl REAL DEFAULT 0;"); } catch (e) { }
+    try { d.exec("ALTER TABLE network_speed ADD COLUMN qbit_up REAL DEFAULT 0;"); } catch (e) { }
+    try { d.exec("ALTER TABLE network_speed ADD COLUMN plex_dl REAL DEFAULT 0;"); } catch (e) { }
+    try { d.exec("ALTER TABLE network_speed ADD COLUMN plex_up REAL DEFAULT 0;"); } catch (e) { }
+    try { d.exec("ALTER TABLE network_speed ADD COLUMN total_dl REAL DEFAULT 0;"); } catch (e) { }
+    try { d.exec("ALTER TABLE network_speed ADD COLUMN total_up REAL DEFAULT 0;"); } catch (e) { }
 }
 
 export interface Setting {
@@ -338,9 +350,21 @@ export const updateIndexerRuleMetrics = (id: string, newSnatches: number, newByt
 };
 
 // --- Network Speed History ---
-export const logNetworkSpeed = (downloadSpeed: number, uploadSpeed: number) => {
-    const stmt = db.prepare('INSERT INTO network_speed (download_speed, upload_speed) VALUES (?, ?)');
-    stmt.run(downloadSpeed, uploadSpeed);
+export const logNetworkSpeed = (
+    downloadSpeed: number, uploadSpeed: number,
+    qbitDl: number = 0, qbitUp: number = 0,
+    plexDl: number = 0, plexUp: number = 0,
+    totalDl: number = 0, totalUp: number = 0
+) => {
+    const stmt = db.prepare(`
+        INSERT INTO network_speed (
+            download_speed, upload_speed, 
+            qbit_dl, qbit_up, 
+            plex_dl, plex_up, 
+            total_dl, total_up
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(downloadSpeed, uploadSpeed, qbitDl, qbitUp, plexDl, plexUp, totalDl, totalUp);
 };
 
 export const getNetworkSpeedHistory = (limit: number = 60) => {

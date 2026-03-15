@@ -15,6 +15,10 @@ interface Props {
     instances: Instance[];
     onClose: () => void;
     onCreated: () => void;
+    initialData?: {
+        instanceId: string;
+        profile: any;
+    };
 }
 
 // Standard Radarr/Sonarr quality source IDs
@@ -78,20 +82,33 @@ const CUTOFF_OPTIONS = [
     { id: 17, name: 'WEB 2160p' },
 ];
 
-export function CreateProfileModal({ instances, onClose, onCreated }: Props) {
-    const [name, setName] = useState('');
-    const [selectedInstances, setSelectedInstances] = useState<string[]>([]);
-    const [upgradeAllowed, setUpgradeAllowed] = useState(true);
-    const [cutoff, setCutoff] = useState(0);
+export function CreateProfileModal({ instances, onClose, onCreated, initialData }: Props) {
+    const isEdit = !!initialData;
+    const [name, setName] = useState(initialData?.profile?.name || '');
+    const [selectedInstances, setSelectedInstances] = useState<string[]>(
+        initialData ? [initialData.instanceId] : []
+    );
+    const [upgradeAllowed, setUpgradeAllowed] = useState(initialData?.profile?.upgradeAllowed !== false);
+    const [cutoff, setCutoff] = useState(initialData?.profile?.cutoff || 0);
     const [enabledQuality, setEnabledQuality] = useState<Set<number>>(
-        new Set([3, 5, 6, 7, 9, 17, 27, 30]) // sensible defaults: WEB + 1080p + 720p
+        initialData?.profile?.items 
+            ? new Set(initialData.profile.items.filter((i: any) => i.allowed).map((i: any) => i.quality.id))
+            : new Set([3, 5, 6, 7, 9, 17, 27, 30]) // sensible defaults: WEB + 1080p + 720p
     );
     const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['4K / 2160p', '1080p', '720p']));
     const [saving, setSaving] = useState(false);
 
     // Custom Formats State
     const [availableFormats, setAvailableFormats] = useState<any[]>([]);
-    const [formatScores, setFormatScores] = useState<Record<number, number>>({});
+    const [formatScores, setFormatScores] = useState<Record<number, number>>(() => {
+        const scores: Record<number, number> = {};
+        if (initialData?.profile?.customFormats) {
+            initialData.profile.customFormats.forEach((cf: any) => {
+                scores[cf.customFormatId] = cf.score;
+            });
+        }
+        return scores;
+    });
     const [loadingFormats, setLoadingFormats] = useState(false);
 
     const toggleInstance = (id: string) => {
@@ -153,13 +170,14 @@ export function CreateProfileModal({ instances, onClose, onCreated }: Props) {
         });
     };
 
-    const handleCreate = async () => {
+    const handleSave = async () => {
         if (!name.trim()) return toast.error('Please enter a profile name');
         if (selectedInstances.length === 0) return toast.error('Select at least one instance');
         if (enabledQuality.size === 0) return toast.error('Enable at least one quality source');
 
         setSaving(true);
-        const t = toast.loading(`Creating in ${selectedInstances.length} instance(s)…`);
+        const action = isEdit ? 'Updating' : 'Creating';
+        const t = toast.loading(`${action} in ${selectedInstances.length} instance(s)…`);
 
         // Build the items array: enabled ones get allowed=true, rest allowed=false
         const items = ALL_QUALITY_IDS.map(id => ({
@@ -175,11 +193,12 @@ export function CreateProfileModal({ instances, onClose, onCreated }: Props) {
         try {
             const results = await Promise.all(selectedInstances.map(instId =>
                 fetch('/api/profiles', {
-                    method: 'POST',
+                    method: isEdit ? 'PUT' : 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         instanceId: instId,
                         profile: {
+                            ...(isEdit ? { id: initialData?.profile?.id } : {}),
                             name: name.trim(),
                             upgradeAllowed,
                             cutoff,
@@ -192,13 +211,13 @@ export function CreateProfileModal({ instances, onClose, onCreated }: Props) {
 
             const anyFailed = results.some(r => !r.ok);
             if (anyFailed) {
-                toast.error('Some profiles failed to create', { id: t });
+                toast.error(`Some profiles failed to ${action.toLowerCase()}`, { id: t });
             } else {
-                toast.success('Profiles created!', { id: t });
+                toast.success(`Profiles ${isEdit ? 'updated' : 'created'}!`, { id: t });
                 onCreated();
             }
         } catch {
-            toast.error('Error creating profiles', { id: t });
+            toast.error(`Error ${action.toLowerCase()} profiles`, { id: t });
         } finally {
             setSaving(false);
         }
@@ -211,8 +230,10 @@ export function CreateProfileModal({ instances, onClose, onCreated }: Props) {
                 {/* Header */}
                 <div className="flex items-center justify-between px-8 py-6 border-b border-zinc-900/70 flex-shrink-0">
                     <div>
-                        <h2 className="text-2xl font-black text-white">Create Quality Profile</h2>
-                        <p className="text-[11px] text-zinc-500 font-medium mt-0.5 uppercase tracking-widest">Configure quality sources, cutoff, and instances</p>
+                        <h2 className="text-2xl font-black text-white">{isEdit ? 'Edit Quality Profile' : 'Create Quality Profile'}</h2>
+                        <p className="text-[11px] text-zinc-500 font-medium mt-0.5 uppercase tracking-widest">
+                            {isEdit ? 'Update settings for this profile Instance' : 'Configure quality sources, cutoff, and instances'}
+                        </p>
                     </div>
                     <button onClick={onClose} className="p-2.5 hover:bg-zinc-900 rounded-2xl transition-colors text-zinc-500 hover:text-white">
                         <X size={20} />
@@ -238,18 +259,22 @@ export function CreateProfileModal({ instances, onClose, onCreated }: Props) {
                     <div className="space-y-3">
                         <div className="flex items-center justify-between">
                             <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em]">Target Instances</label>
-                            <button onClick={() => setSelectedInstances(selectedInstances.length === instances.length ? [] : instances.map(i => i.id))} className="text-[9px] font-black text-emerald-500 uppercase tracking-widest hover:text-emerald-400">
-                                {selectedInstances.length === instances.length ? 'Deselect All' : 'Select All'}
-                            </button>
+                            {!isEdit && (
+                                <button onClick={() => setSelectedInstances(selectedInstances.length === instances.length ? [] : instances.map(i => i.id))} className="text-[9px] font-black text-emerald-500 uppercase tracking-widest hover:text-emerald-400">
+                                    {selectedInstances.length === instances.length ? 'Deselect All' : 'Select All'}
+                                </button>
+                            )}
                         </div>
                         <div className="grid grid-cols-2 gap-2">
                             {instances.map(inst => {
                                 const on = selectedInstances.includes(inst.id);
+                                const disabled = isEdit && !on; // can't cross-update in edit mode for safety
                                 return (
                                     <button
                                         key={inst.id}
+                                        disabled={disabled}
                                         onClick={() => toggleInstance(inst.id)}
-                                        className={`flex items-center gap-3 p-3.5 rounded-2xl border text-left transition-all ${on ? 'bg-emerald-500/8 border-emerald-500/30' : 'bg-zinc-950 border-zinc-800 hover:border-zinc-700'}`}
+                                        className={`flex items-center gap-3 p-3.5 rounded-2xl border text-left transition-all ${on ? 'bg-emerald-500/8 border-emerald-500/30' : 'bg-zinc-950 border-zinc-800 hover:border-zinc-700'} ${disabled ? 'opacity-30 cursor-not-allowed' : ''}`}
                                     >
                                         <div className={`w-4 h-4 rounded-md border flex items-center justify-center flex-shrink-0 transition-all ${on ? 'bg-emerald-500 border-emerald-500' : 'border-zinc-700'}`}>
                                             {on && <Check size={10} className="text-black" strokeWidth={3} />}
@@ -393,11 +418,11 @@ export function CreateProfileModal({ instances, onClose, onCreated }: Props) {
                         Cancel
                     </button>
                     <button
-                        onClick={handleCreate}
+                        onClick={handleSave}
                         disabled={saving}
                         className="flex-1 py-3.5 rounded-2xl bg-white text-black hover:bg-emerald-400 font-black text-xs uppercase tracking-widest transition-all shadow-xl shadow-white/5 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        {saving ? 'Creating…' : 'Create Profile'}
+                        {saving ? (isEdit ? 'Updating…' : 'Creating…') : (isEdit ? 'Save Changes' : 'Create Profile')}
                     </button>
                 </div>
             </div>

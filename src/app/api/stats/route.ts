@@ -131,7 +131,18 @@ export async function GET(req: Request) {
                 type: instance.type
             };
 
-            const getProxiedPoster = (posterUrl?: string) => {
+            const getProxiedPoster = (instance: Instance, record: any) => {
+                // Try remote URL first (TMDB/TVDB)
+                let posterUrl = record.movie?.images?.[0]?.remoteUrl || record.series?.images?.[0]?.remoteUrl;
+                
+                // If no remote URL, try local Arr image path (requires proxying)
+                if (!posterUrl) {
+                    const localPath = record.movie?.images?.[0]?.url || record.series?.images?.[0]?.url;
+                    if (localPath) {
+                        posterUrl = `${instance.url}${localPath}?apikey=${instance.api_key}`;
+                    }
+                }
+
                 if (!posterUrl) return undefined;
                 return `/api/proxy?url=${encodeURIComponent(posterUrl)}`;
             };
@@ -197,7 +208,7 @@ export async function GET(req: Request) {
                         status: 'Downloading',
                         size: item.size || 0,
                         indexer: (item as any).indexer || 'Unknown',
-                        poster: getProxiedPoster((item as any).movie?.images?.[0]?.remoteUrl || (item as any).series?.images?.[0]?.remoteUrl),
+                        poster: getProxiedPoster(instance, item),
                         tmdbId: (item as any).movie?.tmdbId || (item as any).series?.tmdbId,
                         tvdbId: (item as any).movie?.tvdbId || (item as any).series?.tvdbId,
                         mediaType: (item as any).movie ? 'movie' : 'series'
@@ -322,7 +333,7 @@ export async function GET(req: Request) {
                                 size,
                                 failureReason: isFailed ? (record.data?.message || record.data?.reason || 'Unknown failure reason') : '',
                                 indexer: indexerName,
-                                poster: getProxiedPoster((record as any).movie?.images?.[0]?.remoteUrl || (record as any).series?.images?.[0]?.remoteUrl),
+                                poster: getProxiedPoster(instance, record),
                                 tmdbId: (record as any).movie?.tmdbId || (record as any).series?.tmdbId,
                                 tvdbId: (record as any).movie?.tvdbId || (record as any).series?.tvdbId,
                                 mediaType: (record as any).movie ? 'movie' : 'series'
