@@ -1,13 +1,13 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { X, Star, Calendar, User, Film, CheckCircle, Plus } from 'lucide-react';
+import { X, Star, Calendar, User, Film, CheckCircle, Plus, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface MediaDetailsPanelProps {
     item: any;
     tmdbApiKey?: string;
-    libStatus?: { exists: boolean; hasFile: boolean; isDownloading: boolean; instances: { id: string; name: string; internalId?: number }[] };
+    libStatus?: { exists: boolean; hasFile: boolean; isDownloading: boolean; sizeOnDisk: number; percentage: number; instances: { id: string; name: string; internalId?: number }[] };
     onClose: () => void;
     onSelectRecommended?: (media: any) => void;
     onSelectPerson?: (personId: number) => void;
@@ -27,25 +27,49 @@ export function MediaDetailsPanel({ item, tmdbApiKey, libStatus, onClose, onSele
     const tmdbId = item.tmdbId || (item.type === 'movie' ? item.id : !isSeries ? item.id : null);
 
     useEffect(() => {
-        if (!tmdbApiKey || !tmdbId) {
-            if (!tmdbId) setLoading(false);
-            return;
-        }
+        if (!tmdbApiKey) return;
 
-        // Deep reset
-        setDetails(null);
-        setCredits([]);
-        setDirectors([]);
-        setRecommendations([]);
-        setLoading(true);
+        // If we have a title but no ID, we need to search first
+        const performSearch = async () => {
+            if (!item.tmdbId && !item.tvdbId && item.title) {
+                setLoading(true);
+                try {
+                    const searchType = isSeries ? 'tv' : 'movie';
+                    const searchRes = await fetch(`https://api.themoviedb.org/3/search/${searchType}?api_key=${tmdbApiKey}&query=${encodeURIComponent(item.title)}`);
+                    if (searchRes.ok) {
+                        const searchData = await searchRes.json();
+                        if (searchData.results && searchData.results.length > 0) {
+                            // Take the first match
+                            const match = searchData.results[0];
+                            fetchFullDetails(match.id);
+                            return;
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error searching TMDB by title:', error);
+                }
+                setLoading(false);
+            } else if (tmdbId) {
+                fetchFullDetails(tmdbId);
+            } else {
+                setLoading(false);
+            }
+        };
 
-        const fetchDetails = async () => {
+        const fetchFullDetails = async (id: number) => {
+            // Deep reset
+            setDetails(null);
+            setCredits([]);
+            setDirectors([]);
+            setRecommendations([]);
+            setLoading(true);
+
             try {
                 const type = isSeries ? 'tv' : 'movie';
                 const [detailsRes, creditsRes, recRes] = await Promise.all([
-                    fetch(`https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${tmdbApiKey}&append_to_response=videos,images`),
-                    fetch(`https://api.themoviedb.org/3/${type}/${tmdbId}/credits?api_key=${tmdbApiKey}`),
-                    fetch(`https://api.themoviedb.org/3/${type}/${tmdbId}/recommendations?api_key=${tmdbApiKey}`)
+                    fetch(`https://api.themoviedb.org/3/${type}/${id}?api_key=${tmdbApiKey}&append_to_response=videos,images`),
+                    fetch(`https://api.themoviedb.org/3/${type}/${id}/credits?api_key=${tmdbApiKey}`),
+                    fetch(`https://api.themoviedb.org/3/${type}/${id}/recommendations?api_key=${tmdbApiKey}`)
                 ]);
 
                 if (detailsRes.ok) setDetails(await detailsRes.json());
@@ -66,8 +90,8 @@ export function MediaDetailsPanel({ item, tmdbApiKey, libStatus, onClose, onSele
             }
         };
 
-        fetchDetails();
-    }, [tmdbId, tmdbApiKey, isSeries]);
+        performSearch();
+    }, [tmdbId, tmdbApiKey, isSeries, item.title, item.tmdbId, item.tvdbId]);
 
     useEffect(() => {
         if (libStatus?.exists && libStatus.instances.length > 0) {
@@ -109,8 +133,9 @@ export function MediaDetailsPanel({ item, tmdbApiKey, libStatus, onClose, onSele
 
     if (!item) return null;
 
-    const backdrop = details?.backdrop_path ? `https://image.tmdb.org/t/p/original${details.backdrop_path}` : null;
-    const poster = item.remotePoster || (details?.poster_path ? `https://image.tmdb.org/t/p/w500${details.poster_path}` : null);
+    const backdrop = details?.backdrop_path ? `/api/proxy?url=${encodeURIComponent(`https://image.tmdb.org/t/p/original${details.backdrop_path}`)}` : null;
+    const posterUrl = item.remotePoster || (details?.poster_path ? `https://image.tmdb.org/t/p/w500${details.poster_path}` : null);
+    const poster = posterUrl ? (posterUrl.startsWith('http') ? `/api/proxy?url=${encodeURIComponent(posterUrl)}` : posterUrl) : null;
 
     return (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 lg:p-10 bg-black/95 backdrop-blur-2xl animate-in fade-in duration-500">
@@ -177,7 +202,7 @@ export function MediaDetailsPanel({ item, tmdbApiKey, libStatus, onClose, onSele
                                             <div className="relative group/select">
                                                 <select
                                                     disabled={isUpdatingProfile}
-                                                    defaultValue={item.qualityProfileId}
+                                                    defaultValue={libStatus.qualityProfileId || item.qualityProfileId}
                                                     onChange={(e) => handleUpdateProfile(parseInt(e.target.value))}
                                                     className="w-full bg-zinc-900 border border-white/5 rounded-xl px-4 py-2 text-xs font-bold text-zinc-300 appearance-none cursor-pointer focus:outline-none focus:border-emerald-500/50 transition-all disabled:opacity-50"
                                                 >
@@ -185,9 +210,8 @@ export function MediaDetailsPanel({ item, tmdbApiKey, libStatus, onClose, onSele
                                                         <option key={p.id} value={p.id}>{p.name}</option>
                                                     ))}
                                                 </select>
-                                                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-600 transition-transform group-hover/select:translate-y-[-40%]">
-                                                    <Calendar size={10} className="hidden" /> {/* Spacer */}
-                                                    <Plus size={12} className="rotate-45" />
+                                                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-500">
+                                                    <ChevronDown size={14} />
                                                 </div>
                                             </div>
                                         </div>
@@ -228,8 +252,10 @@ export function MediaDetailsPanel({ item, tmdbApiKey, libStatus, onClose, onSele
                                 <span className="block text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1">Size on Disk</span>
                                 <span className="text-sm font-bold text-emerald-400">
                                     {(() => {
-                                        const bytes = item.statistics?.sizeOnDisk || item.movieFile?.size || 0;
-                                        if (bytes === 0) return '0 GB';
+                                        const bytes = libStatus.sizeOnDisk || item.statistics?.sizeOnDisk || item.movieFile?.size || 0;
+                                        if (bytes === 0) {
+                                            return libStatus.hasFile ? 'Scanning...' : '0 GB';
+                                        }
                                         if (bytes > 1024**4) return `${(bytes / 1024**4).toFixed(2)} TB`;
                                         if (bytes > 1024**3) return `${(bytes / 1024**3).toFixed(2)} GB`;
                                         return `${(bytes / 1024**2).toFixed(0)} MB`;
@@ -310,7 +336,7 @@ export function MediaDetailsPanel({ item, tmdbApiKey, libStatus, onClose, onSele
                                         >
                                             <div className="aspect-square rounded-2xl overflow-hidden bg-zinc-900 mb-3 border border-white/5 group-hover:border-emerald-500/50 transition-all">
                                                 {person.profile_path ? (
-                                                    <img src={`https://image.tmdb.org/t/p/w185${person.profile_path}`} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt={person.name} />
+                                                    <img src={`/api/proxy?url=${encodeURIComponent(`https://image.tmdb.org/t/p/w185${person.profile_path}`)}`} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt={person.name} />
                                                 ) : (
                                                     <div className="w-full h-full flex items-center justify-center text-zinc-800"><User size={24} /></div>
                                                 )}
@@ -345,7 +371,7 @@ export function MediaDetailsPanel({ item, tmdbApiKey, libStatus, onClose, onSele
                                             className="group flex gap-4 p-3 rounded-2xl bg-white/5 border border-white/5 hover:border-emerald-500/30 hover:bg-emerald-500/5 transition-all cursor-pointer"
                                         >
                                             <div className="w-12 aspect-[2/3] rounded-lg overflow-hidden flex-shrink-0 bg-zinc-900">
-                                                {media.poster_path && <img src={`https://image.tmdb.org/t/p/w185${media.poster_path}`} className="w-full h-full object-cover" alt="" />}
+                                                {media.poster_path && <img src={`/api/proxy?url=${encodeURIComponent(`https://image.tmdb.org/t/p/w185${media.poster_path}`)}`} className="w-full h-full object-cover" alt="" />}
                                             </div>
                                             <div className="min-w-0 flex flex-col justify-center">
                                                 <p className="text-xs font-bold text-zinc-300 group-hover:text-white truncate transition-colors">{media.title || media.name}</p>

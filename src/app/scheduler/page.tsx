@@ -30,8 +30,10 @@ import {
     Calendar,
     Hash,
     ArrowRight,
-    AlertCircle
+    AlertCircle,
+    Film
 } from 'lucide-react';
+import { MediaDetailsPanel } from '@/components/MediaDetailsPanel';
 import { InteractiveSearchModal } from '@/components/InteractiveSearchModal';
 import {
     arrayMove,
@@ -59,6 +61,7 @@ interface Movie {
     type: 'movie';
     title: string;
     year: number;
+    tmdbId?: number;
     instanceId: string;
     instanceName?: string;
     instanceColor?: string;
@@ -91,6 +94,7 @@ interface Movie {
     targetQualityProfile?: string;
     currentQualityScale?: number;
     sortDate?: number;
+    images?: { remoteUrl: string }[];
 }
 
 interface Episode {
@@ -127,6 +131,7 @@ interface SeriesItem {
     instanceUrl?: string;
     qualityProfileId: number;
     added: string;
+    tvdbId?: number;
     episodes?: Episode[];
     queuedEpisodeIds?: number[];
     isPinned?: boolean;
@@ -146,6 +151,7 @@ interface SeriesItem {
     targetQualityProfile?: string;
     currentQualityScale?: number;
     sortDate?: number;
+    images?: { remoteUrl: string }[];
     isDownloading?: boolean;
     stats?: {
         percentOfEpisodes: number;
@@ -269,6 +275,11 @@ export default function SchedulerQueue() {
     const [interactiveReleases, setInteractiveReleases] = useState<Release[]>([]);
     const [loadingReleases, setLoadingReleases] = useState(false);
     const [triggeringReleaseGuid, setTriggeringReleaseGuid] = useState<string | null>(null);
+
+    // Media Panel State
+    const [tmdbApiKey, setTmdbApiKey] = useState("");
+    const [selectedMedia, setSelectedMedia] = useState<any>(null);
+    const [libStatus, setLibStatus] = useState<any>(null);
 
     const sensors = useSensors(
         useSensor(PointerSensor),
@@ -476,8 +487,32 @@ export default function SchedulerQueue() {
     useEffect(() => {
         fetchData();
         const interval = setInterval(fetchData, 5 * 60 * 1000); // refresh every 5 minutes
+
+        fetch("/api/settings")
+            .then(res => res.json())
+            .then(data => {
+                if (data.tmdbApiKey) setTmdbApiKey(data.tmdbApiKey);
+            });
+
         return () => clearInterval(interval);
     }, []);
+
+    const handleOpenMedia = (item: Movie | SeriesItem) => {
+        const payload = {
+            title: item.title,
+            tmdbId: (item as Movie).tmdbId || (item as SeriesItem).id, // Rough guess if IDs don't match TMDB
+            tvdbId: (item as SeriesItem).tvdbId,
+            remotePoster: item.images?.[0]?.remoteUrl,
+            type: item.type === 'series' ? 'series' : 'movie'
+        };
+        setSelectedMedia(payload);
+
+        // Check library status
+        fetch(`/api/media/status?title=${encodeURIComponent(item.title)}&type=${item.type === 'series' ? 'series' : 'movie'}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(status => setLibStatus(status))
+            .catch(() => setLibStatus(null));
+    };
 
     // Countdown is handled by CountdownTimer component
 
@@ -1283,12 +1318,37 @@ export default function SchedulerQueue() {
                                                 <div className="flex-1 flex flex-col gap-1 w-full">
                                                     {/* Main Card */}
                                                     <div
-                                                        onClick={(e) => item.type === 'series' && toggleExpandSeries(item, e)}
+                                                        onClick={(e) => {
+                                                            if (item.type === 'series') {
+                                                                toggleExpandSeries(item, e);
+                                                            } else {
+                                                                handleOpenMedia(item);
+                                                            }
+                                                        }}
                                                         className={`flex items-center justify-between p-4 rounded-xl border transition-all ${isToggled ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-950 border-zinc-900 opacity-60'
-                                                            } ${item.type === 'series' ? 'cursor-pointer hover:bg-zinc-800' : ''}`}
+                                                            } ${item.type === 'series' ? 'cursor-pointer hover:bg-zinc-800' : 'cursor-pointer hover:border-emerald-500/30'}`}
                                                     >
                                                         <div className="flex items-center gap-4">
-                                                            <div className={`w-2 h-12 rounded-full ${item.instanceColor || (item.type === 'movie' ? 'bg-yellow-500' : 'bg-cyan-500')}`} />
+                                                            {/* Poster Container */}
+                                                            <div 
+                                                                className="w-12 h-16 rounded-md overflow-hidden bg-zinc-950 border border-zinc-800 flex-shrink-0 relative group-hover/card:border-emerald-500/30 cursor-pointer"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleOpenMedia(item);
+                                                                }}
+                                                            >
+                                                                {item.images?.[0]?.remoteUrl ? (
+                                                                    <img 
+                                                                        src={`/api/proxy?url=${encodeURIComponent(item.images[0].remoteUrl)}`} 
+                                                                        className="w-full h-full object-cover" 
+                                                                        alt="" 
+                                                                    />
+                                                                ) : (
+                                                                    <div className="w-full h-full flex items-center justify-center text-zinc-700">
+                                                                        <Film size={18} />
+                                                                    </div>
+                                                                )}
+                                                            </div>
                                                             <div>
                                                                 <div className="flex items-center gap-2 mb-1">
                                                                     <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm ${item.type === 'movie' ? 'bg-yellow-500/20 text-yellow-500' : 'bg-cyan-500/20 text-cyan-500'}`}>
@@ -1543,6 +1603,18 @@ export default function SchedulerQueue() {
                     triggeringReleaseGuid={triggeringReleaseGuid}
                     onTriggerDownload={triggerInteractiveDownload}
                 />
+
+                {selectedMedia && (
+                    <MediaDetailsPanel
+                        item={selectedMedia}
+                        tmdbApiKey={tmdbApiKey}
+                        libStatus={libStatus}
+                        onClose={() => {
+                            setSelectedMedia(null);
+                            setLibStatus(null);
+                        }}
+                    />
+                )}
             </div>
         </div>
     );

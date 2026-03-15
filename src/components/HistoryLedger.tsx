@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { PackageOpen, Clock, AlertCircle, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import { PackageOpen, Clock, AlertCircle, ChevronDown, ChevronUp, Trash2, Film } from 'lucide-react';
+import { MediaDetailsPanel } from './MediaDetailsPanel';
 
 interface HistoryEntry {
     id: string;
@@ -16,6 +17,11 @@ export default function HistoryLedger() {
     const [history, setHistory] = useState<HistoryEntry[]>([]);
     const [loading, setLoading] = useState(true);
     const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
+
+    // Media Panel State
+    const [tmdbApiKey, setTmdbApiKey] = useState("");
+    const [selectedMedia, setSelectedMedia] = useState<any>(null);
+    const [libStatus, setLibStatus] = useState<any>(null);
 
     useEffect(() => {
         const fetchHistory = async () => {
@@ -32,10 +38,27 @@ export default function HistoryLedger() {
         };
         fetchHistory();
 
+        fetch("/api/settings")
+            .then(res => res.json())
+            .then(data => {
+                if (data.tmdbApiKey) setTmdbApiKey(data.tmdbApiKey);
+            });
+
         // Refresh history every 60 seconds
         const interval = setInterval(fetchHistory, 60000);
         return () => clearInterval(interval);
     }, []);
+
+    const handleOpenMedia = (title: string, type: 'movie' | 'series') => {
+        // Since we only have the title, the MediaDetailsPanel will search TMDB
+        setSelectedMedia({ title, type });
+
+        // Check library status
+        fetch(`/api/media/status?title=${encodeURIComponent(title)}&type=${type}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(status => setLibStatus(status))
+            .catch(() => setLibStatus(null));
+    };
 
     const toggleRow = (id: string) => {
         setExpandedRows(prev => ({ ...prev, [id]: !prev[id] }));
@@ -117,7 +140,16 @@ export default function HistoryLedger() {
                                             <h5 className="text-xs uppercase tracking-wider text-slate-500 font-bold mb-2">Episodes Searched ({entry.episodes_searched.length})</h5>
                                             <ul className="space-y-1">
                                                 {entry.episodes_searched.map((ep, i) => (
-                                                    <li key={i} className="text-sm text-slate-300 flex items-center before:content-[''] before:w-1.5 before:h-1.5 before:rounded-full before:bg-blue-500 before:mr-2">
+                                                    <li 
+                                                        key={i} 
+                                                        className="text-sm text-slate-300 flex items-center before:content-[''] before:w-1.5 before:h-1.5 before:rounded-full before:bg-blue-500 before:mr-2 hover:text-blue-400 cursor-pointer transition-colors"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            // For episodes, we often have "Series Name - S01E01", let's extract the series name for the panel
+                                                            const seriesName = ep.split(' - S')[0];
+                                                            handleOpenMedia(seriesName, 'series');
+                                                        }}
+                                                    >
                                                         {ep}
                                                     </li>
                                                 ))}
@@ -130,7 +162,14 @@ export default function HistoryLedger() {
                                             <h5 className="text-xs uppercase tracking-wider text-slate-500 font-bold mb-2">Movies Searched ({entry.movies_searched.length})</h5>
                                             <ul className="space-y-1">
                                                 {entry.movies_searched.map((mov, i) => (
-                                                    <li key={i} className="text-sm text-slate-300 flex items-center before:content-[''] before:w-1.5 before:h-1.5 before:rounded-full before:bg-yellow-500 before:mr-2">
+                                                    <li 
+                                                        key={i} 
+                                                        className="text-sm text-slate-300 flex items-center before:content-[''] before:w-1.5 before:h-1.5 before:rounded-full before:bg-yellow-500 before:mr-2 hover:text-yellow-400 cursor-pointer transition-colors"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleOpenMedia(mov, 'movie');
+                                                        }}
+                                                    >
                                                         {mov}
                                                     </li>
                                                 ))}
@@ -143,6 +182,18 @@ export default function HistoryLedger() {
                     </div>
                 );
             })}
+
+            {selectedMedia && (
+                <MediaDetailsPanel
+                    item={selectedMedia}
+                    tmdbApiKey={tmdbApiKey}
+                    libStatus={libStatus}
+                    onClose={() => {
+                        setSelectedMedia(null);
+                        setLibStatus(null);
+                    }}
+                />
+            )}
         </div >
     );
 }

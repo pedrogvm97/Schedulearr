@@ -23,8 +23,9 @@ if (!global.globalSchedulerRunning) {
     const startScheduler = () => {
         console.log('🏁 Schedulearr background orchestrator started.');
         
-        // Start network speed monitor (30s interval)
-        startSpeedMonitor(30);
+        // Start network speed monitor with dynamic interval
+        const { networkInterval } = getSchedulerConfig();
+        startSpeedMonitor(networkInterval || 30);
 
         const runCycle = async () => {
             const now = new Date().toISOString();
@@ -356,7 +357,7 @@ export async function runBatchSearch(manualTrigger: boolean = false) {
         movies: mTitles,
         episodes: eTitles
     };
-} // <-- Missing closing bracket for runBatchSearch
+}
 
 // Export a dummy object to satisfy Next.js if this file is imported elsewhere
 export const scheduler = { active: true };

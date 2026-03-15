@@ -13,6 +13,11 @@ interface QBitTorrent {
     instanceId?: number;
     instanceName?: string;
     instanceColor?: string;
+    indexer?: string;
+    poster?: string;
+    tmdbId?: number;
+    tvdbId?: number;
+    mediaType?: 'movie' | 'series';
     [key: string]: any;
 }
 
@@ -23,8 +28,8 @@ export async function GET() {
             return NextResponse.json({ error: 'No active qBittorrent instances configured.' }, { status: 404 });
         }
 
-        // 1. Fetch Radarr/Sonarr data to build a hash -> indexer map
-        const hashToIndexer: Record<string, string> = {};
+        // 1. Fetch Radarr/Sonarr data to build a hash -> metadata map
+        const hashToMetadata: Record<string, { indexer?: string, poster?: string, tmdbId?: number, tvdbId?: number, mediaType?: 'movie' | 'series' }> = {};
         const radarrInstances = getInstances('radarr', true);
         const sonarrInstances = getInstances('sonarr', true);
 
@@ -48,8 +53,14 @@ export async function GET() {
             if (data && data.records) {
                 data.records.forEach((record: any) => {
                     const hash = record.downloadId?.toLowerCase();
-                    if (hash && record.indexer) {
-                        hashToIndexer[hash] = record.indexer;
+                    if (hash) {
+                        hashToMetadata[hash] = {
+                            indexer: record.indexer,
+                            poster: record.movie?.images?.[0]?.remoteUrl || record.series?.images?.[0]?.remoteUrl,
+                            tmdbId: record.movie?.tmdbId || record.series?.tmdbId,
+                            tvdbId: record.movie?.tvdbId || record.series?.tvdbId,
+                            mediaType: record.movie ? 'movie' : 'series'
+                        };
                     }
                 });
             }
@@ -62,8 +73,13 @@ export async function GET() {
                 const hash = record.downloadId?.toLowerCase();
                 const typeStr = String(record.eventType).toLowerCase();
                 const isGrab = record.eventType === 1 || typeStr.includes('grabbed');
-                if (hash && isGrab && record.data?.indexer) {
-                    hashToIndexer[hash] = record.data.indexer;
+                if (hash && isGrab) {
+                    if (!hashToMetadata[hash]) hashToMetadata[hash] = {};
+                    if (record.data?.indexer) hashToMetadata[hash].indexer = record.data.indexer;
+                    hashToMetadata[hash].poster = record.movie?.images?.[0]?.remoteUrl || record.series?.images?.[0]?.remoteUrl;
+                    hashToMetadata[hash].tmdbId = record.movie?.tmdbId || record.series?.tmdbId;
+                    hashToMetadata[hash].tvdbId = record.movie?.tvdbId || record.series?.tvdbId;
+                    hashToMetadata[hash].mediaType = record.movie ? 'movie' : 'series';
                 }
             });
         });
@@ -82,7 +98,7 @@ export async function GET() {
                     instanceId: instance.id,
                     instanceName: instance.name,
                     instanceColor: instance.color || 'bg-emerald-500',
-                    indexer: hashToIndexer[t.hash.toLowerCase()] || 'Unknown'
+                    ...(hashToMetadata[t.hash.toLowerCase()] || {})
                 }));
                 allTorrents = [...allTorrents, ...tagged];
             } catch (instError) {

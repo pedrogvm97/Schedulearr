@@ -77,8 +77,18 @@ export async function runAutoCleanup() {
                     continue;
                 }
 
-                // 3. Progress Tracking
-                const activity = getTorrentActivity(t.hash);
+                    // 3. Exclusion Check
+                    const exclusions = getSetting('qbit_cleanup_exclusions')?.toLowerCase().split(',').map(s => s.trim()).filter(Boolean) || [];
+                    const isExcluded = exclusions.some(ex => 
+                        t.hash.toLowerCase().includes(ex) || 
+                        t.category?.toLowerCase().includes(ex) || 
+                        t.name.toLowerCase().includes(ex)
+                    );
+
+                    if (isExcluded) continue;
+
+                    // 4. Progress Tracking
+                    const activity = getTorrentActivity(t.hash);
                 const currentProgress = t.progress;
 
                 if (!activity) {

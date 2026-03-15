@@ -129,7 +129,8 @@ export const getSchedulerConfig = () => {
     const batchSize = parseInt(getSetting('scheduler_batch') || '10');
     const batchBehavior = getSetting('batch_behavior') || 'repeat'; // 'repeat' or 'rotate'
     const maxAttempts = parseInt(getSetting('max_attempts') || '3');
-    return { enabled, interval, batchSize, batchBehavior, maxAttempts };
+    const networkInterval = parseInt(getSetting('network_speed_interval_sec') || '30');
+    return { enabled, interval, batchSize, batchBehavior, maxAttempts, networkInterval };
 };
 
 export const setSchedulerConfig = (config: { enabled: boolean; interval: number; batchSize: number; batchBehavior?: string; maxAttempts?: number }) => {
@@ -138,6 +139,7 @@ export const setSchedulerConfig = (config: { enabled: boolean; interval: number;
     setSetting('scheduler_batch', config.batchSize.toString());
     if (config.batchBehavior) setSetting('batch_behavior', config.batchBehavior);
     if (config.maxAttempts) setSetting('max_attempts', config.maxAttempts.toString());
+    if ((config as any).networkInterval) setSetting('network_speed_interval_sec', (config as any).networkInterval.toString());
 };
 
 export const getInstances = (type?: string, activeOnly: boolean = false): Instance[] => {

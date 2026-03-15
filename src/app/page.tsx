@@ -3,7 +3,8 @@
 import React, { useState, useEffect } from "react";
 import HistoryLedger from "@/components/HistoryLedger";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, AreaChart, Area } from 'recharts';
-import { X, ExternalLink, HelpCircle } from 'lucide-react';
+import { X, ExternalLink, HelpCircle, Film } from 'lucide-react';
+import { MediaDetailsPanel } from "@/components/MediaDetailsPanel";
 
 // --- Interfaces ---
 interface RecentDownload {
@@ -15,6 +16,9 @@ interface RecentDownload {
   failureReason?: string;
   indexer?: string;
   poster?: string;
+  tmdbId?: number;
+  tvdbId?: number;
+  mediaType?: 'movie' | 'series';
 }
 
 interface SpeedHistory {
@@ -62,6 +66,9 @@ export default function Dashboard() {
     indexerTotals: Record<string, any>
   }>({ instanceTotals: {}, indexerTotals: {} });
   const [speedHistory, setSpeedHistory] = useState<SpeedHistory[]>([]);
+  const [tmdbApiKey, setTmdbApiKey] = useState("");
+  const [selectedMedia, setSelectedMedia] = useState<any>(null);
+  const [libStatus, setLibStatus] = useState<any>(null);
 
   // UI States
   const [loadingStats, setLoadingStats] = useState(true);
@@ -71,6 +78,8 @@ export default function Dashboard() {
   const [chartType, setChartType] = useState<'grabbed' | 'imported' | 'sizeGB'>('grabbed');
   const [timeframe, setTimeframe] = useState<'day' | 'week' | 'month' | 'year' | 'all'>('month');
   const [recentDownloadFilters, setRecentDownloadFilters] = useState<Record<string, boolean>>({});
+  const [showQbit, setShowQbit] = useState(true);
+  const [showPlex, setShowPlex] = useState(true);
 
   // Tooltip States
   const [stickyTooltip, setStickyTooltip] = useState<any>(null);
@@ -97,6 +106,31 @@ export default function Dashboard() {
     if (diffHours > 0) return `${diffHours}h ago`;
     if (diffMin > 0) return `${diffMin}m ago`;
     return 'Just now';
+  };
+
+  useEffect(() => {
+    fetch("/api/settings")
+      .then(res => res.json())
+      .then(data => {
+        if (data.tmdbApiKey) setTmdbApiKey(data.tmdbApiKey);
+      });
+  }, []);
+
+  const handleOpenMedia = (dl: RecentDownload) => {
+    const item = {
+      title: dl.title,
+      tmdbId: dl.tmdbId,
+      tvdbId: dl.tvdbId,
+      type: dl.mediaType,
+      remotePoster: dl.poster
+    };
+    setSelectedMedia(item);
+    
+    // Check library status
+    fetch(`/api/media/status?title=${encodeURIComponent(dl.title)}&type=${dl.mediaType}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(status => setLibStatus(status))
+      .catch(() => setLibStatus(null));
   };
 
   const filterDataLocally = (data: ChartData[], range: string) => {
@@ -574,7 +608,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8 items-stretch">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8 items-stretch">
           {/* Prowlarr Indexers Health */}
           {!loadingProwlarr && prowlarrHealth.length > 0 && (
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col max-h-[500px]">
@@ -652,18 +686,30 @@ export default function Dashboard() {
               {!loadingStats && recentDownloads.filter(dl => recentDownloadFilters[dl.instanceId] !== false).slice(0, 20).map((dl, idx) => {
                 const inst = instances[dl.instanceId];
                 return (
-                  <div key={idx} className="flex items-center gap-4 p-3 rounded-xl bg-zinc-950 border border-zinc-800 flex-shrink-0 transition hover:border-zinc-700">
-                    <div className="w-12 h-18 rounded-lg overflow-hidden flex-shrink-0 bg-zinc-900 border border-zinc-800">
+                  <div 
+                    key={idx} 
+                    onClick={() => handleOpenMedia(dl)}
+                    className="flex items-center gap-4 p-3 rounded-xl bg-zinc-950 border border-zinc-800 flex-shrink-0 transition hover:border-emerald-500/50 hover:bg-zinc-900 cursor-pointer group"
+                  >
+                    <div className="w-12 h-18 rounded-lg overflow-hidden flex-shrink-0 bg-zinc-900 border border-zinc-800 relative group-hover:border-emerald-500/30">
                       {dl.poster ? (
-                        <img src={dl.poster} alt="" className="w-full h-full object-cover" />
+                        <img 
+                          src={dl.poster.startsWith('http') ? `/api/proxy?url=${encodeURIComponent(dl.poster)}` : dl.poster} 
+                          alt="" 
+                          className="w-full h-full object-cover" 
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = ''; // Clear on error
+                            (e.target as HTMLImageElement).className = 'hidden';
+                          }}
+                        />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center text-zinc-700">
-                          <HelpCircle size={16} />
+                        <div className="w-full h-full flex items-center justify-center text-zinc-700 group-hover:text-emerald-500/50">
+                          <Film size={16} />
                         </div>
                       )}
                     </div>
                     <div className="flex flex-col min-w-0 flex-1 pr-4">
-                      <span className="text-sm font-semibold text-zinc-200 truncate" title={dl.title}>{dl.title}</span>
+                      <span className="text-sm font-semibold text-zinc-200 truncate group-hover:text-white" title={dl.title}>{dl.title}</span>
                       <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                         <span className="text-xs text-zinc-500 font-medium">{getAge(dl.date)}</span>
                         <span
@@ -711,6 +757,19 @@ export default function Dashboard() {
                   <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />
                   <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Upload</span>
                 </div>
+                <div className="h-4 w-[1px] bg-zinc-800 mx-1" />
+                <button 
+                  onClick={() => setShowQbit(!showQbit)}
+                  className={`flex items-center gap-2 px-2 py-1 rounded-md border transition-all ${showQbit ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400'}`}
+                >
+                  <span className="text-[9px] font-black uppercase tracking-tight">qBit</span>
+                </button>
+                <button 
+                  onClick={() => setShowPlex(!showPlex)}
+                  className={`flex items-center gap-2 px-2 py-1 rounded-md border transition-all ${showPlex ? 'bg-orange-500/10 border-orange-500/30 text-orange-400' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400'}`}
+                >
+                  <span className="text-[9px] font-black uppercase tracking-tight">Plex</span>
+                </button>
               </div>
             </div>
 
@@ -891,6 +950,18 @@ export default function Dashboard() {
         }
       </div>
       <StickyTooltipOverlay />
+
+      {selectedMedia && (
+        <MediaDetailsPanel
+          item={selectedMedia}
+          tmdbApiKey={tmdbApiKey}
+          libStatus={libStatus}
+          onClose={() => {
+            setSelectedMedia(null);
+            setLibStatus(null);
+          }}
+        />
+      )}
     </>
   );
 }

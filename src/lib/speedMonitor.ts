@@ -47,7 +47,10 @@ export async function recordCurrentSpeed() {
 }
 
 export function startSpeedMonitor(intervalSeconds: number = 30) {
-    if (monitorInterval) return;
+    if (monitorInterval) {
+        clearInterval(monitorInterval);
+        monitorInterval = null;
+    }
 
     console.log(`🚀 Network speed monitor started (Interval: ${intervalSeconds}s)`);
     

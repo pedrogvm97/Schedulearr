@@ -207,7 +207,7 @@ function MyMediaGridCard({ item, isSeries, expandAll, excludeUnmonitored, onDele
         <div className="group flex flex-col bg-[#090909] border border-zinc-900 hover:border-zinc-800 rounded-[2.5rem] overflow-hidden transition-all duration-300 shadow-xl hover:-translate-y-1">
             <div className="relative aspect-[2/3] overflow-hidden cursor-pointer" onClick={() => onOpenDetails?.(item)}>
                 {poster
-                    ? <img src={poster} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
+                    ? <img src={poster.startsWith('http') ? `/api/proxy?url=${encodeURIComponent(poster)}` : poster} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
                     : <div className="w-full h-full bg-zinc-900 flex items-center justify-center text-zinc-800">{isSeries ? <Tv size={48} /> : <Film size={48} />}</div>}
 
                 {/* Progress Bar */}
@@ -291,7 +291,7 @@ function MyMediaListCard({ item, isSeries, expandAll, excludeUnmonitored, onDele
                     className="w-16 aspect-[2/3] rounded-xl overflow-hidden bg-zinc-900 flex-shrink-0 shadow-lg border border-white/5 cursor-pointer hover:scale-105 transition-transform"
                     onClick={() => onOpenDetails?.(item)}
                 >
-                    {poster ? <img src={poster} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-zinc-800">{isSeries ? <Tv size={24} /> : <Film size={24} />}</div>}
+                    {poster ? <img src={poster.startsWith('http') ? `/api/proxy?url=${encodeURIComponent(poster)}` : poster} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-zinc-800">{isSeries ? <Tv size={24} /> : <Film size={24} />}</div>}
                 </div>
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-3 mb-2 flex-wrap">
@@ -356,7 +356,7 @@ function MyMediaCard({ item, viewMode, onRefresh, expandAll, excludeUnmonitored,
 // Discovery Card
 // ──────────────────────────────────────────────
 function DiscoveryCard({ item, isAdding, libStatus, onAdd, viewMode, onShowDetails, onInteractiveSearch }: {
-    item: any; isAdding: boolean; libStatus: { exists: boolean; hasFile: boolean; isDownloading: boolean; instances: { id: string; name: string; internalId?: number }[] }; onAdd: () => void; viewMode: 'grid' | 'list'; onShowDetails?: () => void; onInteractiveSearch?: (media: any) => void;
+    item: any; isAdding: boolean; libStatus: { exists: boolean; hasFile: boolean; isDownloading: boolean; percentage?: number; instances: { id: string; name: string; internalId?: number }[] }; onAdd: () => void; viewMode: 'grid' | 'list'; onShowDetails?: () => void; onInteractiveSearch?: (media: any) => void;
 }) {
     const [expanded, setExpanded] = useState(false);
     const poster = item.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || item.remotePoster;
@@ -372,18 +372,21 @@ function DiscoveryCard({ item, isAdding, libStatus, onAdd, viewMode, onShowDetai
                     className="w-16 aspect-[2/3] rounded-xl overflow-hidden bg-zinc-900 flex-shrink-0 cursor-pointer"
                     onClick={onShowDetails}
                 >
-                    {poster ? <img src={poster} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-zinc-800"><Film size={20} /></div>}
+                    {poster ? <img src={poster.startsWith('http') ? `/api/proxy?url=${encodeURIComponent(poster)}` : poster} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-zinc-800"><Film size={20} /></div>}
                 </div>
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <h3 className="font-bold text-white truncate cursor-pointer hover:text-emerald-400" onClick={onShowDetails}>{item.title}</h3>
                         {platform && <span className={`px-2 py-0.5 rounded text-[9px] font-black border ${platform.color}`}>{platform.label}</span>}
                         {libStatus.exists && (
-                            <span className={`px-2 py-0.5 rounded text-[9px] font-black border ${libStatus.hasFile ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
+                            <span className={`px-2 py-0.5 rounded text-[9px] font-black border flex items-center gap-1.5 ${libStatus.hasFile ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
                                 libStatus.isDownloading ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' :
                                     'bg-blue-500/10 text-blue-400 border-blue-500/30'
                                 }`}>
                                 {libStatus.hasFile ? 'AVAILABLE' : libStatus.isDownloading ? 'DOWNLOADING' : 'IN LIBRARY'}
+                                {libStatus.percentage != null && (
+                                    <span className="ml-2 bg-black/20 px-1 rounded text-white">{libStatus.percentage}%</span>
+                                )}
                             </span>
                         )}
                     </div>
@@ -454,7 +457,7 @@ function DiscoveryCard({ item, isAdding, libStatus, onAdd, viewMode, onShowDetai
         <div className="group flex flex-col bg-[#090909] border border-zinc-900 hover:border-zinc-800 rounded-[2rem] overflow-hidden transition-all duration-500 shadow-2xl hover:-translate-y-1">
             <div className="relative aspect-[2/3] overflow-hidden cursor-pointer" onClick={onShowDetails}>
                 {poster
-                    ? <img src={poster} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
+                    ? <img src={poster.startsWith('http') ? `/api/proxy?url=${encodeURIComponent(poster)}` : poster} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
                     : <div className="w-full h-full bg-zinc-900 flex items-center justify-center text-zinc-800"><Film size={48} /></div>}
                 <div className="absolute inset-0 bg-gradient-to-t from-[#090909] via-transparent to-transparent opacity-90" />
                 <div className="absolute top-3 left-3 right-3 flex justify-between items-start opacity-0 group-hover:opacity-100 transition-all duration-300 z-30">
@@ -492,11 +495,14 @@ function DiscoveryCard({ item, isAdding, libStatus, onAdd, viewMode, onShowDetai
                             </button>
                         )}
                         {libStatus.exists && (
-                            <div className={`p-2.5 rounded-xl shadow-lg backdrop-blur-xl border border-white/10 ${libStatus.hasFile ? 'bg-emerald-500/20 text-emerald-400' :
+                            <div className={`p-2.5 rounded-xl shadow-lg backdrop-blur-xl border border-white/10 flex flex-col items-center gap-0.5 ${libStatus.hasFile ? 'bg-emerald-500/20 text-emerald-400' :
                                 libStatus.isDownloading ? 'bg-amber-500/20 text-amber-400' :
                                     'bg-blue-500/20 text-blue-400'
                                 }`}>
                                 <CheckCircle size={14} />
+                                {libStatus.percentage != null && (
+                                    <span className="text-[10px] font-black">{libStatus.percentage}%</span>
+                                )}
                             </div>
                         )}
                     </div>
@@ -552,7 +558,7 @@ export default function DiscoverPage() {
     const [results, setResults] = useState<any[]>([]);
     const [libraryItems, setLibraryItems] = useState<any[]>([]);
     const [libraryLoading, setLibraryLoading] = useState(false);
-    const [libraryMap, setLibraryMap] = useState<Map<string, { hasFile: boolean; isDownloading: boolean; instances: { id: string; name: string; internalId?: number }[] }>>(new Map());
+    const [libraryMap, setLibraryMap] = useState<Map<string, { hasFile: boolean; isDownloading: boolean; percentage: number; sizeOnDisk: number; qualityProfileId?: number; instances: { id: string; name: string; internalId?: number }[] }>>(new Map());
 
     const [instances, setInstances] = useState<Instance[]>([]);
     const [selectedInstanceIds, setSelectedInstanceIds] = useState<string[]>([]);
@@ -631,7 +637,7 @@ export default function DiscoverPage() {
             const items = Array.isArray(data) ? data : [];
             setLibraryItems(items);
 
-            const map = new Map<string, { hasFile: boolean; isDownloading: boolean; instances: { id: string; name: string; internalId?: number }[] }>();
+            const map = new Map<string, { hasFile: boolean; isDownloading: boolean; percentage: number; sizeOnDisk: number; instances: { id: string; name: string; internalId?: number }[] }>();
 
             items.forEach((m: any) => {
                 const isSeries = !!(m.tvdbId || m.seasons);
@@ -661,10 +667,16 @@ export default function DiscoverPage() {
                         });
                     }
 
+                    const pct = m.statistics?.percentOfEpisodes ?? (m.hasFile ? 100 : 0);
+                    const currentSize = m.statistics?.sizeOnDisk || m.sizeOnDisk || m.movieFile?.size || 0;
+
                     map.set(key, {
                         hasFile: (existing?.hasFile || m.hasFile || (m.statistics?.percentOfEpisodes === 100)) ?? false,
                         isDownloading: (existing?.isDownloading || m.isDownloading || (m.queuedEpisodeIds?.length > 0)) ?? false,
-                        instances: itemInstances
+                        instances: itemInstances,
+                        percentage: pct,
+                        sizeOnDisk: Math.max(existing?.sizeOnDisk || 0, currentSize),
+                        qualityProfileId: m.qualityProfileId
                     });
                 });
             });
@@ -712,7 +724,7 @@ export default function DiscoverPage() {
             }
             setIsSearching(false);
         }
-    }, [mediaType, selectedInstanceIds.join(','), availableInstances.map(i => i.id).join(','), filterPlatform, filterGenre, filterRating, filterPopularity, filterYear]);
+    }, [mediaType, selectedInstanceIds.join(','), availableInstances.map(i => i.id).join(','), filterPlatform, filterGenre, filterRating, filterPopularity, filterYear, currentPage]);
 
     // Interactive Search Handlers
     const handleOpenInteractiveSearch = async (media: any) => {
@@ -917,7 +929,7 @@ export default function DiscoverPage() {
             if (status) return { exists: true, ...status };
         }
 
-        return { exists: (typeof item.id === 'number' && item.id > 0 && pageMode === 'mylibrary'), hasFile: false, isDownloading: false, instances: [] };
+        return { exists: (typeof item.id === 'number' && item.id > 0 && pageMode === 'mylibrary'), hasFile: false, isDownloading: false, instances: [], percentage: 0, sizeOnDisk: 0 };
     }, [libraryMap, pageMode]);
 
     const filteredDiscovery = useMemo(() => {
@@ -1106,7 +1118,7 @@ export default function DiscoverPage() {
 
     return (
         <div className="p-6 lg:p-10 space-y-8 max-w-[1800px] mx-auto">
-            <Toaster position="bottom-right" theme="dark" richColors />
+            {/* Toaster removed to prevent duplication */}
 
             {/* Header */}
             <div className="flex flex-col gap-2">

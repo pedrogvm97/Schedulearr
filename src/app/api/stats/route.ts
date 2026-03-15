@@ -105,7 +105,10 @@ export async function GET(req: Request) {
             size?: number,
             failureReason?: string,
             indexer?: string,
-            poster?: string
+            poster?: string,
+            tmdbId?: number,
+            tvdbId?: number,
+            mediaType?: 'movie' | 'series'
         }[] = [];
 
         // Aggregate totals for the left panel
@@ -126,6 +129,11 @@ export async function GET(req: Request) {
                 name: instance.name,
                 color: tailwindToHex(instance.color || ''),
                 type: instance.type
+            };
+
+            const getProxiedPoster = (posterUrl?: string) => {
+                if (!posterUrl) return undefined;
+                return `/api/proxy?url=${encodeURIComponent(posterUrl)}`;
             };
 
             // Initialize total for this instance
@@ -184,12 +192,15 @@ export async function GET(req: Request) {
 
                     allRecentRecords.push({
                         title,
-                        date: new Date().toISOString(), // Use current date for queue items
+                        date: new Date().toISOString(),
                         instanceId: id,
                         status: 'Downloading',
                         size: item.size || 0,
                         indexer: (item as any).indexer || 'Unknown',
-                        poster: (item as any).movie?.images?.[0]?.remoteUrl || (item as any).series?.images?.[0]?.remoteUrl
+                        poster: getProxiedPoster((item as any).movie?.images?.[0]?.remoteUrl || (item as any).series?.images?.[0]?.remoteUrl),
+                        tmdbId: (item as any).movie?.tmdbId || (item as any).series?.tmdbId,
+                        tvdbId: (item as any).movie?.tvdbId || (item as any).series?.tvdbId,
+                        mediaType: (item as any).movie ? 'movie' : 'series'
                     });
 
                     // Add to chart stats for "today"
@@ -311,7 +322,10 @@ export async function GET(req: Request) {
                                 size,
                                 failureReason: isFailed ? (record.data?.message || record.data?.reason || 'Unknown failure reason') : '',
                                 indexer: indexerName,
-                                poster: (record as any).movie?.images?.[0]?.remoteUrl || (record as any).series?.images?.[0]?.remoteUrl
+                                poster: getProxiedPoster((record as any).movie?.images?.[0]?.remoteUrl || (record as any).series?.images?.[0]?.remoteUrl),
+                                tmdbId: (record as any).movie?.tmdbId || (record as any).series?.tmdbId,
+                                tvdbId: (record as any).movie?.tvdbId || (record as any).series?.tvdbId,
+                                mediaType: (record as any).movie ? 'movie' : 'series'
                             });
                         }
                     }

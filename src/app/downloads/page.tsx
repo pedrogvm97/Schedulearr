@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { formatDistanceToNow } from "date-fns";
+import { Film } from "lucide-react";
+import { MediaDetailsPanel } from "@/components/MediaDetailsPanel";
 
 // --- Interfaces ---
 interface Torrent {
@@ -16,7 +18,11 @@ interface Torrent {
     instanceName: string;
     instanceColor: string;
     indexer?: string;
-    [key: string]: any; // Allow for dynamic field access during sorting
+    poster?: string;
+    tmdbId?: number;
+    tvdbId?: number;
+    mediaType?: 'movie' | 'series';
+    [key: string]: any;
 }
 
 export default function Downloads() {
@@ -46,6 +52,11 @@ export default function Downloads() {
     const [qbitSizeCleanupEnabled, setQbitSizeCleanupEnabled] = useState(false);
     const [qbitMaxSizeGb, setQbitMaxSizeGb] = useState(15);
     const [isCleanupSettingsOpen, setIsCleanupSettingsOpen] = useState(false);
+
+    // Media Panel State
+    const [tmdbApiKey, setTmdbApiKey] = useState("");
+    const [selectedMedia, setSelectedMedia] = useState<any>(null);
+    const [libStatus, setLibStatus] = useState<any>(null);
 
     const fetchTorrents = async () => {
         try {
@@ -96,8 +107,34 @@ export default function Downloads() {
         fetchTorrents();
         fetchSettings();
         const interval = setInterval(fetchTorrents, 5000); // Poll every 5 seconds
+
+        fetch("/api/settings")
+            .then(res => res.json())
+            .then(data => {
+                if (data.tmdbApiKey) setTmdbApiKey(data.tmdbApiKey);
+            });
+
         return () => clearInterval(interval);
     }, []);
+
+    const handleOpenMedia = (torrent: Torrent) => {
+        if (!torrent.tmdbId && !torrent.tvdbId) return;
+
+        const item = {
+            title: torrent.name,
+            tmdbId: torrent.tmdbId,
+            tvdbId: torrent.tvdbId,
+            type: torrent.mediaType,
+            remotePoster: torrent.poster
+        };
+        setSelectedMedia(item);
+
+        // Check library status
+        fetch(`/api/media/status?title=${encodeURIComponent(torrent.name)}&type=${torrent.mediaType}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(status => setLibStatus(status))
+            .catch(() => setLibStatus(null));
+    };
 
     const handleDelete = async () => {
         if (!selectedHash) return;
@@ -375,19 +412,44 @@ export default function Downloads() {
                     {/* Rows */}
                     <div className="divide-y divide-zinc-800/50">
                         {sortedTorrents.map(torrent => (
-                            <div key={torrent.hash} className="p-3 md:px-4 md:py-3 hover:bg-zinc-800/40 transition-colors flex flex-col md:grid md:grid-cols-[2fr_0.8fr_1fr_1fr_1fr_auto] gap-3 md:gap-4 md:items-center relative group">
-                                <div className="min-w-0 pr-8 md:pr-0">
-                                    <div className="flex flex-wrap items-center gap-2 mb-1">
-                                        <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded-sm bg-opacity-20 text-white truncate max-w-[120px] ${torrent.instanceColor}`}>
-                                            {torrent.instanceName || 'qBittorrent'}
-                                        </span>
-                                        {torrent.state.includes('stalled') && (
-                                            <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded-sm bg-orange-500/20 text-orange-500">
-                                                {torrent.state}
-                                            </span>
+                            <div 
+                                key={torrent.hash} 
+                                onClick={() => handleOpenMedia(torrent)}
+                                className={`p-3 md:px-4 md:py-3 hover:bg-zinc-800/40 transition-colors flex flex-col md:grid md:grid-cols-[2fr_0.8fr_1fr_1fr_1fr_auto] gap-3 md:gap-4 md:items-center relative group ${torrent.tmdbId || torrent.tvdbId ? 'cursor-pointer' : ''}`}
+                            >
+                                <div className="flex items-center gap-4 min-w-0 pr-8 md:pr-0">
+                                    {/* Poster Icon/Image */}
+                                    <div className="w-10 h-14 rounded-md overflow-hidden bg-zinc-950 border border-zinc-800 flex-shrink-0 relative group-hover:border-emerald-500/30">
+                                        {torrent.poster ? (
+                                            <img 
+                                                src={torrent.poster.startsWith('http') ? `/api/proxy?url=${encodeURIComponent(torrent.poster)}` : torrent.poster} 
+                                                className="w-full h-full object-cover" 
+                                                alt="" 
+                                                onError={(e) => {
+                                                    (e.target as HTMLImageElement).src = '';
+                                                    (e.target as HTMLImageElement).className = 'hidden';
+                                                }}
+                                            />
+                                        ) : (
+                                            <div className="w-full h-full flex items-center justify-center text-zinc-700 group-hover:text-emerald-500/50">
+                                                <Film size={16} />
+                                            </div>
                                         )}
                                     </div>
-                                    <h3 className="text-sm font-medium text-white truncate" title={torrent.name}>{torrent.name}</h3>
+
+                                    <div className="min-w-0 flex-1">
+                                        <div className="flex flex-wrap items-center gap-2 mb-1">
+                                            <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded-sm bg-opacity-20 text-white truncate max-w-[120px] ${torrent.instanceColor}`}>
+                                                {torrent.instanceName || 'qBittorrent'}
+                                            </span>
+                                            {torrent.state.includes('stalled') && (
+                                                <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded-sm bg-orange-500/20 text-orange-500">
+                                                    {torrent.state}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <h3 className="text-sm font-medium text-white truncate group-hover:text-emerald-400" title={torrent.name}>{torrent.name}</h3>
+                                    </div>
                                 </div>
 
                                 <div className="text-sm text-zinc-400 flex items-center md:items-start group-hover:text-zinc-300 transition-colors">
@@ -423,7 +485,8 @@ export default function Downloads() {
 
                                 <div className="absolute top-3 right-3 md:relative md:top-auto md:right-auto flex-shrink-0 flex items-center justify-center">
                                     <button
-                                        onClick={() => {
+                                        onClick={(e) => {
+                                            e.stopPropagation();
                                             setSelectedHash({ hash: torrent.hash, name: torrent.name, instanceId: torrent.instanceId });
                                             setDeleteModalOpen(true);
                                         }}
@@ -506,6 +569,18 @@ export default function Downloads() {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {selectedMedia && (
+                <MediaDetailsPanel
+                    item={selectedMedia}
+                    tmdbApiKey={tmdbApiKey}
+                    libStatus={libStatus}
+                    onClose={() => {
+                        setSelectedMedia(null);
+                        setLibStatus(null);
+                    }}
+                />
             )}
         </div>
     );
