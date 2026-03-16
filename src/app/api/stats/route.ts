@@ -131,21 +131,28 @@ export async function GET(req: Request) {
                 type: instance.type
             };
 
-            const getProxiedPoster = (instance: Instance, record: any) => {
-                // Try remote URL first (TMDB/TVDB)
+            const getProxiedPoster = (instance: Instance, record: any, libraryMap: Record<number, string>) => {
+                // 1. Try record-level image first
                 let posterUrl = record.movie?.images?.[0]?.remoteUrl || record.series?.images?.[0]?.remoteUrl;
                 
-                // If no remote URL, try local Arr image path (requires proxying)
+                // 2. Try library map if not found
                 if (!posterUrl) {
-                    const localPath = record.movie?.images?.[0]?.url || record.series?.images?.[0]?.url;
-                    if (localPath) {
-                        posterUrl = `${instance.url}${localPath}?apikey=${instance.api_key}`;
+                    const mediaId = record.movieId || record.seriesId || record.movie?.id || record.series?.id;
+                    if (mediaId && libraryMap[mediaId]) {
+                        posterUrl = libraryMap[mediaId];
                     }
+                }
+
+                // 3. Try local Arr image path if we found a URL but it's relative
+                if (posterUrl && !posterUrl.startsWith('http')) {
+                    posterUrl = `${instance.url}${posterUrl}?apikey=${instance.api_key}`;
                 }
 
                 if (!posterUrl) return undefined;
                 return `/api/proxy?url=${encodeURIComponent(posterUrl)}`;
             };
+
+            const libraryMap: Record<number, string> = {};
 
             // Initialize total for this instance
             instanceTotals[id] = { grabbed: 0, imported: 0, failed: 0, sizeBytes: 0, downloading: 0 };
@@ -162,19 +169,29 @@ export async function GET(req: Request) {
                 let records: (RadarrHistoryRecord | SonarrHistoryRecord)[] = [];
                 let queue: QueueItem[] = [];
                 if (instance.type === 'radarr') {
-                    const [historyRes, queueRes] = await Promise.all([
+                    const [historyRes, queueRes, libraryRes] = await Promise.all([
                         getRadarrHistory(instance.url, instance.api_key, 1000),
-                        fetch(`${instance.url}/api/v3/queue?apikey=${instance.api_key}`).then(r => r.json())
+                        fetch(`${instance.url}/api/v3/queue?apikey=${instance.api_key}`).then(r => r.json()),
+                        fetch(`${instance.url}/api/v3/movie?apikey=${instance.api_key}`).then(r => r.json())
                     ]);
                     records = historyRes;
                     queue = queueRes.records || [];
+                    (libraryRes || []).forEach((m: any) => {
+                        const poster = m.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || m.images?.[0]?.remoteUrl || m.images?.[0]?.url;
+                        if (poster) libraryMap[m.id] = poster;
+                    });
                 } else if (instance.type === 'sonarr') {
-                    const [historyRes, queueRes] = await Promise.all([
+                    const [historyRes, queueRes, libraryRes] = await Promise.all([
                         getSonarrHistory(instance.url, instance.api_key, 1000),
-                        fetch(`${instance.url}/api/v3/queue?apikey=${instance.api_key}`).then(r => r.json())
+                        fetch(`${instance.url}/api/v3/queue?apikey=${instance.api_key}`).then(r => r.json()),
+                        fetch(`${instance.url}/api/v3/series?apikey=${instance.api_key}`).then(r => r.json())
                     ]);
                     records = historyRes;
                     queue = queueRes.records || [];
+                    (libraryRes || []).forEach((s: any) => {
+                        const poster = s.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || s.images?.[0]?.remoteUrl || s.images?.[0]?.url;
+                        if (poster) libraryMap[s.id] = poster;
+                    });
                 }
 
                 // Add queue items as "Downloading"
@@ -208,9 +225,9 @@ export async function GET(req: Request) {
                         status: 'Downloading',
                         size: item.size || 0,
                         indexer: (item as any).indexer || 'Unknown',
-                        poster: getProxiedPoster(instance, item),
+                        poster: getProxiedPoster(instance, item, libraryMap),
                         tmdbId: (item as any).movie?.tmdbId || (item as any).series?.tmdbId,
-                        tvdbId: (item as any).movie?.tvdbId || (item as any).series?.tvdbId,
+                        tvdbId: (item as any).movie?.tmdbId || (item as any).series?.tvdbId,
                         mediaType: (item as any).movie ? 'movie' : 'series'
                     });
 
@@ -333,7 +350,7 @@ export async function GET(req: Request) {
                                 size,
                                 failureReason: isFailed ? (record.data?.message || record.data?.reason || 'Unknown failure reason') : '',
                                 indexer: indexerName,
-                                poster: getProxiedPoster(instance, record),
+                                poster: getProxiedPoster(instance, record, libraryMap),
                                 tmdbId: (record as any).movie?.tmdbId || (record as any).series?.tmdbId,
                                 tvdbId: (record as any).movie?.tvdbId || (record as any).series?.tvdbId,
                                 mediaType: (record as any).movie ? 'movie' : 'series'

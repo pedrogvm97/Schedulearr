@@ -101,6 +101,14 @@ export default function Dashboard() {
     }));
   };
 
+  const formatSpeed = (bytesPerSec: number) => {
+    if (bytesPerSec === 0) return '0 B/s';
+    const k = 1024;
+    const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+    const i = Math.floor(Math.log(bytesPerSec) / Math.log(k));
+    return parseFloat((bytesPerSec / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
   const getAge = (dateStr: string) => {
     const now = new Date();
     const then = new Date(dateStr);
@@ -659,6 +667,109 @@ export default function Dashboard() {
               </div>
             </div>
           )}
+        </div>
+
+        {/* Side-by-Side: Network Speed & Recent Downloads */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8 items-stretch">
+          {/* Network Speed History */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col min-h-[500px]">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-white">Network Speed</h2>
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => setShowTotal(!showTotal)}
+                  className={`px-2 py-1 rounded border text-[9px] font-bold uppercase transition-all ${showTotal ? 'bg-zinc-100 text-black border-white' : 'bg-zinc-900 border-zinc-800 text-zinc-500'}`}
+                >
+                  Main
+                </button>
+                <button 
+                  onClick={() => setShowQbit(!showQbit)}
+                  className={`px-2 py-1 rounded border text-[9px] font-bold uppercase transition-all ${showQbit ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-zinc-900 border-zinc-800 text-zinc-500'}`}
+                >
+                  qBit
+                </button>
+                <button 
+                  onClick={() => setShowPlex(!showPlex)}
+                  className={`px-2 py-1 rounded border text-[9px] font-bold uppercase transition-all ${showPlex ? 'bg-orange-500 text-white border-orange-500' : 'bg-zinc-900 border-zinc-800 text-zinc-500'}`}
+                >
+                  Plex
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 min-h-[300px]">
+              {speedHistory.length === 0 ? (
+                <div className="w-full h-full flex flex-col items-center justify-center text-zinc-500 gap-2 p-8 border border-zinc-800/50 border-dashed rounded-xl">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-emerald-500" />
+                  <p className="text-sm italic">Monitoring network traffic...</p>
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={speedHistory} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="colorDl" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                      </linearGradient>
+                      <linearGradient id="colorUp" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                    <XAxis dataKey="timestamp" hide={true} />
+                    <YAxis 
+                      stroke="#52525b" 
+                      fontSize={10} 
+                      tickFormatter={(val) => formatSpeed(val)}
+                    />
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: '#09090b', border: '1px solid #27272a', borderRadius: '8px', fontSize: '11px' }}
+                      labelStyle={{ color: '#71717a' }}
+                      formatter={(value: any, name: string | undefined) => [formatSpeed(value || 0), name || 'Speed']}
+                      labelFormatter={(label) => new Date(label).toLocaleTimeString()}
+                    />
+                    {showTotal && (
+                      <>
+                        <Area type="monotone" dataKey="total_dl" name="Total DL" stroke="#10b981" fillOpacity={1} fill="url(#colorDl)" strokeWidth={2} isAnimationActive={false} />
+                        <Area type="monotone" dataKey="total_up" name="Total UP" stroke="#3b82f6" fillOpacity={0} strokeWidth={2} strokeDasharray="5 5" isAnimationActive={false} />
+                      </>
+                    )}
+                    {showQbit && (
+                      <>
+                        <Area type="monotone" dataKey="qbit_dl" name="qBit DL" stroke="#0ea5e9" fillOpacity={0} strokeWidth={1} isAnimationActive={false} />
+                        <Area type="monotone" dataKey="qbit_up" name="qBit UP" stroke="#0ea5e9" fillOpacity={0} strokeWidth={1} strokeDasharray="3 3" isAnimationActive={false} />
+                      </>
+                    )}
+                    {showPlex && (
+                      <Area type="monotone" dataKey="plex_up" name="Plex UP" stroke="#f97316" fillOpacity={0.1} fill="#f97316" strokeWidth={1} strokeDasharray="4 4" isAnimationActive={false} />
+                    )}
+                    {!showTotal && !showQbit && !showPlex && (
+                      <>
+                        <Area type="monotone" dataKey="download_speed" name="Download" stroke="#10b981" fillOpacity={1} fill="url(#colorDl)" strokeWidth={2} isAnimationActive={false} />
+                        <Area type="monotone" dataKey="upload_speed" name="Upload" stroke="#3b82f6" fillOpacity={0} strokeWidth={2} strokeDasharray="5 5" isAnimationActive={false} />
+                      </>
+                    )}
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+            {speedHistory.length > 0 && (
+              <div className="mt-4 flex justify-between text-[11px] font-bold">
+                <div className="flex gap-4">
+                  <div className="flex flex-col">
+                    <span className="text-zinc-500 uppercase tracking-tighter">Current DL</span>
+                    <span className="text-emerald-400">{formatSpeed(showTotal ? speedHistory[speedHistory.length-1].total_dl : speedHistory[speedHistory.length-1].download_speed)}</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-zinc-500 uppercase tracking-tighter">Current UP</span>
+                    <span className="text-blue-400">{formatSpeed(showTotal ? speedHistory[speedHistory.length-1].total_up : speedHistory[speedHistory.length-1].upload_speed)}</span>
+                  </div>
+                </div>
+                <div className="text-zinc-600 self-end italic">Last 60 mins</div>
+              </div>
+            )}
+          </div>
 
           {/* Recent Downloads */}
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col max-h-[500px]">
@@ -670,13 +781,13 @@ export default function Dashboard() {
                     key={id}
                     onClick={() => toggleRecentFilter(id)}
                     style={{
-                      borderColor: recentDownloadFilters[id] ? `${instances[id].color}40` : '#27272a',
-                      backgroundColor: recentDownloadFilters[id] ? `${instances[id].color}15` : 'transparent',
-                      color: recentDownloadFilters[id] ? instances[id].color : '#52525b'
+                      borderColor: recentDownloadFilters[id] !== false ? `${instances[id].color}40` : '#27272a',
+                      backgroundColor: recentDownloadFilters[id] !== false ? `${instances[id].color}15` : 'transparent',
+                      color: recentDownloadFilters[id] !== false ? instances[id].color : '#52525b'
                     }}
                     className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border transition-all hover:scale-105"
                   >
-                    {instances[id].name}
+                    {instances[id].name.split(' ')[0]}
                   </button>
                 ))}
               </div>
@@ -694,8 +805,8 @@ export default function Dashboard() {
               {!loadingStats && recentDownloads.filter(dl => recentDownloadFilters[dl.instanceId] !== false).slice(0, 20).map((dl, idx) => {
                 const inst = instances[dl.instanceId];
                 return (
-                  <div 
-                    key={idx} 
+                  <div
+                    key={idx}
                     onClick={() => handleOpenMedia(dl)}
                     className="flex items-center gap-4 p-3 rounded-xl bg-zinc-950 border border-zinc-800 flex-shrink-0 transition hover:border-emerald-500/50 hover:bg-zinc-900 cursor-pointer group"
                   >
@@ -753,111 +864,12 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Side-by-Side: Network Speed & Search History */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8 items-stretch">
-          {/* Network Speed History */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col max-h-[500px]">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-white">Network Speed</h2>
-              <div className="flex gap-2">
-                <button 
-                  onClick={() => setShowTotal(!showTotal)}
-                  className={`px-2 py-1 rounded border text-[9px] font-bold uppercase transition-all ${showTotal ? 'bg-zinc-100 text-black border-white' : 'bg-zinc-900 border-zinc-800 text-zinc-500'}`}
-                >
-                  Main
-                </button>
-                <button 
-                  onClick={() => setShowQbit(!showQbit)}
-                  className={`px-2 py-1 rounded border text-[9px] font-bold uppercase transition-all ${showQbit ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-zinc-900 border-zinc-800 text-zinc-500'}`}
-                >
-                  qBit
-                </button>
-                <button 
-                  onClick={() => setShowPlex(!showPlex)}
-                  className={`px-2 py-1 rounded border text-[9px] font-bold uppercase transition-all ${showPlex ? 'bg-orange-500 text-white border-orange-500' : 'bg-zinc-900 border-zinc-800 text-zinc-500'}`}
-                >
-                  Plex
-                </button>
-              </div>
-            </div>
-
-            <div className="flex-1 min-h-[300px]">
-              {speedHistory.length === 0 ? (
-                <div className="w-full h-full flex flex-col items-center justify-center text-zinc-500 gap-2 p-8 border border-zinc-800/50 border-dashed rounded-xl">
-                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-emerald-500" />
-                  <p className="text-sm italic">Monitoring network traffic...</p>
-                </div>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={speedHistory} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="colorDl" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                      </linearGradient>
-                      <linearGradient id="colorUp" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
-                    <XAxis dataKey="timestamp" hide={true} />
-                    <YAxis 
-                      stroke="#52525b" 
-                      fontSize={10} 
-                      tickFormatter={(val) => `${(val / (1024 * 1024)).toFixed(1)}`}
-                    />
-                    <Tooltip 
-                      contentStyle={{ backgroundColor: '#09090b', border: '1px solid #27272a', borderRadius: '8px', fontSize: '11px' }}
-                      labelStyle={{ color: '#71717a' }}
-                      formatter={(value: any, name: string | undefined) => [`${((value || 0) / (1024 * 1024)).toFixed(2)} MB/s`, name || 'Speed']}
-                      labelFormatter={(label) => new Date(label).toLocaleTimeString()}
-                    />
-                    {showTotal && (
-                      <>
-                        <Area type="monotone" dataKey="total_dl" name="Total DL" stroke="#10b981" fillOpacity={1} fill="url(#colorDl)" strokeWidth={2} isAnimationActive={false} />
-                        <Area type="monotone" dataKey="total_up" name="Total UP" stroke="#3b82f6" fillOpacity={0} strokeWidth={2} strokeDasharray="5 5" isAnimationActive={false} />
-                      </>
-                    )}
-                    {showQbit && (
-                      <>
-                        <Area type="monotone" dataKey="qbit_dl" name="qBit DL" stroke="#0ea5e9" fillOpacity={0} strokeWidth={1} isAnimationActive={false} />
-                        <Area type="monotone" dataKey="qbit_up" name="qBit UP" stroke="#0ea5e9" fillOpacity={0} strokeWidth={1} strokeDasharray="3 3" isAnimationActive={false} />
-                      </>
-                    )}
-                    {showPlex && (
-                      <Area type="monotone" dataKey="plex_up" name="Plex UP" stroke="#f97316" fillOpacity={0.1} fill="#f97316" strokeWidth={1} strokeDasharray="4 4" isAnimationActive={false} />
-                    )}
-                    {!showTotal && !showQbit && !showPlex && (
-                      <>
-                        <Area type="monotone" dataKey="download_speed" name="Download" stroke="#10b981" fillOpacity={1} fill="url(#colorDl)" strokeWidth={2} isAnimationActive={false} />
-                        <Area type="monotone" dataKey="upload_speed" name="Upload" stroke="#3b82f6" fillOpacity={0} strokeWidth={2} strokeDasharray="5 5" isAnimationActive={false} />
-                      </>
-                    )}
-                  </AreaChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-            {speedHistory.length > 0 && (
-              <div className="mt-4 flex justify-between text-[11px] font-bold">
-                <div className="flex gap-4">
-                  <div className="flex flex-col">
-                    <span className="text-zinc-500 uppercase tracking-tighter">Current DL</span>
-                    <span className="text-emerald-400">{((showTotal ? speedHistory[speedHistory.length-1].total_dl : speedHistory[speedHistory.length-1].download_speed) / (1024*1024)).toFixed(2)} MB/s</span>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-zinc-500 uppercase tracking-tighter">Current UP</span>
-                    <span className="text-blue-400">{((showTotal ? speedHistory[speedHistory.length-1].total_up : speedHistory[speedHistory.length-1].upload_speed) / (1024*1024)).toFixed(2)} MB/s</span>
-                  </div>
-                </div>
-                <div className="text-zinc-600 self-end italic">Last 60 mins</div>
-              </div>
-            )}
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col mb-8">
+          <div className="flex items-center justify-between mb-4 border-b border-zinc-800 pb-4">
+            <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-widest">Search History Ledger</h3>
+            <div className="text-[10px] text-zinc-500 font-medium">Automatic & Manual Scheduler Runs</div>
           </div>
-
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col max-h-[500px]">
-            <HistoryLedger />
-          </div>
+          <HistoryLedger />
         </div>
 
         {/* Manual Trigger Result Modal */}

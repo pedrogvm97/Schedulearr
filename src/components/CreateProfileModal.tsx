@@ -92,7 +92,7 @@ export function CreateProfileModal({ instances, onClose, onCreated, initialData 
     const [cutoff, setCutoff] = useState(initialData?.profile?.cutoff || 0);
     const [enabledQuality, setEnabledQuality] = useState<Set<number>>(
         initialData?.profile?.items 
-            ? new Set(initialData.profile.items.filter((i: any) => i.allowed).map((i: any) => i.quality.id))
+            ? new Set(initialData.profile.items.filter((i: any) => i.allowed && i.quality).map((i: any) => i.quality.id))
             : new Set([3, 5, 6, 7, 9, 17, 27, 30]) // sensible defaults: WEB + 1080p + 720p
     );
     const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['4K / 2160p', '1080p', '720p']));
@@ -102,7 +102,7 @@ export function CreateProfileModal({ instances, onClose, onCreated, initialData 
     const [availableFormats, setAvailableFormats] = useState<any[]>([]);
     const [formatScores, setFormatScores] = useState<Record<number, number>>(() => {
         const scores: Record<number, number> = {};
-        if (initialData?.profile?.customFormats) {
+        if (Array.isArray(initialData?.profile?.customFormats)) {
             initialData.profile.customFormats.forEach((cf: any) => {
                 scores[cf.customFormatId] = cf.score;
             });
@@ -139,6 +139,12 @@ export function CreateProfileModal({ instances, onClose, onCreated, initialData 
             setLoadingFormats(false);
         }
     };
+
+    React.useEffect(() => {
+        if (isEdit && initialData?.instanceId) {
+            fetchFormats(initialData.instanceId);
+        }
+    }, [isEdit, initialData?.instanceId]);
 
     const updateFormatScore = (formatId: number, score: number) => {
         setFormatScores(prev => ({ ...prev, [formatId]: score }));
