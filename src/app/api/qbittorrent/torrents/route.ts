@@ -54,12 +54,18 @@ export async function GET() {
                 data.records.forEach((record: any) => {
                     const hash = record.downloadId?.toLowerCase();
                     if (hash) {
+                        const movie = record.movie;
+                        const series = record.series;
+                        
                         hashToMetadata[hash] = {
                             indexer: record.indexer,
-                            poster: record.movie?.images?.[0]?.remoteUrl || record.series?.images?.[0]?.remoteUrl,
-                            tmdbId: record.movie?.tmdbId || record.series?.tmdbId,
-                            tvdbId: record.movie?.tvdbId || record.series?.tvdbId,
-                            mediaType: record.movie ? 'movie' : 'series'
+                            poster: movie?.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || 
+                                    series?.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl ||
+                                    movie?.images?.[0]?.remoteUrl || 
+                                    series?.images?.[0]?.remoteUrl,
+                            tmdbId: movie?.tmdbId || series?.tmdbId,
+                            tvdbId: movie?.tvdbId || series?.tvdbId,
+                            mediaType: movie ? 'movie' : 'series'
                         };
                     }
                 });
@@ -76,10 +82,19 @@ export async function GET() {
                 if (hash && isGrab) {
                     if (!hashToMetadata[hash]) hashToMetadata[hash] = {};
                     if (record.data?.indexer) hashToMetadata[hash].indexer = record.data.indexer;
-                    hashToMetadata[hash].poster = record.movie?.images?.[0]?.remoteUrl || record.series?.images?.[0]?.remoteUrl;
-                    hashToMetadata[hash].tmdbId = record.movie?.tmdbId || record.series?.tmdbId;
-                    hashToMetadata[hash].tvdbId = record.movie?.tvdbId || record.series?.tvdbId;
-                    hashToMetadata[hash].mediaType = record.movie ? 'movie' : 'series';
+                    
+                    const movie = record.movie;
+                    const series = record.series;
+
+                    hashToMetadata[hash].poster = hashToMetadata[hash].poster || 
+                                                  movie?.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || 
+                                                  series?.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl ||
+                                                  movie?.images?.[0]?.remoteUrl || 
+                                                  series?.images?.[0]?.remoteUrl;
+                    
+                    hashToMetadata[hash].tmdbId = hashToMetadata[hash].tmdbId || movie?.tmdbId || series?.tmdbId;
+                    hashToMetadata[hash].tvdbId = hashToMetadata[hash].tvdbId || movie?.tvdbId || series?.tvdbId;
+                    hashToMetadata[hash].mediaType = hashToMetadata[hash].mediaType || (movie ? 'movie' : 'series');
                 }
             });
         });

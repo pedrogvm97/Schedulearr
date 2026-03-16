@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { formatDistanceToNow } from "date-fns";
-import { Film } from "lucide-react";
+import { Film, Pause, Play, Trash2 } from "lucide-react";
 import { MediaDetailsPanel } from "@/components/MediaDetailsPanel";
 
 // --- Interfaces ---
@@ -51,6 +51,7 @@ export default function Downloads() {
     const [qbitBlacklist, setQbitBlacklist] = useState(true);
     const [qbitSizeCleanupEnabled, setQbitSizeCleanupEnabled] = useState(false);
     const [qbitMaxSizeGb, setQbitMaxSizeGb] = useState(15);
+    const [qbitCleanupExclusions, setQbitCleanupExclusions] = useState('');
     const [isCleanupSettingsOpen, setIsCleanupSettingsOpen] = useState(false);
 
     // Media Panel State
@@ -86,6 +87,7 @@ export default function Downloads() {
 
             if (data.qbit_cleanup_max_size_enabled === 'true') setQbitSizeCleanupEnabled(true);
             if (data.qbit_cleanup_max_size_gb) setQbitMaxSizeGb(parseInt(data.qbit_cleanup_max_size_gb));
+            if (data.qbit_cleanup_exclusions) setQbitCleanupExclusions(data.qbit_cleanup_exclusions);
         } catch (e) {
             console.error(e);
         }
@@ -118,7 +120,6 @@ export default function Downloads() {
     }, []);
 
     const handleOpenMedia = (torrent: Torrent) => {
-        if (!torrent.tmdbId && !torrent.tvdbId) return;
 
         const item = {
             title: torrent.name,
@@ -134,6 +135,25 @@ export default function Downloads() {
             .then(r => r.ok ? r.json() : null)
             .then(status => setLibStatus(status))
             .catch(() => setLibStatus(null));
+    };
+
+    const handleAction = async (torrent: Torrent, action: 'pause' | 'resume') => {
+        try {
+            const res = await fetch('/api/qbittorrent/action', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action,
+                    hash: torrent.hash,
+                    instanceId: torrent.instanceId
+                })
+            });
+            if (res.ok) {
+                fetchTorrents(); // Refresh
+            }
+        } catch (e) {
+            console.error('Error performing action', e);
+        }
     };
 
     const handleDelete = async () => {
@@ -483,7 +503,30 @@ export default function Downloads() {
                                     </span>
                                 </div>
 
-                                <div className="absolute top-3 right-3 md:relative md:top-auto md:right-auto flex-shrink-0 flex items-center justify-center">
+                                <div className="absolute top-3 right-3 md:relative md:top-auto md:right-auto flex-shrink-0 flex items-center gap-2">
+                                    {torrent.state.includes('paused') ? (
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleAction(torrent, 'resume');
+                                            }}
+                                            className="p-1.5 opacity-100 md:opacity-0 group-hover:opacity-100 focus:opacity-100 bg-emerald-500/10 hover:bg-emerald-500/80 hover:text-white text-emerald-500 rounded-md transition-all shadow-sm"
+                                            title="Resume Download"
+                                        >
+                                            <Play size={16} fill="currentColor" />
+                                        </button>
+                                    ) : (
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleAction(torrent, 'pause');
+                                            }}
+                                            className="p-1.5 opacity-100 md:opacity-0 group-hover:opacity-100 focus:opacity-100 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-md transition-all shadow-sm"
+                                            title="Pause Download"
+                                        >
+                                            <Pause size={16} fill="currentColor" />
+                                        </button>
+                                    )}
                                     <button
                                         onClick={(e) => {
                                             e.stopPropagation();
@@ -493,7 +536,7 @@ export default function Downloads() {
                                         className="p-1.5 opacity-100 md:opacity-0 group-hover:opacity-100 focus:opacity-100 bg-red-500/10 hover:bg-red-500/80 hover:text-white text-red-500 rounded-md transition-all shadow-sm"
                                         title="Delete Torrent"
                                     >
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                                        <Trash2 size={16} />
                                     </button>
                                 </div>
                             </div>

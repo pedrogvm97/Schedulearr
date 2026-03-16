@@ -1,4 +1,4 @@
-import { getInstances, logNetworkSpeed, pruneNetworkSpeedHistory } from '@/lib/db';
+import { getInstances, logNetworkSpeed, pruneNetworkSpeedHistory, getSetting } from '@/lib/db';
 import { authenticateQbittorrent, getTransferInfo } from '@/lib/qbittorrent';
 import fs from 'fs';
 import axios from 'axios';
@@ -57,10 +57,10 @@ async function getPlexThroughput() {
 
 function getTotalThroughput() {
     try {
-        if (!fs.existsSync('/proc/net/dev')) return { dl: 0, up: 0 };
-        
         const content = fs.readFileSync('/proc/net/dev', 'utf8');
         const lines = content.split('\n');
+        const targetInterface = getSetting('networkInterface') || 'total';
+        
         let totalRx = 0;
         let totalTx = 0;
         
@@ -69,12 +69,20 @@ function getTotalThroughput() {
             const line = lines[i].trim();
             if (!line) continue;
             
-            const parts = line.split(/\s+/);
-            if (parts.length < 10) continue;
+            const [iface, stats] = line.split(':');
+            const name = iface.trim();
             
-            // parts[0] is interface like "eth0:", parts[1] is Rx bytes, parts[9] is Tx bytes
-            const rx = parseInt(parts[1], 10);
-            const tx = parseInt(parts[9], 10);
+            if (!stats) continue;
+            if (name === 'lo') continue; // Skip loopback
+            
+            if (targetInterface !== 'total' && name !== targetInterface) continue;
+            
+            const parts = stats.trim().split(/\s+/);
+            if (parts.length < 9) continue;
+            
+            // parts[0] is Rx bytes, parts[8] is Tx bytes
+            const rx = parseInt(parts[0], 10);
+            const tx = parseInt(parts[8], 10);
             
             if (!isNaN(rx)) totalRx += rx;
             if (!isNaN(tx)) totalTx += tx;

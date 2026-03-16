@@ -93,6 +93,11 @@ export default function Dashboard() {
   const [isTooltipHovered, setIsTooltipHovered] = useState(false);
   const [isBarHovered, setIsBarHovered] = useState(false);
   const [tooltipTimeout, setTooltipTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [isTestingSpeed, setIsTestingSpeed] = useState(false);
+  const [speedtestResult, setSpeedtestResult] = useState<{ speedMbps: number, sizeMB: number, durationSec: number } | null>(null);
+  const [showSpeedtestModal, setShowSpeedtestModal] = useState(false);
+  const [availableInterfaces, setAvailableInterfaces] = useState<string[]>(['total']);
+  const [selectedInterface, setSelectedInterface] = useState('total');
 
   const toggleRecentFilter = (id: string) => {
     setRecentDownloadFilters((prev: Record<string, boolean>) => ({
@@ -128,6 +133,13 @@ export default function Dashboard() {
       .then(res => res.json())
       .then(data => {
         if (data.tmdbApiKey) setTmdbApiKey(data.tmdbApiKey);
+        if (data.networkInterface) setSelectedInterface(data.networkInterface);
+      });
+
+    fetch("/api/stats/interfaces")
+      .then(res => res.json())
+      .then(data => {
+        if (data.interfaces) setAvailableInterfaces(data.interfaces);
       });
   }, []);
 
@@ -252,6 +264,31 @@ export default function Dashboard() {
       setTriggerResult({ show: true, success: false, reason: 'Network error executing trigger.' });
     }
     setIsTriggering(false);
+  };
+
+  const handleSpeedTest = async () => {
+    setIsTestingSpeed(true);
+    setSpeedtestResult(null);
+    setShowSpeedtestModal(true);
+    try {
+      const res = await fetch('/api/stats/speedtest?action=test');
+      if (res.ok) {
+        const data = await res.json();
+        setSpeedtestResult(data);
+      }
+    } catch (e) {
+      console.error("Speedtest failed", e);
+    }
+    setIsTestingSpeed(false);
+  };
+
+  const updateNetworkInterface = async (iface: string) => {
+    setSelectedInterface(iface);
+    await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'networkInterface', value: iface })
+    });
   };
 
   const handleMouseMove = (e: any) => {
@@ -671,17 +708,35 @@ export default function Dashboard() {
 
         {/* Side-by-Side: Network Speed & Recent Downloads */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8 items-stretch">
-          {/* Network Speed History */}
+          {/* Network Stats History */}
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col min-h-[500px]">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-white">Network Speed</h2>
+              <h2 className="text-xl font-bold text-white">Network Stats</h2>
               <div className="flex gap-2">
+                <button 
+                  onClick={() => setShowSpeedtestModal(true)}
+                  className="px-2 py-1 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 text-[9px] font-bold uppercase transition-all hover:bg-emerald-500/20"
+                >
+                  Test Speed
+                </button>
                 <button 
                   onClick={() => setShowTotal(!showTotal)}
                   className={`px-2 py-1 rounded border text-[9px] font-bold uppercase transition-all ${showTotal ? 'bg-zinc-100 text-black border-white' : 'bg-zinc-900 border-zinc-800 text-zinc-500'}`}
+                  title="Show system/global traffic"
                 >
-                  Main
+                  System
                 </button>
+                {availableInterfaces.length > 1 && (
+                  <select 
+                    value={selectedInterface}
+                    onChange={(e) => updateNetworkInterface(e.target.value)}
+                    className="bg-zinc-900 border border-zinc-800 rounded px-1.5 py-0.5 text-[9px] font-bold text-zinc-400 focus:border-emerald-500/50 outline-none uppercase appearance-none cursor-pointer hover:bg-zinc-800"
+                  >
+                    {availableInterfaces.map(iface => (
+                      <option key={iface} value={iface}>{iface === 'total' ? 'All Interfaces' : iface}</option>
+                    ))}
+                  </select>
+                )}
                 <button 
                   onClick={() => setShowQbit(!showQbit)}
                   className={`px-2 py-1 rounded border text-[9px] font-bold uppercase transition-all ${showQbit ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-zinc-900 border-zinc-800 text-zinc-500'}`}
@@ -944,27 +999,45 @@ export default function Dashboard() {
                 </div>
 
                 <div className="space-y-4 mb-8">
-                  <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex gap-4">
-                    <div className="mt-1 w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center flex-shrink-0 font-bold">1</div>
+                  <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex gap-6 items-center">
+                    <div className="relative group overflow-hidden rounded-lg border border-zinc-800 w-32 h-24 flex-shrink-0">
+                      <img src="/setup/step1.png" alt="Connect" className="w-full h-full object-cover transition-transform group-hover:scale-110" />
+                      <div className="absolute inset-0 bg-emerald-500/10 mix-blend-overlay"></div>
+                    </div>
                     <div>
-                      <h4 className="text-white font-semibold">Connect Your Instances</h4>
+                      <div className="flex items-center gap-3 mb-1">
+                        <div className="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center flex-shrink-0 font-bold text-xs border border-emerald-500/30">1</div>
+                        <h4 className="text-white font-semibold">Connect Your Instances</h4>
+                      </div>
                       <p className="text-sm text-zinc-400">Head to the Settings tab to link your Sonarr, Radarr, Prowlarr, and qBittorrent details.</p>
                     </div>
                   </div>
 
-                  <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex gap-4">
-                    <div className="mt-1 w-8 h-8 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center flex-shrink-0 font-bold">2</div>
+                  <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex gap-6 items-center">
+                    <div className="relative group overflow-hidden rounded-lg border border-zinc-800 w-32 h-24 flex-shrink-0">
+                      <img src="/setup/step2.png" alt="Activate" className="w-full h-full object-cover transition-transform group-hover:scale-110" />
+                      <div className="absolute inset-0 bg-blue-500/10 mix-blend-overlay"></div>
+                    </div>
                     <div>
-                      <h4 className="text-white font-semibold">Activate Media</h4>
-                      <p className="text-sm text-zinc-400">Jump into the Media Search tab to select which movies or shows you want Schedulearr to orchestrate missing episodes/releases for.</p>
+                      <div className="flex items-center gap-3 mb-1">
+                        <div className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center flex-shrink-0 font-bold text-xs border border-blue-500/30">2</div>
+                        <h4 className="text-white font-semibold">Activate Media</h4>
+                      </div>
+                      <p className="text-sm text-zinc-400">Jump into the Media Search tab to select which movies or shows you want Schedulearr to orchestrate.</p>
                     </div>
                   </div>
 
-                  <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex gap-4">
-                    <div className="mt-1 w-8 h-8 rounded-full bg-purple-500/20 text-purple-400 flex items-center justify-center flex-shrink-0 font-bold">3</div>
+                  <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex gap-6 items-center">
+                    <div className="relative group overflow-hidden rounded-lg border border-zinc-800 w-32 h-24 flex-shrink-0">
+                      <img src="/setup/step3.png" alt="Relax" className="w-full h-full object-cover transition-transform group-hover:scale-110" />
+                      <div className="absolute inset-0 bg-purple-500/10 mix-blend-overlay"></div>
+                    </div>
                     <div>
-                      <h4 className="text-white font-semibold">Sit Back & Relax</h4>
-                      <p className="text-sm text-zinc-400">Schedulearr runs in the background continuously pacing Prowlarr searches to avoid API bans while grabbing top tier releases.</p>
+                      <div className="flex items-center gap-3 mb-1">
+                        <div className="w-6 h-6 rounded-full bg-purple-500/20 text-purple-400 flex items-center justify-center flex-shrink-0 font-bold text-xs border border-purple-500/30">3</div>
+                        <h4 className="text-white font-semibold">Sit Back & Relax</h4>
+                      </div>
+                      <p className="text-sm text-zinc-400">Schedulearr runs in the background continuously pacing searches to avoid API bans while grabbing top tier releases.</p>
                     </div>
                   </div>
                 </div>
@@ -984,6 +1057,74 @@ export default function Dashboard() {
             </div>
           )
         }
+ 
+        {/* Speed Test Modal */}
+        {showSpeedtestModal && (
+          <div className="fixed inset-0 bg-black/90 flex items-center justify-center p-4 z-[70] backdrop-blur-md">
+            <div className="bg-zinc-950 border border-zinc-800 rounded-3xl p-10 max-w-lg w-full shadow-[0_0_50px_rgba(16,185,129,0.1)] relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-emerald-500 to-transparent opacity-50"></div>
+              
+              <div className="text-center mb-8">
+                <h2 className="text-2xl font-black text-white mb-2 italic tracking-tighter uppercase">Network Speed Test</h2>
+                <p className="text-zinc-500 text-xs font-bold tracking-widest uppercase">Benchmarking External Connection</p>
+              </div>
+
+              <div className="flex flex-col items-center justify-center py-10 relative">
+                {/* Gauge-like UI */}
+                <div className="w-56 h-56 rounded-full border-4 border-zinc-900 flex flex-col items-center justify-center relative shadow-[inset_0_0_30px_rgba(0,0,0,0.5)]">
+                   <div className={`absolute inset-0 rounded-full border-t-4 border-emerald-500 transition-all duration-1000 ${isTestingSpeed ? 'animate-spin' : 'opacity-20'}`} style={{ borderLeftColor: 'transparent', borderRightColor: 'transparent', borderBottomColor: 'transparent' }}></div>
+                   
+                   <div className="text-center z-10">
+                     {isTestingSpeed ? (
+                       <div className="flex flex-col items-center">
+                         <span className="text-4xl font-black text-white animate-pulse">...</span>
+                         <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold mt-2">Testing</span>
+                       </div>
+                     ) : speedtestResult ? (
+                       <div className="flex flex-col items-center">
+                         <span className="text-5xl font-black text-emerald-500 tabular-nums tracking-tighter">{speedtestResult.speedMbps}</span>
+                         <span className="text-xs text-zinc-400 font-black uppercase tracking-widest">Mb/s</span>
+                       </div>
+                     ) : (
+                       <button 
+                         onClick={handleSpeedTest}
+                         className="bg-emerald-500 text-black font-black uppercase tracking-tighter px-8 py-3 rounded-full hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/20 active:scale-95"
+                       >
+                         GO
+                       </button>
+                     )}
+                   </div>
+                </div>
+
+                {speedtestResult && (
+                  <div className="grid grid-cols-2 gap-8 mt-10 w-full">
+                    <div className="text-center">
+                      <div className="text-[10px] text-zinc-500 uppercase font-black mb-1">Payload</div>
+                      <div className="text-xl font-bold text-white tracking-tight">{speedtestResult.sizeMB.toFixed(1)} MB</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-[10px] text-zinc-500 uppercase font-black mb-1">Duration</div>
+                      <div className="text-xl font-bold text-white tracking-tight">{speedtestResult.durationSec.toFixed(2)} s</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-8 flex justify-center">
+                <button
+                  onClick={() => {
+                    setShowSpeedtestModal(false);
+                    setSpeedtestResult(null);
+                  }}
+                  disabled={isTestingSpeed}
+                  className="text-zinc-500 hover:text-white text-xs font-bold uppercase tracking-widest transition-colors py-2"
+                >
+                  {speedtestResult ? 'Close' : 'Cancel'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
       <StickyTooltipOverlay />
 

@@ -369,7 +369,6 @@ export default function Settings() {
                         )}
                         <p className="text-[10px] text-zinc-500 mt-2">Enable this for better trending and discovery results on the discovery page.</p>
                     </div>
-
                     <div className="pt-4 border-t border-zinc-800 space-y-4">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="space-y-1">
@@ -384,17 +383,6 @@ export default function Settings() {
                                     className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
                                 />
                                 <p className="text-[10px] text-zinc-500 mt-1">How often to record download/upload speeds.</p>
-                            </div>
-                            <div className="space-y-1">
-                                <label className="text-sm font-medium text-zinc-300">qBit Cleanup Exclusions</label>
-                                <input
-                                    type="text"
-                                    placeholder="e.g. hash1, hash2 or CategoryName"
-                                    defaultValue={getSettingValue('qbit_cleanup_exclusions') || ''}
-                                    onBlur={(e) => updateSetting('qbit_cleanup_exclusions', e.target.value)}
-                                    className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                                />
-                                <p className="text-[10px] text-zinc-500 mt-1">Comma-separated list of hashes or category names to exclude from auto-cleanup.</p>
                             </div>
                         </div>
                     </div>

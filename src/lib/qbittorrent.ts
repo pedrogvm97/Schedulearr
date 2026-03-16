@@ -126,3 +126,35 @@ export const deleteTorrents = async (url: string, cookie: string, hashes: string
         throw error;
     }
 };
+
+export const pauseTorrents = async (url: string, cookie: string, hashes: string[]): Promise<void> => {
+    try {
+        const params = new URLSearchParams();
+        params.append('hashes', hashes.join('|'));
+        await axios.post(`${url}/api/v2/torrents/pause`, params, {
+            headers: {
+                'Cookie': cookie,
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
+        });
+    } catch (error) {
+        console.error(`Error pausing torrents from qBittorrent at ${url}:`, error);
+        throw error;
+    }
+};
+
+export const resumeTorrents = async (url: string, cookie: string, hashes: string[]): Promise<void> => {
+    try {
+        const params = new URLSearchParams();
+        params.append('hashes', hashes.join('|'));
+        await axios.post(`${url}/api/v2/torrents/resume`, params, {
+            headers: {
+                'Cookie': cookie,
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
+        });
+    } catch (error) {
+        console.error(`Error resuming torrents from qBittorrent at ${url}:`, error);
+        throw error;
+    }
+};

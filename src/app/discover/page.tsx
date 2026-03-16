@@ -1036,6 +1036,10 @@ export default function DiscoverPage() {
                 const sizeA = a.sizeOnDisk || a.statistics?.sizeOnDisk || 0;
                 const sizeB = b.sizeOnDisk || b.statistics?.sizeOnDisk || 0;
                 comparison = sizeA - sizeB;
+            } else if (sortBy === 'added') {
+                const dateA = new Date(a.added || 0).getTime();
+                const dateB = new Date(b.added || 0).getTime();
+                comparison = dateA - dateB;
             }
 
             return sortOrder === 'asc' ? comparison : -comparison;
@@ -1320,6 +1324,7 @@ export default function DiscoverPage() {
                                         { id: 'popularity', label: 'Popularity', icon: <TrendingUp size={12} /> },
                                         { id: 'year', label: 'Year', icon: <Calendar size={12} /> },
                                         { id: 'alphabetical', label: 'A-Z', icon: <Rows size={12} /> },
+                                        { id: 'added', label: 'Date Added', icon: <Calendar size={12} /> },
                                         { id: 'size', label: 'Size', icon: <HardDrive size={12} /> }
                                     ].filter(s => s.id !== 'size' || pageMode === 'mylibrary').map(s => (
                                         <button
@@ -1646,7 +1651,7 @@ function AddMediaModal({ item, mediaType, instances, onAdd, onClose, loading }: 
     const canSubmit = targetInstanceId && selectedProfileId && selectedRootFolderPath && !loading;
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
             <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl relative">
                 <button onClick={onClose} className="absolute top-6 right-6 p-2 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all">
                     <X size={20} />

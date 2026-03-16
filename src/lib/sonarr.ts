@@ -91,12 +91,23 @@ export const getGrabHistory = async (url: string, apiKey: string, limit: number 
                 pageSize: limit,
                 sortKey: 'date',
                 sortDirection: 'descending'
-                // Removed eventType: 1 to fetch all (Grabs, Imports, etc.)
             }
         });
         return response.data.records || [];
     } catch (error) {
         console.error(`Error fetching Sonarr grab history (${url}):`, error);
+        return [];
+    }
+};
+
+export const getCommands = async (url: string, apiKey: string): Promise<any[]> => {
+    try {
+        const response = await axios.get(`${url}/api/v3/command`, {
+            headers: { 'X-Api-Key': apiKey }
+        });
+        return response.data || [];
+    } catch (error) {
+        console.error(`Error fetching Sonarr commands (${url}):`, error);
         return [];
     }
 };
