@@ -32,6 +32,17 @@ export default function Settings() {
     const [allSettings, setAllSettings] = useState<Record<string, string>>({});
     const getSettingValue = (key: string) => allSettings[key] || "";
 
+    // Version management
+    const [versionInfo, setVersionInfo] = useState<{
+        currentVersion: string;
+        latestVersion: string;
+        updateAvailable: boolean;
+        changelog: string;
+        dockerSocketAvailable: boolean;
+    } | null>(null);
+    const [checkingUpdate, setCheckingUpdate] = useState(false);
+    const [updating, setUpdating] = useState(false);
+
     const fetchInstances = async () => {
         setLoading(true);
         try {
@@ -56,7 +67,46 @@ export default function Settings() {
 
     useEffect(() => {
         fetchInstances();
+        fetchVersionInfo();
     }, []);
+
+    const fetchVersionInfo = async () => {
+        try {
+            const res = await fetch('/api/system/version');
+            if (res.ok) {
+                const data = await res.json();
+                setVersionInfo(data);
+            }
+        } catch (e) {
+            console.error('Failed to fetch version info', e);
+        }
+    };
+
+    const handleCheckUpdate = async () => {
+        setCheckingUpdate(true);
+        await fetchVersionInfo();
+        setCheckingUpdate(false);
+        toast.info("Update check complete");
+    };
+
+    const handleUpdate = async () => {
+        if (!confirm("This will pull the latest Docker image and prepare the system for update. The app might be unavailable for a few seconds if it restarts. Proceed?")) return;
+        
+        setUpdating(true);
+        try {
+            const res = await fetch('/api/system/update', { method: 'POST' });
+            const data = await res.json();
+            
+            if (res.ok) {
+                toast.success(data.message || "Update initiated successfully!");
+            } else {
+                toast.error(data.error || "Update failed");
+            }
+        } catch (e: any) {
+            toast.error("Failed to trigger update: " + e.message);
+        }
+        setUpdating(false);
+    };
 
     const updateSetting = async (key: string, value: any) => {
         try {
@@ -544,6 +594,93 @@ export default function Settings() {
                 )}
             </div>
 
+
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden shadow-xl">
+                <div className="bg-zinc-800/50 p-6 border-b border-zinc-700/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-500"><path d="M20 16V4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v16l4-2 4 2 4-2 4 2z"></path><path d="M8 7h8"></path><path d="M8 11h8"></path></svg>
+                            System & Updates
+                        </h2>
+                        <p className="text-sm text-zinc-400 mt-1">Manage your Schedulearr instance version and system health.</p>
+                    </div>
+                    <button
+                        onClick={handleCheckUpdate}
+                        disabled={checkingUpdate}
+                        className="bg-zinc-700 hover:bg-zinc-600 disabled:opacity-50 text-white font-bold py-2 px-4 rounded-lg text-xs transition-all flex items-center gap-2"
+                    >
+                        {checkingUpdate ? (
+                            <div className="w-3 h-3 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                        ) : (
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/></svg>
+                        )}
+                        Check for Updates
+                    </button>
+                </div>
+                
+                <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="space-y-1">
+                        <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest">Current Version</span>
+                        <div className="flex items-center gap-2">
+                            <span className="text-lg font-bold text-white font-mono">v{versionInfo?.currentVersion || '0.0.0'}</span>
+                            <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-500 text-[10px] font-black rounded border border-emerald-500/20 uppercase">Stable</span>
+                        </div>
+                    </div>
+
+                    <div className="space-y-1">
+                        <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest">Latest Release</span>
+                        <div className="flex items-center gap-2">
+                            <span className="text-lg font-bold text-zinc-200 font-mono">v{versionInfo?.latestVersion || 'Unknown'}</span>
+                            {versionInfo?.updateAvailable && (
+                                <span className="px-2 py-0.5 bg-amber-500/10 text-amber-500 text-[10px] font-black rounded border border-amber-500/20 uppercase animate-pulse">Update Ready</span>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="flex items-end justify-end md:justify-start lg:justify-end">
+                        {versionInfo?.updateAvailable ? (
+                            <button
+                                onClick={handleUpdate}
+                                disabled={updating}
+                                className="w-full md:w-auto bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-white font-black py-3 px-8 rounded-xl transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-3 active:scale-95 translate-y-0 hover:-translate-y-1"
+                            >
+                                {updating ? (
+                                    <>
+                                        <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                                        Updating...
+                                    </>
+                                ) : (
+                                    <>
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                                        Update to v{versionInfo.latestVersion}
+                                    </>
+                                )}
+                            </button>
+                        ) : (
+                            <div className="text-zinc-500 text-xs font-medium italic flex items-center gap-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-500"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                                You are running the latest version
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {versionInfo?.updateAvailable && versionInfo.changelog && (
+                    <div className="px-6 pb-6 pt-2 border-t border-zinc-800/50 bg-zinc-950/30">
+                        <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest block mb-2">Build Changelog</span>
+                        <div className="text-xs text-zinc-400 font-medium whitespace-pre-wrap max-h-32 overflow-y-auto leading-relaxed border border-zinc-800 p-3 rounded-lg bg-zinc-950/50 italic">
+                            {versionInfo.changelog}
+                        </div>
+                    </div>
+                )}
+
+                {versionInfo && !versionInfo.dockerSocketAvailable && (
+                    <div className="px-6 py-3 bg-amber-500/5 border-t border-amber-500/10 flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-500"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                        <span className="text-[10px] text-amber-500/80 font-bold">Mount /var/run/docker.sock to enable one-click updates. Only version checking is available.</span>
+                    </div>
+                )}
+            </div>
 
             {/* About / Support Section */}
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 flex flex-col md:flex-row items-center justify-between text-sm">
