@@ -119,10 +119,20 @@ export default function Downloads() {
         return () => clearInterval(interval);
     }, []);
 
-    const handleOpenMedia = (torrent: Torrent) => {
+    const cleanReleaseName = (name: string) => {
+        return name.toLowerCase()
+            .replace(/\b(1080p|720p|2160p|4k|uhd|bluray|web-dl|webrip|h\.264|h\.265|x264|x265|hevc|ddp5\.1|dts|aac|repack|proper|remux|multi|vostfr|subfrench|dual|amzn|nf|dsnp|hmax|web)\b/gi, '')
+            .replace(/[\[\(\]\)]/g, ' ')
+            .replace(/[\.\-]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    };
 
+    const handleOpenMedia = (torrent: Torrent) => {
+        const cleanedTitle = cleanReleaseName(torrent.name);
+        
         const item = {
-            title: torrent.name,
+            title: cleanedTitle,
             tmdbId: torrent.tmdbId,
             tvdbId: torrent.tvdbId,
             type: torrent.mediaType,
@@ -130,8 +140,8 @@ export default function Downloads() {
         };
         setSelectedMedia(item);
 
-        // Check library status
-        fetch(`/api/media/status?title=${encodeURIComponent(torrent.name)}&type=${torrent.mediaType}`)
+        // Check library status with cleaned title
+        fetch(`/api/media/status?title=${encodeURIComponent(cleanedTitle)}&type=${torrent.mediaType}`)
             .then(r => r.ok ? r.json() : null)
             .then(status => setLibStatus(status))
             .catch(() => setLibStatus(null));
@@ -439,7 +449,13 @@ export default function Downloads() {
                             >
                                 <div className="flex items-center gap-4 min-w-0 pr-8 md:pr-0">
                                     {/* Poster Icon/Image */}
-                                    <div className="w-10 h-14 rounded-md overflow-hidden bg-zinc-950 border border-zinc-800 flex-shrink-0 relative group-hover:border-emerald-500/30">
+                                    <div 
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleOpenMedia(torrent);
+                                        }}
+                                        className="w-10 h-14 rounded-md overflow-hidden bg-zinc-950 border border-zinc-800 flex-shrink-0 relative group-hover:border-emerald-500/30 cursor-pointer shadow-sm active:scale-95 transition-transform"
+                                    >
                                         {torrent.poster ? (
                                             <img 
                                                 src={torrent.poster.startsWith('http') ? `/api/proxy?url=${encodeURIComponent(torrent.poster)}` : torrent.poster} 

@@ -72,6 +72,7 @@ export default function Dashboard() {
     indexerTotals: Record<string, any>
   }>({ instanceTotals: {}, indexerTotals: {} });
   const [speedHistory, setSpeedHistory] = useState<SpeedHistory[]>([]);
+  const [allSettings, setAllSettings] = useState<Record<string, string>>({});
   const [tmdbApiKey, setTmdbApiKey] = useState("");
   const [selectedMedia, setSelectedMedia] = useState<any>(null);
   const [libStatus, setLibStatus] = useState<any>(null);
@@ -95,6 +96,7 @@ export default function Dashboard() {
   const [tooltipTimeout, setTooltipTimeout] = useState<NodeJS.Timeout | null>(null);
   const [isTestingSpeed, setIsTestingSpeed] = useState(false);
   const [speedtestResult, setSpeedtestResult] = useState<{ speedMbps: number, sizeMB: number, durationSec: number } | null>(null);
+  const [speedTestError, setSpeedTestError] = useState<string | null>(null);
   const [showSpeedtestModal, setShowSpeedtestModal] = useState(false);
   const [availableInterfaces, setAvailableInterfaces] = useState<string[]>(['total']);
   const [selectedInterface, setSelectedInterface] = useState('total');
@@ -132,6 +134,7 @@ export default function Dashboard() {
     fetch("/api/settings")
       .then(res => res.json())
       .then(data => {
+        setAllSettings(data);
         if (data.tmdbApiKey) setTmdbApiKey(data.tmdbApiKey);
         if (data.networkInterface) setSelectedInterface(data.networkInterface);
       });
@@ -269,15 +272,23 @@ export default function Dashboard() {
   const handleSpeedTest = async () => {
     setIsTestingSpeed(true);
     setSpeedtestResult(null);
+    setSpeedTestError(null);
     setShowSpeedtestModal(true);
     try {
       const res = await fetch('/api/stats/speedtest?action=test');
       if (res.ok) {
         const data = await res.json();
-        setSpeedtestResult(data);
+        if (data.success) {
+          setSpeedtestResult(data);
+        } else {
+          setSpeedTestError(data.error || "Failed to reach test server.");
+        }
+      } else {
+        setSpeedTestError("Server error during speedtest.");
       }
     } catch (e) {
       console.error("Speedtest failed", e);
+      setSpeedTestError("Network error during speedtest.");
     }
     setIsTestingSpeed(false);
   };
@@ -712,7 +723,30 @@ export default function Dashboard() {
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col min-h-[500px]">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-bold text-white">Network Stats</h2>
-              <div className="flex gap-2">
+              <div className="flex gap-2 items-center">
+                <div className="flex items-center bg-zinc-950 border border-zinc-800 rounded px-1.5 py-0.5 gap-1.5">
+                  <span className="text-[9px] font-black text-zinc-500 uppercase tracking-tighter">Interval</span>
+                  <input 
+                    type="number"
+                    min="5"
+                    step="5"
+                    className="bg-transparent text-[9px] font-bold text-white w-6 outline-none border-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    value={allSettings.network_speed_interval_sec || '30'}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setAllSettings(prev => ({ ...prev, network_speed_interval_sec: val }));
+                    }}
+                    onBlur={(e) => {
+                      const val = e.target.value;
+                      fetch('/api/settings', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ key: 'network_speed_interval_sec', value: val })
+                      });
+                    }}
+                  />
+                  <span className="text-[8px] font-bold text-zinc-600">s</span>
+                </div>
                 <button 
                   onClick={() => setShowSpeedtestModal(true)}
                   className="px-2 py-1 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 text-[9px] font-bold uppercase transition-all hover:bg-emerald-500/20"
@@ -1090,7 +1124,7 @@ export default function Dashboard() {
                          onClick={handleSpeedTest}
                          className="bg-emerald-500 text-black font-black uppercase tracking-tighter px-8 py-3 rounded-full hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/20 active:scale-95"
                        >
-                         GO
+                         {speedTestError ? 'RETRY' : 'GO'}
                        </button>
                      )}
                    </div>
@@ -1108,6 +1142,11 @@ export default function Dashboard() {
                     </div>
                   </div>
                 )}
+                {speedTestError && (
+                  <div className="mt-8 bg-red-500/10 text-red-500/80 px-4 py-2 rounded-xl text-xs font-bold border border-red-500/20 uppercase tracking-widest text-center">
+                    {speedTestError}
+                  </div>
+                )}
               </div>
 
               <div className="mt-8 flex justify-center">
@@ -1115,11 +1154,12 @@ export default function Dashboard() {
                   onClick={() => {
                     setShowSpeedtestModal(false);
                     setSpeedtestResult(null);
+                    setSpeedTestError(null);
                   }}
                   disabled={isTestingSpeed}
                   className="text-zinc-500 hover:text-white text-xs font-bold uppercase tracking-widest transition-colors py-2"
                 >
-                  {speedtestResult ? 'Close' : 'Cancel'}
+                  {speedtestResult || speedTestError ? 'Close' : 'Cancel'}
                 </button>
               </div>
             </div>

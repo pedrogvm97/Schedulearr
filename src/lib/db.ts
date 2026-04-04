@@ -377,4 +377,73 @@ export const pruneNetworkSpeedHistory = (daysToKeep: number = 7) => {
     stmt.run(daysToKeep);
 };
 
+export const getDatabaseStats = () => {
+    const stats = {
+        sizeBytes: 0,
+        tables: [] as { name: string, count: number }[]
+    };
+
+    try {
+        if (fs.existsSync(dbPath)) {
+            stats.sizeBytes = fs.statSync(dbPath).size;
+        }
+
+        const tables = ['network_speed', 'search_history', 'scheduler_tracking', 'torrent_activity'];
+        for (const table of tables) {
+            const row = db.prepare(`SELECT count(*) as count FROM ${table}`).get() as any;
+            stats.tables.push({ name: table, count: row.count });
+        }
+    } catch (e) {
+        console.error('Failed to get DB stats', e);
+    }
+
+    return stats;
+};
+
+export const executeHousekeeping = (daysToKeep?: number, sizeLimitMB?: number) => {
+    const results = { deletedRows: 0, initialSize: 0, finalSize: 0 };
+    
+    if (fs.existsSync(dbPath)) {
+        results.initialSize = fs.statSync(dbPath).size;
+    }
+
+    // 1. Age-based pruning
+    if (daysToKeep && daysToKeep > 0) {
+        const speedPrune = db.prepare("DELETE FROM network_speed WHERE timestamp < datetime('now', '-' || ? || ' days')");
+        const historyPrune = db.prepare("DELETE FROM search_history WHERE timestamp < datetime('now', '-' || ? || ' days')");
+        
+        results.deletedRows += speedPrune.run(daysToKeep).changes;
+        results.deletedRows += historyPrune.run(daysToKeep).changes;
+    }
+
+    // 2. Size-based pruning (if still over limit)
+    if (sizeLimitMB && sizeLimitMB > 0) {
+        let currentSize = fs.statSync(dbPath).size;
+        const limitBytes = sizeLimitMB * 1024 * 1024;
+        
+        if (currentSize > limitBytes) {
+            // Delete oldest 20% of network speed data until under limit or 5 iterations
+            for (let i = 0; i < 5; i++) {
+                const oldestRows = db.prepare("SELECT timestamp FROM network_speed ORDER BY timestamp ASC LIMIT (SELECT count(*) / 5 FROM network_speed)").all() as any[];
+                if (oldestRows.length > 0) {
+                    const lastTimestamp = oldestRows[oldestRows.length - 1].timestamp;
+                    results.deletedRows += db.prepare("DELETE FROM network_speed WHERE timestamp <= ?").run(lastTimestamp).changes;
+                }
+                
+                db.exec('VACUUM');
+                currentSize = fs.statSync(dbPath).size;
+                if (currentSize <= limitBytes) break;
+            }
+        }
+    } else {
+        db.exec('VACUUM');
+    }
+
+    if (fs.existsSync(dbPath)) {
+        results.finalSize = fs.statSync(dbPath).size;
+    }
+
+    return results;
+};
+
 export default db;

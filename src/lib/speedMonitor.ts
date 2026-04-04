@@ -132,34 +132,34 @@ export async function recordCurrentSpeed() {
     const plex = await getPlexThroughput();
     const total = getTotalThroughput();
 
-    // The legacy dl/up in logNetworkSpeed was mainly for qbit, but now we have refined ones.
-    // We'll pass qbit stats as the 'primary' for backward compatibility in the dashboard's main graph lines
-    // IF the user hasn't toggled them yet.
     logNetworkSpeed(qbitDl, qbitUp, qbitDl, qbitUp, plex.dl, plex.up, total.dl, total.up);
     
-    // Prune old data once an hour roughly
     if (Math.random() < 0.01) {
         pruneNetworkSpeedHistory(7); 
+    }
+
+    // Schedule next run based on current setting
+    if (monitorInterval) {
+        const intervalSec = parseInt(getSetting('network_speed_interval_sec') || '30');
+        const validInterval = (isNaN(intervalSec) || intervalSec < 5) ? 30 : intervalSec;
+        monitorInterval = setTimeout(recordCurrentSpeed, validInterval * 1000);
     }
 }
 
 export function startSpeedMonitor(intervalSeconds: number = 30) {
     if (monitorInterval) {
-        clearInterval(monitorInterval);
-        monitorInterval = null;
+        clearTimeout(monitorInterval as NodeJS.Timeout);
     }
 
-    console.log(`🚀 Network speed monitor started (Interval: ${intervalSeconds}s)`);
+    console.log(`🚀 Network speed monitor started (Initial Interval: ${intervalSeconds}s)`);
     
-    // Run immediately
-    recordCurrentSpeed();
-
-    monitorInterval = setInterval(recordCurrentSpeed, intervalSeconds * 1000);
+    // We use a dummy timeout ID to indicate it's running
+    monitorInterval = setTimeout(recordCurrentSpeed, 100);
 }
 
 export function stopSpeedMonitor() {
     if (monitorInterval) {
-        clearInterval(monitorInterval);
+        clearTimeout(monitorInterval as NodeJS.Timeout);
         monitorInterval = null;
     }
 }

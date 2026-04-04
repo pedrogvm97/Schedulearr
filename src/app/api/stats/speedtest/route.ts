@@ -13,6 +13,7 @@ export async function GET(request: Request) {
             const testUrl = 'https://cachefly.cachefly.net/10mb.test';
             const response = await axios.get(testUrl, {
                 responseType: 'arraybuffer',
+                timeout: 10000,
                 onDownloadProgress: (progressEvent) => {
                     // This won't work easily in Next.js Server Actions/Routes as we're proxying
                 }

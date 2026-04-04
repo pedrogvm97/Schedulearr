@@ -12,7 +12,9 @@ export default function Settings() {
     const [tmdbInput, setTmdbInput] = useState("");
     const [tmdbState, setTmdbState] = useState<'view' | 'edit' | 'confirm'>('view');
 
-    // Form state
+    // Housekeeping stats
+    const [dbStats, setDbStats] = useState<{ totalSizeBytes: number, tableStats: any[] } | null>(null);
+    const [isHousekeepingOpen, setIsHousekeepingOpen] = useState(false);
     const [editTargetId, setEditTargetId] = useState<string | null>(null);
     const [type, setType] = useState("radarr");
     const [name, setName] = useState("");
@@ -370,21 +372,7 @@ export default function Settings() {
                         <p className="text-[10px] text-zinc-500 mt-2">Enable this for better trending and discovery results on the discovery page.</p>
                     </div>
                     <div className="pt-4 border-t border-zinc-800 space-y-4">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="space-y-1">
-                                <label className="text-sm font-medium text-zinc-300">Network Speed Interval (seconds)</label>
-                                <input
-                                    type="number"
-                                    min="5"
-                                    max="3600"
-                                    placeholder="30"
-                                    defaultValue={getSettingValue('network_speed_interval_sec') || '30'}
-                                    onBlur={(e) => updateSetting('network_speed_interval_sec', e.target.value)}
-                                    className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                                />
-                                <p className="text-[10px] text-zinc-500 mt-1">How often to record download/upload speeds.</p>
-                            </div>
-                        </div>
+                    {/* Removed Network Speed Interval from here - moved to Dashboard Analytics card */}
                     </div>
                 </div>
             </div>
@@ -662,15 +650,155 @@ export default function Settings() {
                     </div>
                 )}
 
-                {versionInfo && !versionInfo.dockerSocketAvailable && (
-                    <div className="px-6 py-3 bg-amber-500/5 border-t border-amber-500/10 flex items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-500"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-                        <span className="text-[10px] text-amber-500/80 font-bold">Mount /var/run/docker.sock to enable one-click updates. Only version checking is available.</span>
+                {versionInfo && (
+                    <div className="px-6 py-4 bg-zinc-950/30 border-t border-zinc-800/50">
+                        <div className="flex items-center justify-between gap-4">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 rounded-lg bg-zinc-900 border border-zinc-800">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-500"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+                                </div>
+                                <div className="flex flex-col">
+                                    <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest">Environment</span>
+                                    <span className="text-xs font-bold text-zinc-200">Docker Container</span>
+                                </div>
+                            </div>
+
+                            {!versionInfo.dockerSocketAvailable && (
+                                <details className="group">
+                                    <summary className="list-none cursor-pointer flex items-center justify-end gap-2 text-amber-500 hover:text-amber-400 transition-colors">
+                                        <div className="flex flex-col items-end">
+                                            <span className="text-[10px] font-black uppercase tracking-widest leading-none">Status Check Failed</span>
+                                            <span className="text-[8px] font-bold opacity-60">Click for details</span>
+                                        </div>
+                                        <div className="w-8 h-8 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center group-open:rotate-180 transition-transform">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m11 17 2 2 5-5"></path><path d="M13 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"></path><path d="M13 3v4a2 2 0 0 0 2 2h4"></path></svg>
+                                        </div>
+                                    </summary>
+                                    <div className="mt-4 p-4 bg-zinc-950 border border-zinc-800 rounded-xl text-xs space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
+                                        <div className="flex items-start gap-3">
+                                            <div className="mt-0.5 p-1 rounded bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.5)]">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <p className="font-bold text-zinc-100">Docker Socket Not Available</p>
+                                                <p className="text-zinc-400 leading-relaxed">
+                                                    One-click updates require permission to talk to the Docker daemon. To enable this, ensure your container has <code className="bg-zinc-800 px-1 rounded text-emerald-400">/var/run/docker.sock</code> mounted as a volume.
+                                                </p>
+                                                <div className="bg-zinc-900 p-3 rounded-lg border border-zinc-800 font-mono text-[10px] text-zinc-500">
+                                                    services:<br/>
+                                                    &nbsp;&nbsp;schedulearr:<br/>
+                                                    &nbsp;&nbsp;&nbsp;&nbsp;volumes:<br/>
+                                                    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;- /var/run/docker.sock:/var/run/docker.sock
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </details>
+                            )}
+                        </div>
                     </div>
                 )}
             </div>
 
-            {/* About / Support Section */}
+            {/* Database Housekeeping section */}
+            <div className={`bg-zinc-900 border ${isHousekeepingOpen ? 'border-amber-500/30' : 'border-zinc-800'} rounded-2xl transition-all overflow-hidden shadow-lg`}>
+                <button
+                    onClick={() => {
+                        setIsHousekeepingOpen(!isHousekeepingOpen);
+                        if (!isHousekeepingOpen) {
+                            fetch('/api/stats/db-info').then(r => r.json()).then(setDbStats).catch(console.error);
+                        }
+                    }}
+                    className="w-full flex items-center justify-between p-5 hover:bg-zinc-800/50 transition-colors"
+                >
+                    <div className="flex items-center gap-4">
+                        <div className={`p-2.5 rounded-xl ${isHousekeepingOpen ? 'bg-amber-500/10 text-amber-400' : 'bg-zinc-800 text-zinc-500'}`}>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                        </div>
+                        <div className="text-left">
+                            <h2 className="text-base font-bold text-white tracking-tight">Database Housekeeping</h2>
+                            <p className="text-xs text-zinc-500 font-medium tracking-tight">Manage storage and data retention policies.</p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        {dbStats && (
+                            <div className="text-[10px] font-bold text-zinc-400 bg-zinc-800 px-2 py-1 rounded-md">
+                                {Math.round(dbStats.totalSizeBytes / (1024 * 1024))} MB
+                            </div>
+                        )}
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className={`text-zinc-500 transition-transform duration-300 ${isHousekeepingOpen ? 'rotate-180' : ''}`}
+                        >
+                            <path d="m6 9 6 6 6-6" />
+                        </svg>
+                    </div>
+                </button>
+
+                {isHousekeepingOpen && (
+                    <div className="p-6 pt-0 border-t border-zinc-800/50 animate-in fade-in slide-in-from-top-4 duration-300">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                            <div className="space-y-6">
+                                <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Retention (Days)</label>
+                                        <span className="text-[10px] text-zinc-600 font-bold uppercase">Manual Only</span>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="number"
+                                            min="7"
+                                            placeholder="30"
+                                            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2 text-sm text-white focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500/50 outline-none transition-all"
+                                            defaultValue={getSettingValue('db_retention_days') || '30'}
+                                            onBlur={(e) => updateSetting('db_retention_days', e.target.value)}
+                                        />
+                                        <button 
+                                            onClick={async () => {
+                                                const res = await fetch('/api/system/housekeeping/', {
+                                                    method: 'POST',
+                                                    headers: { 'Content-Type': 'application/json' },
+                                                    body: JSON.stringify({ maxDays: parseInt(getSettingValue('db_retention_days') || '30') })
+                                                });
+                                                if (res.ok) {
+                                                    toast.success("Cleanup complete!");
+                                                    fetch('/api/stats/db-info').then(r => r.json()).then(setDbStats);
+                                                }
+                                            }}
+                                            className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-amber-600/10 active:scale-95"
+                                        >
+                                            Cleanup
+                                        </button>
+                                    </div>
+                                    <p className="text-[10px] text-zinc-500 leading-relaxed italic">Deletes analytics history and search logs older than X days. Database will verify size after operation.</p>
+                                </div>
+                            </div>
+
+                            <div className="space-y-4">
+                                <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest block px-1">Growth Metrics</span>
+                                <div className="space-y-2 max-h-[180px] overflow-y-auto pr-2 custom-scrollbar">
+                                    {dbStats?.tableStats.map((table: any) => (
+                                        <div key={table.name} className="flex items-center justify-between p-3 bg-zinc-950/30 rounded-lg border border-zinc-800/50">
+                                            <span className="text-xs font-medium text-zinc-400 capitalize">{table.name.replace(/_/g, ' ')}</span>
+                                            <span className="text-xs font-bold text-zinc-200">{table.count.toLocaleString()} rows</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {/* Support section continues... */}
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 flex flex-col md:flex-row items-center justify-between text-sm">
                 <div className="flex flex-col md:flex-row items-center gap-4 mb-4 md:mb-0 text-center md:text-left">
                     <img

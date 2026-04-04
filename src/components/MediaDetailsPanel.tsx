@@ -37,9 +37,26 @@ export function MediaDetailsPanel({ item, tmdbApiKey, libStatus, onClose, onSele
     useEffect(() => {
         if (!tmdbApiKey) return;
 
-        // If we have a title but no ID, we need to search first
         const performSearch = async () => {
-            if (!item.tmdbId && !item.tvdbId && item.title) {
+            const effectiveTmdbId = tmdbId || null;
+
+            if (!effectiveTmdbId && item.tvdbId) {
+                setLoading(true);
+                try {
+                    const findRes = await fetch(`https://api.themoviedb.org/3/find/${item.tvdbId}?api_key=${tmdbApiKey}&external_source=tvdb_id`);
+                    if (findRes.ok) {
+                        const findData = await findRes.json();
+                        if (findData.tv_results && findData.tv_results.length > 0) {
+                            fetchFullDetails(findData.tv_results[0].id);
+                            return;
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error finding TMDB by tvdbId:', error);
+                }
+            }
+
+            if (!effectiveTmdbId && (!item.tvdbId || item.tvdbId === 0) && item.title) {
                 setLoading(true);
                 try {
                     const searchType = isSeries ? 'tv' : 'movie';
@@ -57,8 +74,8 @@ export function MediaDetailsPanel({ item, tmdbApiKey, libStatus, onClose, onSele
                     console.error('Error searching TMDB by title:', error);
                 }
                 setLoading(false);
-            } else if (tmdbId) {
-                fetchFullDetails(tmdbId);
+            } else if (effectiveTmdbId) {
+                fetchFullDetails(effectiveTmdbId);
             } else {
                 setLoading(false);
             }
@@ -326,6 +343,13 @@ export function MediaDetailsPanel({ item, tmdbApiKey, libStatus, onClose, onSele
 
                         <div className="space-y-4 max-w-3xl">
                             <h3 className="text-[12px] font-black text-zinc-500 uppercase tracking-[0.3em]">Overview</h3>
+                            {!loading && !details && (
+                                <div className="p-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl mb-4">
+                                    <p className="text-zinc-400 font-medium text-sm">
+                                        We couldn't automatically match this item with The Movie Database (TMDB). This usually happens with unconventional release names like "{item.title}" or when an online listing isn't available. Data may be limited.
+                                    </p>
+                                </div>
+                            )}
                             <p className="text-zinc-300 text-lg leading-relaxed font-medium transition-all">
                                 {details?.overview || item.overview || 'No overview available.'}
                             </p>
