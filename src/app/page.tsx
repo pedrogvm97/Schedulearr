@@ -149,9 +149,10 @@ export default function Dashboard() {
   const handleOpenMedia = (dl: RecentDownload) => {
     const item = {
       title: dl.title,
-      tmdbId: dl.tmdbId,
-      tvdbId: dl.tvdbId,
+      tmdbId: dl.tmdbId || null,
+      tvdbId: dl.tvdbId || null,
       type: dl.mediaType,
+      mediaType: dl.mediaType,
       remotePoster: dl.poster
     };
     setSelectedMedia(item);

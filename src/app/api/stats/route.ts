@@ -227,8 +227,8 @@ export async function GET(req: Request) {
                         indexer: (item as any).indexer || 'Unknown',
                         poster: getProxiedPoster(instance, item, libraryMap),
                         tmdbId: (item as any).movie?.tmdbId || (item as any).series?.tmdbId,
-                        tvdbId: (item as any).movie?.tmdbId || (item as any).series?.tvdbId,
-                        mediaType: (item as any).movie ? 'movie' : 'series'
+                        tvdbId: (item as any).movie?.tvdbId || (item as any).series?.tvdbId,
+                        mediaType: instance.type === 'radarr' ? 'movie' : 'series'
                     });
 
                     // Add to chart stats for "today"
@@ -353,7 +353,7 @@ export async function GET(req: Request) {
                                 poster: getProxiedPoster(instance, record, libraryMap),
                                 tmdbId: (record as any).movie?.tmdbId || (record as any).series?.tmdbId,
                                 tvdbId: (record as any).movie?.tvdbId || (record as any).series?.tvdbId,
-                                mediaType: (record as any).movie ? 'movie' : 'series'
+                                mediaType: instance.type === 'radarr' ? 'movie' : 'series'
                             });
                         }
                     }

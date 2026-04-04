@@ -31,8 +31,8 @@ export function MediaDetailsPanel({ item, tmdbApiKey, libStatus, onClose, onSele
     const [availableProfiles, setAvailableProfiles] = useState<any[]>([]);
     const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
 
-    const isSeries = item.type === 'series' || (item.tvdbId && !item.tmdbId) || !!item.seasons;
-    const tmdbId = item.tmdbId || (item.type === 'movie' ? item.id : !isSeries ? item.id : null);
+    const isSeries = item.type === 'series' || item.mediaType === 'series' || (item.tvdbId && !item.tmdbId) || !!item.seasons;
+    const tmdbId = item.tmdbId || (item.type === 'movie' || item.mediaType === 'movie' ? item.id : !isSeries ? item.id : null);
 
     useEffect(() => {
         if (!tmdbApiKey) return;
@@ -40,45 +40,53 @@ export function MediaDetailsPanel({ item, tmdbApiKey, libStatus, onClose, onSele
         const performSearch = async () => {
             const effectiveTmdbId = tmdbId || null;
 
-            if (!effectiveTmdbId && item.tvdbId) {
+            // Strategy 1: Direct TMDB ID lookup
+            if (effectiveTmdbId) {
+                fetchFullDetails(effectiveTmdbId);
+                return;
+            }
+
+            // Strategy 2: TVDB → TMDB cross-reference (best for Sonarr series)
+            if (item.tvdbId && item.tvdbId > 0) {
                 setLoading(true);
                 try {
                     const findRes = await fetch(`https://api.themoviedb.org/3/find/${item.tvdbId}?api_key=${tmdbApiKey}&external_source=tvdb_id`);
                     if (findRes.ok) {
                         const findData = await findRes.json();
-                        if (findData.tv_results && findData.tv_results.length > 0) {
-                            fetchFullDetails(findData.tv_results[0].id);
+                        const tvResult = findData.tv_results?.[0] || findData.movie_results?.[0];
+                        if (tvResult) {
+                            fetchFullDetails(tvResult.id);
                             return;
                         }
                     }
                 } catch (error) {
                     console.error('Error finding TMDB by tvdbId:', error);
                 }
+                // Fall through to title search
             }
 
-            if (!effectiveTmdbId && (!item.tvdbId || item.tvdbId === 0) && item.title) {
+            // Strategy 3: Title search on TMDB
+            if (item.title) {
                 setLoading(true);
                 try {
                     const searchType = isSeries ? 'tv' : 'movie';
-                    const searchRes = await fetch(`https://api.themoviedb.org/3/search/${searchType}?api_key=${tmdbApiKey}&query=${encodeURIComponent(item.title)}`);
+                    // Strip episode info (e.g. "Breaking Bad S01E05" → "Breaking Bad")
+                    const cleanTitle = item.title.replace(/\s+S\d{2}E\d{2}.*/i, '').trim();
+                    const searchRes = await fetch(`https://api.themoviedb.org/3/search/${searchType}?api_key=${tmdbApiKey}&query=${encodeURIComponent(cleanTitle)}`);
                     if (searchRes.ok) {
                         const searchData = await searchRes.json();
                         if (searchData.results && searchData.results.length > 0) {
-                            // Take the first match
-                            const match = searchData.results[0];
-                            fetchFullDetails(match.id);
+                            fetchFullDetails(searchData.results[0].id);
                             return;
                         }
                     }
                 } catch (error) {
                     console.error('Error searching TMDB by title:', error);
                 }
-                setLoading(false);
-            } else if (effectiveTmdbId) {
-                fetchFullDetails(effectiveTmdbId);
-            } else {
-                setLoading(false);
             }
+
+            // All strategies exhausted
+            setLoading(false);
         };
 
         const fetchFullDetails = async (id: number) => {
