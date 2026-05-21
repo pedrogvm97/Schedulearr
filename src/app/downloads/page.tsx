@@ -130,18 +130,24 @@ export default function Downloads() {
 
     const handleOpenMedia = (torrent: Torrent) => {
         const cleanedTitle = cleanReleaseName(torrent.name);
+        // Determine media type — prefer explicit field, fall back to tvdbId presence
+        const resolvedType: 'movie' | 'series' = torrent.mediaType || (torrent.tvdbId ? 'series' : 'movie');
         
         const item = {
-            title: cleanedTitle,
-            tmdbId: torrent.tmdbId,
-            tvdbId: torrent.tvdbId,
-            type: torrent.mediaType,
-            remotePoster: torrent.poster
+            // Use original name as title so TMDB search has best chance; cleaned is a fallback
+            title: torrent.name || cleanedTitle,
+            cleanTitle: cleanedTitle,
+            tmdbId: torrent.tmdbId || null,
+            tvdbId: torrent.tvdbId || null,
+            type: resolvedType,
+            mediaType: resolvedType,
+            remotePoster: torrent.poster || null
         };
         setSelectedMedia(item);
 
-        // Check library status with cleaned title
-        fetch(`/api/media/status?title=${encodeURIComponent(cleanedTitle)}&type=${torrent.mediaType}`)
+        // Check library status
+        const statusTitle = torrent.tmdbId || torrent.tvdbId ? torrent.name : cleanedTitle;
+        fetch(`/api/media/status?title=${encodeURIComponent(statusTitle)}&type=${resolvedType}`)
             .then(r => r.ok ? r.json() : null)
             .then(status => setLibStatus(status))
             .catch(() => setLibStatus(null));

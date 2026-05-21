@@ -10,6 +10,13 @@ body {
   color: white;
 }
 
+/* Mobile bottom tab bar: add padding so content isn't hidden underneath it */
+@media (max-width: 767px) {
+  main {
+    padding-bottom: calc(3.5rem + env(safe-area-inset-bottom, 0px));
+  }
+}
+
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
 }

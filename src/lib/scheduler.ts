@@ -89,6 +89,32 @@ export async function runBatchSearch(manualTrigger: boolean = false) {
         return defaultRes;
     }
 
+    // ── Disk Space Guard ─────────────────────────────────────────────────────
+    try {
+        const thresholdStr = getSetting('disk_pause_threshold');
+        const threshold = thresholdStr ? parseInt(thresholdStr) : 90;
+        if (!isNaN(threshold) && threshold > 0) {
+            // Internal fetch to our own disk API
+            const baseUrl = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+            const diskRes = await fetch(`${baseUrl}/api/system/disk`, { signal: AbortSignal.timeout(8000) }).catch(() => null);
+            if (diskRes?.ok) {
+                const diskData = await diskRes.json();
+                if (diskData.usedPercent >= threshold) {
+                    const reason = `Disk guard: ${diskData.usedPercent}% used ≥ ${threshold}% threshold. ${(diskData.freeBytes / 1e9).toFixed(1)} GB free. Skipping search batch.`;
+                    console.warn(`⚠️  [SCHEDULER] ${reason}`);
+                    logSearchHistory('disk_guard', [], [], reason);
+                    defaultRes.reason = reason;
+                    return defaultRes;
+                } else {
+                    console.log(`[DISK] ${diskData.usedPercent}% used (${(diskData.freeBytes / 1e9).toFixed(1)} GB free) — below ${threshold}% threshold, proceeding.`);
+                }
+            }
+        }
+    } catch (diskErr) {
+        console.warn('[SCHEDULER] Could not check disk usage, proceeding anyway:', diskErr);
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     const prowlarrs = getInstances('prowlarr');
     const { batchBehavior, maxAttempts, batchSize: configBatchSize } = config;
 

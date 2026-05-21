@@ -147,18 +147,20 @@ export default function Dashboard() {
   }, []);
 
   const handleOpenMedia = (dl: RecentDownload) => {
+    // Resolve type: mediaType may be undefined for older history records
+    const resolvedType: 'movie' | 'series' = dl.mediaType || (dl.tvdbId ? 'series' : 'movie');
     const item = {
       title: dl.title,
       tmdbId: dl.tmdbId || null,
       tvdbId: dl.tvdbId || null,
-      type: dl.mediaType,
-      mediaType: dl.mediaType,
-      remotePoster: dl.poster
+      type: resolvedType,
+      mediaType: resolvedType,
+      remotePoster: dl.poster || null
     };
     setSelectedMedia(item);
     
     // Check library status
-    fetch(`/api/media/status?title=${encodeURIComponent(dl.title)}&type=${dl.mediaType}`)
+    fetch(`/api/media/status?title=${encodeURIComponent(dl.title)}&type=${resolvedType}`)
       .then(r => r.ok ? r.json() : null)
       .then(status => setLibStatus(status))
       .catch(() => setLibStatus(null));

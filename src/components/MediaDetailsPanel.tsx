@@ -71,13 +71,18 @@ export function MediaDetailsPanel({ item, tmdbApiKey, libStatus, onClose, onSele
                 try {
                     const searchType = isSeries ? 'tv' : 'movie';
                     // Strip episode info (e.g. "Breaking Bad S01E05" → "Breaking Bad")
-                    const cleanTitle = item.title.replace(/\s+S\d{2}E\d{2}.*/i, '').trim();
-                    const searchRes = await fetch(`https://api.themoviedb.org/3/search/${searchType}?api_key=${tmdbApiKey}&query=${encodeURIComponent(cleanTitle)}`);
-                    if (searchRes.ok) {
-                        const searchData = await searchRes.json();
-                        if (searchData.results && searchData.results.length > 0) {
-                            fetchFullDetails(searchData.results[0].id);
-                            return;
+                    // Also handle raw torrent names like "Movie.Title.2024.2160p..."
+                    const cleanTitle = item.cleanTitle || item.title.replace(/\s+S\d{2}E\d{2}.*/i, '').trim();
+                    const titlesToTry = Array.from(new Set([cleanTitle, item.title.replace(/\s+S\d{2}E\d{2}.*/i, '').trim()]));
+                    
+                    for (const titleAttempt of titlesToTry) {
+                        const searchRes = await fetch(`https://api.themoviedb.org/3/search/${searchType}?api_key=${tmdbApiKey}&query=${encodeURIComponent(titleAttempt)}`);
+                        if (searchRes.ok) {
+                            const searchData = await searchRes.json();
+                            if (searchData.results && searchData.results.length > 0) {
+                                fetchFullDetails(searchData.results[0].id);
+                                return;
+                            }
                         }
                     }
                 } catch (error) {
@@ -366,7 +371,7 @@ export function MediaDetailsPanel({ item, tmdbApiKey, libStatus, onClose, onSele
                         {/* Cast */}
                         <div className="space-y-6">
                             <h3 className="text-[12px] font-black text-zinc-500 uppercase tracking-[0.3em]">Top Cast</h3>
-                            <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+                            <div className="grid grid-cols-3 sm:grid-cols-5 gap-3 sm:gap-4">
                                 {credits.length > 0 ? (
                                     credits.map((person: any) => (
                                         <div

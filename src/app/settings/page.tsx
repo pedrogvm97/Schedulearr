@@ -45,6 +45,12 @@ export default function Settings() {
     const [checkingUpdate, setCheckingUpdate] = useState(false);
     const [updating, setUpdating] = useState(false);
 
+    // Disk Usage
+    const [diskInfo, setDiskInfo] = useState<{ totalBytes: number; freeBytes: number; usedBytes: number; usedPercent: number; byInstance: any[] } | null>(null);
+    const [isDiskOpen, setIsDiskOpen] = useState(false);
+    const [diskPauseEnabled, setDiskPauseEnabled] = useState(false);
+    const [diskPauseThreshold, setDiskPauseThreshold] = useState(90);
+
     const fetchInstances = async () => {
         setLoading(true);
         try {
@@ -70,7 +76,15 @@ export default function Settings() {
     useEffect(() => {
         fetchInstances();
         fetchVersionInfo();
+        // Fetch disk info on mount
+        fetch('/api/system/disk').then(r => r.ok ? r.json() : null).then(d => { if (d) setDiskInfo(d); }).catch(() => {});
     }, []);
+
+    // Sync disk settings from allSettings when loaded
+    useEffect(() => {
+        if (allSettings.disk_pause_enabled) setDiskPauseEnabled(allSettings.disk_pause_enabled === 'true');
+        if (allSettings.disk_pause_threshold) setDiskPauseThreshold(parseInt(allSettings.disk_pause_threshold) || 90);
+    }, [allSettings]);
 
     const fetchVersionInfo = async () => {
         try {
@@ -695,6 +709,156 @@ export default function Settings() {
                                     </div>
                                 </details>
                             )}
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {/* Storage Guard */}
+            <div className={`bg-zinc-900 border ${isDiskOpen ? 'border-emerald-500/30' : 'border-zinc-800'} rounded-2xl transition-all overflow-hidden shadow-lg`}>
+                <button
+                    onClick={() => {
+                        setIsDiskOpen(!isDiskOpen);
+                        if (!isDiskOpen) {
+                            fetch('/api/system/disk').then(r => r.ok ? r.json() : null).then(d => { if (d) setDiskInfo(d); }).catch(() => {});
+                        }
+                    }}
+                    className="w-full flex items-center justify-between p-5 hover:bg-zinc-800/50 transition-colors"
+                >
+                    <div className="flex items-center gap-4">
+                        <div className={`p-2.5 rounded-xl ${isDiskOpen ? 'bg-emerald-500/10 text-emerald-400' : 'bg-zinc-800 text-zinc-500'}`}>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
+                        </div>
+                        <div className="text-left">
+                            <h2 className="text-base font-bold text-white tracking-tight">Storage Guard</h2>
+                            <p className="text-xs text-zinc-500 font-medium">Monitor disk usage and auto-pause searches when drives are nearly full.</p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        {diskInfo && (
+                            <div className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                                diskInfo.usedPercent >= diskPauseThreshold && diskPauseEnabled
+                                    ? 'bg-red-500/20 text-red-400'
+                                    : diskInfo.usedPercent >= 80
+                                    ? 'bg-amber-500/20 text-amber-400'
+                                    : 'bg-emerald-500/20 text-emerald-400'
+                            }`}>
+                                {diskInfo.usedPercent}% used
+                            </div>
+                        )}
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`text-zinc-500 transition-transform duration-300 ${isDiskOpen ? 'rotate-180' : ''}`}><path d="m6 9 6 6 6-6" /></svg>
+                    </div>
+                </button>
+
+                {isDiskOpen && (
+                    <div className="p-6 pt-0 border-t border-zinc-800/50 animate-in fade-in slide-in-from-top-4 duration-300 space-y-6 mt-0 pt-6">
+                        {/* Disk Usage Bar */}
+                        {diskInfo ? (
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Total Disk Usage</span>
+                                    <span className="text-xs font-bold text-zinc-200">
+                                        {(diskInfo.usedBytes / 1e12).toFixed(1)} TB used / {(diskInfo.totalBytes / 1e12).toFixed(1)} TB total
+                                    </span>
+                                </div>
+                                <div className="relative h-4 bg-zinc-950 rounded-full overflow-hidden border border-zinc-800">
+                                    <div
+                                        className={`h-full rounded-full transition-all duration-1000 ${
+                                            diskInfo.usedPercent >= 90 ? 'bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.4)]'
+                                            : diskInfo.usedPercent >= 75 ? 'bg-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.3)]'
+                                            : 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.3)]'
+                                        }`}
+                                        style={{ width: `${diskInfo.usedPercent}%` }}
+                                    />
+                                    {diskPauseEnabled && (
+                                        <div
+                                            className="absolute top-0 bottom-0 w-0.5 bg-white/50 border-r border-dashed border-white/30"
+                                            style={{ left: `${diskPauseThreshold}%` }}
+                                            title={`Pause threshold: ${diskPauseThreshold}%`}
+                                        />
+                                    )}
+                                </div>
+                                <div className="flex justify-between text-[10px] text-zinc-500 font-medium">
+                                    <span>{(diskInfo.freeBytes / 1e12).toFixed(1)} TB free</span>
+                                    <span className={diskInfo.usedPercent >= diskPauseThreshold && diskPauseEnabled ? 'text-red-400 font-bold' : ''}>{diskInfo.usedPercent}% used</span>
+                                </div>
+
+                                {/* Per-instance breakdown */}
+                                {diskInfo.byInstance.length > 0 && (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                                        {diskInfo.byInstance.map((inst: any) => {
+                                            const instTotal = inst.folders.reduce((s: number, f: any) => s + f.totalBytes, 0);
+                                            const instFree = inst.folders.reduce((s: number, f: any) => s + f.freeBytes, 0);
+                                            const instUsed = instTotal - instFree;
+                                            const instPct = instTotal > 0 ? Math.round((instUsed / instTotal) * 100) : 0;
+                                            return (
+                                                <div key={inst.id} className="p-3 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-1.5">
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider truncate">{inst.name}</span>
+                                                        <span className={`text-[10px] font-bold ${ instPct >= 90 ? 'text-red-400' : instPct >= 75 ? 'text-amber-400' : 'text-emerald-400'}`}>{instPct}%</span>
+                                                    </div>
+                                                    <div className="h-1.5 bg-zinc-900 rounded-full overflow-hidden">
+                                                        <div className={`h-full rounded-full ${instPct >= 90 ? 'bg-red-500' : instPct >= 75 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${instPct}%` }} />
+                                                    </div>
+                                                    <p className="text-[9px] text-zinc-600">{(instFree / 1e9).toFixed(0)} GB free of {(instTotal / 1e9).toFixed(0)} GB</p>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="flex items-center gap-3 text-zinc-500 text-sm">
+                                <div className="w-4 h-4 border-2 border-zinc-700 border-t-zinc-400 rounded-full animate-spin" />
+                                Loading disk info...
+                            </div>
+                        )}
+
+                        {/* Pause Threshold Control */}
+                        <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-4">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <div className="text-sm font-bold text-zinc-200">Pause Scheduler When Full</div>
+                                    <p className="text-[10px] text-zinc-500 font-medium mt-0.5">Automatically skip search batches when disk usage exceeds the threshold.</p>
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        const next = !diskPauseEnabled;
+                                        setDiskPauseEnabled(next);
+                                        updateSetting('disk_pause_enabled', next);
+                                    }}
+                                    className={`w-10 h-5 rounded-full transition-all relative flex-shrink-0 ${ diskPauseEnabled ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-zinc-700'}`}
+                                >
+                                    <div className={`w-3 h-3 rounded-full bg-white absolute top-1 transition-all ${diskPauseEnabled ? 'left-6' : 'left-1'}`} />
+                                </button>
+                            </div>
+
+                            <div className={`space-y-2 transition-opacity ${diskPauseEnabled ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
+                                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Pause Threshold (%)</label>
+                                <div className="flex items-center gap-3">
+                                    <input
+                                        type="range"
+                                        min="50"
+                                        max="99"
+                                        value={diskPauseThreshold}
+                                        onChange={e => {
+                                            const val = parseInt(e.target.value);
+                                            setDiskPauseThreshold(val);
+                                            updateSetting('disk_pause_threshold', val);
+                                        }}
+                                        className="flex-1 accent-emerald-500"
+                                        disabled={!diskPauseEnabled}
+                                    />
+                                    <span className="text-lg font-black text-emerald-400 w-12 text-right">{diskPauseThreshold}%</span>
+                                </div>
+                                <p className="text-[10px] text-zinc-500">Scheduler will skip batches when disk usage is at or above this percentage. Default: 90%.</p>
+                                {diskInfo && diskPauseEnabled && diskInfo.usedPercent >= diskPauseThreshold && (
+                                    <div className="flex items-center gap-2 p-2 bg-red-500/10 border border-red-500/20 rounded-lg">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-red-400 flex-shrink-0"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                                        <span className="text-xs font-bold text-red-400">Guard is ACTIVE — Scheduler currently paused ({diskInfo.usedPercent}% ≥ {diskPauseThreshold}%)</span>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
                 )}

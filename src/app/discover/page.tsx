@@ -197,11 +197,12 @@ function MyMediaGridCard({ item, isSeries, expandAll, excludeUnmonitored, onDele
     }, [expandAll]);
 
     const poster = item.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || item.remotePoster;
-    const sizeMb = item.statistics?.sizeOnDisk || (item.movieFile?.size || 0);
+    const sizeBytes = item.statistics?.sizeOnDisk || (item.movieFile?.size || 0);
+    const sizeStr = sizeBytes > 1e12 ? `${(sizeBytes / 1e12).toFixed(1)} TB` : sizeBytes > 1e9 ? `${(sizeBytes / 1e9).toFixed(1)} GB` : sizeBytes > 1e6 ? `${(sizeBytes / 1e6).toFixed(0)} MB` : null;
     const totalEps = item.statistics?.totalEpisodeCount || 0;
     const haveEps = item.statistics?.episodeFileCount || 0;
     const denominator = excludeUnmonitored ? (item.statistics?.episodeCount || totalEps) : totalEps;
-    const pct = isSeries ? (denominator > 0 ? Math.min(100, Math.round((haveEps / denominator) * 100)) : 0) : ((item.hasFile || sizeMb > 0) ? 100 : 0);
+    const pct = isSeries ? (denominator > 0 ? Math.min(100, Math.round((haveEps / denominator) * 100)) : 0) : ((item.hasFile || sizeBytes > 0) ? 100 : 0);
 
     return (
         <div className="group flex flex-col bg-[#090909] border border-zinc-900 hover:border-zinc-800 rounded-[2.5rem] overflow-hidden transition-all duration-300 shadow-xl hover:-translate-y-1">
@@ -218,14 +219,13 @@ function MyMediaGridCard({ item, isSeries, expandAll, excludeUnmonitored, onDele
                 <div className="absolute inset-0 bg-gradient-to-t from-[#090909] via-transparent to-transparent opacity-90" />
                 <div className="absolute top-4 left-4 right-4 flex justify-between items-start opacity-0 group-hover:opacity-100 transition-all duration-300 translate-y-[-10px] group-hover:translate-y-0 z-20">
                     <div className="flex gap-1.5 ml-auto">
-                        {!isSeries && (
-                            <button
-                                onClick={(e) => { e.stopPropagation(); onInteractiveSearch?.({ type: 'movie', id: item.id, instanceId: item.instanceId, title: item.title, poster }); }}
-                                className="p-2.5 rounded-xl bg-black/60 backdrop-blur-xl border border-white/10 text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all"
-                            >
-                                <Search size={14} />
-                            </button>
-                        )}
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onInteractiveSearch?.({ type: isSeries ? 'series' : 'movie', id: item.id, instanceId: item.instanceId, title: item.title, poster }); }}
+                            className="p-2.5 rounded-xl bg-black/60 backdrop-blur-xl border border-white/10 text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all"
+                            title="Interactive Search"
+                        >
+                            <Search size={14} />
+                        </button>
                         <button onClick={(e) => { e.stopPropagation(); onTransfer(); }} className="p-2.5 rounded-xl bg-black/60 backdrop-blur-xl border border-white/10 text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all">
                             <MoveHorizontal size={14} />
                         </button>
@@ -241,6 +241,7 @@ function MyMediaGridCard({ item, isSeries, expandAll, excludeUnmonitored, onDele
                         {item.year && <span>{item.year}</span>}
                         <span className="opacity-40">•</span>
                         <span className={pct === 100 ? 'text-emerald-400' : 'text-amber-400'}>{pct}%</span>
+                        {sizeStr && <><span className="opacity-30">•</span><span className="text-zinc-600">{sizeStr}</span></>}
                         <span className="opacity-30">•</span>
                         <span className="truncate text-zinc-500">{item.instanceName}</span>
                     </div>
@@ -602,6 +603,7 @@ export default function DiscoverPage() {
     // Delete Modal State
     const [deleteModalOpen, setDeleteModalOpen] = useState(false);
     const [itemToDelete, setItemToDelete] = useState<any>(null);
+    const [itemToDeleteType, setItemToDeleteType] = useState<'movie' | 'series'>('movie');
     const [isDeleting, setIsDeleting] = useState(false);
 
     // Interactive Search State
@@ -775,7 +777,10 @@ export default function DiscoverPage() {
     };
 
     const handleDelete = useCallback(async (item: any) => {
+        // Derive item type from item itself, not from page-level mediaType filter
+        const isSeries = !!(item.tvdbId || item.seasons);
         setItemToDelete(item);
+        setItemToDeleteType(isSeries ? 'series' : 'movie');
         setDeleteModalOpen(true);
     }, []);
 
@@ -783,7 +788,8 @@ export default function DiscoverPage() {
         if (!itemToDelete) return;
         setIsDeleting(true);
         try {
-            const endpoint = mediaType === 'movie' ? '/api/radarr/delete' : '/api/sonarr/delete';
+            // Use item-level type — NOT page mediaType which may be set to a different filter
+            const endpoint = itemToDeleteType === 'movie' ? '/api/radarr/delete' : '/api/sonarr/delete';
             const params = new URLSearchParams({
                 instanceId: itemToDelete.instanceId,
                 deleteFiles: options.deleteFiles.toString()
@@ -793,7 +799,7 @@ export default function DiscoverPage() {
                 params.append('deleteFilesOnly', 'true');
             }
 
-            if (mediaType === 'movie') params.append('movieId', itemToDelete.id);
+            if (itemToDeleteType === 'movie') params.append('movieId', itemToDelete.id);
             else params.append('seriesId', itemToDelete.id);
 
             const res = await fetch(`${endpoint}?${params.toString()}`, { method: 'DELETE' });
@@ -1121,24 +1127,23 @@ export default function DiscoverPage() {
     const pageItems = pageMode === 'discover' ? displayItems : displayItems.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
 
     return (
-        <div className="p-6 lg:p-10 space-y-8 max-w-[1800px] mx-auto">
-            {/* Toaster removed to prevent duplication */}
-
+        <div className="px-4 py-6 lg:p-10 space-y-6 max-w-[1800px] mx-auto">
             {/* Header */}
             <div className="flex flex-col gap-2">
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 w-fit">
                     <Sparkles size={12} className="text-emerald-500" />
                     <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Media</span>
                 </div>
-                <h1 className="text-4xl font-black text-white tracking-tight">Media Browser</h1>
+                <h1 className="text-2xl sm:text-4xl font-black text-white tracking-tight">Media Browser</h1>
             </div>
 
-            {/* Top Control Bar */}
-            <div className="flex flex-wrap items-center gap-3">
-                <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/50">
-                    <button onClick={() => setPageMode('discover')} className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black rounded-xl transition-all ${pageMode === 'discover' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'}`}><Sparkles size={14} /> Discover</button>
-                    <button onClick={() => setPageMode('mylibrary')} className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black rounded-xl transition-all ${pageMode === 'mylibrary' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'}`}><HardDrive size={14} /> My Library</button>
-                    <button onClick={() => setPageMode('queue')} className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black rounded-xl transition-all ${pageMode === 'queue' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'}`}><ListOrdered size={14} /> Search Queue</button>
+            {/* Top Control Bar — wraps gracefully on mobile */}
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                {/* Mode selector — full width on tiny screens */}
+                <div className="flex bg-zinc-950 p-1 sm:p-1.5 rounded-2xl border border-zinc-800/50 w-full sm:w-auto">
+                    <button onClick={() => setPageMode('discover')} className={`flex items-center gap-1.5 px-3 sm:px-5 py-2 sm:py-2.5 text-xs font-black rounded-xl transition-all flex-1 sm:flex-none justify-center ${pageMode === 'discover' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'}`}><Sparkles size={14} /> <span className="hidden xs:inline">Discover</span></button>
+                    <button onClick={() => setPageMode('mylibrary')} className={`flex items-center gap-1.5 px-3 sm:px-5 py-2 sm:py-2.5 text-xs font-black rounded-xl transition-all flex-1 sm:flex-none justify-center ${pageMode === 'mylibrary' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'}`}><HardDrive size={14} /> <span className="hidden xs:inline">My Library</span></button>
+                    <button onClick={() => setPageMode('queue')} className={`flex items-center gap-1.5 px-3 sm:px-5 py-2 sm:py-2.5 text-xs font-black rounded-xl transition-all flex-1 sm:flex-none justify-center ${pageMode === 'queue' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-500 hover:text-zinc-300'}`}><ListOrdered size={14} /> <span className="hidden xs:inline">Queue</span></button>
                 </div>
 
                 {pageMode !== 'queue' && (
@@ -1369,7 +1374,7 @@ export default function DiscoverPage() {
                             </div>
                         ) : pageItems.length > 0 ? (
                             <>
-                                <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5' : 'space-y-3'}>
+                                <div className={viewMode === 'grid' ? 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-5' : 'space-y-3'}>
                                     {pageItems.map((item, idx) => {
                                         if (pageMode === 'mylibrary') return <MyMediaCard
                                             key={`${item.instanceId}-${item.id}-${idx}`}
