@@ -66,6 +66,63 @@ export default function Settings() {
         toast.success("Copied to clipboard!");
     };
 
+    const getFixSocketCommand = () => {
+        const port = selfInfo?.ports?.[0]?.host || 3010;
+        const dataPath = selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data';
+        const xml = `<?xml version="1.0"?>
+<Container version="2">
+  <Name>Schedulearr</Name>
+  <Repository>ghcr.io/pedrogvm97/schedulearr:latest</Repository>
+  <Registry>https://ghcr.io/</Registry>
+  <Network>bridge</Network>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/pedrogvm97/Schedulearr/issues</Support>
+  <Project>https://github.com/pedrogvm97/Schedulearr</Project>
+  <Overview>Schedulearr - intelligent scheduler for Radarr, Sonarr and Prowlarr.</Overview>
+  <Category>MediaApp:Video Other:</Category>
+  <WebUI>http://[IP]:[PORT:3010]</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/pedrogvm97/schedulearr/main/unraid-template.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/pedrogvm97/Schedulearr/main/public/icon.png</Icon>
+  <ExtraParams>--restart unless-stopped</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled></DateInstalled>
+  <DonateText/>
+  <DonateLink/>
+  <Description>Schedulearr - intelligent scheduler for Radarr, Sonarr and Prowlarr.</Description>
+  <Networking>
+    <Mode>bridge</Mode>
+    <Publish>
+      <Port>
+        <HostPort>${port}</HostPort>
+        <ContainerPort>3010</ContainerPort>
+        <Protocol>tcp</Protocol>
+      </Port>
+    </Publish>
+  </Networking>
+  <Data>
+    <Volume>
+      <HostDir>${dataPath}</HostDir>
+      <ContainerDir>/app/data</ContainerDir>
+      <Mode>rw</Mode>
+    </Volume>
+    <Volume>
+      <HostDir>/var/run/docker.sock</HostDir>
+      <ContainerDir>/var/run/docker.sock</ContainerDir>
+      <Mode>rw</Mode>
+    </Volume>
+  </Data>
+  <Environment/>
+  <Labels/>
+  <Config Name="WebUI Port" Target="3010" Default="3010" Mode="tcp" Description="Web interface port" Type="Port" Display="always" Required="true" Mask="false">${port}</Config>
+  <Config Name="AppData" Target="/app/data" Default="/mnt/user/appdata/Schedulearr/data" Mode="rw" Description="Path to store SQLite database" Type="Path" Display="always" Required="true" Mask="false">${dataPath}</Config>
+  <Config Name="Docker Socket" Target="/var/run/docker.sock" Default="/var/run/docker.sock" Mode="rw" Description="Docker socket for container management" Type="Path" Display="always" Required="true" Mask="false">/var/run/docker.sock</Config>
+</Container>`;
+        const b64 = btoa(xml);
+        return `docker stop Schedulearr; docker rm Schedulearr; echo "${b64}" | base64 -d > /boot/config/plugins/dockerMan/templates-user/my-Schedulearr.xml; docker run -d --name=Schedulearr -p ${port}:3010 -v /var/run/docker.sock:/var/run/docker.sock -v ${dataPath}:/app/data --restart unless-stopped ghcr.io/pedrogvm97/schedulearr:latest`;
+    };
+
     // Disk Usage
     const [diskInfo, setDiskInfo] = useState<{ totalBytes: number; freeBytes: number; usedBytes: number; usedPercent: number; byInstance: any[] } | null>(null);
     const [isDiskOpen, setIsDiskOpen] = useState(false);
@@ -75,6 +132,7 @@ export default function Settings() {
     const [diskSmartCleanMode, setDiskSmartCleanMode] = useState('largest');
     const [diskSmartCleanImmunityEnabled, setDiskSmartCleanImmunityEnabled] = useState(false);
     const [diskSmartCleanImmunityDays, setDiskSmartCleanImmunityDays] = useState(7);
+    const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(false);
 
     const fetchInstances = async () => {
         setLoading(true);
@@ -114,6 +172,7 @@ export default function Settings() {
         if (allSettings.qbit_smart_clean_mode) setDiskSmartCleanMode(allSettings.qbit_smart_clean_mode);
         if (allSettings.qbit_smart_clean_immunity_enabled) setDiskSmartCleanImmunityEnabled(allSettings.qbit_smart_clean_immunity_enabled === 'true');
         if (allSettings.qbit_smart_clean_immunity_days) setDiskSmartCleanImmunityDays(parseInt(allSettings.qbit_smart_clean_immunity_days) || 7);
+        if (allSettings.auto_update_enabled !== undefined) setAutoUpdateEnabled(allSettings.auto_update_enabled === 'true');
     }, [allSettings]);
 
     const fetchSelfInfo = async () => {
@@ -762,6 +821,32 @@ export default function Settings() {
                             </div>
                         </div>
 
+                        {/* Auto-Update Toggle */}
+                        <div className="px-6 pb-5 flex items-center justify-between gap-4 border-t border-zinc-800/50 pt-5">
+                            <div className="space-y-0.5">
+                                <p className="text-sm font-bold text-white">🤖 Auto-Update</p>
+                                <p className="text-xs text-zinc-500 leading-relaxed">Automatically pull &amp; apply new versions every 6 hours — no clicking needed. Requires the Docker socket to be mapped.</p>
+                            </div>
+                            <button
+                                onClick={async () => {
+                                    const newVal = !autoUpdateEnabled;
+                                    setAutoUpdateEnabled(newVal);
+                                    await updateSetting('auto_update_enabled', String(newVal));
+                                    toast.success(newVal ? '🤖 Auto-Update enabled!' : 'Auto-Update disabled');
+                                }}
+                                className={`relative inline-flex h-7 w-14 shrink-0 cursor-pointer items-center rounded-full border-2 transition-all duration-300 focus:outline-none ${
+                                    autoUpdateEnabled
+                                        ? 'bg-emerald-500 border-emerald-500 shadow-lg shadow-emerald-500/30'
+                                        : 'bg-zinc-700 border-zinc-600'
+                                }`}
+                                title={autoUpdateEnabled ? 'Disable Auto-Update' : 'Enable Auto-Update'}
+                            >
+                                <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-300 ${
+                                    autoUpdateEnabled ? 'translate-x-7' : 'translate-x-0.5'
+                                }`} />
+                            </button>
+                        </div>
+
                         {/* SSE Update Terminal Panel */}
                         {updateLogs.length > 0 && (
                             <div className="px-6 pb-6 animate-in slide-in-from-bottom-2 duration-300">
@@ -1404,10 +1489,10 @@ export default function Settings() {
                                     <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Copy this exact command:</span>
                                 </div>
                                 <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 font-mono text-[11px] text-amber-400 relative group overflow-hidden break-all pr-14 leading-relaxed">
-                                    docker stop Schedulearr; docker rm Schedulearr; docker pull ghcr.io/pedrogvm97/schedulearr:latest && docker run -d --name=Schedulearr -p {selfInfo?.ports?.[0]?.host || 3010}:3010 -v /var/run/docker.sock:/var/run/docker.sock -v {selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'}:/app/data --restart unless-stopped ghcr.io/pedrogvm97/schedulearr:latest
+                                    <span className="text-zinc-500">docker stop Schedulearr; docker rm Schedulearr;</span> <span className="text-amber-300">echo &quot;[XML]&quot; | base64 -d &gt; /boot/config/plugins/dockerMan/templates-user/my-Schedulearr.xml;</span> docker run -d --name=Schedulearr -p {selfInfo?.ports?.[0]?.host || 3010}:3010 ...
                                     <button
                                         onClick={() => {
-                                            copyToClipboard(`docker stop Schedulearr; docker rm Schedulearr; docker pull ghcr.io/pedrogvm97/schedulearr:latest && docker run -d --name=Schedulearr -p ${selfInfo?.ports?.[0]?.host || 3010}:3010 -v /var/run/docker.sock:/var/run/docker.sock -v ${selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'}:/app/data --restart unless-stopped ghcr.io/pedrogvm97/schedulearr:latest`);
+                                            copyToClipboard(getFixSocketCommand());
                                             toast.success('Command copied to clipboard!');
                                         }}
                                         className="absolute right-3 top-1/2 -translate-y-1/2 p-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded-lg transition-colors border border-zinc-800 hover:border-zinc-700 shadow-lg"
@@ -1423,7 +1508,7 @@ export default function Settings() {
                             <button
                                 className="flex-1 py-3 px-4 bg-amber-500 hover:bg-amber-600 text-black font-bold rounded-xl transition-all shadow-lg shadow-amber-500/10 hover:shadow-amber-500/20 text-xs uppercase tracking-wider"
                                 onClick={() => {
-                                    copyToClipboard(`docker stop Schedulearr; docker rm Schedulearr; docker pull ghcr.io/pedrogvm97/schedulearr:latest && docker run -d --name=Schedulearr -p ${selfInfo?.ports?.[0]?.host || 3010}:3010 -v /var/run/docker.sock:/var/run/docker.sock -v ${selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'}:/app/data --restart unless-stopped ghcr.io/pedrogvm97/schedulearr:latest`);
+                                    copyToClipboard(getFixSocketCommand());
                                     toast.success('Command copied!');
                                 }}
                             >

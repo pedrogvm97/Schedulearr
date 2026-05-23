@@ -2,10 +2,14 @@ import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
+import { initAutoUpdater } from '@/lib/autoUpdater';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
+  // Ensure the auto-updater background singleton is running
+  initAutoUpdater();
+
   try {
     // 1. Get current version from package.json
     const packageJsonPath = path.join(process.cwd(), 'package.json');
