@@ -16,6 +16,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { SortableItem } from '@/components/SortableItem';
 import { Search, Trash2, RefreshCw, Film, Tv } from 'lucide-react';
+import { MediaDetailsPanel } from '@/components/MediaDetailsPanel';
 
 // ── Types ─────────────────────────────────────────────
 interface SchedulerConfig {
@@ -115,6 +116,9 @@ export function SchedulerQueuePanel() {
     const [interactiveReleases, setInteractiveReleases] = useState<Release[]>([]);
     const [loadingReleases, setLoadingReleases] = useState(false);
     const [triggeringReleaseGuid, setTriggeringReleaseGuid] = useState<string | null>(null);
+    const [selectedMedia, setSelectedMedia] = useState<any>(null);
+    const [libStatus, setLibStatus] = useState<any>(null);
+    const [tmdbApiKey, setTmdbApiKey] = useState('');
 
     const sensors = useSensors(
         useSensor(PointerSensor),
@@ -144,6 +148,8 @@ export function SchedulerQueuePanel() {
             }
             if (settingsRes.ok) {
                 const s = await settingsRes.json();
+                if (s.tmdb_api_key) setTmdbApiKey(s.tmdb_api_key);
+                else if (s.tmdbApiKey) setTmdbApiKey(s.tmdbApiKey);
                 if (s.priority_profile) setProfile(s.priority_profile);
                 if (s.ui_search_toggles) { try { setSearchToggles(JSON.parse(s.ui_search_toggles)); } catch { } }
                 if (s.ui_instance_filters) { try { setInstanceFilters(JSON.parse(s.ui_instance_filters)); } catch { } }
@@ -286,6 +292,25 @@ export function SchedulerQueuePanel() {
                 if (tries >= 10) { setSearchingItems(p => ({ ...p, [idStr]: { status: 'Finished (Not found)', isPolling: false } })); clearInterval(poll); }
             }, 3000);
         } catch { setSearchingItems(p => ({ ...p, [idStr]: { status: 'Error', isPolling: false } })); }
+    };
+
+    const handleOpenMedia = (item: any) => {
+        const resolvedType: 'movie' | 'series' = item.type;
+        const mediaItem = {
+            title: item.title,
+            tmdbId: item.tmdbId || null,
+            tvdbId: item.tvdbId || null,
+            type: resolvedType,
+            mediaType: resolvedType,
+            remotePoster: item.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || item.remotePoster || null,
+            id: item.id
+        };
+        setSelectedMedia(mediaItem);
+        
+        fetch(`/api/media/status?title=${encodeURIComponent(item.title)}&type=${resolvedType}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(status => setLibStatus(status))
+            .catch(() => setLibStatus(null));
     };
 
     const handleDragEnd = (event: DragEndEvent) => {
@@ -538,7 +563,10 @@ export function SchedulerQueuePanel() {
                                             >
                                                 <div className="p-4 flex gap-6 items-center flex-wrap sm:flex-nowrap justify-between w-full">
                                                     <div className="flex items-center gap-4 flex-1 min-w-0">
-                                                        <div className="w-16 aspect-[2/3] rounded-xl overflow-hidden bg-zinc-900 flex-shrink-0 shadow-lg border border-white/5 cursor-pointer hover:scale-105 transition-transform relative">
+                                                        <div 
+                                                            onClick={e => { e.stopPropagation(); handleOpenMedia(item); }}
+                                                            className="w-16 aspect-[2/3] rounded-xl overflow-hidden bg-zinc-900 flex-shrink-0 shadow-lg border border-white/5 cursor-pointer hover:scale-105 transition-transform relative"
+                                                        >
                                                             {poster ? (
                                                                 <img 
                                                                     src={poster.startsWith('http') ? `/api/proxy?url=${encodeURIComponent(poster)}` : poster} 
@@ -737,6 +765,21 @@ export function SchedulerQueuePanel() {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* Media Details Panel */}
+            {selectedMedia && (
+                <MediaDetailsPanel
+                    item={selectedMedia}
+                    tmdbApiKey={tmdbApiKey}
+                    libStatus={libStatus}
+                    onClose={() => {
+                        setSelectedMedia(null);
+                        setLibStatus(null);
+                    }}
+                    onInteractiveSearch={(payload) => handleInteractiveSearch(payload.type, payload.id, payload.instanceId, payload.title)}
+                    onQuickSearch={(payload) => handleForceSearch({ id: payload.id, instanceId: payload.instanceId, type: payload.type })}
+                />
             )}
         </div>
     );
