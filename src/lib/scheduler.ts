@@ -13,7 +13,7 @@ declare global {
 
 import { startSpeedMonitor } from '@/lib/speedMonitor';
 
-if (!global.globalSchedulerRunning) {
+if (!global.globalSchedulerRunning && process.env.NEXT_PHASE !== 'phase-production-build') {
     global.globalSchedulerRunning = true;
 
     // Note: For a robust Unraid app handling potential crashes, a library like `node-cron` or `bree` 
