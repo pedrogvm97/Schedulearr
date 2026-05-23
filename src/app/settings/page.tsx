@@ -23,6 +23,7 @@ export default function Settings() {
     const [color, setColor] = useState('bg-zinc-500'); // default fallback
 
     const [isAuthorModalOpen, setIsAuthorModalOpen] = useState(false);
+    const [activeTroubleshootModal, setActiveTroubleshootModal] = useState<'socket' | 'perms' | null>(null);
 
     const predefinedColors = [
         'bg-red-500', 'bg-orange-500', 'bg-amber-500', 'bg-yellow-500', 'bg-lime-500',
@@ -811,146 +812,115 @@ export default function Settings() {
                 ) : (
                     <div className="p-6 space-y-6 animate-in fade-in duration-300">
                         {/* Setup Doctor Diagnostic Results */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             
                             {/* Docker Socket Diagnostic Card */}
-                            <div className={`p-5 rounded-2xl border bg-zinc-950/30 transition-all flex flex-col justify-between ${
-                                selfInfo?.available 
-                                    ? 'border-emerald-500/20 hover:border-emerald-500/40' 
-                                    : 'border-amber-500/20 hover:border-amber-500/40 shadow-lg shadow-amber-500/5'
-                            }`}>
-                                <div className="space-y-3">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-[10px] text-zinc-500 font-black uppercase tracking-wider">Docker Daemon Connectivity</span>
-                                        <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider flex items-center gap-1 ${
-                                            selfInfo?.available ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                                        }`}>
-                                            <span className={`w-1.5 h-1.5 rounded-full ${selfInfo?.available ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`} />
-                                            {selfInfo?.available ? 'Active' : 'Missing'}
-                                        </span>
+                            {selfInfo?.available ? (
+                                <div className="p-5 rounded-2xl border bg-zinc-950/30 border-emerald-500/20 hover:border-emerald-500/40 transition-all flex flex-col justify-between">
+                                    <div className="space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[10px] text-zinc-500 font-black uppercase tracking-wider">Docker Daemon Connectivity</span>
+                                            <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider flex items-center gap-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                                Active
+                                            </span>
+                                        </div>
+                                        
+                                        <h3 className="text-base font-bold text-white">Docker Socket Check</h3>
+                                        <p className="text-xs text-zinc-400 leading-relaxed">
+                                            Docker is connected and working perfectly! One-click background updates, automatic image pulls, and live self-container configuration checks are active.
+                                        </p>
                                     </div>
                                     
-                                    <h3 className="text-base font-bold text-white">Docker Socket Check</h3>
-                                    <p className="text-xs text-zinc-400 leading-relaxed">
-                                        {selfInfo?.available 
-                                            ? 'Docker socket /var/run/docker.sock is successfully mapped. Automatic background updates, image pulls, and live self-container configuration checks are fully enabled.'
-                                            : 'Docker socket was not detected inside the container. One-click self updates are disabled. Map /var/run/docker.sock from your host/Unraid to enable updates.'
-                                        }
-                                    </p>
+                                    {selfInfo && selfInfo.containerName && (
+                                        <div className="mt-4 pt-3 border-t border-zinc-800/80 flex flex-wrap gap-x-4 gap-y-1.5 text-[10px] text-zinc-500 font-mono">
+                                            <span>ID: {selfInfo.containerId?.slice(0, 12)}</span>
+                                            <span>Name: {selfInfo.containerName}</span>
+                                            <span>Image: {selfInfo.image}</span>
+                                        </div>
+                                    )}
                                 </div>
-                                
-                                {selfInfo && selfInfo.containerName && (
-                                    <div className="mt-4 pt-3 border-t border-zinc-800/80 flex flex-wrap gap-x-4 gap-y-1.5 text-[10px] text-zinc-500 font-mono">
-                                        <span>ID: {selfInfo.containerId?.slice(0, 12)}</span>
-                                        <span>Name: {selfInfo.containerName}</span>
-                                        <span>Image: {selfInfo.image}</span>
+                            ) : (
+                                <div 
+                                    onClick={() => setActiveTroubleshootModal('socket')}
+                                    className="p-6 rounded-2xl border border-yellow-500 shadow-[0_0_20px_rgba(234,179,8,0.15)] bg-yellow-500/5 hover:bg-yellow-500/10 transition-all flex flex-col justify-between cursor-pointer active:scale-[0.99] group animate-pulse duration-1000"
+                                >
+                                    <div className="space-y-4">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[10px] text-yellow-500/80 font-black uppercase tracking-wider">Setup Issue Detected</span>
+                                            <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider flex items-center gap-1 bg-yellow-500/10 text-yellow-500 border border-yellow-500/20">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-ping" />
+                                                Broken
+                                            </span>
+                                        </div>
+                                        
+                                        <h3 className="text-lg font-black text-white group-hover:text-yellow-400 transition-colors flex items-center gap-2">
+                                            ⚠️ Docker Socket Check
+                                        </h3>
+                                        <p className="text-sm font-medium text-yellow-100/90 leading-relaxed">
+                                            Docker is NOT connected! Click this yellow box to fix it in 3 seconds.
+                                        </p>
                                     </div>
-                                )}
-                            </div>
+                                    
+                                    <div className="mt-6 pt-3 border-t border-yellow-500/20 text-center">
+                                        <span className="text-xs text-yellow-400 font-black uppercase tracking-wider flex items-center justify-center gap-1.5 group-hover:text-yellow-300">
+                                            👉 CLICK HERE TO FIX IT NOW! 👈
+                                        </span>
+                                    </div>
+                                </div>
+                            )}
 
                             {/* Database Writable Diagnostic Card */}
-                            <div className={`p-5 rounded-2xl border bg-zinc-950/30 transition-all flex flex-col justify-between ${
-                                selfInfo?.isDataWritable 
-                                    ? 'border-emerald-500/20 hover:border-emerald-500/40' 
-                                    : 'border-red-500/20 hover:border-red-500/40 shadow-lg shadow-red-500/5'
-                            }`}>
-                                <div className="space-y-3">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-[10px] text-zinc-500 font-black uppercase tracking-wider">Appdata Folder Perms</span>
-                                        <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider flex items-center gap-1 ${
-                                            selfInfo?.isDataWritable ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'
-                                        }`}>
-                                            <span className={`w-1.5 h-1.5 rounded-full ${selfInfo?.isDataWritable ? 'bg-emerald-400' : 'bg-red-400 animate-pulse'}`} />
-                                            {selfInfo?.isDataWritable ? 'Writable' : 'Error'}
-                                        </span>
+                            {selfInfo?.isDataWritable ? (
+                                <div className="p-5 rounded-2xl border bg-zinc-950/30 border-emerald-500/20 hover:border-emerald-500/40 transition-all flex flex-col justify-between">
+                                    <div className="space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[10px] text-zinc-500 font-black uppercase tracking-wider">Appdata Folder Perms</span>
+                                            <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider flex items-center gap-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                                Writable
+                                            </span>
+                                        </div>
+                                        
+                                        <h3 className="text-base font-bold text-white">Permissions Check</h3>
+                                        <p className="text-xs text-zinc-400 leading-relaxed">
+                                            Database files are readable and writable. Schedulearr can safely perform SQL transactions, backups, and save indexer configurations.
+                                        </p>
                                     </div>
                                     
-                                    <h3 className="text-base font-bold text-white">Permissions Check</h3>
-                                    <p className="text-xs text-zinc-400 leading-relaxed">
-                                        {selfInfo?.isDataWritable
-                                            ? 'Database files located at /app/data are fully readable and writable. Schedulearr can safely perform SQL transactions, backups, and save indexer configurations.'
-                                            : 'The application is unable to write files to the database directory. SQLite operations will crash. Fix permissions immediately on the host path.'
-                                        }
-                                    </p>
-                                </div>
-
-                                <div className="mt-4 pt-3 border-t border-zinc-800/80 text-[10px] text-zinc-500 font-mono truncate">
-                                    <span>Detected Host Path: {selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'}</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Setup Doctor Troubleshooter & Dynamic Commands Generator */}
-                        <div className="bg-zinc-950 border border-zinc-800/60 rounded-2xl p-6 space-y-6">
-                            <div>
-                                <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
-                                    <span className="w-1.5 h-3 bg-emerald-500 rounded-full" />
-                                    Dynamic Troubleshooter & Commands
-                                </h3>
-                                <p className="text-xs text-zinc-500 mt-1">Ready-to-run scripts tailored to your specific host paths. Log in to your Unraid/Host server console and execute these commands directly.</p>
-                            </div>
-
-                            {/* Permission Fix Command Block */}
-                            <div className="space-y-2.5">
-                                <div className="flex items-center justify-between">
-                                    <span className="text-xs font-bold text-zinc-300">1. Fix Database Directory Permissions</span>
-                                    <span className="text-[10px] text-zinc-500 italic">Host appdata ownership fix</span>
-                                </div>
-                                <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 font-mono text-[11px] text-emerald-400 flex items-center justify-between gap-4 shadow-inner relative overflow-hidden group">
-                                    <div className="space-y-1 break-all pr-12">
-                                        <div><span className="text-zinc-500"># Change ownership to Unraid standard (nobody:users)</span></div>
-                                        <div>chown -R nobody:users {selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'}</div>
-                                        <div className="mt-1"><span className="text-zinc-500"># Set read/write/execute permissions for directories</span></div>
-                                        <div>chmod -R 775 {selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'}</div>
+                                    <div className="mt-4 pt-3 border-t border-zinc-800/80 text-[10px] text-zinc-500 font-mono truncate">
+                                        <span>Detected Host Path: {selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'}</span>
                                     </div>
-                                    <button
-                                        onClick={() => copyToClipboard(`chown -R nobody:users ${selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'} && chmod -R 775 ${selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'}`)}
-                                        className="absolute right-4 top-4 p-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-lg transition-colors border border-zinc-700/50"
-                                        title="Copy Commands"
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                                    </button>
                                 </div>
-                            </div>
-
-                            {/* Docker Run Command Block */}
-                            <div className="space-y-2.5">
-                                <div className="flex items-center justify-between">
-                                    <span className="text-xs font-bold text-zinc-300">2. Launch Container with Docker Socket & Volumes</span>
-                                    <span className="text-[10px] text-zinc-500 italic">Command line run alternative</span>
-                                </div>
-                                <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 font-mono text-[11px] text-emerald-400 flex items-center justify-between gap-4 shadow-inner relative overflow-hidden group">
-                                    <div className="space-y-1 break-all pr-12 leading-relaxed">
-                                        <div>docker stop Schedulearr || true && \</div>
-                                        <div>docker rm Schedulearr || true && \</div>
-                                        <div>docker run -d \</div>
-                                        <div>&nbsp;&nbsp;--name=Schedulearr \</div>
-                                        <div>&nbsp;&nbsp;-p {selfInfo?.ports?.[0]?.host || 3010}:3010 \</div>
-                                        <div>&nbsp;&nbsp;-v /var/run/docker.sock:/var/run/docker.sock \</div>
-                                        <div>&nbsp;&nbsp;-v {selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'}:/app/data \</div>
-                                        <div>&nbsp;&nbsp;--restart unless-stopped \</div>
-                                        <div>&nbsp;&nbsp;ghcr.io/pedrogvm97/schedulearr:latest</div>
+                            ) : (
+                                <div 
+                                    onClick={() => setActiveTroubleshootModal('perms')}
+                                    className="p-6 rounded-2xl border border-yellow-500 shadow-[0_0_20px_rgba(234,179,8,0.15)] bg-yellow-500/5 hover:bg-yellow-500/10 transition-all flex flex-col justify-between cursor-pointer active:scale-[0.99] group animate-pulse duration-1000"
+                                >
+                                    <div className="space-y-4">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[10px] text-yellow-500/80 font-black uppercase tracking-wider">Setup Issue Detected</span>
+                                            <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider flex items-center gap-1 bg-yellow-500/10 text-yellow-500 border border-yellow-500/20">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-ping" />
+                                                Broken
+                                            </span>
+                                        </div>
+                                        
+                                        <h3 className="text-lg font-black text-white group-hover:text-yellow-400 transition-colors flex items-center gap-2">
+                                            ⚠️ Folder Permissions Check
+                                        </h3>
+                                        <p className="text-sm font-medium text-yellow-100/90 leading-relaxed">
+                                            Database is locked! Click this yellow box to fix it in 3 seconds.
+                                        </p>
                                     </div>
-                                    <button
-                                        onClick={() => copyToClipboard(`docker stop Schedulearr || true && docker rm Schedulearr || true && docker run -d --name=Schedulearr -p ${selfInfo?.ports?.[0]?.host || 3010}:3010 -v /var/run/docker.sock:/var/run/docker.sock -v ${selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'}:/app/data --restart unless-stopped ghcr.io/pedrogvm97/schedulearr:latest`)}
-                                        className="absolute right-4 top-4 p-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-lg transition-colors border border-zinc-700/50"
-                                        title="Copy Command"
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                                    </button>
+                                    
+                                    <div className="mt-6 pt-3 border-t border-yellow-500/20 text-center">
+                                        <span className="text-xs text-yellow-400 font-black uppercase tracking-wider flex items-center justify-center gap-1.5 group-hover:text-yellow-300">
+                                            👉 CLICK HERE TO FIX IT NOW! 👈
+                                        </span>
+                                    </div>
                                 </div>
-                            </div>
-
-                            {/* Unraid Template Config Tips */}
-                            <div className="p-4 bg-zinc-900/50 rounded-xl border border-zinc-800/80 space-y-2">
-                                <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-emerald-400"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
-                                    Configuring Unraid WebUI Template
-                                </h4>
-                                <p className="text-[11px] text-zinc-400 leading-relaxed">
-                                    In Unraid's Docker page, edit your <strong>Schedulearr</strong> container. Click <strong>"Add another Path, Port, Variable, Label or Device"</strong>. Add a <strong>Path</strong> named <code>Docker Socket</code>, with Container Path <code>/var/run/docker.sock</code> and Host Path <code>/var/run/docker.sock</code>. This connects the updater safely.
-                                </p>
-                            </div>
+                            )}
                         </div>
                     </div>
                 )}
@@ -1376,6 +1346,172 @@ export default function Settings() {
                         >
                             Close
                         </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Docker Socket Troubleshoot Helper Modal */}
+            {activeTroubleshootModal === 'socket' && (
+                <div className="fixed inset-0 bg-black/85 z-50 flex items-center justify-center p-4" onClick={() => setActiveTroubleshootModal(null)}>
+                    <div
+                        className="bg-zinc-900 border border-amber-500/30 rounded-2xl p-6 sm:p-8 max-w-lg w-full shadow-2xl relative overflow-hidden flex flex-col gap-6"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="absolute -top-24 -right-24 w-48 h-48 bg-amber-500/10 rounded-full blur-3xl pointer-events-none"></div>
+
+                        <div className="flex items-start justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2.5 bg-amber-500/10 rounded-xl text-amber-400 border border-amber-500/20">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-black text-white tracking-tight">Docker Connection Helper</h3>
+                                    <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider">Super Easy 1-Click Fix</span>
+                                </div>
+                            </div>
+                            <button
+                                className="text-zinc-500 hover:text-white transition-colors p-1"
+                                onClick={() => setActiveTroubleshootModal(null)}
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                            </button>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div className="bg-amber-950/20 border border-amber-500/10 p-4 rounded-xl text-xs text-zinc-300 leading-relaxed space-y-2">
+                                <p className="font-bold text-white">🍼 What's the problem?</p>
+                                <p>Schedulearr cannot talk to Unraid's Docker service. This means Schedulearr cannot update itself automatically when a new version is released!</p>
+                            </div>
+
+                            <div className="space-y-3">
+                                <p className="text-xs font-black text-white uppercase tracking-wider">👉 How to fix in 3 seconds:</p>
+                                <ol className="list-decimal list-inside text-xs text-zinc-400 space-y-2 pl-1 leading-relaxed">
+                                    <li>Click the big <span className="text-amber-400 font-bold">Copy Command</span> button below.</li>
+                                    <li>Open your <span className="text-white font-bold">Unraid Terminal</span> (click the little <strong>&gt;_</strong> icon at the top right of your Unraid web page).</li>
+                                    <li>Right-click in the terminal, select <span className="text-white font-bold">Paste</span>, and press <span className="text-emerald-400 font-black">ENTER</span>!</li>
+                                </ol>
+                            </div>
+
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Copy this exact command:</span>
+                                </div>
+                                <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 font-mono text-[11px] text-amber-400 relative group overflow-hidden break-all pr-14 leading-relaxed">
+                                    docker stop Schedulearr || true && docker rm Schedulearr || true && docker run -d --name=Schedulearr -p {selfInfo?.ports?.[0]?.host || 3010}:3010 -v /var/run/docker.sock:/var/run/docker.sock -v {selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'}:/app/data --restart unless-stopped ghcr.io/pedrogvm97/schedulearr:latest
+                                    <button
+                                        onClick={() => {
+                                            copyToClipboard(`docker stop Schedulearr || true && docker rm Schedulearr || true && docker run -d --name=Schedulearr -p ${selfInfo?.ports?.[0]?.host || 3010}:3010 -v /var/run/docker.sock:/var/run/docker.sock -v ${selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'}:/app/data --restart unless-stopped ghcr.io/pedrogvm97/schedulearr:latest`);
+                                            toast.success('Command copied to clipboard!');
+                                        }}
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 p-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded-lg transition-colors border border-zinc-800 hover:border-zinc-700 shadow-lg"
+                                        title="Copy to Clipboard"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-3 mt-2">
+                            <button
+                                className="flex-1 py-3 px-4 bg-amber-500 hover:bg-amber-600 text-black font-bold rounded-xl transition-all shadow-lg shadow-amber-500/10 hover:shadow-amber-500/20 text-xs uppercase tracking-wider"
+                                onClick={() => {
+                                    copyToClipboard(`docker stop Schedulearr || true && docker rm Schedulearr || true && docker run -d --name=Schedulearr -p ${selfInfo?.ports?.[0]?.host || 3010}:3010 -v /var/run/docker.sock:/var/run/docker.sock -v ${selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'}:/app/data --restart unless-stopped ghcr.io/pedrogvm97/schedulearr:latest`);
+                                    toast.success('Command copied!');
+                                }}
+                            >
+                                Copy Command
+                            </button>
+                            <button
+                                className="py-3 px-5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold rounded-xl transition-all text-xs uppercase tracking-wider border border-zinc-700/50"
+                                onClick={() => setActiveTroubleshootModal(null)}
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Folder Permissions Troubleshoot Helper Modal */}
+            {activeTroubleshootModal === 'perms' && (
+                <div className="fixed inset-0 bg-black/85 z-50 flex items-center justify-center p-4" onClick={() => setActiveTroubleshootModal(null)}>
+                    <div
+                        className="bg-zinc-900 border border-red-500/30 rounded-2xl p-6 sm:p-8 max-w-lg w-full shadow-2xl relative overflow-hidden flex flex-col gap-6"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="absolute -top-24 -right-24 w-48 h-48 bg-red-500/10 rounded-full blur-3xl pointer-events-none"></div>
+
+                        <div className="flex items-start justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2.5 bg-red-500/10 rounded-xl text-red-400 border border-red-500/20">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-black text-white tracking-tight">Folder Permissions Helper</h3>
+                                    <span className="text-[10px] text-red-400 font-bold uppercase tracking-wider">Super Easy 1-Click Fix</span>
+                                </div>
+                            </div>
+                            <button
+                                className="text-zinc-500 hover:text-white transition-colors p-1"
+                                onClick={() => setActiveTroubleshootModal(null)}
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                            </button>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div className="bg-red-950/20 border border-red-500/10 p-4 rounded-xl text-xs text-zinc-300 leading-relaxed space-y-2">
+                                <p className="font-bold text-white">🍼 What's the problem?</p>
+                                <p>Schedulearr is locked out of its database folder! Unraid's permissions are preventing the app from saving settings and syncing media.</p>
+                            </div>
+
+                            <div className="space-y-3">
+                                <p className="text-xs font-black text-white uppercase tracking-wider">👉 How to fix in 3 seconds:</p>
+                                <ol className="list-decimal list-inside text-xs text-zinc-400 space-y-2 pl-1 leading-relaxed">
+                                    <li>Click the big <span className="text-red-400 font-bold">Copy Command</span> button below.</li>
+                                    <li>Open your <span className="text-white font-bold">Unraid Terminal</span> (click the little <strong>&gt;_</strong> icon at the top right of your Unraid web page).</li>
+                                    <li>Right-click in the terminal, select <span className="text-white font-bold">Paste</span>, and press <span className="text-emerald-400 font-black">ENTER</span>!</li>
+                                </ol>
+                            </div>
+
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Copy this exact command:</span>
+                                </div>
+                                <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 font-mono text-[11px] text-red-400 relative group overflow-hidden break-all pr-14 leading-relaxed">
+                                    chown -R nobody:users {selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'} && chmod -R 775 {selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'}
+                                    <button
+                                        onClick={() => {
+                                            copyToClipboard(`chown -R nobody:users ${selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'} && chmod -R 775 ${selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'}`);
+                                            toast.success('Command copied to clipboard!');
+                                        }}
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 p-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded-lg transition-colors border border-zinc-800 hover:border-zinc-700 shadow-lg"
+                                        title="Copy to Clipboard"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-3 mt-2">
+                            <button
+                                className="flex-1 py-3 px-4 bg-red-500 hover:bg-red-600 text-white font-bold rounded-xl transition-all shadow-lg shadow-red-500/10 hover:shadow-red-500/20 text-xs uppercase tracking-wider"
+                                onClick={() => {
+                                    copyToClipboard(`chown -R nobody:users ${selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'} && chmod -R 775 ${selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'}`);
+                                    toast.success('Command copied!');
+                                }}
+                            >
+                                Copy Command
+                            </button>
+                            <button
+                                className="py-3 px-5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold rounded-xl transition-all text-xs uppercase tracking-wider border border-zinc-700/50"
+                                onClick={() => setActiveTroubleshootModal(null)}
+                            >
+                                Close
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

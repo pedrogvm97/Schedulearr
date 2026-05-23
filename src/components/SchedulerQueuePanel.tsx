@@ -15,7 +15,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { SortableItem } from '@/components/SortableItem';
-import { Search, Trash2, RefreshCw } from 'lucide-react';
+import { Search, Trash2, RefreshCw, Film, Tv } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────
 interface SchedulerConfig {
@@ -526,53 +526,123 @@ export function SchedulerQueuePanel() {
                                 const itemKey = item.idStr ?? String(item.id);
                                 const isToggled = searchToggles[itemKey] !== false;
                                 const isExpanded = item.type === 'series' && expandedSeriesId === `${item.instanceId}-${item.id}`;
+                                const poster = item.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || item.remotePoster;
                                 return (
                                     <SortableItem key={item.idStr ?? item.id} id={item.idStr ?? String(item.id)} isDraggable={profile === 'custom'}>
                                         <div className="flex-1 flex flex-col gap-1 w-full">
-                                            <div onClick={e => item.type === 'series' && toggleExpandSeries(item as SeriesItem, e as any)}
-                                                className={`flex items-center justify-between p-4 rounded-xl border transition-all ${isToggled ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-950 border-zinc-900 opacity-60'} ${item.type === 'series' ? 'cursor-pointer hover:bg-zinc-800' : ''}`}>
-                                                <div className="flex items-center gap-4">
-                                                    <div className={`w-2 h-12 rounded-full ${item.instanceColor || (item.type === 'movie' ? 'bg-yellow-500' : 'bg-cyan-500')}`} />
-                                                    <div>
-                                                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                                                            <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm ${item.type === 'movie' ? 'bg-yellow-500/20 text-yellow-500' : 'bg-cyan-500/20 text-cyan-500'}`}>{item.type}</span>
-                                                            {item.isDownloading && <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-sm bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-pulse">Downloading</span>}
-                                                            <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-sm border" style={{ backgroundColor: `${item.colorHex}1a`, color: item.colorHex, borderColor: `${item.colorHex}33` }}>{item.instanceName}</span>
+                                            <div 
+                                                onClick={e => item.type === 'series' && toggleExpandSeries(item as SeriesItem, e as any)}
+                                                className={`flex flex-col bg-zinc-950/40 border border-zinc-900 rounded-2xl overflow-hidden transition-all hover:border-zinc-800 shadow-lg ${
+                                                    isToggled ? '' : 'opacity-60'
+                                                }`}
+                                            >
+                                                <div className="p-4 flex gap-6 items-center flex-wrap sm:flex-nowrap justify-between w-full">
+                                                    <div className="flex items-center gap-4 flex-1 min-w-0">
+                                                        <div className="w-16 aspect-[2/3] rounded-xl overflow-hidden bg-zinc-900 flex-shrink-0 shadow-lg border border-white/5 cursor-pointer hover:scale-105 transition-transform relative">
+                                                            {poster ? (
+                                                                <img 
+                                                                    src={poster.startsWith('http') ? `/api/proxy?url=${encodeURIComponent(poster)}` : poster} 
+                                                                    className="w-full h-full object-cover" 
+                                                                    alt="" 
+                                                                />
+                                                            ) : (
+                                                                <div className="w-full h-full flex items-center justify-center text-zinc-700 bg-zinc-900/50">
+                                                                    {item.type === 'series' ? <Tv size={20} /> : <Film size={20} />}
+                                                                </div>
+                                                            )}
+                                                            <div className={`absolute bottom-0 left-0 right-0 h-1 ${item.instanceColor || (item.type === 'movie' ? 'bg-yellow-500' : 'bg-cyan-500')}`} />
                                                         </div>
-                                                        <h3 className="text-lg font-medium text-white flex items-center gap-2">{item.title}
-                                                            {item.type === 'series' && <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`text-zinc-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`}><polyline points="6 9 12 15 18 9" /></svg>}
-                                                        </h3>
-                                                        <div className="text-sm text-zinc-400">
-                                                            {item.type === 'movie' ? (item.isDownloaded ? 'Downloaded' : 'Missing') : (item.stats ? `${item.stats.episodeFileCount}/${item.stats.episodeCount} eps (${Math.round(item.stats.percentOfEpisodes)}%)` : 'Unknown')}
-                                                            <span className="mx-2 text-zinc-600">•</span>
-                                                            Added {formatDistanceToNow(item.sortDate ?? 0, { addSuffix: true })}
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="flex items-center gap-3 mb-2 flex-wrap">
+                                                                <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded border ${
+                                                                    item.type === 'movie' 
+                                                                        ? 'bg-yellow-500/10 border-yellow-500/20 text-yellow-500' 
+                                                                        : 'bg-cyan-500/10 border-cyan-500/20 text-cyan-500'
+                                                                }`}>
+                                                                    {item.type}
+                                                                </span>
+                                                                {item.isDownloading && (
+                                                                    <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 animate-pulse">
+                                                                        Downloading
+                                                                    </span>
+                                                                )}
+                                                                <span 
+                                                                    className="px-2.5 py-0.5 rounded-lg text-[9px] font-black border uppercase tracking-widest bg-zinc-900/50" 
+                                                                    style={{ borderColor: `${item.colorHex}33`, color: item.colorHex }}
+                                                                >
+                                                                    {item.instanceName}
+                                                                </span>
+                                                                
+                                                                {/* Dynamic progress bar matching main browser cards */}
+                                                                {(() => {
+                                                                    const pct = item.type === 'movie' ? (item.isDownloaded ? 100 : 0) : (item.stats ? Math.round(item.stats.percentOfEpisodes) : 0);
+                                                                    return (
+                                                                        <div className="flex items-center gap-2">
+                                                                            <div className="w-20 h-1.5 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800">
+                                                                                <div className={`h-full transition-all duration-1000 ${pct === 100 ? 'bg-emerald-500' : 'bg-amber-500'}`} style={{ width: `${pct}%` }} />
+                                                                            </div>
+                                                                            <span className={`text-[10px] font-black uppercase tracking-widest ${pct === 100 ? 'text-emerald-500' : 'text-amber-400'}`}>{pct}%</span>
+                                                                        </div>
+                                                                    );
+                                                                })()}
+                                                            </div>
+                                                            <h3 className="font-bold text-white text-lg truncate flex items-center gap-2 hover:text-emerald-400 cursor-pointer">
+                                                                {item.title}
+                                                                {item.type === 'series' && <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`text-zinc-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`}><polyline points="6 9 12 15 18 9" /></svg>}
+                                                            </h3>
+                                                            <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[11px] text-zinc-500 font-semibold tracking-tight mt-1">
+                                                                <span className="flex items-center gap-1.5">
+                                                                    {item.type === 'movie' ? (item.isDownloaded ? 'Status: Downloaded' : 'Status: Missing') : (item.stats ? `${item.stats.episodeFileCount}/${item.stats.episodeCount} episodes` : 'Status: Unknown')}
+                                                                </span>
+                                                                <span>•</span>
+                                                                <span>Added {formatDistanceToNow(item.sortDate ?? 0, { addSuffix: true })}</span>
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                </div>
-                                                <div className="flex items-center gap-2 flex-wrap justify-end">
-                                                    <button onPointerDown={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); handleInteractiveSearch(item.type === 'series' ? 'series' : 'movie', item.id, item.instanceId, item.title); }}
-                                                        className="text-xs bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 px-3 py-1.5 rounded-lg border border-indigo-500/30 flex items-center gap-1.5">
-                                                        <Search size={12} /> Interactive
-                                                    </button>
-                                                    {item.type === 'movie' && item.hasFile && item.movieFile && (
-                                                        <button onPointerDown={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); handleDeleteFile('movie', item.id, item.instanceId, item.movieFile.id); }}
-                                                            className="text-xs bg-rose-600/20 text-rose-400 hover:bg-rose-600/30 px-2 py-1.5 rounded-lg border border-rose-500/30"><Trash2 size={12} /></button>
-                                                    )}
-                                                    {searchingItems[itemKey] ? (
-                                                        <span className="text-xs px-3 py-1.5 rounded-lg border bg-zinc-800/80 text-zinc-300 border-zinc-700 flex items-center gap-2">
-                                                            {searchingItems[itemKey].isPolling && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />}
-                                                            {searchingItems[itemKey].status}
-                                                        </span>
-                                                    ) : (
-                                                        <button onPointerDown={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); handleForceSearch(item); }}
-                                                            className="text-xs bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 px-3 py-1.5 rounded-lg border border-emerald-500/30 flex items-center gap-1.5">
-                                                            <RefreshCw size={12} /> Force Search
+                                                    <div className="flex items-center gap-2 flex-wrap pr-2">
+                                                        <button 
+                                                            onPointerDown={e => e.stopPropagation()} 
+                                                            onClick={e => { e.stopPropagation(); handleInteractiveSearch(item.type === 'series' ? 'series' : 'movie', item.id, item.instanceId, item.title); }}
+                                                            className="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-700 transition-all flex items-center gap-1.5 text-xs font-bold"
+                                                            title="Interactive Search"
+                                                        >
+                                                            <Search size={14} /> Interactive
                                                         </button>
-                                                    )}
-                                                    <button onPointerDown={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); toggleSearch(itemKey); }}
-                                                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${isToggled ? 'bg-emerald-500' : 'bg-zinc-700'}`}>
-                                                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isToggled ? 'translate-x-6' : 'translate-x-1'}`} />
-                                                    </button>
+                                                        {item.type === 'movie' && item.hasFile && item.movieFile && (
+                                                            <button 
+                                                                onPointerDown={e => e.stopPropagation()} 
+                                                                onClick={e => { e.stopPropagation(); handleDeleteFile('movie', item.id, item.instanceId, item.movieFile.id); }}
+                                                                className="p-2.5 rounded-xl bg-red-500/5 border border-red-500/20 text-red-500 hover:bg-red-500 hover:text-white transition-all"
+                                                                title="Delete Movie File"
+                                                            >
+                                                                <Trash2 size={14} />
+                                                            </button>
+                                                        )}
+                                                        {searchingItems[itemKey] ? (
+                                                            <span className="text-xs px-3 py-1.5 rounded-lg border bg-zinc-800/80 text-zinc-300 border-zinc-700 flex items-center gap-2">
+                                                                {searchingItems[itemKey].isPolling && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />}
+                                                                {searchingItems[itemKey].status}
+                                                            </span>
+                                                        ) : (
+                                                            <button 
+                                                                onPointerDown={e => e.stopPropagation()} 
+                                                                onClick={e => { e.stopPropagation(); handleForceSearch(item); }}
+                                                                className="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-emerald-400 hover:border-zinc-700 transition-all flex items-center gap-1.5 text-xs font-bold"
+                                                                title="Force Search"
+                                                            >
+                                                                <RefreshCw size={14} /> Force Search
+                                                            </button>
+                                                        )}
+                                                        <div className="h-6 w-px bg-zinc-800/80 mx-2 self-center" />
+                                                        <button 
+                                                            onPointerDown={e => e.stopPropagation()} 
+                                                            onClick={e => { e.stopPropagation(); toggleSearch(itemKey); }}
+                                                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${isToggled ? 'bg-emerald-500' : 'bg-zinc-700'}`}
+                                                            title="Toggle Search Queue Activation"
+                                                        >
+                                                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isToggled ? 'translate-x-6' : 'translate-x-1'}`} />
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             </div>
 

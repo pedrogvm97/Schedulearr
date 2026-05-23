@@ -3,10 +3,10 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-const navItems = [
+const primaryNavItems = [
     {
         href: '/discover',
-        label: 'Media',
+        label: 'My Media',
         icon: (active: boolean) => (
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={active ? 2.5 : 2} strokeLinecap="round" strokeLinejoin="round">
                 <rect x="2" y="2" width="20" height="20" rx="2" ry="2"></rect>
@@ -16,6 +16,23 @@ const navItems = [
             </svg>
         )
     },
+    {
+        href: '/scheduler',
+        label: 'Scheduler',
+        icon: (active: boolean) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={active ? 2.5 : 2} strokeLinecap="round" strokeLinejoin="round">
+                <line x1="8" y1="6" x2="21" y2="6"></line>
+                <line x1="8" y1="12" x2="21" y2="12"></line>
+                <line x1="8" y1="18" x2="21" y2="18"></line>
+                <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                <line x1="3" y1="18" x2="3.01" y2="18"></line>
+            </svg>
+        )
+    }
+];
+
+const secondaryNavItems = [
     {
         href: '/downloads',
         label: 'Downloads',
@@ -50,16 +67,6 @@ const navItems = [
         )
     },
     {
-        href: '/settings',
-        label: 'Settings',
-        icon: (active: boolean) => (
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={active ? 2.5 : 2} strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="3"></circle>
-                <path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"></path>
-            </svg>
-        )
-    },
-    {
         href: '/',
         label: 'Analytics',
         icon: (active: boolean) => (
@@ -70,6 +77,24 @@ const navItems = [
             </svg>
         )
     },
+    {
+        href: '/settings',
+        label: 'Settings',
+        icon: (active: boolean) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={active ? 2.5 : 2} strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"></path>
+            </svg>
+        )
+    }
+];
+
+const mobileNavItems = [
+    primaryNavItems[0], // My Media
+    primaryNavItems[1], // Scheduler
+    secondaryNavItems[0], // Downloads
+    secondaryNavItems[3], // Analytics
+    secondaryNavItems[4]  // Settings
 ];
 
 export function Navigation() {
@@ -92,9 +117,29 @@ export function Navigation() {
                             </div>
                             <span className="hidden sm:block font-bold text-lg text-white tracking-tight">Schedulearr</span>
                         </div>
-                        {/* Desktop-only nav links */}
-                        <div className="hidden md:flex items-center gap-1">
-                            {navItems.map(item => (
+                        {/* Desktop nav links with primary vs secondary split */}
+                        <div className="hidden md:flex items-center gap-2">
+                            {primaryNavItems.map(item => {
+                                const active = pathname === item.href;
+                                return (
+                                    <Link 
+                                        key={item.href} 
+                                        href={item.href} 
+                                        className={`flex items-center gap-2.5 px-4 py-2 text-sm font-extrabold rounded-xl transition-all duration-300 ${
+                                            active 
+                                                ? 'text-white bg-zinc-900 border border-zinc-800 shadow-[0_0_20px_rgba(0,0,0,0.4)] scale-105' 
+                                                : 'text-zinc-400 hover:text-white hover:bg-zinc-900/40 border border-transparent'
+                                        }`}
+                                    >
+                                        <span className={`transition-all duration-300 ${active ? 'scale-110 text-emerald-400' : 'text-zinc-500'}`}>
+                                            {item.icon(active)}
+                                        </span>
+                                        <span className="tracking-tight">{item.label}</span>
+                                    </Link>
+                                );
+                            })}
+                            <div className="h-8 w-[2px] bg-gradient-to-b from-transparent via-zinc-700/80 to-transparent mx-4 self-center shadow-[0_0_10px_rgba(255,255,255,0.05)]" />
+                            {secondaryNavItems.map(item => (
                                 <Link key={item.href} href={item.href} className={isActive(item.href)}>
                                     {item.label}
                                 </Link>
@@ -110,7 +155,7 @@ export function Navigation() {
             {/* Mobile Bottom Tab Bar */}
             <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-zinc-950/95 backdrop-blur-xl border-t border-zinc-800/60 shadow-[0_-4px_30px_rgba(0,0,0,0.5)]" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
                 <div className="flex items-stretch h-14">
-                    {navItems.map(item => {
+                    {mobileNavItems.map(item => {
                         const active = pathname === item.href;
                         return (
                             <Link
