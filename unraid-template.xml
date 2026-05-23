@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>Schedulearr</Name>
-  <Repository>ghcr.io/pedrogvm97/Schedulearr</Repository>
+  <Repository>ghcr.io/pedrogvm97/schedulearr</Repository>
   <Registry>https://ghcr.io/</Registry>
   <Network>bridge</Network>
   <Shell>sh</Shell>
@@ -11,7 +11,7 @@
   <Overview>Schedulearr is a localized Next.js web application that acts as an intelligent scheduler and orchestrator for Radarr, Sonarr, and Prowlarr.</Overview>
   <Category>MediaApp:Video MediaApp:Music Other:</Category>
   <WebUI>http://[IP]:[PORT:3010]</WebUI>
-  <TemplateURL>https://raw.githubusercontent.com/pedrogvm97/Schedulearr/templates/unraid-template.xml</TemplateURL>
+  <TemplateURL>https://raw.githubusercontent.com/pedrogvm97/schedulearr/main/unraid-template.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/pedrogvm97/Schedulearr/main/public/icon.png</Icon>
   <ExtraParams/>
   <PostArgs/>
@@ -32,9 +32,14 @@
   </Networking>
   <Data>
     <Volume>
-      <HostDir>/mnt/user/appdata/arr-scheduler/data</HostDir>
+      <HostDir>/mnt/user/appdata/schedulearr/data</HostDir>
       <ContainerDir>/app/data</ContainerDir>
       <Mode>rw</Mode>
+    </Volume>
+    <Volume>
+      <HostDir>/var/run/docker.sock</HostDir>
+      <ContainerDir>/var/run/docker.sock</ContainerDir>
+      <Mode>ro</Mode>
     </Volume>
   </Data>
   <Environment/>
