@@ -13,32 +13,67 @@ export async function POST() {
     }, { status: 400 });
   }
 
+  const hostname = process.env.HOSTNAME || 'localhost';
+
   try {
     const docker = axios.create({
       socketPath: socketPath,
       baseURL: 'http://localhost/v1.41', // Standard docker API version
-      timeout: 120000 // 2 minutes for pull
+      timeout: 180000 // 3 minutes for pull
     });
 
-    // 1. Pull the latest image
-    console.log('Starting image pull: ghcr.io/pedrogvm97/schedulearr:latest');
+    // 1. Identify image name
+    let imageName = 'ghcr.io/pedrogvm97/schedulearr:latest';
     try {
-      await docker.post('/images/create?fromImage=ghcr.io/pedrogvm97/schedulearr&tag=latest');
+      const selfRes = await docker.get(`/containers/${hostname}/json`);
+      imageName = selfRes.data?.Config?.Image || imageName;
+    } catch (e) {
+      console.warn('Could not read container config, using default image name');
+    }
+
+    // 2. Pull the latest image
+    console.log(`Starting image pull: ${imageName}`);
+    let fromImage = imageName;
+    let tag = 'latest';
+    if (imageName.includes(':')) {
+      const parts = imageName.split(':');
+      tag = parts.pop() || 'latest';
+      fromImage = parts.join(':');
+    }
+
+    try {
+      await docker.post(`/images/create?fromImage=${encodeURIComponent(fromImage)}&tag=${encodeURIComponent(tag)}`);
     } catch (pullError: any) {
       console.error('Docker pull failed:', pullError.message);
       return NextResponse.json({ error: 'Failed to pull latest image: ' + pullError.message }, { status: 500 });
     }
 
-    // 2. We can't safely recreate the container from within itself without high risk
-    // But we can inform the user that the image is pulled and they just need to restart.
-    // ON UNRAID: If the image is pulled, the user can just hit 'Restart' and it will use the new one.
-    
-    return NextResponse.json({ 
-      success: true, 
-      message: 'Latest image pulled successfully. The application will now attempt to restart if configured, or you can manually restart it in Unraid to apply the changes.' 
-    });
+    // 3. Restart container via Docker socket
+    console.log(`Sending restart signal to container ${hostname}`);
+    try {
+      // Trigger container restart asynchronously so we can return the response before the container goes down
+      setTimeout(async () => {
+        try {
+          await docker.post(`/containers/${hostname}/restart`);
+        } catch (e: any) {
+          console.error('Failed to trigger restart in background:', e.message);
+        }
+      }, 500);
+
+      return NextResponse.json({ 
+        success: true, 
+        message: 'Latest image pulled successfully. The application container is now restarting to apply updates.' 
+      });
+    } catch (restartError: any) {
+      console.error('Docker restart failed:', restartError.message);
+      return NextResponse.json({ 
+        success: true,
+        message: 'Latest image pulled successfully, but failed to auto-restart the container. Please restart the container manually in Unraid.' 
+      });
+    }
   } catch (error: any) {
     console.error('Update API error:', error);
     return NextResponse.json({ error: 'System update failed: ' + error.message }, { status: 500 });
   }
 }
+

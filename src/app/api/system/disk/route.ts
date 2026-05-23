@@ -25,11 +25,18 @@ export async function GET() {
 
     for (const inst of [...radarrs, ...sonarrs]) {
         const folders = await fetchRootFolders(inst.url, inst.api_key);
-        const instFolders = folders.map((f: any) => ({
-            path: f.path,
-            freeBytes: f.freeSpace ?? 0,
-            totalBytes: f.totalSpace ?? 0
-        }));
+        const instFolders = folders.map((f: any) => {
+            const free = f.freeSpace ?? 0;
+            let total = f.totalSpace ?? 0;
+            if (total < free) {
+                total = free;
+            }
+            return {
+                path: f.path,
+                freeBytes: free,
+                totalBytes: total
+            };
+        });
 
         const instFree = instFolders.reduce((s: number, f: any) => s + f.freeBytes, 0);
         const instTotal = instFolders.reduce((s: number, f: any) => s + f.totalBytes, 0);

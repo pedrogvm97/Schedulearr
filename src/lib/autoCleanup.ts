@@ -164,3 +164,110 @@ export async function runAutoCleanup() {
 
     return { success: true, message: `Auto-cleanup complete. Cleaned ${totalCleaned} torrents.` };
 }
+
+export async function runSmartCleanup() {
+    const qbInstances = getInstances('qbittorrent', true);
+    if (qbInstances.length === 0) return { success: false, message: 'No active qBittorrent instances.' };
+
+    const mode = getSetting('qbit_smart_clean_mode') || 'largest';
+    const immunityEnabled = getSetting('qbit_smart_clean_immunity_enabled') === 'true';
+    const immunityDays = parseInt(getSetting('qbit_smart_clean_immunity_days') || '7');
+    const deleteFiles = getSetting('qbit_cleanup_delete_files') !== 'false';
+    const blacklist = getSetting('qbit_cleanup_blacklist') !== 'false';
+
+    const radarrInstances = getInstances('radarr', true);
+    const sonarrInstances = getInstances('sonarr', true);
+
+    const radarrQueues: any[] = [];
+    for (const ri of radarrInstances) {
+        try {
+            const q = await getRadarrQueue(ri.url, ri.api_key);
+            radarrQueues.push({ instance: ri, records: q });
+        } catch {}
+    }
+
+    const sonarrQueues: any[] = [];
+    for (const si of sonarrInstances) {
+        try {
+            const q = await getSonarrQueue(si.url, si.api_key);
+            sonarrQueues.push({ instance: si, records: q });
+        } catch {}
+    }
+
+    let cleanedCount = 0;
+    const cleanedNames: string[] = [];
+
+    for (const qb of qbInstances) {
+        try {
+            const cookie = await authenticateQbittorrent(qb.url, qb.api_key);
+            const torrents = await getActiveTorrents(qb.url, cookie);
+
+            // Filter candidates
+            let candidates = [...torrents];
+
+            // 1. Filter out recently added if immunity enabled
+            if (immunityEnabled) {
+                const cutoff = Date.now() - immunityDays * 24 * 60 * 60 * 1000;
+                candidates = candidates.filter(t => {
+                    const addedOn = t.added_on ? t.added_on * 1000 : Date.now();
+                    return addedOn < cutoff;
+                });
+            }
+
+            // 2. Sort candidates
+            if (mode === 'largest') {
+                candidates.sort((a, b) => b.size - a.size);
+            } else if (mode === 'oldest') {
+                candidates.sort((a, b) => (a.added_on || 0) - (b.added_on || 0));
+            } else if (mode === 'unplayed') {
+                candidates = candidates.filter(t => t.progress < 1);
+                candidates.sort((a, b) => (a.added_on || 0) - (b.added_on || 0));
+            }
+
+            const target = candidates[0];
+            if (!target) continue;
+
+            let handled = false;
+            const hash = target.hash.toLowerCase();
+
+            if (blacklist) {
+                for (const rq of radarrQueues) {
+                    const match = rq.records.find((r: any) => r.downloadId && r.downloadId.toLowerCase() === hash);
+                    if (match) {
+                        await deleteFromRadarrQueue(rq.instance.url, rq.instance.api_key, match.id, true, true);
+                        handled = true;
+                        break;
+                    }
+                }
+
+                if (!handled) {
+                    for (const sq of sonarrQueues) {
+                        const match = sq.records.find((r: any) => r.downloadId && r.downloadId.toLowerCase() === hash);
+                        if (match) {
+                            await deleteFromSonarrQueue(sq.instance.url, sq.instance.api_key, match.id, true, true);
+                            handled = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (!handled) {
+                await deleteTorrents(qb.url, cookie, [hash], deleteFiles);
+            }
+
+            cleanedNames.push(target.name);
+            cleanedCount++;
+
+        } catch (e: any) {
+            console.error('Smart cleanup error for instance ' + qb.name, e);
+        }
+    }
+
+    if (cleanedCount > 0) {
+        return { success: true, message: `Removed ${cleanedCount} torrents: ${cleanedNames.join(', ')}` };
+    }
+
+    return { success: true, message: 'No eligible torrents found to clean.' };
+}
+

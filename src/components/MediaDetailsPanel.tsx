@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { X, Star, Calendar, User, Film, CheckCircle, Plus, ChevronDown } from 'lucide-react';
+import { X, Star, Calendar, User, Film, CheckCircle, Plus, ChevronDown, Search, PlayCircle, MoveHorizontal, Trash2, ChevronUp, ListOrdered } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface MediaDetailsPanelProps {
@@ -20,9 +20,153 @@ interface MediaDetailsPanelProps {
     onSelectRecommended?: (media: any) => void;
     onSelectPerson?: (personId: number) => void;
     onAdd?: () => void;
+    onDelete?: (payload: any) => void;
+    onTransfer?: (payload: any) => void;
+    onInteractiveSearch?: (payload: any) => void;
+    onQuickSearch?: (payload: any) => void;
 }
 
-export function MediaDetailsPanel({ item, tmdbApiKey, libStatus, onClose, onSelectRecommended, onSelectPerson, onAdd }: MediaDetailsPanelProps) {
+function EpisodeList({ 
+    instanceId, 
+    seriesId, 
+    onInteractiveSearch, 
+    onQuickSearch 
+}: { 
+    instanceId: string; 
+    seriesId: number; 
+    onInteractiveSearch?: (ep: any) => void;
+    onQuickSearch?: (target: any) => void;
+}) {
+    const [episodes, setEpisodes] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
+
+    useEffect(() => {
+        fetch(`/api/sonarr/episodes?instanceId=${instanceId}&seriesId=${seriesId}`)
+            .then(r => r.ok ? r.json() : [])
+            .then(data => {
+                setEpisodes(Array.isArray(data) ? data : []);
+                const seasons = [...new Set((Array.isArray(data) ? data : []).map((e: any) => e.seasonNumber))].sort((a: any, b: any) => b - a);
+                if (seasons.length > 0) setSelectedSeason(seasons[0]);
+            })
+            .catch(() => setEpisodes([]))
+            .finally(() => setLoading(false));
+    }, [instanceId, seriesId]);
+
+    const handleDeleteEpisodeFile = async (episodeFileId: number, epTitle: string) => {
+        if (!confirm(`Are you sure you want to delete the file for episode "${epTitle}"? This will permanently delete the file from your disk.`)) return;
+        try {
+            const res = await fetch(`/api/sonarr/file?episodeFileId=${episodeFileId}&instanceId=${instanceId}`, {
+                method: 'DELETE'
+            });
+            if (res.ok) {
+                toast.success(`Deleted file for "${epTitle}"`);
+                setEpisodes(prev => prev.map(e => e.episodeFile?.id === episodeFileId ? { ...e, hasFile: false, episodeFile: null } : e));
+            } else {
+                toast.error('Failed to delete episode file');
+            }
+        } catch {
+            toast.error('Error deleting episode file');
+        }
+    };
+
+    if (loading) return <div className="flex items-center gap-2 py-4 text-zinc-600 text-xs"><div className="w-3 h-3 border border-zinc-700 border-t-zinc-400 rounded-full animate-spin" /> Loading episodes...</div>;
+
+    const seasons = [...new Set(episodes.map(e => e.seasonNumber))].sort((a, b) => b - a);
+    const seasonEps = episodes.filter(e => e.seasonNumber === selectedSeason);
+    const haveCount = seasonEps.filter(e => e.hasFile).length;
+
+    return (
+        <div className="mt-3 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-zinc-950/40 p-2.5 rounded-2xl border border-zinc-800">
+                <div className="flex flex-wrap gap-1.5">
+                    {seasons.map(s => (
+                        <button
+                            key={s}
+                            onClick={() => setSelectedSeason(s)}
+                            className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all border ${selectedSeason === s ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'border-zinc-800 text-zinc-600 hover:text-zinc-400'}`}
+                        >
+                            {s === 0 ? 'Specials' : `S${s}`}
+                        </button>
+                    ))}
+                </div>
+                {selectedSeason !== null && (
+                    <button
+                        onClick={() => onQuickSearch?.({ type: 'season', id: seriesId, instanceId, seasonNumber: selectedSeason })}
+                        className="px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-white transition-all text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5"
+                    >
+                        <PlayCircle size={10} /> Search Season
+                    </button>
+                )}
+            </div>
+
+            <div className="flex items-center gap-3 text-[10px] text-zinc-500 font-medium px-1">
+                <span className="text-emerald-500 font-bold">{haveCount}/{seasonEps.length}</span> episodes available
+            </div>
+
+            <div className="space-y-1.5 max-h-64 overflow-y-auto custom-scrollbar pr-2">
+                {seasonEps.map(ep => (
+                    <div key={ep.id} className={`group/ep flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all ${ep.hasFile ? 'border-zinc-800 bg-zinc-950/30' : 'border-zinc-900/50 hover:bg-zinc-900/20'}`}>
+                        <span className={`text-[10px] font-black w-8 flex-shrink-0 ${ep.hasFile ? 'text-emerald-500' : 'text-zinc-700'}`}>
+                            E{String(ep.episodeNumber).padStart(2, '0')}
+                        </span>
+                        <div className="flex-1 min-w-0 flex flex-col">
+                            <span className={`text-xs truncate ${ep.hasFile ? 'text-zinc-300 font-medium' : 'text-zinc-600'}`}>{ep.title}</span>
+                            {ep.hasFile && ep.episodeFile?.quality?.quality?.name && (
+                                <span className="text-[9px] font-bold text-zinc-600 mt-0.5 uppercase tracking-tighter">
+                                    {ep.episodeFile.quality.quality.name}
+                                </span>
+                            )}
+                        </div>
+
+                        <div className="flex items-center gap-1.5 opacity-0 group-hover/ep:opacity-100 transition-opacity">
+                            <button
+                                onClick={() => onInteractiveSearch?.(ep)}
+                                title="Interactive Search"
+                                className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"
+                            >
+                                <Search size={12} />
+                            </button>
+                            <button
+                                onClick={() => onQuickSearch?.({ type: 'episode', id: ep.id, instanceId })}
+                                title="Automatic Quick Search"
+                                className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-emerald-400 transition-all"
+                            >
+                                <PlayCircle size={12} />
+                            </button>
+                            {ep.hasFile && ep.episodeFile?.id && (
+                                <button
+                                    onClick={() => handleDeleteEpisodeFile(ep.episodeFile.id, ep.title)}
+                                    title="Delete Episode File"
+                                    className="p-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 hover:bg-red-500 hover:text-white transition-all"
+                                >
+                                    <Trash2 size={12} />
+                                </button>
+                            )}
+                        </div>
+
+                        {!ep.hasFile && <span className="text-[9px] text-zinc-700 font-black tracking-widest uppercase flex-shrink-0">Missing</span>}
+                        {ep.hasFile && <CheckCircle size={10} className="text-emerald-500/50 flex-shrink-0" />}
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+export function MediaDetailsPanel({ 
+    item, 
+    tmdbApiKey, 
+    libStatus, 
+    onClose, 
+    onSelectRecommended, 
+    onSelectPerson, 
+    onAdd,
+    onDelete,
+    onTransfer,
+    onInteractiveSearch,
+    onQuickSearch
+}: MediaDetailsPanelProps) {
     const [details, setDetails] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [credits, setCredits] = useState<any[]>([]);
@@ -254,6 +398,58 @@ export function MediaDetailsPanel({ item, tmdbApiKey, libStatus, onClose, onSele
                                             </div>
                                         </div>
                                     )}
+
+                                    <div className="pt-4 flex flex-wrap gap-2 border-t border-white/5">
+                                        <button
+                                            onClick={() => onInteractiveSearch?.({
+                                                type: isSeries ? 'series' : 'movie',
+                                                id: libStatus.instances[0]?.internalId || item.id,
+                                                instanceId: libStatus.instances[0]?.id,
+                                                title: item.title || details?.name,
+                                                poster: posterUrl
+                                            })}
+                                            className="flex-1 p-2.5 rounded-xl bg-zinc-900 border border-white/5 text-zinc-400 hover:text-white hover:border-white/10 transition-all flex items-center justify-center gap-1.5 text-[10px] font-black uppercase tracking-wider"
+                                            title="Interactive Search"
+                                        >
+                                            <Search size={12} /> Interactive
+                                        </button>
+                                        <button
+                                            onClick={() => onQuickSearch?.({
+                                                type: isSeries ? 'series' : 'movie',
+                                                id: libStatus.instances[0]?.internalId || item.id,
+                                                instanceId: libStatus.instances[0]?.id
+                                            })}
+                                            className="flex-1 p-2.5 rounded-xl bg-zinc-900 border border-white/5 text-zinc-400 hover:text-emerald-400 hover:border-white/10 transition-all flex items-center justify-center gap-1.5 text-[10px] font-black uppercase tracking-wider"
+                                            title="Automatic Search"
+                                        >
+                                            <PlayCircle size={12} /> Quick Search
+                                        </button>
+                                        <button
+                                            onClick={() => onTransfer?.({
+                                                ...item,
+                                                id: libStatus.instances[0]?.internalId || item.id,
+                                                instanceId: libStatus.instances[0]?.id,
+                                                instanceName: libStatus.instances[0]?.name,
+                                                qualityProfileId: libStatus.qualityProfileId || item.qualityProfileId
+                                            })}
+                                            className="w-full p-2.5 rounded-xl bg-zinc-900 border border-white/5 text-zinc-400 hover:text-white hover:border-white/10 transition-all flex items-center justify-center gap-1.5 text-[10px] font-black uppercase tracking-wider"
+                                            title="Transfer / Copy Instance"
+                                        >
+                                            <MoveHorizontal size={12} /> Transfer Instance
+                                        </button>
+                                        <button
+                                            onClick={() => onDelete?.({
+                                                ...item,
+                                                id: libStatus.instances[0]?.internalId || item.id,
+                                                instanceId: libStatus.instances[0]?.id,
+                                                title: item.title || details?.name
+                                            })}
+                                            className="w-full p-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 hover:bg-red-500 hover:text-white transition-all flex items-center justify-center gap-1.5 text-[10px] font-black uppercase tracking-wider"
+                                            title="Delete from Library"
+                                        >
+                                            <Trash2 size={12} /> Delete Media
+                                        </button>
+                                    </div>
                                 </>
                             ) : (
                                 <div className="space-y-4">
@@ -425,6 +621,25 @@ export function MediaDetailsPanel({ item, tmdbApiKey, libStatus, onClose, onSele
                                         </div>
                                     ))}
                                 </div>
+                            </div>
+                        )}
+
+                        {/* Seasons & Episodes */}
+                        {isSeries && libStatus?.exists && libStatus.instances?.[0]?.id && (
+                            <div className="space-y-6 border-t border-white/5 pt-12">
+                                <h3 className="text-[12px] font-black text-zinc-500 uppercase tracking-[0.3em]">Seasons & Episodes</h3>
+                                <EpisodeList
+                                    instanceId={libStatus.instances[0].id}
+                                    seriesId={libStatus.instances[0].internalId || item.id}
+                                    onInteractiveSearch={(ep) => onInteractiveSearch?.({
+                                        type: 'episode',
+                                        id: ep.id,
+                                        instanceId: libStatus.instances[0].id,
+                                        title: `${item.title || details?.name} - S${ep.seasonNumber}E${ep.episodeNumber}`,
+                                        poster: posterUrl
+                                    })}
+                                    onQuickSearch={onQuickSearch}
+                                />
                             </div>
                         )}
                     </div>

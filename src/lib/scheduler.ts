@@ -100,8 +100,22 @@ export async function runBatchSearch(manualTrigger: boolean = false) {
             if (diskRes?.ok) {
                 const diskData = await diskRes.json();
                 if (diskData.usedPercent >= threshold) {
-                    const reason = `Disk guard: ${diskData.usedPercent}% used ≥ ${threshold}% threshold. ${(diskData.freeBytes / 1e9).toFixed(1)} GB free. Skipping search batch.`;
+                    let reason = `Disk guard: ${diskData.usedPercent}% used ≥ ${threshold}% threshold. ${(diskData.freeBytes / 1e9).toFixed(1)} GB free. Skipping search batch.`;
                     console.warn(`⚠️  [SCHEDULER] ${reason}`);
+                    
+                    const autocleanEnabled = getSetting('disk_autoclean_enabled') === 'true';
+                    if (autocleanEnabled) {
+                        console.log(`[DISK GUARD] Auto-Clean is enabled. Running smart cleanup to free up space...`);
+                        try {
+                            const { runSmartCleanup } = require('@/lib/autoCleanup');
+                            const cleanResult = await runSmartCleanup();
+                            reason += ` Smart Auto-Clean triggered: ${cleanResult.message}`;
+                        } catch (cleanErr: any) {
+                            console.error('❌ Smart Auto-Clean during disk guard failed:', cleanErr.message);
+                            reason += ` Smart Auto-Clean failed: ${cleanErr.message}`;
+                        }
+                    }
+                    
                     logSearchHistory('disk_guard', [], [], reason);
                     defaultRes.reason = reason;
                     return defaultRes;

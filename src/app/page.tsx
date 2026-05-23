@@ -3,8 +3,9 @@
 import React, { useState, useEffect } from "react";
 import HistoryLedger from "@/components/HistoryLedger";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, AreaChart, Area } from 'recharts';
-import { X, Film, Info } from 'lucide-react';
+import { X, Film, Info, HardDrive, Sliders, AlertTriangle, Trash2, Search, MoveHorizontal, PlayCircle, CheckCircle } from 'lucide-react';
 import { MediaDetailsPanel } from "@/components/MediaDetailsPanel";
+import { toast } from 'sonner';
 
 // --- Interfaces ---
 interface RecentDownload {
@@ -61,6 +62,15 @@ export default function Dashboard() {
     episodes?: string[]
   }>({ show: false });
   const [isTriggering, setIsTriggering] = useState(false);
+
+  // Disk and Storage Guard States
+  const [diskInfo, setDiskInfo] = useState<{ totalBytes: number; freeBytes: number; usedBytes: number; usedPercent: number; byInstance: any[] } | null>(null);
+  const [diskPauseEnabled, setDiskPauseEnabled] = useState(false);
+  const [diskPauseThreshold, setDiskPauseThreshold] = useState(90);
+  const [diskAutocleanEnabled, setDiskAutocleanEnabled] = useState(false);
+  const [diskSmartCleanMode, setDiskSmartCleanMode] = useState('largest');
+  const [diskSmartCleanImmunityEnabled, setDiskSmartCleanImmunityEnabled] = useState(false);
+  const [diskSmartCleanImmunityDays, setDiskSmartCleanImmunityDays] = useState(7);
 
   // Data States
   const [allTimeData, setAllTimeData] = useState<ChartData[]>([]);
@@ -146,6 +156,46 @@ export default function Dashboard() {
         if (data.interfaces) setAvailableInterfaces(data.interfaces);
       });
   }, []);
+
+  const fetchDiskInfo = () => {
+    fetch('/api/system/disk')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setDiskInfo(d); })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    fetchDiskInfo();
+    const interval = setInterval(fetchDiskInfo, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (allSettings.disk_pause_enabled) setDiskPauseEnabled(allSettings.disk_pause_enabled === 'true');
+    if (allSettings.disk_pause_threshold) setDiskPauseThreshold(parseInt(allSettings.disk_pause_threshold) || 90);
+    if (allSettings.disk_autoclean_enabled) setDiskAutocleanEnabled(allSettings.disk_autoclean_enabled === 'true');
+    if (allSettings.qbit_smart_clean_mode) setDiskSmartCleanMode(allSettings.qbit_smart_clean_mode);
+    if (allSettings.qbit_smart_clean_immunity_enabled) setDiskSmartCleanImmunityEnabled(allSettings.qbit_smart_clean_immunity_enabled === 'true');
+    if (allSettings.qbit_smart_clean_immunity_days) setDiskSmartCleanImmunityDays(parseInt(allSettings.qbit_smart_clean_immunity_days) || 7);
+  }, [allSettings]);
+
+  const updateSetting = async (key: string, value: any) => {
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, value: String(value) })
+      });
+      if (res.ok) {
+        setAllSettings(prev => ({ ...prev, [key]: String(value) }));
+      } else {
+        throw new Error("Failed to save");
+      }
+    } catch (e) {
+      console.error('Failed to update setting', key, e);
+      toast.error("Failed to update setting");
+    }
+  };
 
   const handleOpenMedia = (dl: RecentDownload) => {
     // Resolve type: mediaType may be undefined for older history records
@@ -603,6 +653,200 @@ export default function Dashboard() {
                 })()}
                 {(!recentDownloads || recentDownloads.filter(dl => recentDownloadFilters[dl.instanceId] !== false).length === 0) && (
                   <div className="text-center py-4 text-zinc-500 text-xs italic">No indexer data for selected filters</div>
+                )}
+              </div>
+            </div>
+
+            {/* Storage Guard Dashboard Card */}
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col justify-between md:col-span-2 lg:col-span-1 xl:col-span-2">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <HardDrive className="text-emerald-400" size={18} />
+                    <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-widest">Storage Guard</h3>
+                  </div>
+                  {diskInfo && (
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${
+                      diskInfo.usedPercent >= diskPauseThreshold && diskPauseEnabled
+                        ? 'bg-red-500/10 text-red-400 border border-red-500/20'
+                        : diskInfo.usedPercent >= 80
+                        ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                        : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                    }`}>
+                      {diskInfo.usedPercent}% used
+                    </span>
+                  )}
+                </div>
+
+                {/* Disk Progress Bar */}
+                {diskInfo ? (
+                  <div className="space-y-2">
+                    <div className="relative h-3 bg-zinc-950 rounded-full overflow-hidden border border-zinc-800">
+                      <div
+                        className={`h-full rounded-full transition-all duration-1000 ${
+                          diskInfo.usedPercent >= 90 ? 'bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.4)]'
+                          : diskInfo.usedPercent >= 75 ? 'bg-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.3)]'
+                          : 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.3)]'
+                        }`}
+                        style={{ width: `${diskInfo.usedPercent}%` }}
+                      />
+                      {diskPauseEnabled && (
+                        <div
+                          className="absolute top-0 bottom-0 w-0.5 bg-white/50 border-r border-dashed border-white/30"
+                          style={{ left: `${diskPauseThreshold}%` }}
+                          title={`Pause threshold: ${diskPauseThreshold}%`}
+                        />
+                      )}
+                    </div>
+                    <div className="flex justify-between text-[10px] text-zinc-500 font-semibold uppercase tracking-tight">
+                      <span>
+                        {diskInfo.totalBytes >= 1e12
+                          ? `${(diskInfo.freeBytes / 1e12).toFixed(1)} TB free`
+                          : `${(diskInfo.freeBytes / 1e9).toFixed(0)} GB free`}
+                      </span>
+                      <span>
+                        {diskInfo.totalBytes >= 1e12
+                          ? `${(diskInfo.usedBytes / 1e12).toFixed(1)} / ${(diskInfo.totalBytes / 1e12).toFixed(1)} TB`
+                          : `${(diskInfo.usedBytes / 1e9).toFixed(0)} / ${(diskInfo.totalBytes / 1e9).toFixed(0)} GB`}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 text-zinc-600 text-xs py-2">
+                    <div className="w-3.5 h-3.5 border border-zinc-700 border-t-zinc-400 rounded-full animate-spin" /> Loading storage data...
+                  </div>
+                )}
+
+                {/* Storage Settings Controls */}
+                <div className="border-t border-zinc-800/80 pt-3 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-bold text-zinc-200">Pause Scheduler</span>
+                      <p className="text-[9px] text-zinc-500">Skip search batches when disk usage exceeds threshold.</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        const next = !diskPauseEnabled;
+                        setDiskPauseEnabled(next);
+                        updateSetting('disk_pause_enabled', next);
+                      }}
+                      className={`w-9 h-4.5 rounded-full transition-all relative flex-shrink-0 ${ diskPauseEnabled ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.3)]' : 'bg-zinc-700'}`}
+                    >
+                      <div className={`w-3 h-3 rounded-full bg-white absolute top-0.5 transition-all ${diskPauseEnabled ? 'left-5.5' : 'left-0.5'}`} />
+                    </button>
+                  </div>
+
+                  {diskPauseEnabled && (
+                    <div className="space-y-1.5 animate-in fade-in duration-200 pl-3 border-l border-zinc-800">
+                      <div className="flex justify-between text-[9px] font-bold text-zinc-500 uppercase tracking-widest">
+                        <span>Pause Threshold</span>
+                        <span className="text-emerald-400">{diskPauseThreshold}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="50"
+                        max="99"
+                        value={diskPauseThreshold}
+                        onChange={e => {
+                          const val = parseInt(e.target.value);
+                          setDiskPauseThreshold(val);
+                          updateSetting('disk_pause_threshold', val);
+                        }}
+                        className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                      />
+                    </div>
+                  )}
+
+                  {/* Smart Auto-Clean Control */}
+                  <div className="flex items-center justify-between border-t border-zinc-800/50 pt-2.5">
+                    <div>
+                      <span className="text-xs font-bold text-zinc-200">Smart Auto-Clean Torrents</span>
+                      <p className="text-[9px] text-zinc-500">Delete qBittorrent files when usage exceeds threshold.</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        const next = !diskAutocleanEnabled;
+                        setDiskAutocleanEnabled(next);
+                        updateSetting('disk_autoclean_enabled', next);
+                      }}
+                      className={`w-9 h-4.5 rounded-full transition-all relative flex-shrink-0 ${ diskAutocleanEnabled ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.3)]' : 'bg-zinc-700'}`}
+                    >
+                      <div className={`w-3 h-3 rounded-full bg-white absolute top-0.5 transition-all ${diskAutocleanEnabled ? 'left-5.5' : 'left-0.5'}`} />
+                    </button>
+                  </div>
+
+                  {diskAutocleanEnabled && (
+                    <div className="space-y-3.5 animate-in fade-in duration-200 pl-3 border-l border-zinc-800">
+                      {/* Mode selection */}
+                      <div className="space-y-1">
+                        <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest block">Purge Priority</span>
+                        <div className="flex gap-1.5">
+                          {(['largest', 'oldest', 'unplayed'] as const).map(mode => (
+                            <button
+                              key={mode}
+                              onClick={() => {
+                                setDiskSmartCleanMode(mode);
+                                updateSetting('qbit_smart_clean_mode', mode);
+                              }}
+                              className={`flex-1 py-1 rounded-lg text-[9px] font-bold uppercase transition-all border ${
+                                diskSmartCleanMode === mode
+                                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 font-extrabold'
+                                  : 'bg-zinc-950 border-zinc-800/80 text-zinc-600 hover:text-zinc-400 hover:border-zinc-700'
+                              }`}
+                            >
+                              {mode === 'largest' ? 'Size' : mode === 'oldest' ? 'Age' : 'Unplayed'}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Immunity Toggle */}
+                      <div className="flex items-center justify-between border-t border-zinc-800/30 pt-2">
+                        <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Immunity Protection</span>
+                        <button
+                          onClick={() => {
+                            const next = !diskSmartCleanImmunityEnabled;
+                            setDiskSmartCleanImmunityEnabled(next);
+                            updateSetting('qbit_smart_clean_immunity_enabled', next);
+                          }}
+                          className={`w-8 h-4 rounded-full transition-all relative flex-shrink-0 ${ diskSmartCleanImmunityEnabled ? 'bg-emerald-500' : 'bg-zinc-800'}`}
+                        >
+                          <div className={`w-2.5 h-2.5 rounded-full bg-white absolute top-0.75 transition-all ${diskSmartCleanImmunityEnabled ? 'left-5' : 'left-0.5'}`} />
+                        </button>
+                      </div>
+
+                      {diskSmartCleanImmunityEnabled && (
+                        <div className="flex items-center justify-between text-[9px] text-zinc-500 font-bold uppercase pl-2 border-l border-zinc-800/80">
+                          <span>Immunity Period:</span>
+                          <div className="flex items-center gap-1 bg-zinc-950 border border-zinc-800 rounded px-1.5 py-0.5">
+                            <input
+                              type="number"
+                              min="1"
+                              max="90"
+                              value={diskSmartCleanImmunityDays}
+                              onChange={e => {
+                                const val = parseInt(e.target.value) || 7;
+                                setDiskSmartCleanImmunityDays(val);
+                                updateSetting('qbit_smart_clean_immunity_days', val);
+                              }}
+                              className="bg-transparent text-white w-6 text-center outline-none"
+                            />
+                            <span>Days</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Important Notice Warning */}
+                {diskAutocleanEnabled && (
+                  <div className="p-3 bg-emerald-500/5 border border-emerald-500/10 rounded-xl flex gap-2.5 items-start">
+                    <AlertTriangle className="text-emerald-400 flex-shrink-0 mt-0.5" size={13} />
+                    <p className="text-[9px] text-emerald-400/80 font-medium leading-normal">
+                      <strong>CRITICAL RULES:</strong> Torrents are deleted <strong>ONLY</strong> when storage exceeds the allowed threshold ({diskPauseThreshold}%). Torrents within the recently added immunity window are protected from cleanup.
+                    </p>
+                  </div>
                 )}
               </div>
             </div>

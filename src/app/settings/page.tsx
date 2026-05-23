@@ -45,11 +45,35 @@ export default function Settings() {
     const [checkingUpdate, setCheckingUpdate] = useState(false);
     const [updating, setUpdating] = useState(false);
 
+    // Smart update logging and Self container info
+    const [selfInfo, setSelfInfo] = useState<{
+        available: boolean;
+        isDataWritable: boolean;
+        containerId?: string;
+        containerName?: string;
+        image?: string;
+        mounts?: any[];
+        ports?: any[];
+        dataHostPath?: string;
+        reason?: string;
+    } | null>(null);
+    const [updateLogs, setUpdateLogs] = useState<{ type: string; message: string }[]>([]);
+    const [activeTab, setActiveTab] = useState<'status' | 'doctor'>('status');
+
+    const copyToClipboard = (text: string) => {
+        navigator.clipboard.writeText(text);
+        toast.success("Copied to clipboard!");
+    };
+
     // Disk Usage
     const [diskInfo, setDiskInfo] = useState<{ totalBytes: number; freeBytes: number; usedBytes: number; usedPercent: number; byInstance: any[] } | null>(null);
     const [isDiskOpen, setIsDiskOpen] = useState(false);
     const [diskPauseEnabled, setDiskPauseEnabled] = useState(false);
     const [diskPauseThreshold, setDiskPauseThreshold] = useState(90);
+    const [diskAutocleanEnabled, setDiskAutocleanEnabled] = useState(false);
+    const [diskSmartCleanMode, setDiskSmartCleanMode] = useState('largest');
+    const [diskSmartCleanImmunityEnabled, setDiskSmartCleanImmunityEnabled] = useState(false);
+    const [diskSmartCleanImmunityDays, setDiskSmartCleanImmunityDays] = useState(7);
 
     const fetchInstances = async () => {
         setLoading(true);
@@ -76,6 +100,7 @@ export default function Settings() {
     useEffect(() => {
         fetchInstances();
         fetchVersionInfo();
+        fetchSelfInfo();
         // Fetch disk info on mount
         fetch('/api/system/disk').then(r => r.ok ? r.json() : null).then(d => { if (d) setDiskInfo(d); }).catch(() => {});
     }, []);
@@ -84,7 +109,23 @@ export default function Settings() {
     useEffect(() => {
         if (allSettings.disk_pause_enabled) setDiskPauseEnabled(allSettings.disk_pause_enabled === 'true');
         if (allSettings.disk_pause_threshold) setDiskPauseThreshold(parseInt(allSettings.disk_pause_threshold) || 90);
+        if (allSettings.disk_autoclean_enabled) setDiskAutocleanEnabled(allSettings.disk_autoclean_enabled === 'true');
+        if (allSettings.qbit_smart_clean_mode) setDiskSmartCleanMode(allSettings.qbit_smart_clean_mode);
+        if (allSettings.qbit_smart_clean_immunity_enabled) setDiskSmartCleanImmunityEnabled(allSettings.qbit_smart_clean_immunity_enabled === 'true');
+        if (allSettings.qbit_smart_clean_immunity_days) setDiskSmartCleanImmunityDays(parseInt(allSettings.qbit_smart_clean_immunity_days) || 7);
     }, [allSettings]);
+
+    const fetchSelfInfo = async () => {
+        try {
+            const res = await fetch('/api/system/self');
+            if (res.ok) {
+                const data = await res.json();
+                setSelfInfo(data);
+            }
+        } catch (e) {
+            console.error('Failed to fetch self info', e);
+        }
+    };
 
     const fetchVersionInfo = async () => {
         try {
@@ -101,27 +142,62 @@ export default function Settings() {
     const handleCheckUpdate = async () => {
         setCheckingUpdate(true);
         await fetchVersionInfo();
+        await fetchSelfInfo();
         setCheckingUpdate(false);
         toast.info("Update check complete");
     };
 
-    const handleUpdate = async () => {
-        if (!confirm("This will pull the latest Docker image and prepare the system for update. The app might be unavailable for a few seconds if it restarts. Proceed?")) return;
+    const handleUpdate = () => {
+        if (!confirm("This will pull the latest Docker image and automatically restart the container to apply updates. The app will be temporarily offline. Proceed?")) return;
         
         setUpdating(true);
-        try {
-            const res = await fetch('/api/system/update', { method: 'POST' });
-            const data = await res.json();
-            
-            if (res.ok) {
-                toast.success(data.message || "Update initiated successfully!");
-            } else {
-                toast.error(data.error || "Update failed");
+        setUpdateLogs([{ type: 'info', message: '[INFO] Connecting to update stream...' }]);
+        
+        const eventSource = new EventSource('/api/system/update/stream');
+        
+        eventSource.addEventListener('log', (event: any) => {
+            try {
+                const data = JSON.parse(event.data);
+                setUpdateLogs(prev => [...prev, data]);
+            } catch (e) {
+                console.error("Failed to parse event data", e);
             }
-        } catch (e: any) {
-            toast.error("Failed to trigger update: " + e.message);
-        }
-        setUpdating(false);
+        });
+        
+        eventSource.addEventListener('complete', (event: any) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.success) {
+                    toast.success("Update finished successfully! Application is restarting.");
+                    setUpdateLogs(prev => [...prev, { type: 'success', message: '[SUCCESS] Update complete! The application is restarting.' }]);
+                } else {
+                    toast.error("Update finished with issues.");
+                    setUpdateLogs(prev => [...prev, { type: 'error', message: '[ERROR] Update completed with errors.' }]);
+                }
+            } catch (e) {
+                console.error("Failed to parse complete event", e);
+            }
+            eventSource.close();
+            setTimeout(() => {
+                setUpdating(false);
+            }, 8000);
+        });
+        
+        eventSource.onerror = (err) => {
+            console.error("SSE Connection lost:", err);
+            setUpdateLogs(prev => {
+                const alreadyDone = prev.some(l => l.message.includes('Restart command acknowledged') || l.message.includes('restarting'));
+                if (alreadyDone) {
+                    toast.success("Update triggered! Page will reconnect when container restarts.");
+                    return [...prev, { type: 'success', message: '[SUCCESS] Connection closed because the container is restarting!' }];
+                } else {
+                    toast.error("Lost connection to update server.");
+                    return [...prev, { type: 'error', message: '[ERROR] Connection to the update server was lost prematurely.' }];
+                }
+            });
+            eventSource.close();
+            setUpdating(false);
+        };
     };
 
     const updateSetting = async (key: string, value: any) => {
@@ -585,130 +661,294 @@ export default function Settings() {
             </div>
 
 
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden shadow-xl">
-                <div className="bg-zinc-800/50 p-6 border-b border-zinc-700/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-2xl relative">
+                {/* Visual Accent */}
+                <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-500" />
+                
+                {/* Header with Tabs */}
+                <div className="bg-zinc-800/40 p-6 border-b border-zinc-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
                         <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-500"><path d="M20 16V4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v16l4-2 4 2 4-2 4 2z"></path><path d="M8 7h8"></path><path d="M8 11h8"></path></svg>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-400"><path d="M20 16V4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v16l4-2 4 2 4-2 4 2z"></path><path d="M8 7h8"></path><path d="M8 11h8"></path></svg>
                             System & Updates
                         </h2>
-                        <p className="text-sm text-zinc-400 mt-1">Manage your Schedulearr instance version and system health.</p>
+                        <p className="text-xs text-zinc-400 mt-1">Manage system configurations, check updates, and troubleshoot container environment.</p>
                     </div>
-                    <button
-                        onClick={handleCheckUpdate}
-                        disabled={checkingUpdate}
-                        className="bg-zinc-700 hover:bg-zinc-600 disabled:opacity-50 text-white font-bold py-2 px-4 rounded-lg text-xs transition-all flex items-center gap-2"
-                    >
-                        {checkingUpdate ? (
-                            <div className="w-3 h-3 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                        ) : (
-                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/></svg>
-                        )}
-                        Check for Updates
-                    </button>
-                </div>
-                
-                <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="space-y-1">
-                        <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest">Current Version</span>
-                        <div className="flex items-center gap-2">
-                            <span className="text-lg font-bold text-white font-mono">v{versionInfo?.currentVersion || '0.0.0'}</span>
-                            <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-500 text-[10px] font-black rounded border border-emerald-500/20 uppercase">Stable</span>
-                        </div>
-                    </div>
-
-                    <div className="space-y-1">
-                        <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest">Latest Release</span>
-                        <div className="flex items-center gap-2">
-                            <span className="text-lg font-bold text-zinc-200 font-mono">v{versionInfo?.latestVersion || 'Unknown'}</span>
-                            {versionInfo?.updateAvailable && (
-                                <span className="px-2 py-0.5 bg-amber-500/10 text-amber-500 text-[10px] font-black rounded border border-amber-500/20 uppercase animate-pulse">Update Ready</span>
+                    
+                    {/* Tab Navigation */}
+                    <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800/80 self-start sm:self-center">
+                        <button
+                            onClick={() => setActiveTab('status')}
+                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'status' ? 'bg-zinc-800 text-white shadow-md' : 'text-zinc-500 hover:text-zinc-300'}`}
+                        >
+                            Status & Logs
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('doctor')}
+                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${activeTab === 'doctor' ? 'bg-zinc-800 text-white shadow-md' : 'text-zinc-500 hover:text-zinc-300'}`}
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m12 14 4 4 4-4"></path><path d="M4 22V4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8"></path><path d="M18 22H4"></path><path d="m8 6h8"></path><path d="m8 10h6"></path></svg>
+                            Setup Doctor
+                            {selfInfo && (!selfInfo.available || !selfInfo.isDataWritable) && (
+                                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
                             )}
-                        </div>
+                        </button>
                     </div>
+                </div>
 
-                    <div className="flex items-end justify-end md:justify-start lg:justify-end">
-                        {versionInfo?.updateAvailable ? (
-                            <button
-                                onClick={handleUpdate}
-                                disabled={updating}
-                                className="w-full md:w-auto bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-white font-black py-3 px-8 rounded-xl transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-3 active:scale-95 translate-y-0 hover:-translate-y-1"
-                            >
-                                {updating ? (
-                                    <>
-                                        <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                                        Updating...
-                                    </>
+                {activeTab === 'status' ? (
+                    <div className="animate-in fade-in duration-300">
+                        {/* Version status cards */}
+                        <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div className="bg-zinc-950/40 p-4 rounded-xl border border-zinc-800/50 space-y-1">
+                                <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest block">Current Version</span>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xl font-black text-white font-mono">v{versionInfo?.currentVersion || '0.0.0'}</span>
+                                    <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 text-[9px] font-black rounded border border-emerald-500/20 uppercase tracking-wider">Active</span>
+                                </div>
+                            </div>
+
+                            <div className="bg-zinc-950/40 p-4 rounded-xl border border-zinc-800/50 space-y-1">
+                                <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest block">Latest Release</span>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xl font-black text-zinc-200 font-mono">v{versionInfo?.latestVersion || 'Unknown'}</span>
+                                    {versionInfo?.updateAvailable ? (
+                                        <span className="px-2 py-0.5 bg-amber-500/10 text-amber-400 text-[9px] font-black rounded border border-amber-500/20 uppercase tracking-wider animate-pulse">Update Available</span>
+                                    ) : (
+                                        <span className="px-2 py-0.5 bg-zinc-800 text-zinc-400 text-[9px] font-black rounded border border-zinc-700 uppercase tracking-wider">Up to Date</span>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="flex items-center justify-end sm:justify-start md:justify-end gap-3">
+                                <button
+                                    onClick={handleCheckUpdate}
+                                    disabled={checkingUpdate || updating}
+                                    className="bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-white font-bold py-2.5 px-4 rounded-xl text-xs transition-all flex items-center gap-2 border border-zinc-700/50"
+                                >
+                                    {checkingUpdate ? (
+                                        <div className="w-3.5 h-3.5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                                    ) : (
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/></svg>
+                                    )}
+                                    Check Info
+                                </button>
+
+                                {versionInfo?.updateAvailable ? (
+                                    <button
+                                        onClick={handleUpdate}
+                                        disabled={updating}
+                                        className="flex-1 md:flex-none bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-white font-black py-2.5 px-6 rounded-xl transition-all shadow-lg shadow-emerald-500/15 flex items-center justify-center gap-2 active:scale-95 border border-emerald-500/30"
+                                    >
+                                        {updating ? (
+                                            <>
+                                                <div className="w-3.5 h-3.5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                                                Updating...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                                                Update App
+                                            </>
+                                        )}
+                                    </button>
                                 ) : (
-                                    <>
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                                        Update to v{versionInfo.latestVersion}
-                                    </>
+                                    <div className="text-zinc-500 text-xs font-semibold italic flex items-center gap-1.5 bg-zinc-950/20 px-4 py-2.5 rounded-xl border border-zinc-800/30">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-emerald-500"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                                        Running latest version
+                                    </div>
                                 )}
-                            </button>
-                        ) : (
-                            <div className="text-zinc-500 text-xs font-medium italic flex items-center gap-2">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-500"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-                                You are running the latest version
+                            </div>
+                        </div>
+
+                        {/* SSE Update Terminal Panel */}
+                        {updateLogs.length > 0 && (
+                            <div className="px-6 pb-6 animate-in slide-in-from-bottom-2 duration-300">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                                        Live Build & Restart Logs
+                                    </span>
+                                    <button 
+                                        onClick={() => setUpdateLogs([])}
+                                        className="text-[10px] text-zinc-500 hover:text-zinc-300 font-bold uppercase"
+                                        disabled={updating}
+                                    >
+                                        Clear Logs
+                                    </button>
+                                </div>
+                                <div className="bg-black border border-zinc-800 rounded-xl p-4 font-mono text-xs overflow-y-auto max-h-72 shadow-inner space-y-1.5 custom-scrollbar relative">
+                                    {/* Console Ambient Glow */}
+                                    <div className="absolute top-0 right-0 left-0 h-4 bg-gradient-to-b from-emerald-500/5 to-transparent pointer-events-none" />
+                                    
+                                    {updateLogs.map((log, index) => {
+                                        let colorClass = 'text-zinc-400';
+                                        if (log.type === 'error') colorClass = 'text-red-400 font-bold';
+                                        else if (log.type === 'success') colorClass = 'text-emerald-400 font-bold';
+                                        else if (log.type === 'warn') colorClass = 'text-amber-400';
+                                        else if (log.type === 'info') colorClass = 'text-sky-400';
+                                        
+                                        return (
+                                            <div key={index} className={`leading-relaxed break-all ${colorClass}`}>
+                                                {log.message}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Changelog panel */}
+                        {versionInfo?.updateAvailable && versionInfo.changelog && (
+                            <div className="px-6 pb-6 pt-2 border-t border-zinc-800/50 bg-zinc-950/20">
+                                <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest block mb-2">Build Changelog</span>
+                                <div className="text-xs text-zinc-400 font-medium whitespace-pre-wrap max-h-32 overflow-y-auto leading-relaxed border border-zinc-800 p-4 rounded-xl bg-zinc-950/30 italic custom-scrollbar">
+                                    {versionInfo.changelog}
+                                </div>
                             </div>
                         )}
                     </div>
-                </div>
-
-                {versionInfo?.updateAvailable && versionInfo.changelog && (
-                    <div className="px-6 pb-6 pt-2 border-t border-zinc-800/50 bg-zinc-950/30">
-                        <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest block mb-2">Build Changelog</span>
-                        <div className="text-xs text-zinc-400 font-medium whitespace-pre-wrap max-h-32 overflow-y-auto leading-relaxed border border-zinc-800 p-3 rounded-lg bg-zinc-950/50 italic">
-                            {versionInfo.changelog}
-                        </div>
-                    </div>
-                )}
-
-                {versionInfo && (
-                    <div className="px-6 py-4 bg-zinc-950/30 border-t border-zinc-800/50">
-                        <div className="flex items-center justify-between gap-4">
-                            <div className="flex items-center gap-3">
-                                <div className="p-2 rounded-lg bg-zinc-900 border border-zinc-800">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-500"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+                ) : (
+                    <div className="p-6 space-y-6 animate-in fade-in duration-300">
+                        {/* Setup Doctor Diagnostic Results */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            
+                            {/* Docker Socket Diagnostic Card */}
+                            <div className={`p-5 rounded-2xl border bg-zinc-950/30 transition-all flex flex-col justify-between ${
+                                selfInfo?.available 
+                                    ? 'border-emerald-500/20 hover:border-emerald-500/40' 
+                                    : 'border-amber-500/20 hover:border-amber-500/40 shadow-lg shadow-amber-500/5'
+                            }`}>
+                                <div className="space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-[10px] text-zinc-500 font-black uppercase tracking-wider">Docker Daemon Connectivity</span>
+                                        <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider flex items-center gap-1 ${
+                                            selfInfo?.available ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                        }`}>
+                                            <span className={`w-1.5 h-1.5 rounded-full ${selfInfo?.available ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`} />
+                                            {selfInfo?.available ? 'Active' : 'Missing'}
+                                        </span>
+                                    </div>
+                                    
+                                    <h3 className="text-base font-bold text-white">Docker Socket Check</h3>
+                                    <p className="text-xs text-zinc-400 leading-relaxed">
+                                        {selfInfo?.available 
+                                            ? 'Docker socket /var/run/docker.sock is successfully mapped. Automatic background updates, image pulls, and live self-container configuration checks are fully enabled.'
+                                            : 'Docker socket was not detected inside the container. One-click self updates are disabled. Map /var/run/docker.sock from your host/Unraid to enable updates.'
+                                        }
+                                    </p>
                                 </div>
-                                <div className="flex flex-col">
-                                    <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest">Environment</span>
-                                    <span className="text-xs font-bold text-zinc-200">Docker Container</span>
+                                
+                                {selfInfo && selfInfo.containerName && (
+                                    <div className="mt-4 pt-3 border-t border-zinc-800/80 flex flex-wrap gap-x-4 gap-y-1.5 text-[10px] text-zinc-500 font-mono">
+                                        <span>ID: {selfInfo.containerId?.slice(0, 12)}</span>
+                                        <span>Name: {selfInfo.containerName}</span>
+                                        <span>Image: {selfInfo.image}</span>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Database Writable Diagnostic Card */}
+                            <div className={`p-5 rounded-2xl border bg-zinc-950/30 transition-all flex flex-col justify-between ${
+                                selfInfo?.isDataWritable 
+                                    ? 'border-emerald-500/20 hover:border-emerald-500/40' 
+                                    : 'border-red-500/20 hover:border-red-500/40 shadow-lg shadow-red-500/5'
+                            }`}>
+                                <div className="space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-[10px] text-zinc-500 font-black uppercase tracking-wider">Appdata Folder Perms</span>
+                                        <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider flex items-center gap-1 ${
+                                            selfInfo?.isDataWritable ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                                        }`}>
+                                            <span className={`w-1.5 h-1.5 rounded-full ${selfInfo?.isDataWritable ? 'bg-emerald-400' : 'bg-red-400 animate-pulse'}`} />
+                                            {selfInfo?.isDataWritable ? 'Writable' : 'Error'}
+                                        </span>
+                                    </div>
+                                    
+                                    <h3 className="text-base font-bold text-white">Permissions Check</h3>
+                                    <p className="text-xs text-zinc-400 leading-relaxed">
+                                        {selfInfo?.isDataWritable
+                                            ? 'Database files located at /app/data are fully readable and writable. Schedulearr can safely perform SQL transactions, backups, and save indexer configurations.'
+                                            : 'The application is unable to write files to the database directory. SQLite operations will crash. Fix permissions immediately on the host path.'
+                                        }
+                                    </p>
+                                </div>
+
+                                <div className="mt-4 pt-3 border-t border-zinc-800/80 text-[10px] text-zinc-500 font-mono truncate">
+                                    <span>Detected Host Path: {selfInfo?.dataHostPath || '/mnt/user/appdata/schedulearr/data'}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Setup Doctor Troubleshooter & Dynamic Commands Generator */}
+                        <div className="bg-zinc-950 border border-zinc-800/60 rounded-2xl p-6 space-y-6">
+                            <div>
+                                <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                                    <span className="w-1.5 h-3 bg-emerald-500 rounded-full" />
+                                    Dynamic Troubleshooter & Commands
+                                </h3>
+                                <p className="text-xs text-zinc-500 mt-1">Ready-to-run scripts tailored to your specific host paths. Log in to your Unraid/Host server console and execute these commands directly.</p>
+                            </div>
+
+                            {/* Permission Fix Command Block */}
+                            <div className="space-y-2.5">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs font-bold text-zinc-300">1. Fix Database Directory Permissions</span>
+                                    <span className="text-[10px] text-zinc-500 italic">Host appdata ownership fix</span>
+                                </div>
+                                <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 font-mono text-[11px] text-emerald-400 flex items-center justify-between gap-4 shadow-inner relative overflow-hidden group">
+                                    <div className="space-y-1 break-all pr-12">
+                                        <div><span className="text-zinc-500"># Change ownership to Unraid standard (nobody:users)</span></div>
+                                        <div>chown -R nobody:users {selfInfo?.dataHostPath || '/mnt/user/appdata/schedulearr/data'}</div>
+                                        <div className="mt-1"><span className="text-zinc-500"># Set read/write/execute permissions for directories</span></div>
+                                        <div>chmod -R 775 {selfInfo?.dataHostPath || '/mnt/user/appdata/schedulearr/data'}</div>
+                                    </div>
+                                    <button
+                                        onClick={() => copyToClipboard(`chown -R nobody:users ${selfInfo?.dataHostPath || '/mnt/user/appdata/schedulearr/data'} && chmod -R 775 ${selfInfo?.dataHostPath || '/mnt/user/appdata/schedulearr/data'}`)}
+                                        className="absolute right-4 top-4 p-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-lg transition-colors border border-zinc-700/50"
+                                        title="Copy Commands"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                                    </button>
                                 </div>
                             </div>
 
-                            {!versionInfo.dockerSocketAvailable && (
-                                <details className="group">
-                                    <summary className="list-none cursor-pointer flex items-center justify-end gap-2 text-amber-500 hover:text-amber-400 transition-colors">
-                                        <div className="flex flex-col items-end">
-                                            <span className="text-[10px] font-black uppercase tracking-widest leading-none">Status Check Failed</span>
-                                            <span className="text-[8px] font-bold opacity-60">Click for details</span>
-                                        </div>
-                                        <div className="w-8 h-8 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center group-open:rotate-180 transition-transform">
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m11 17 2 2 5-5"></path><path d="M13 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"></path><path d="M13 3v4a2 2 0 0 0 2 2h4"></path></svg>
-                                        </div>
-                                    </summary>
-                                    <div className="mt-4 p-4 bg-zinc-950 border border-zinc-800 rounded-xl text-xs space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
-                                        <div className="flex items-start gap-3">
-                                            <div className="mt-0.5 p-1 rounded bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.5)]">
-                                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-                                            </div>
-                                            <div className="space-y-2">
-                                                <p className="font-bold text-zinc-100">Docker Socket Not Available</p>
-                                                <p className="text-zinc-400 leading-relaxed">
-                                                    One-click updates require permission to talk to the Docker daemon. To enable this, ensure your container has <code className="bg-zinc-800 px-1 rounded text-emerald-400">/var/run/docker.sock</code> mounted as a volume.
-                                                </p>
-                                                <div className="bg-zinc-900 p-3 rounded-lg border border-zinc-800 font-mono text-[10px] text-zinc-500">
-                                                    services:<br/>
-                                                    &nbsp;&nbsp;schedulearr:<br/>
-                                                    &nbsp;&nbsp;&nbsp;&nbsp;volumes:<br/>
-                                                    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;- /var/run/docker.sock:/var/run/docker.sock
-                                                </div>
-                                            </div>
-                                        </div>
+                            {/* Docker Run Command Block */}
+                            <div className="space-y-2.5">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs font-bold text-zinc-300">2. Launch Container with Docker Socket & Volumes</span>
+                                    <span className="text-[10px] text-zinc-500 italic">Command line run alternative</span>
+                                </div>
+                                <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 font-mono text-[11px] text-emerald-400 flex items-center justify-between gap-4 shadow-inner relative overflow-hidden group">
+                                    <div className="space-y-1 break-all pr-12 leading-relaxed">
+                                        <div>docker run -d \</div>
+                                        <div>&nbsp;&nbsp;--name=Schedulearr \</div>
+                                        <div>&nbsp;&nbsp;-p {selfInfo?.ports?.[0]?.host || 3010}:3010 \</div>
+                                        <div>&nbsp;&nbsp;-v /var/run/docker.sock:/var/run/docker.sock \</div>
+                                        <div>&nbsp;&nbsp;-v {selfInfo?.dataHostPath || '/mnt/user/appdata/schedulearr/data'}:/app/data \</div>
+                                        <div>&nbsp;&nbsp;--restart unless-stopped \</div>
+                                        <div>&nbsp;&nbsp;ghcr.io/pedrogvm97/schedulearr:latest</div>
                                     </div>
-                                </details>
-                            )}
+                                    <button
+                                        onClick={() => copyToClipboard(`docker run -d --name=Schedulearr -p ${selfInfo?.ports?.[0]?.host || 3010}:3010 -v /var/run/docker.sock:/var/run/docker.sock -v ${selfInfo?.dataHostPath || '/mnt/user/appdata/schedulearr/data'}:/app/data --restart unless-stopped ghcr.io/pedrogvm97/schedulearr:latest`)}
+                                        className="absolute right-4 top-4 p-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-lg transition-colors border border-zinc-700/50"
+                                        title="Copy Command"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Unraid Template Config Tips */}
+                            <div className="p-4 bg-zinc-900/50 rounded-xl border border-zinc-800/80 space-y-2">
+                                <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-emerald-400"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                                    Configuring Unraid WebUI Template
+                                </h4>
+                                <p className="text-[11px] text-zinc-400 leading-relaxed">
+                                    In Unraid's Docker page, edit your <strong>Schedulearr</strong> container. Click <strong>"Add another Path, Port, Variable, Label or Device"</strong>. Add a <strong>Path</strong> named <code>Docker Socket</code>, with Container Path <code>/var/run/docker.sock</code> and Host Path <code>/var/run/docker.sock</code>. This connects the updater safely.
+                                </p>
+                            </div>
                         </div>
                     </div>
                 )}
@@ -866,6 +1106,97 @@ export default function Settings() {
                                         <span className="text-xs font-bold text-red-400">Guard is ACTIVE — Scheduler currently paused ({diskInfo.usedPercent}% ≥ {diskPauseThreshold}%)</span>
                                     </div>
                                 )}
+                            </div>
+                        </div>
+
+                        {/* Automated Smart Auto-Clean when full */}
+                        <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-4">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <div className="text-sm font-bold text-zinc-200">Smart Auto-Clean Torrents When Full</div>
+                                    <p className="text-[10px] text-zinc-500 font-medium mt-0.5">
+                                        Automatically delete eligible qBittorrent torrents to free up disk space when the guard threshold is reached.
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        const next = !diskAutocleanEnabled;
+                                        setDiskAutocleanEnabled(next);
+                                        updateSetting('disk_autoclean_enabled', next);
+                                    }}
+                                    className={`w-10 h-5 rounded-full transition-all relative flex-shrink-0 ${ diskAutocleanEnabled ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-zinc-700'}`}
+                                >
+                                    <div className={`w-3 h-3 rounded-full bg-white absolute top-1 transition-all ${diskAutocleanEnabled ? 'left-6' : 'left-1'}`} />
+                                </button>
+                            </div>
+
+                            <div className={`space-y-4 transition-all duration-300 ${diskAutocleanEnabled ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
+                                <div className="border-t border-zinc-900 pt-3 space-y-3">
+                                    <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Delete Selection Criteria</label>
+                                    <div className="flex flex-wrap gap-2">
+                                        {(['largest', 'oldest', 'unplayed'] as const).map(mode => (
+                                            <button
+                                                key={mode}
+                                                type="button"
+                                                onClick={() => {
+                                                    setDiskSmartCleanMode(mode);
+                                                    updateSetting('qbit_smart_clean_mode', mode);
+                                                }}
+                                                className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all border ${
+                                                    diskSmartCleanMode === mode
+                                                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                                        : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                                                }`}
+                                            >
+                                                {mode === 'largest' ? 'Largest Files' : mode === 'oldest' ? 'Oldest Added' : 'Unplayed in Plex'}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="border-t border-zinc-900 pt-3 flex items-center justify-between">
+                                    <div>
+                                        <div className="text-xs font-bold text-zinc-300">Protect Recently Added (Immunity)</div>
+                                        <p className="text-[10px] text-zinc-500 mt-0.5">Skip files added to qBittorrent within the last few days.</p>
+                                    </div>
+                                    <button
+                                        onClick={() => {
+                                            const next = !diskSmartCleanImmunityEnabled;
+                                            setDiskSmartCleanImmunityEnabled(next);
+                                            updateSetting('qbit_smart_clean_immunity_enabled', next);
+                                        }}
+                                        className={`w-10 h-5 rounded-full transition-all relative flex-shrink-0 ${ diskSmartCleanImmunityEnabled ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-zinc-700'}`}
+                                    >
+                                        <div className={`w-3 h-3 rounded-full bg-white absolute top-1 transition-all ${diskSmartCleanImmunityEnabled ? 'left-6' : 'left-1'}`} />
+                                    </button>
+                                </div>
+
+                                {diskSmartCleanImmunityEnabled && (
+                                    <div className="pl-4 border-l-2 border-emerald-500/30 space-y-2 animate-in slide-in-from-left-2 duration-200">
+                                        <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Immunity Threshold (Days)</label>
+                                        <div className="flex items-center gap-3">
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                max="90"
+                                                value={diskSmartCleanImmunityDays}
+                                                onChange={e => {
+                                                    const val = parseInt(e.target.value) || 7;
+                                                    setDiskSmartCleanImmunityDays(val);
+                                                    updateSetting('qbit_smart_clean_immunity_days', val);
+                                                }}
+                                                className="w-20 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:ring-1 focus:ring-emerald-500"
+                                            />
+                                            <span className="text-xs text-zinc-500">Days</span>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="p-3 bg-emerald-500/5 border border-emerald-500/10 rounded-xl">
+                                    <p className="text-[10px] text-emerald-400 font-medium leading-relaxed">
+                                        ⚠️ <strong>CRITICAL NOTE:</strong> Automated cleanup operates <strong>ONLY</strong> when your disk space goes <strong>ABOVE</strong> the allowed fill threshold ({diskPauseThreshold}%). When triggered, the background process will delete the single target torrent according to your selection criteria to free up storage space.
+                                    </p>
+                                </div>
                             </div>
                         </div>
                     </div>
