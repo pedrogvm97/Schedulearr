@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
         }
 
         const instances = getInstances('qbittorrent', true);
-        const instance = instances.find(inst => inst.id === instanceId || inst.id === parseInt(instanceId));
+        const instance = instances.find(inst => inst.id === instanceId || inst.id === String(instanceId));
 
         if (!instance) {
             return NextResponse.json({ error: 'Instance not found' }, { status: 404 });

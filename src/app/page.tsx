@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import HistoryLedger from "@/components/HistoryLedger";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, AreaChart, Area } from 'recharts';
-import { X, ExternalLink, HelpCircle, Film } from 'lucide-react';
+import { X, Film, Info } from 'lucide-react';
 import { MediaDetailsPanel } from "@/components/MediaDetailsPanel";
 
 // --- Interfaces ---
@@ -135,7 +135,8 @@ export default function Dashboard() {
       .then(res => res.json())
       .then(data => {
         setAllSettings(data);
-        if (data.tmdbApiKey) setTmdbApiKey(data.tmdbApiKey);
+        if (data.tmdb_api_key) setTmdbApiKey(data.tmdb_api_key);
+        else if (data.tmdbApiKey) setTmdbApiKey(data.tmdbApiKey);
         if (data.networkInterface) setSelectedInterface(data.networkInterface);
       });
 
@@ -899,56 +900,73 @@ export default function Dashboard() {
                 return (
                   <div
                     key={idx}
-                    onClick={() => handleOpenMedia(dl)}
-                    className="flex items-center gap-4 p-3 rounded-xl bg-zinc-950 border border-zinc-800 flex-shrink-0 transition hover:border-emerald-500/50 hover:bg-zinc-900 cursor-pointer group"
+                    className="flex items-center gap-3 p-3 rounded-xl bg-zinc-950 border border-zinc-800 flex-shrink-0 transition hover:border-emerald-500/30 hover:bg-zinc-900 group relative"
                   >
-                    <div className="w-12 h-18 rounded-lg overflow-hidden flex-shrink-0 bg-zinc-900 border border-zinc-800 relative group-hover:border-emerald-500/30">
+                    {/* Poster */}
+                    <div
+                      onClick={() => handleOpenMedia(dl)}
+                      className="w-10 h-14 rounded-md overflow-hidden flex-shrink-0 bg-zinc-900 border border-zinc-800 group-hover:border-emerald-500/20 cursor-pointer transition-all"
+                    >
                       {dl.poster ? (
-                        <img 
-                          src={dl.poster.startsWith('http') ? `/api/proxy?url=${encodeURIComponent(dl.poster)}` : dl.poster} 
-                          alt="" 
-                          className="w-full h-full object-cover" 
+                        <img
+                          src={dl.poster.startsWith('http') ? `/api/proxy?url=${encodeURIComponent(dl.poster)}` : dl.poster}
+                          alt=""
+                          className="w-full h-full object-cover"
                           onError={(e) => {
-                            (e.target as HTMLImageElement).src = ''; // Clear on error
+                            (e.target as HTMLImageElement).src = '';
                             (e.target as HTMLImageElement).className = 'hidden';
                           }}
                         />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-zinc-700 group-hover:text-emerald-500/50">
-                          <Film size={16} />
+                          <Film size={14} />
                         </div>
                       )}
                     </div>
-                    <div className="flex flex-col min-w-0 flex-1 pr-4">
-                      <span className="text-sm font-semibold text-zinc-200 truncate group-hover:text-white" title={dl.title}>{dl.title}</span>
-                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+
+                    {/* Info */}
+                    <div className="flex flex-col min-w-0 flex-1">
+                      <span
+                        className="text-sm font-semibold text-zinc-200 truncate group-hover:text-white cursor-pointer"
+                        title={dl.title}
+                        onClick={() => handleOpenMedia(dl)}
+                      >
+                        {dl.title}
+                      </span>
+                      <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                         <span className="text-xs text-zinc-500 font-medium">{getAge(dl.date)}</span>
                         <span
-                          title={dl.failureReason || (dl.status === 'Finalized' ? 'Download imported and completed' : dl.status === 'Grabbed' ? 'Sent to download client' : 'Currently in download queue')}
-                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider cursor-help ${dl.status === 'Finalized' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' :
+                          title={dl.failureReason || dl.status}
+                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${dl.status === 'Finalized' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' :
                             dl.status === 'Failed' ? 'bg-red-500/10 text-red-500 border border-red-500/20' :
-                              dl.status === 'Downloading' ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20' :
-                                'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
-                            }`}>
+                            dl.status === 'Downloading' ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20' :
+                            'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
+                          }`}
+                        >
                           {dl.status}
                         </span>
-                        {dl.indexer && dl.indexer !== 'Unknown' && (
-                          <span className="text-[10px] font-bold text-zinc-500 bg-zinc-800/50 px-1.5 py-0.5 rounded border border-zinc-700/50">
-                            {dl.indexer}
+                        {inst && (
+                          <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border" style={{ color: inst.color, borderColor: `${inst.color}40`, backgroundColor: `${inst.color}10` }}>
+                            {inst.name.split(' ')[0]}
                           </span>
                         )}
+                        {dl.indexer && dl.indexer !== 'Unknown' && (
+                          <span className="text-[10px] font-bold text-zinc-500 bg-zinc-800/50 px-1.5 py-0.5 rounded border border-zinc-700/50">{dl.indexer}</span>
+                        )}
                         {dl.size > 0 && (
-                          <span className="text-[10px] font-bold text-zinc-600 bg-zinc-900 px-1.5 py-0.5 rounded">
-                            {(dl.size / (1024 ** 3)).toFixed(2)} GB
-                          </span>
+                          <span className="text-[10px] font-bold text-zinc-600 bg-zinc-900 px-1.5 py-0.5 rounded">{(dl.size / (1024 ** 3)).toFixed(2)} GB</span>
                         )}
                       </div>
                     </div>
-                    {inst && (
-                      <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded-md border flex-shrink-0" style={{ color: inst.color, borderColor: `${inst.color}40`, backgroundColor: `${inst.color}10` }}>
-                        {inst.name}
-                      </span>
-                    )}
+
+                    {/* More Info button */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleOpenMedia(dl); }}
+                      className="flex-shrink-0 p-1.5 bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-md transition-all opacity-0 group-hover:opacity-100"
+                      title="View Media Details"
+                    >
+                      <Info size={14} />
+                    </button>
                   </div>
                 );
               })}

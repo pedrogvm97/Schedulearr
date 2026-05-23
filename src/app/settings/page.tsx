@@ -758,7 +758,10 @@ export default function Settings() {
                                 <div className="flex items-center justify-between">
                                     <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Total Disk Usage</span>
                                     <span className="text-xs font-bold text-zinc-200">
-                                        {(diskInfo.usedBytes / 1e12).toFixed(1)} TB used / {(diskInfo.totalBytes / 1e12).toFixed(1)} TB total
+                                        {diskInfo.totalBytes >= 1e12
+                                            ? `${(diskInfo.usedBytes / 1e12).toFixed(2)} TB used / ${(diskInfo.totalBytes / 1e12).toFixed(2)} TB total`
+                                            : `${(diskInfo.usedBytes / 1e9).toFixed(1)} GB used / ${(diskInfo.totalBytes / 1e9).toFixed(1)} GB total`
+                                        }
                                     </span>
                                 </div>
                                 <div className="relative h-4 bg-zinc-950 rounded-full overflow-hidden border border-zinc-800">
@@ -779,7 +782,7 @@ export default function Settings() {
                                     )}
                                 </div>
                                 <div className="flex justify-between text-[10px] text-zinc-500 font-medium">
-                                    <span>{(diskInfo.freeBytes / 1e12).toFixed(1)} TB free</span>
+                                    <span>{diskInfo.totalBytes >= 1e12 ? `${(diskInfo.freeBytes / 1e12).toFixed(2)} TB free` : `${(diskInfo.freeBytes / 1e9).toFixed(1)} GB free`}</span>
                                     <span className={diskInfo.usedPercent >= diskPauseThreshold && diskPauseEnabled ? 'text-red-400 font-bold' : ''}>{diskInfo.usedPercent}% used</span>
                                 </div>
 
@@ -800,7 +803,12 @@ export default function Settings() {
                                                     <div className="h-1.5 bg-zinc-900 rounded-full overflow-hidden">
                                                         <div className={`h-full rounded-full ${instPct >= 90 ? 'bg-red-500' : instPct >= 75 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${instPct}%` }} />
                                                     </div>
-                                                    <p className="text-[9px] text-zinc-600">{(instFree / 1e9).toFixed(0)} GB free of {(instTotal / 1e9).toFixed(0)} GB</p>
+                                                    <p className="text-[9px] text-zinc-600">
+                                                        {instTotal >= 1e12
+                                                            ? `${(instFree / 1e12).toFixed(2)} TB free of ${(instTotal / 1e12).toFixed(2)} TB`
+                                                            : `${(instFree / 1e9).toFixed(0)} GB free of ${(instTotal / 1e9).toFixed(0)} GB`
+                                                        }
+                                                    </p>
                                                 </div>
                                             );
                                         })}
@@ -930,7 +938,7 @@ export default function Settings() {
                                                 const res = await fetch('/api/system/housekeeping/', {
                                                     method: 'POST',
                                                     headers: { 'Content-Type': 'application/json' },
-                                                    body: JSON.stringify({ maxDays: parseInt(getSettingValue('db_retention_days') || '30') })
+                                                    body: JSON.stringify({ daysToKeep: parseInt(getSettingValue('db_retention_days') || '30') })
                                                 });
                                                 if (res.ok) {
                                                     toast.success("Cleanup complete!");
