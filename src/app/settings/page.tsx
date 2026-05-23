@@ -24,6 +24,13 @@ export default function Settings() {
 
     const [isAuthorModalOpen, setIsAuthorModalOpen] = useState(false);
     const [activeTroubleshootModal, setActiveTroubleshootModal] = useState<'socket' | 'perms' | null>(null);
+    const [confirmModal, setConfirmModal] = useState<{
+        title: string;
+        message: string;
+        confirmLabel?: string;
+        danger?: boolean;
+        onConfirm: () => void;
+    } | null>(null);
 
     const predefinedColors = [
         'bg-red-500', 'bg-orange-500', 'bg-amber-500', 'bg-yellow-500', 'bg-lime-500',
@@ -208,13 +215,21 @@ export default function Settings() {
     };
 
     const handleUpdate = () => {
-        if (!confirm("This will pull the latest Docker image and automatically restart the container to apply updates. The app will be temporarily offline. Proceed?")) return;
-        
-        setUpdating(true);
-        setUpdateLogs([{ type: 'info', message: '[INFO] Connecting to update stream...' }]);
-        
+        setConfirmModal({
+            title: '🚀 Apply Update',
+            message: 'This will pull the latest Docker image and automatically restart the container. The app will be briefly offline while it restarts.',
+            confirmLabel: 'Yes, Update Now',
+            onConfirm: () => {
+                setUpdating(true);
+                setUpdateLogs([{ type: 'info', message: '[INFO] Connecting to update stream...' }]);
+                startUpdateStream();
+            }
+        });
+    };
+
+    const startUpdateStream = () => {
         const eventSource = new EventSource('/api/system/update/stream');
-        
+
         eventSource.addEventListener('log', (event: any) => {
             try {
                 const data = JSON.parse(event.data);
@@ -223,7 +238,7 @@ export default function Settings() {
                 console.error("Failed to parse event data", e);
             }
         });
-        
+
         eventSource.addEventListener('complete', (event: any) => {
             try {
                 const data = JSON.parse(event.data);
@@ -238,11 +253,9 @@ export default function Settings() {
                 console.error("Failed to parse complete event", e);
             }
             eventSource.close();
-            setTimeout(() => {
-                setUpdating(false);
-            }, 8000);
+            setTimeout(() => { setUpdating(false); }, 8000);
         });
-        
+
         eventSource.onerror = (err) => {
             console.error("SSE Connection lost:", err);
             setUpdateLogs(prev => {
@@ -259,6 +272,7 @@ export default function Settings() {
             setUpdating(false);
         };
     };
+
 
     const updateSetting = async (key: string, value: any) => {
         try {
@@ -326,23 +340,29 @@ export default function Settings() {
     };
 
     const handleDelete = async (id: string) => {
-        if (!confirm('Are you sure you want to delete this instance?')) return;
+        setConfirmModal({
+            title: '🗑️ Delete Instance',
+            message: 'Are you sure you want to delete this instance? This cannot be undone.',
+            confirmLabel: 'Delete',
+            danger: true,
+            onConfirm: async () => {
+                try {
+                    const res = await fetch(`/api/instances?id=${id}`, { method: 'DELETE' });
+                    if (!res.ok) throw new Error('Failed to delete instance');
+                    toast.success('Instance deleted successfully');
 
-        try {
-            const res = await fetch(`/api/instances?id=${id}`, { method: 'DELETE' });
-            if (!res.ok) throw new Error('Failed to delete instance');
-            toast.success('Instance deleted successfully');
+                    if (editTargetId === id) {
+                        setEditTargetId(null);
+                        setName(""); setUrl(""); setApiKey(""); setColor('bg-zinc-500');
+                    }
 
-            if (editTargetId === id) {
-                setEditTargetId(null);
-                setName(""); setUrl(""); setApiKey(""); setColor('bg-zinc-500');
+                    fetchInstances();
+                } catch (e: any) {
+                    console.error(e);
+                    toast.error(e.message || 'Failed to delete instance');
+                }
             }
-
-            fetchInstances();
-        } catch (e: any) {
-            console.error(e);
-            toast.error(e.message || 'Failed to delete instance');
-        }
+        });
     };
 
     // Health Badge internal component to fetch its status
@@ -1602,6 +1622,54 @@ export default function Settings() {
                                 onClick={() => setActiveTroubleshootModal(null)}
                             >
                                 Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Custom Confirmation Modal */}
+            {confirmModal && (
+                <div
+                    className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-150"
+                    onClick={() => setConfirmModal(null)}
+                >
+                    <div
+                        className={`bg-zinc-900 border rounded-2xl p-6 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-150 ${
+                            confirmModal.danger ? 'border-red-500/30' : 'border-zinc-700/50'
+                        }`}
+                        onClick={e => e.stopPropagation()}
+                    >
+                        {/* Ambient glow */}
+                        <div className={`absolute -top-20 -right-20 w-40 h-40 rounded-full blur-3xl pointer-events-none opacity-40 ${
+                            confirmModal.danger ? 'bg-red-500/20' : 'bg-emerald-500/15'
+                        }`} />
+
+                        <h3 className="text-lg font-black text-white tracking-tight mb-2">
+                            {confirmModal.title}
+                        </h3>
+                        <p className="text-sm text-zinc-400 leading-relaxed mb-6">
+                            {confirmModal.message}
+                        </p>
+                        <div className="flex items-center gap-3">
+                            <button
+                                className="py-2.5 px-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold rounded-xl transition-all text-xs uppercase tracking-wider border border-zinc-700/50 flex-1"
+                                onClick={() => setConfirmModal(null)}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                className={`py-2.5 px-4 font-black rounded-xl transition-all text-xs uppercase tracking-wider flex-1 shadow-lg active:scale-95 ${
+                                    confirmModal.danger
+                                        ? 'bg-red-500 hover:bg-red-400 text-white shadow-red-500/20'
+                                        : 'bg-emerald-500 hover:bg-emerald-400 text-white shadow-emerald-500/20'
+                                }`}
+                                onClick={() => {
+                                    confirmModal.onConfirm();
+                                    setConfirmModal(null);
+                                }}
+                            >
+                                {confirmModal.confirmLabel || 'Confirm'}
                             </button>
                         </div>
                     </div>
