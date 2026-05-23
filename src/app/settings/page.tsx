@@ -1392,15 +1392,22 @@ export default function Settings() {
                                 </ol>
                             </div>
 
+                            {selfInfo?.reason && (
+                                <div className="p-3.5 bg-zinc-950 border border-zinc-800 rounded-xl font-mono text-[10px] text-zinc-500 leading-relaxed max-h-24 overflow-y-auto custom-scrollbar">
+                                    <span className="font-bold text-zinc-400 block mb-1">Raw Error Reason:</span>
+                                    {selfInfo.reason}
+                                </div>
+                            )}
+
                             <div className="space-y-2">
                                 <div className="flex items-center justify-between">
                                     <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Copy this exact command:</span>
                                 </div>
                                 <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 font-mono text-[11px] text-amber-400 relative group overflow-hidden break-all pr-14 leading-relaxed">
-                                    docker stop Schedulearr || true && docker rm Schedulearr || true && docker run -d --name=Schedulearr -p {selfInfo?.ports?.[0]?.host || 3010}:3010 -v /var/run/docker.sock:/var/run/docker.sock -v {selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'}:/app/data --restart unless-stopped ghcr.io/pedrogvm97/schedulearr:latest
+                                    docker stop Schedulearr; docker rm Schedulearr; docker pull ghcr.io/pedrogvm97/schedulearr:latest && docker run -d --name=Schedulearr -p {selfInfo?.ports?.[0]?.host || 3010}:3010 -v /var/run/docker.sock:/var/run/docker.sock -v {selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'}:/app/data --restart unless-stopped ghcr.io/pedrogvm97/schedulearr:latest
                                     <button
                                         onClick={() => {
-                                            copyToClipboard(`docker stop Schedulearr || true && docker rm Schedulearr || true && docker run -d --name=Schedulearr -p ${selfInfo?.ports?.[0]?.host || 3010}:3010 -v /var/run/docker.sock:/var/run/docker.sock -v ${selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'}:/app/data --restart unless-stopped ghcr.io/pedrogvm97/schedulearr:latest`);
+                                            copyToClipboard(`docker stop Schedulearr; docker rm Schedulearr; docker pull ghcr.io/pedrogvm97/schedulearr:latest && docker run -d --name=Schedulearr -p ${selfInfo?.ports?.[0]?.host || 3010}:3010 -v /var/run/docker.sock:/var/run/docker.sock -v ${selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'}:/app/data --restart unless-stopped ghcr.io/pedrogvm97/schedulearr:latest`);
                                             toast.success('Command copied to clipboard!');
                                         }}
                                         className="absolute right-3 top-1/2 -translate-y-1/2 p-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded-lg transition-colors border border-zinc-800 hover:border-zinc-700 shadow-lg"
@@ -1416,7 +1423,7 @@ export default function Settings() {
                             <button
                                 className="flex-1 py-3 px-4 bg-amber-500 hover:bg-amber-600 text-black font-bold rounded-xl transition-all shadow-lg shadow-amber-500/10 hover:shadow-amber-500/20 text-xs uppercase tracking-wider"
                                 onClick={() => {
-                                    copyToClipboard(`docker stop Schedulearr || true && docker rm Schedulearr || true && docker run -d --name=Schedulearr -p ${selfInfo?.ports?.[0]?.host || 3010}:3010 -v /var/run/docker.sock:/var/run/docker.sock -v ${selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'}:/app/data --restart unless-stopped ghcr.io/pedrogvm97/schedulearr:latest`);
+                                    copyToClipboard(`docker stop Schedulearr; docker rm Schedulearr; docker pull ghcr.io/pedrogvm97/schedulearr:latest && docker run -d --name=Schedulearr -p ${selfInfo?.ports?.[0]?.host || 3010}:3010 -v /var/run/docker.sock:/var/run/docker.sock -v ${selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'}:/app/data --restart unless-stopped ghcr.io/pedrogvm97/schedulearr:latest`);
                                     toast.success('Command copied!');
                                 }}
                             >
