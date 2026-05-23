@@ -97,7 +97,6 @@ function EpisodeList({
     }, [instanceId, seriesId]);
 
     const handleDeleteEpisodeFile = async (episodeFileId: number, epTitle: string) => {
-        if (!confirm(`Are you sure you want to delete the file for episode "${epTitle}"? This will permanently delete the file from your disk.`)) return;
         try {
             const res = await fetch(`/api/sonarr/file?episodeFileId=${episodeFileId}&instanceId=${instanceId}`, {
                 method: 'DELETE'
@@ -112,6 +111,14 @@ function EpisodeList({
         } catch {
             toast.error('Error deleting episode file');
         }
+    };
+
+    const formatEpisodeSize = (bytes?: number) => {
+        if (!bytes) return '';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     };
 
     if (loading) return <div className="flex items-center gap-2 py-4 text-zinc-600 text-xs"><div className="w-3 h-3 border border-zinc-700 border-t-zinc-400 rounded-full animate-spin" /> Loading episodes...</div>;
@@ -159,9 +166,11 @@ function EpisodeList({
                         </span>
                         <div className="flex-1 min-w-0 flex flex-col">
                             <span className={`text-xs truncate ${ep.hasFile ? 'text-zinc-300 font-medium' : 'text-zinc-600'}`}>{ep.title}</span>
-                            {ep.hasFile && ep.episodeFile?.quality?.quality?.name && (
-                                <span className="text-[9px] font-bold text-zinc-600 mt-0.5 uppercase tracking-tighter">
-                                    {ep.episodeFile.quality.quality.name}
+                            {ep.hasFile && (ep.episodeFile?.quality?.quality?.name || ep.episodeFile?.size) && (
+                                <span className="text-[9px] font-bold text-zinc-600 mt-0.5 uppercase tracking-tighter flex items-center gap-1.5">
+                                    {ep.episodeFile?.quality?.quality?.name && <span>{ep.episodeFile.quality.quality.name}</span>}
+                                    {ep.episodeFile?.quality?.quality?.name && ep.episodeFile?.size && <span className="text-zinc-800 font-black">•</span>}
+                                    {ep.episodeFile?.size && <span className="text-emerald-500/80 font-black">{formatEpisodeSize(ep.episodeFile.size)}</span>}
                                 </span>
                             )}
                         </div>

@@ -237,7 +237,6 @@ export function SchedulerQueuePanel() {
     };
 
     const handleDeleteFile = async (type: 'movie' | 'episode', id: number, instanceId: string, fileId: number) => {
-        if (!confirm(`Delete this ${type} file from disk?`)) return;
         const endpoint = type === 'movie' ? `/api/radarr/file?movieFileId=${fileId}&instanceId=${instanceId}` : `/api/sonarr/file?episodeFileId=${fileId}&instanceId=${instanceId}`;
         try {
             const r = await fetch(endpoint, { method: 'DELETE' });

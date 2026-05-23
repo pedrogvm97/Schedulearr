@@ -48,7 +48,7 @@ export async function GET() {
 
     // Find the host path mapping to /app/data
     const dataMount = mounts.find((m: any) => m.container === '/app/data' || m.container === '/app/data/');
-    const dataHostPath = dataMount ? dataMount.host : '/mnt/user/appdata/schedulearr/data';
+    const dataHostPath = dataMount ? dataMount.host : '/mnt/user/appdata/Schedulearr/data';
 
     // Parse ports
     const ports: any[] = [];
@@ -89,7 +89,7 @@ export async function GET() {
       available: false,
       isDataWritable,
       reason: `Failed to talk to Docker socket: ${error.message}`,
-      dataHostPath: '/mnt/user/appdata/schedulearr/data',
+      dataHostPath: '/mnt/user/appdata/Schedulearr/data',
       dataDir
     });
   }

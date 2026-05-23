@@ -875,7 +875,7 @@ export default function Settings() {
                                 </div>
 
                                 <div className="mt-4 pt-3 border-t border-zinc-800/80 text-[10px] text-zinc-500 font-mono truncate">
-                                    <span>Detected Host Path: {selfInfo?.dataHostPath || '/mnt/user/appdata/schedulearr/data'}</span>
+                                    <span>Detected Host Path: {selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'}</span>
                                 </div>
                             </div>
                         </div>
@@ -899,12 +899,12 @@ export default function Settings() {
                                 <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 font-mono text-[11px] text-emerald-400 flex items-center justify-between gap-4 shadow-inner relative overflow-hidden group">
                                     <div className="space-y-1 break-all pr-12">
                                         <div><span className="text-zinc-500"># Change ownership to Unraid standard (nobody:users)</span></div>
-                                        <div>chown -R nobody:users {selfInfo?.dataHostPath || '/mnt/user/appdata/schedulearr/data'}</div>
+                                        <div>chown -R nobody:users {selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'}</div>
                                         <div className="mt-1"><span className="text-zinc-500"># Set read/write/execute permissions for directories</span></div>
-                                        <div>chmod -R 775 {selfInfo?.dataHostPath || '/mnt/user/appdata/schedulearr/data'}</div>
+                                        <div>chmod -R 775 {selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'}</div>
                                     </div>
                                     <button
-                                        onClick={() => copyToClipboard(`chown -R nobody:users ${selfInfo?.dataHostPath || '/mnt/user/appdata/schedulearr/data'} && chmod -R 775 ${selfInfo?.dataHostPath || '/mnt/user/appdata/schedulearr/data'}`)}
+                                        onClick={() => copyToClipboard(`chown -R nobody:users ${selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'} && chmod -R 775 ${selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'}`)}
                                         className="absolute right-4 top-4 p-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-lg transition-colors border border-zinc-700/50"
                                         title="Copy Commands"
                                     >
@@ -921,16 +921,18 @@ export default function Settings() {
                                 </div>
                                 <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 font-mono text-[11px] text-emerald-400 flex items-center justify-between gap-4 shadow-inner relative overflow-hidden group">
                                     <div className="space-y-1 break-all pr-12 leading-relaxed">
+                                        <div>docker stop Schedulearr || true && \</div>
+                                        <div>docker rm Schedulearr || true && \</div>
                                         <div>docker run -d \</div>
                                         <div>&nbsp;&nbsp;--name=Schedulearr \</div>
                                         <div>&nbsp;&nbsp;-p {selfInfo?.ports?.[0]?.host || 3010}:3010 \</div>
                                         <div>&nbsp;&nbsp;-v /var/run/docker.sock:/var/run/docker.sock \</div>
-                                        <div>&nbsp;&nbsp;-v {selfInfo?.dataHostPath || '/mnt/user/appdata/schedulearr/data'}:/app/data \</div>
+                                        <div>&nbsp;&nbsp;-v {selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'}:/app/data \</div>
                                         <div>&nbsp;&nbsp;--restart unless-stopped \</div>
                                         <div>&nbsp;&nbsp;ghcr.io/pedrogvm97/schedulearr:latest</div>
                                     </div>
                                     <button
-                                        onClick={() => copyToClipboard(`docker run -d --name=Schedulearr -p ${selfInfo?.ports?.[0]?.host || 3010}:3010 -v /var/run/docker.sock:/var/run/docker.sock -v ${selfInfo?.dataHostPath || '/mnt/user/appdata/schedulearr/data'}:/app/data --restart unless-stopped ghcr.io/pedrogvm97/schedulearr:latest`)}
+                                        onClick={() => copyToClipboard(`docker stop Schedulearr || true && docker rm Schedulearr || true && docker run -d --name=Schedulearr -p ${selfInfo?.ports?.[0]?.host || 3010}:3010 -v /var/run/docker.sock:/var/run/docker.sock -v ${selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'}:/app/data --restart unless-stopped ghcr.io/pedrogvm97/schedulearr:latest`)}
                                         className="absolute right-4 top-4 p-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-lg transition-colors border border-zinc-700/50"
                                         title="Copy Command"
                                     >
