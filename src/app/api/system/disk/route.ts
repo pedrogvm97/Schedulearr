@@ -15,6 +15,20 @@ async function fetchRootFolders(url: string, apiKey: string): Promise<any[]> {
     }
 }
 
+async function fetchDiskSpace(url: string, apiKey: string): Promise<any[]> {
+    try {
+        const res = await fetch(`${url.replace(/\/$/, '')}/api/v3/diskspace`, {
+            headers: { 'X-Api-Key': apiKey },
+            next: { revalidate: 0 },
+            signal: AbortSignal.timeout(5000)
+        });
+        if (!res.ok) return [];
+        return await res.json();
+    } catch {
+        return [];
+    }
+}
+
 export async function GET() {
     const radarrs = getInstances('radarr', true);
     const sonarrs = getInstances('sonarr', true);
@@ -24,7 +38,10 @@ export async function GET() {
     const byInstance: { id: string; name: string; type: string; folders: { path: string; freeBytes: number; totalBytes: number }[] }[] = [];
 
     for (const inst of [...radarrs, ...sonarrs]) {
-        const folders = await fetchRootFolders(inst.url, inst.api_key);
+        let folders = await fetchDiskSpace(inst.url, inst.api_key);
+        if (folders.length === 0) {
+            folders = await fetchRootFolders(inst.url, inst.api_key);
+        }
         const instFolders = folders.map((f: any) => {
             const free = f.freeSpace ?? 0;
             let total = f.totalSpace ?? 0;
