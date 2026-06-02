@@ -1074,12 +1074,21 @@ export default function Settings() {
                             <div className="space-y-3">
                                 <div className="flex items-center justify-between">
                                     <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Total Disk Usage</span>
-                                    <span className="text-xs font-bold text-zinc-200">
-                                        {diskInfo.totalBytes >= 1e12
-                                            ? `${(diskInfo.usedBytes / 1e12).toFixed(2)} TB used / ${(diskInfo.totalBytes / 1e12).toFixed(2)} TB total`
-                                            : `${(diskInfo.usedBytes / 1e9).toFixed(1)} GB used / ${(diskInfo.totalBytes / 1e9).toFixed(1)} GB total`
-                                        }
-                                    </span>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs font-bold text-zinc-200">
+                                            {diskInfo.totalBytes >= 1e12
+                                                ? `${(diskInfo.usedBytes / 1e12).toFixed(2)} TB used / ${(diskInfo.totalBytes / 1e12).toFixed(2)} TB total`
+                                                : `${(diskInfo.usedBytes / 1e9).toFixed(1)} GB used / ${(diskInfo.totalBytes / 1e9).toFixed(1)} GB total`
+                                            }
+                                        </span>
+                                        <button
+                                            onClick={() => fetch('/api/system/disk').then(r => r.ok ? r.json() : null).then(d => { if (d) setDiskInfo(d); }).catch(() => {})}
+                                            className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"
+                                            title="Refresh disk info"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+                                        </button>
+                                    </div>
                                 </div>
                                 <div className="relative h-4 bg-zinc-950 rounded-full overflow-hidden border border-zinc-800">
                                     <div

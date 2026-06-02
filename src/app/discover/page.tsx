@@ -83,6 +83,8 @@ function EpisodeList({
     const [episodes, setEpisodes] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
+    const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+    const [deletingId, setDeletingId] = useState<number | null>(null);
 
     useEffect(() => {
         fetch(`/api/sonarr/episodes?instanceId=${instanceId}&seriesId=${seriesId}`)
@@ -97,19 +99,22 @@ function EpisodeList({
     }, [instanceId, seriesId]);
 
     const handleDeleteEpisodeFile = async (episodeFileId: number, epTitle: string) => {
+        setDeletingId(episodeFileId);
         try {
             const res = await fetch(`/api/sonarr/file?episodeFileId=${episodeFileId}&instanceId=${instanceId}`, {
                 method: 'DELETE'
             });
             if (res.ok) {
                 toast.success(`Deleted file for "${epTitle}"`);
-                // Update local state to immediately show it as missing
                 setEpisodes(prev => prev.map(e => e.episodeFile?.id === episodeFileId ? { ...e, hasFile: false, episodeFile: null } : e));
+                setConfirmDeleteId(null);
             } else {
                 toast.error('Failed to delete episode file');
             }
         } catch {
             toast.error('Error deleting episode file');
+        } finally {
+            setDeletingId(null);
         }
     };
 
@@ -159,52 +164,110 @@ function EpisodeList({
 
             {/* Episode List */}
             <div className="space-y-1.5 max-h-64 overflow-y-auto custom-scrollbar pr-2">
-                {seasonEps.map(ep => (
-                    <div key={ep.id} className={`group/ep flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all ${ep.hasFile ? 'border-zinc-800 bg-zinc-950/30' : 'border-zinc-900/50 hover:bg-zinc-900/20'}`}>
-                        <span className={`text-[10px] font-black w-8 flex-shrink-0 ${ep.hasFile ? 'text-emerald-500' : 'text-zinc-700'}`}>
-                            E{String(ep.episodeNumber).padStart(2, '0')}
-                        </span>
-                        <div className="flex-1 min-w-0 flex flex-col">
-                            <span className={`text-xs truncate ${ep.hasFile ? 'text-zinc-300 font-medium' : 'text-zinc-600'}`}>{ep.title}</span>
-                            {ep.hasFile && (ep.episodeFile?.quality?.quality?.name || ep.episodeFile?.size) && (
-                                <span className="text-[9px] font-bold text-zinc-600 mt-0.5 uppercase tracking-tighter flex items-center gap-1.5">
-                                    {ep.episodeFile?.quality?.quality?.name && <span>{ep.episodeFile.quality.quality.name}</span>}
-                                    {ep.episodeFile?.quality?.quality?.name && ep.episodeFile?.size && <span className="text-zinc-800 font-black">•</span>}
-                                    {ep.episodeFile?.size && <span className="text-emerald-500/80 font-black">{formatEpisodeSize(ep.episodeFile.size)}</span>}
+                {seasonEps.map(ep => {
+                    const fileId = ep.episodeFile?.id;
+                    const isConfirming = confirmDeleteId === fileId;
+                    const isDeleting = deletingId === fileId;
+                    const qualityName = ep.episodeFile?.quality?.quality?.name;
+                    const qualityRevision = ep.episodeFile?.quality?.revision?.real > 0 ? ` Proper` : ep.episodeFile?.quality?.revision?.version > 1 ? ` v${ep.episodeFile.quality.revision.version}` : '';
+                    const codec = ep.episodeFile?.mediaInfo?.videoCodec || ep.episodeFile?.mediaInfo?.videoFormat || null;
+                    const audioChannels = ep.episodeFile?.mediaInfo?.audioChannels;
+                    const resolution = ep.episodeFile?.mediaInfo?.resolution;
+
+                    return (
+                        <div key={ep.id} className={`flex flex-col rounded-xl border transition-all ${
+                            isConfirming ? 'border-red-500/40 bg-red-950/20' :
+                            ep.hasFile ? 'border-zinc-800 bg-zinc-950/30' : 'border-zinc-900/50'
+                        }`}>
+                            {/* Main row */}
+                            <div className="group/ep flex items-center gap-3 px-3 py-2.5">
+                                <span className={`text-[10px] font-black w-8 flex-shrink-0 ${ep.hasFile ? 'text-emerald-500' : 'text-zinc-700'}`}>
+                                    E{String(ep.episodeNumber).padStart(2, '0')}
                                 </span>
+                                <div className="flex-1 min-w-0 flex flex-col">
+                                    <span className={`text-xs truncate ${ep.hasFile ? 'text-zinc-300 font-medium' : 'text-zinc-600'}`}>{ep.title}</span>
+                                    {ep.hasFile && (
+                                        <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5 mt-0.5">
+                                            {qualityName && (
+                                                <span className="text-[9px] font-black text-indigo-400/80 uppercase tracking-tight">
+                                                    {qualityName}{qualityRevision}
+                                                </span>
+                                            )}
+                                            {resolution && (
+                                                <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tight">{resolution}</span>
+                                            )}
+                                            {codec && (
+                                                <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tight">{codec}</span>
+                                            )}
+                                            {audioChannels && (
+                                                <span className="text-[9px] font-black text-zinc-600 uppercase tracking-tight">{audioChannels}ch</span>
+                                            )}
+                                            {ep.episodeFile?.size && (
+                                                <span className="text-[9px] font-black text-emerald-500/70 uppercase tracking-tight">{formatEpisodeSize(ep.episodeFile.size)}</span>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="flex items-center gap-1.5 opacity-0 group-hover/ep:opacity-100 transition-opacity">
+                                    <button
+                                        onClick={() => onInteractiveSearch?.(ep)}
+                                        title="Interactive Search"
+                                        className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"
+                                    >
+                                        <Search size={12} />
+                                    </button>
+                                    <button
+                                        onClick={() => onQuickSearch?.({ type: 'episode', id: ep.id, instanceId })}
+                                        title="Automatic Quick Search"
+                                        className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-emerald-400 transition-all"
+                                    >
+                                        <PlayCircle size={12} />
+                                    </button>
+                                    {ep.hasFile && fileId && (
+                                        <button
+                                            onClick={() => setConfirmDeleteId(isConfirming ? null : fileId)}
+                                            title={isConfirming ? 'Cancel' : 'Delete Episode File'}
+                                            className={`p-1.5 rounded-lg border transition-all ${
+                                                isConfirming
+                                                    ? 'bg-red-500/20 border-red-500/40 text-red-400'
+                                                    : 'bg-red-500/10 border-red-500/20 text-red-500 hover:bg-red-500 hover:text-white'
+                                            }`}
+                                        >
+                                            <Trash2 size={12} />
+                                        </button>
+                                    )}
+                                </div>
+
+                                {!ep.hasFile && <span className="text-[9px] text-zinc-700 font-black tracking-widest uppercase flex-shrink-0">Missing</span>}
+                                {ep.hasFile && !isConfirming && <CheckCircle size={10} className="text-emerald-500/50 flex-shrink-0" />}
+                            </div>
+
+                            {/* Inline delete confirmation row */}
+                            {isConfirming && (
+                                <div className="flex items-center justify-between gap-3 px-3 pb-2.5 pt-0">
+                                    <span className="text-[9px] font-black text-red-400 uppercase tracking-widest">Delete this file permanently?</span>
+                                    <div className="flex items-center gap-1.5">
+                                        <button
+                                            onClick={() => setConfirmDeleteId(null)}
+                                            className="px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest bg-zinc-900 border border-zinc-700 text-zinc-400 hover:text-white transition-all"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            onClick={() => handleDeleteEpisodeFile(fileId, ep.title)}
+                                            disabled={isDeleting}
+                                            className="px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest bg-red-500 text-white hover:bg-red-600 transition-all flex items-center gap-1 disabled:opacity-50"
+                                        >
+                                            {isDeleting ? <div className="w-2.5 h-2.5 border border-white/20 border-t-white rounded-full animate-spin" /> : <Trash2 size={9} />}
+                                            Confirm Delete
+                                        </button>
+                                    </div>
+                                </div>
                             )}
                         </div>
-
-                        <div className="flex items-center gap-1.5 opacity-0 group-hover/ep:opacity-100 transition-opacity">
-                            <button
-                                onClick={() => onInteractiveSearch?.(ep)}
-                                title="Interactive Search"
-                                className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"
-                            >
-                                <Search size={12} />
-                            </button>
-                            <button
-                                onClick={() => onQuickSearch?.({ type: 'episode', id: ep.id, instanceId })}
-                                title="Automatic Quick Search"
-                                className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-emerald-400 transition-all"
-                            >
-                                <PlayCircle size={12} />
-                            </button>
-                            {ep.hasFile && ep.episodeFile?.id && (
-                                <button
-                                    onClick={() => handleDeleteEpisodeFile(ep.episodeFile.id, ep.title)}
-                                    title="Delete Episode File"
-                                    className="p-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 hover:bg-red-500 hover:text-white transition-all"
-                                >
-                                    <Trash2 size={12} />
-                                </button>
-                            )}
-                        </div>
-
-                        {!ep.hasFile && <span className="text-[9px] text-zinc-700 font-black tracking-widest uppercase flex-shrink-0">Missing</span>}
-                        {ep.hasFile && <CheckCircle size={10} className="text-emerald-500/50 flex-shrink-0" />}
-                    </div>
-                ))}
+                    );
+                })}
             </div>
         </div>
     );
@@ -1570,6 +1633,21 @@ export default function DiscoverPage() {
                 isLoading={loadingReleases}
                 triggeringReleaseGuid={triggeringReleaseGuid}
                 onTriggerDownload={handleTriggerDownload}
+            />
+
+            {/* Delete Media Modal — was imported but never rendered; this is why all deletes were silent */}
+            <DeleteMediaModal
+                isOpen={deleteModalOpen}
+                item={itemToDelete ? {
+                    id: itemToDelete.id,
+                    instanceId: itemToDelete.instanceId,
+                    title: itemToDelete.title || 'Unknown',
+                    type: itemToDeleteType,
+                    path: itemToDelete.path,
+                } : null}
+                onClose={() => { setDeleteModalOpen(false); setItemToDelete(null); }}
+                onConfirm={handleFinalDelete}
+                loading={isDeleting}
             />
         </div >
     );

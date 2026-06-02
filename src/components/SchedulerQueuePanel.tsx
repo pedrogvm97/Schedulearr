@@ -17,6 +17,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { SortableItem } from '@/components/SortableItem';
 import { Search, Trash2, RefreshCw, Film, Tv } from 'lucide-react';
 import { MediaDetailsPanel } from '@/components/MediaDetailsPanel';
+import { DeleteMediaModal } from '@/components/DeleteMediaModal';
 
 // ── Types ─────────────────────────────────────────────
 interface SchedulerConfig {
@@ -119,6 +120,9 @@ export function SchedulerQueuePanel() {
     const [selectedMedia, setSelectedMedia] = useState<any>(null);
     const [libStatus, setLibStatus] = useState<any>(null);
     const [tmdbApiKey, setTmdbApiKey] = useState('');
+    // Delete confirmation
+    const [confirmDeleteTarget, setConfirmDeleteTarget] = useState<{ type: 'movie' | 'episode'; id: number; instanceId: string; fileId: number; title: string } | null>(null);
+    const [isDeletingFile, setIsDeletingFile] = useState(false);
 
     const sensors = useSensors(
         useSensor(PointerSensor),
@@ -242,13 +246,22 @@ export function SchedulerQueuePanel() {
         try { await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'priority_profile', value: val }) }); } catch { }
     };
 
-    const handleDeleteFile = async (type: 'movie' | 'episode', id: number, instanceId: string, fileId: number) => {
+    const handleDeleteFile = (type: 'movie' | 'episode', id: number, instanceId: string, fileId: number, title: string) => {
+        setConfirmDeleteTarget({ type, id, instanceId, fileId, title });
+    };
+
+    const executeDeleteFile = async () => {
+        if (!confirmDeleteTarget) return;
+        const { type, fileId, instanceId } = confirmDeleteTarget;
+        setIsDeletingFile(true);
         const endpoint = type === 'movie' ? `/api/radarr/file?movieFileId=${fileId}&instanceId=${instanceId}` : `/api/sonarr/file?episodeFileId=${fileId}&instanceId=${instanceId}`;
         try {
             const r = await fetch(endpoint, { method: 'DELETE' });
             const d = await r.json();
-            if (d.success) { toast.success('File deleted'); fetchData(); } else toast.error(d.error || 'Failed to delete');
+            if (d.success) { toast.success('File deleted'); setConfirmDeleteTarget(null); fetchData(); }
+            else toast.error(d.error || 'Failed to delete');
         } catch { toast.error('Error deleting file'); }
+        finally { setIsDeletingFile(false); }
     };
 
     const handleInteractiveSearch = async (type: string, id: number, instanceId: string, title: string) => {
@@ -639,7 +652,7 @@ export function SchedulerQueuePanel() {
                                                         {item.type === 'movie' && item.hasFile && item.movieFile && (
                                                             <button 
                                                                 onPointerDown={e => e.stopPropagation()} 
-                                                                onClick={e => { e.stopPropagation(); handleDeleteFile('movie', item.id, item.instanceId, item.movieFile.id); }}
+                                                                onClick={e => { e.stopPropagation(); handleDeleteFile('movie', item.id, item.instanceId, item.movieFile.id, item.title); }}
                                                                 className="p-2.5 rounded-xl bg-red-500/5 border border-red-500/20 text-red-500 hover:bg-red-500 hover:text-white transition-all"
                                                                 title="Delete Movie File"
                                                             >
@@ -691,7 +704,7 @@ export function SchedulerQueuePanel() {
                                                             </div>
                                                             <div className="flex items-center gap-2">
                                                                 {ep.hasFile && ep.episodeFileId && (
-                                                                    <button onClick={e => { e.stopPropagation(); handleDeleteFile('episode', ep.id, item.instanceId, ep.episodeFileId!); }} className="p-1 text-rose-500 hover:bg-rose-500/10 rounded"><Trash2 size={12} /></button>
+                                                                    <button onClick={e => { e.stopPropagation(); handleDeleteFile('episode', ep.id, item.instanceId, ep.episodeFileId!, `${item.title} S${String(ep.seasonNumber).padStart(2,'0')}E${String(ep.episodeNumber).padStart(2,'0')}`); }} className="p-1 text-rose-500 hover:bg-rose-500/10 rounded"><Trash2 size={12} /></button>
                                                                 )}
                                                                 {!ep.hasFile && ep.monitored && new Date(ep.airDateUtc || '').getTime() < Date.now() && (
                                                                     <>
@@ -781,6 +794,20 @@ export function SchedulerQueuePanel() {
                     onQuickSearch={(payload) => handleForceSearch({ id: payload.id, instanceId: payload.instanceId, type: payload.type })}
                 />
             )}
+
+            {/* File Delete Confirmation Modal */}
+            <DeleteMediaModal
+                isOpen={!!confirmDeleteTarget}
+                item={confirmDeleteTarget ? {
+                    id: confirmDeleteTarget.fileId,
+                    instanceId: confirmDeleteTarget.instanceId,
+                    title: confirmDeleteTarget.title,
+                    type: confirmDeleteTarget.type === 'movie' ? 'movie' : 'series',
+                } : null}
+                onClose={() => setConfirmDeleteTarget(null)}
+                onConfirm={executeDeleteFile}
+                loading={isDeletingFile}
+            />
         </div>
     );
 }
