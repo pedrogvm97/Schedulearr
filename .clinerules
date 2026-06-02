@@ -1,0 +1,10 @@
+# Codebase Rules
+
+## Version Bumping Rule (CRITICAL)
+- **Always bump the version number** in `package.json` whenever you make any code changes, fixes, or add new features before committing and pushing.
+- **Why?** The auto-updater and Docker publish workflow rely on the version tag in `package.json` to generate new Docker images and GitHub releases. If the version is not bumped, the auto-updater will not detect any updates.
+- **How to bump:**
+  1. Locate `package.json` in the root directory.
+  2. Increment the version number (e.g. patch level: `0.1.4` -> `0.1.5`).
+  3. Run `npm install` to synchronize the version number in `package-lock.json`.
+  4. Include the version bump in your git commit.
