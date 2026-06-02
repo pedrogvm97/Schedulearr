@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
+import { findSelfContainer } from './docker';
 
 declare global {
   var _schedulearrAutoUpdater: {
@@ -78,11 +79,15 @@ async function checkAndUpdate() {
       timeout: 300000,
     });
 
-    // Resolve image name from running container
+    // Resolve container info and image name
     let imageName = 'ghcr.io/pedrogvm97/schedulearr:latest';
+    let containerId = hostname;
     try {
-      const selfRes = await docker.get(`/containers/${hostname}/json`);
-      imageName = selfRes.data?.Config?.Image || imageName;
+      const containerInfo = await findSelfContainer(docker, hostname);
+      if (containerInfo) {
+        imageName = containerInfo.Config?.Image || imageName;
+        containerId = containerInfo.Id || hostname;
+      }
     } catch (_) {}
 
     let fromImage = imageName;
@@ -100,7 +105,7 @@ async function checkAndUpdate() {
     // Restart container after a short delay
     setTimeout(async () => {
       try {
-        await docker.post(`/containers/${hostname}/restart`);
+        await docker.post(`/containers/${containerId}/restart`);
         console.log('[AutoUpdater] Container restarted successfully.');
       } catch (e: any) {
         console.error('[AutoUpdater] Failed to restart container:', e.message);

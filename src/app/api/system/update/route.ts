@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import axios from 'axios';
+import { findSelfContainer } from '@/lib/docker';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,13 +23,17 @@ export async function POST() {
       timeout: 180000 // 3 minutes for pull
     });
 
-    // 1. Identify image name
+    // 1. Identify image name and container ID
     let imageName = 'ghcr.io/pedrogvm97/schedulearr:latest';
+    let containerId = hostname;
     try {
-      const selfRes = await docker.get(`/containers/${hostname}/json`);
-      imageName = selfRes.data?.Config?.Image || imageName;
+      const containerInfo = await findSelfContainer(docker, hostname);
+      if (containerInfo) {
+        imageName = containerInfo.Config?.Image || imageName;
+        containerId = containerInfo.Id || hostname;
+      }
     } catch (e) {
-      console.warn('Could not read container config, using default image name');
+      console.warn('Could not read container config, using defaults');
     }
 
     // 2. Pull the latest image
@@ -49,12 +54,12 @@ export async function POST() {
     }
 
     // 3. Restart container via Docker socket
-    console.log(`Sending restart signal to container ${hostname}`);
+    console.log(`Sending restart signal to container ${containerId}`);
     try {
       // Trigger container restart asynchronously so we can return the response before the container goes down
       setTimeout(async () => {
         try {
-          await docker.post(`/containers/${hostname}/restart`);
+          await docker.post(`/containers/${containerId}/restart`);
         } catch (e: any) {
           console.error('Failed to trigger restart in background:', e.message);
         }

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import axios from 'axios';
+import { findSelfContainer } from '@/lib/docker';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,18 +30,18 @@ export async function GET() {
   }
 
   try {
-    let containerIdentifier = 'Schedulearr'; // standard fallback container name
+    let hostname = 'localhost';
     try {
       if (fs.existsSync('/etc/hostname')) {
         const id = fs.readFileSync('/etc/hostname', 'utf8').trim();
         if (id && id !== '0.0.0.0' && id !== 'localhost') {
-          containerIdentifier = id;
+          hostname = id;
         }
       } else if (process.env.HOSTNAME && process.env.HOSTNAME !== '0.0.0.0' && process.env.HOSTNAME !== 'localhost') {
-        containerIdentifier = process.env.HOSTNAME;
+        hostname = process.env.HOSTNAME;
       }
     } catch (e) {
-      console.warn('Failed to resolve container hostname, falling back to Schedulearr:', e);
+      console.warn('Failed to resolve container hostname:', e);
     }
 
     const docker = axios.create({
@@ -49,33 +50,10 @@ export async function GET() {
       timeout: 5000
     });
 
-    // Try containerIdentifier (either container ID from /etc/hostname or 'Schedulearr')
-    let response;
-    try {
-      response = await docker.get(`/containers/${containerIdentifier}/json`);
-    } catch (err: any) {
-      // If that fails (e.g. 404), fall back to standard container names or try short ID/lowercase
-      console.warn(`Failed to query container via '${containerIdentifier}', trying fallback...`);
-      try {
-        response = await docker.get('/containers/Schedulearr/json');
-      } catch {
-        try {
-          response = await docker.get('/containers/schedulearr/json');
-        } catch {
-          // If all specific queries fail, query /containers/json and find the one that has Schedulearr in its name
-          const allContainers = await docker.get('/containers/json?all=true');
-          const selfContainer = (allContainers.data || []).find((c: any) => 
-            c.Names?.some((n: string) => n.toLowerCase().includes('schedulearr'))
-          );
-          if (selfContainer) {
-            response = await docker.get(`/containers/${selfContainer.Id}/json`);
-          } else {
-            throw err; // throw original error if no container found
-          }
-        }
-      }
+    const data = await findSelfContainer(docker, hostname);
+    if (!data) {
+      throw new Error(`Failed to find container info for hostname: ${hostname}`);
     }
-    const data = response.data;
 
     const mounts = (data.Mounts || []).map((m: any) => ({
       host: m.Source,

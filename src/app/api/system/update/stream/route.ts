@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import axios from 'axios';
+import { findSelfContainer } from '@/lib/docker';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,11 +38,14 @@ export async function GET() {
         sendEvent('log', { type: 'info', message: `[INFO] Identifying container (ID: ${hostname})...` });
         let containerInfo: any = null;
         try {
-          const selfRes = await docker.get(`/containers/${hostname}/json`);
-          containerInfo = selfRes.data;
-          sendEvent('log', { type: 'info', message: `[OK] Identified container: ${containerInfo.Name} (${containerInfo.Config.Image})` });
+          containerInfo = await findSelfContainer(docker, hostname);
+          if (containerInfo) {
+            sendEvent('log', { type: 'info', message: `[OK] Identified container: ${containerInfo.Name} (${containerInfo.Config?.Image || 'unknown image'})` });
+          } else {
+            sendEvent('log', { type: 'warn', message: `[WARN] Could not identify container metadata via API. Proceeding with defaults...` });
+          }
         } catch (err: any) {
-          sendEvent('log', { type: 'warn', message: `[WARN] Could not identify container metadata via API: ${err.message}. Proceeding with default pull...` });
+          sendEvent('log', { type: 'warn', message: `[WARN] Error identifying container: ${err.message}. Proceeding with defaults...` });
         }
 
         // Step 2: Pull image
@@ -109,12 +113,13 @@ export async function GET() {
         sendEvent('log', { type: 'success', message: '[OK] Latest image pulled successfully!' });
 
         // Step 3: Restart container
-        sendEvent('log', { type: 'info', message: '[INFO] Sending restart signal to container...' });
+        const containerId = containerInfo?.Id || hostname;
+        sendEvent('log', { type: 'info', message: `[INFO] Sending restart signal to container (ID: ${containerId})...` });
         
         // We delay the actual restart call slightly so the user sees the success message in the log
         setTimeout(async () => {
           try {
-            await docker.post(`/containers/${hostname}/restart`);
+            await docker.post(`/containers/${containerId}/restart`);
             sendEvent('log', { type: 'success', message: '[OK] Restart command acknowledged. The container is restarting now...' });
             sendEvent('complete', { success: true });
           } catch (restartErr: any) {
