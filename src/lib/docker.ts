@@ -67,9 +67,14 @@ export async function findSelfContainer(docker: any, hostname: string): Promise<
 
     // Check by name case-insensitively
     const hostnameLower = hostname.toLowerCase();
+    const isGenericHost = hostnameLower === '0.0.0.0' || hostnameLower === 'localhost' || hostnameLower === '127.0.0.1';
+    
     for (const container of containers) {
       const names = container.Names || [];
-      const hasNameMatch = names.some((n: string) => n.replace(/^\//, '').toLowerCase() === hostnameLower);
+      const hasNameMatch = names.some((n: string) => {
+        const cleaned = n.replace(/^\//, '').toLowerCase();
+        return (!isGenericHost && cleaned === hostnameLower) || cleaned === 'schedulearr';
+      });
       if (hasNameMatch) {
         try {
           const res = await docker.get(`/containers/${container.Id}/json`);
