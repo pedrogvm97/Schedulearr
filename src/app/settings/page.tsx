@@ -140,6 +140,41 @@ export default function Settings() {
     const [diskSmartCleanImmunityEnabled, setDiskSmartCleanImmunityEnabled] = useState(false);
     const [diskSmartCleanImmunityDays, setDiskSmartCleanImmunityDays] = useState(7);
     const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(false);
+    const [candidates, setCandidates] = useState<any[]>([]);
+    const [ignoredKeys, setIgnoredKeys] = useState<string[]>([]);
+    const [loadingCandidates, setLoadingCandidates] = useState(false);
+
+    const fetchCandidates = async () => {
+        setLoadingCandidates(true);
+        try {
+            const res = await fetch('/api/media/smart-clean-candidates');
+            if (res.ok) {
+                const data = await res.json();
+                if (Array.isArray(data.candidates)) {
+                    setCandidates(data.candidates);
+                }
+            }
+        } catch (e) {
+            console.error('Failed to fetch candidates', e);
+        } finally {
+            setLoadingCandidates(false);
+        }
+    };
+
+    const toggleIgnoreCandidate = async (key: string) => {
+        const nextIgnored = ignoredKeys.includes(key)
+            ? ignoredKeys.filter(k => k !== key)
+            : [...ignoredKeys, key];
+        setIgnoredKeys(nextIgnored);
+        await updateSetting('media_smart_clean_ignored_keys', JSON.stringify(nextIgnored));
+        setCandidates(prev => prev.map(c => c.key === key ? { ...c, ignored: !c.ignored } : c));
+    };
+
+    useEffect(() => {
+        if (isDiskOpen && diskAutocleanEnabled) {
+            fetchCandidates();
+        }
+    }, [isDiskOpen, diskAutocleanEnabled, diskSmartCleanMode, diskSmartCleanImmunityEnabled, diskSmartCleanImmunityDays]);
 
     const fetchInstances = async () => {
         setLoading(true);
@@ -156,6 +191,11 @@ export default function Settings() {
                 setTmdbApiKey(sData.tmdb_api_key || "");
                 setTmdbInput(sData.tmdb_api_key || "");
                 setTmdbState(sData.tmdb_api_key ? 'view' : 'edit');
+                if (sData.media_smart_clean_ignored_keys) {
+                    try {
+                        setIgnoredKeys(JSON.parse(sData.media_smart_clean_ignored_keys));
+                    } catch {}
+                }
             }
         } catch (e) {
             console.error(e);
@@ -180,6 +220,13 @@ export default function Settings() {
         if (allSettings.qbit_smart_clean_immunity_enabled) setDiskSmartCleanImmunityEnabled(allSettings.qbit_smart_clean_immunity_enabled === 'true');
         if (allSettings.qbit_smart_clean_immunity_days) setDiskSmartCleanImmunityDays(parseInt(allSettings.qbit_smart_clean_immunity_days) || 7);
         if (allSettings.auto_update_enabled !== undefined) setAutoUpdateEnabled(allSettings.auto_update_enabled === 'true');
+        if (allSettings.media_smart_clean_ignored_keys) {
+            try {
+                setIgnoredKeys(JSON.parse(allSettings.media_smart_clean_ignored_keys));
+            } catch {
+                setIgnoredKeys([]);
+            }
+        }
     }, [allSettings]);
 
     const fetchSelfInfo = async () => {
@@ -1199,9 +1246,9 @@ export default function Settings() {
                         <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-4">
                             <div className="flex items-center justify-between">
                                 <div>
-                                    <div className="text-sm font-bold text-zinc-200">Smart Auto-Clean Torrents When Full</div>
+                                    <div className="text-sm font-bold text-zinc-200">Smart Auto-Clean Library Media When Full</div>
                                     <p className="text-[10px] text-zinc-500 font-medium mt-0.5">
-                                        Automatically delete eligible qBittorrent torrents to free up disk space when the guard threshold is reached.
+                                        Automatically delete library media files from Radarr/Sonarr to free up space when the threshold is reached.
                                     </p>
                                 </div>
                                 <button
@@ -1243,7 +1290,7 @@ export default function Settings() {
                                 <div className="border-t border-zinc-900 pt-3 flex items-center justify-between">
                                     <div>
                                         <div className="text-xs font-bold text-zinc-300">Protect Recently Added (Immunity)</div>
-                                        <p className="text-[10px] text-zinc-500 mt-0.5">Skip files added to qBittorrent within the last few days.</p>
+                                        <p className="text-[10px] text-zinc-500 mt-0.5">Skip media files added to Radarr/Sonarr within the last few days.</p>
                                     </div>
                                     <button
                                         onClick={() => {
@@ -1280,8 +1327,88 @@ export default function Settings() {
 
                                 <div className="p-3 bg-emerald-500/5 border border-emerald-500/10 rounded-xl">
                                     <p className="text-[10px] text-emerald-400 font-medium leading-relaxed">
-                                        ⚠️ <strong>CRITICAL NOTE:</strong> Automated cleanup operates <strong>ONLY</strong> when your disk space goes <strong>ABOVE</strong> the allowed fill threshold ({diskPauseThreshold}%). When triggered, the background process will delete the single target torrent according to your selection criteria to free up storage space.
+                                        ⚠️ <strong>CRITICAL NOTE:</strong> Automated cleanup operates <strong>ONLY</strong> when your disk space goes <strong>ABOVE</strong> the allowed fill threshold ({diskPauseThreshold}%). When triggered, the background process will delete media library items from Radarr/Sonarr sequentially according to your selection criteria until the occupied volume is below the threshold.
                                     </p>
+                                </div>
+
+                                {/* Candidates List Section */}
+                                <div className="border-t border-zinc-900 pt-4 space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Cleanup Queue</label>
+                                            <p className="text-[10px] text-zinc-500 mt-0.5">Media items in line to be deleted if the threshold is reached. Check to ignore (keep) them.</p>
+                                        </div>
+                                        <button 
+                                            type="button" 
+                                            onClick={fetchCandidates} 
+                                            className="px-2 py-1 bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white rounded-lg text-[10px] font-bold uppercase transition-all"
+                                        >
+                                            Refresh List
+                                        </button>
+                                    </div>
+
+                                    {loadingCandidates ? (
+                                        <div className="flex items-center gap-2 text-zinc-600 text-xs py-4 justify-center">
+                                            <div className="w-3.5 h-3.5 border border-zinc-700 border-t-zinc-400 rounded-full animate-spin" /> Fetching candidates...
+                                        </div>
+                                    ) : candidates.length === 0 ? (
+                                        <p className="text-xs text-zinc-600 italic text-center py-4">No eligible media items found in library.</p>
+                                    ) : (
+                                        <div className="max-h-[300px] overflow-y-auto pr-2 custom-scrollbar space-y-2 border border-zinc-900/50 rounded-2xl p-2 bg-zinc-950/20">
+                                            {candidates.map((c, index) => (
+                                                <div 
+                                                    key={c.key} 
+                                                    className={`flex items-center justify-between p-3 rounded-xl border transition-all ${
+                                                        c.ignored 
+                                                            ? 'bg-zinc-950/40 border-zinc-900 text-zinc-600' 
+                                                            : 'bg-zinc-900 border-zinc-800/60 text-zinc-200 hover:border-zinc-850'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                                                        {!c.ignored ? (
+                                                            <div className="w-5 h-5 rounded bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[10px] font-black flex items-center justify-center">
+                                                                {index + 1}
+                                                            </div>
+                                                        ) : (
+                                                            <div className="w-5 h-5 rounded bg-zinc-850 text-zinc-600 text-[10px] font-black flex items-center justify-center">
+                                                                -
+                                                            </div>
+                                                        )}
+
+                                                        <div className="min-w-0 flex-1">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className={`text-xs font-bold truncate ${c.ignored ? 'line-through text-zinc-600' : 'text-zinc-200'}`}>{c.title}</span>
+                                                                <span className={`text-[9px] px-1.5 py-0.5 rounded font-black uppercase ${
+                                                                    c.type === 'movie' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' : 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+                                                                }`}>{c.type}</span>
+                                                                {c.isWatched && (
+                                                                    <span className="text-[8px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1 py-0.25 rounded font-bold uppercase">Watched</span>
+                                                                )}
+                                                            </div>
+                                                            <p className="text-[9px] text-zinc-500 mt-0.5 truncate uppercase font-semibold">
+                                                                Path: {c.path} • Added: {new Date(c.added).toLocaleDateString()} • {c.instanceName}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-3 ml-3">
+                                                        <span className="text-xs font-black text-zinc-400 font-mono">{(c.size / (1024 ** 3)).toFixed(2)} GB</span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => toggleIgnoreCandidate(c.key)}
+                                                            className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase border transition-all ${
+                                                                c.ignored
+                                                                    ? 'bg-red-500/15 border-red-500/30 text-red-400 hover:bg-red-500/20'
+                                                                    : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-700'
+                                                            }`}
+                                                        >
+                                                            {c.ignored ? 'Ignored' : 'Ignore'}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>

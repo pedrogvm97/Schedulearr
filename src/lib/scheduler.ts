@@ -3,7 +3,7 @@ import { getAllMovies, triggerMovieSearch, RadarrMovie, getQueue as getRadarrQue
 import { getAllSeries, triggerEpisodeSearch, SonarrSeries, getQueue as getSonarrQueue } from '@/lib/sonarr';
 import { getIndexerHealth } from '@/lib/prowlarr';
 import { evaluateIndexerRules } from '@/lib/indexerAutomations';
-import { runAutoCleanup } from '@/lib/autoCleanup';
+import { runAutoCleanup, runSmartCleanup } from '@/lib/autoCleanup';
 
 // Prevent multiple scheduler instances from running in dev mode HMR
 declare global {
@@ -57,6 +57,12 @@ if (!global.globalSchedulerRunning && process.env.NEXT_PHASE !== 'phase-producti
             console.log(`[${now}] 🧹 Running automated qBittorrent cleanup...`);
             try {
                 await runAutoCleanup();
+                
+                const autocleanEnabled = getSetting('disk_autoclean_enabled') === 'true';
+                if (autocleanEnabled) {
+                    console.log(`[${now}] 🧹 Running Smart Auto-Clean disk guard...`);
+                    await runSmartCleanup();
+                }
             } catch (error) {
                 console.error('❌ Auto-cleanup error:', error);
             }

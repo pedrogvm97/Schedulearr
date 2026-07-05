@@ -1,7 +1,8 @@
 import { getInstances, getSetting, getTorrentActivity, updateTorrentActivity, deleteTorrentActivity, logSearchHistory } from '@/lib/db';
 import { authenticateQbittorrent, getActiveTorrents, deleteTorrents } from '@/lib/qbittorrent';
-import { getQueue as getRadarrQueue, deleteFromQueue as deleteFromRadarrQueue } from '@/lib/radarr';
-import { getQueue as getSonarrQueue, deleteFromQueue as deleteFromSonarrQueue } from '@/lib/sonarr';
+import { getQueue as getRadarrQueue, deleteFromQueue as deleteFromRadarrQueue, getAllMovies, deleteMovie } from '@/lib/radarr';
+import { getQueue as getSonarrQueue, deleteFromQueue as deleteFromSonarrQueue, getAllSeries, deleteSeries } from '@/lib/sonarr';
+import { getPlexWatchStatusMap } from '@/lib/plex';
 
 export async function runAutoCleanup() {
     const enabled = getSetting('qbit_cleanup_enabled') === 'true';
@@ -165,109 +166,284 @@ export async function runAutoCleanup() {
     return { success: true, message: `Auto-cleanup complete. Cleaned ${totalCleaned} torrents.` };
 }
 
+async function fetchDiskSpace(url: string, apiKey: string): Promise<any[]> {
+    try {
+        const res = await fetch(`${url.replace(/\/$/, '')}/api/v3/diskspace?apiKey=${apiKey}`, {
+            next: { revalidate: 0 },
+            signal: AbortSignal.timeout(5000)
+        });
+        if (!res.ok) return [];
+        return await res.json();
+    } catch {
+        return [];
+    }
+}
+
+async function fetchRootFolders(url: string, apiKey: string): Promise<any[]> {
+    try {
+        const res = await fetch(`${url.replace(/\/$/, '')}/api/v3/rootfolder?apiKey=${apiKey}`, {
+            next: { revalidate: 0 },
+            signal: AbortSignal.timeout(5000)
+        });
+        if (!res.ok) return [];
+        return await res.json();
+    } catch {
+        return [];
+    }
+}
+
+export async function getDiskUsagePercent(): Promise<number> {
+    const radarrs = getInstances('radarr', true);
+    const sonarrs = getInstances('sonarr', true);
+
+    let totalFreeBytes = 0;
+    let totalBytes = 0;
+    const byInstance: any[] = [];
+
+    for (const inst of [...radarrs, ...sonarrs]) {
+        let folders = await fetchDiskSpace(inst.url, inst.api_key);
+        if (folders.length === 0) {
+            folders = await fetchRootFolders(inst.url, inst.api_key);
+        }
+        const instFolders = folders.map((f: any) => {
+            const free = f.freeSpace ?? 0;
+            let total = f.totalSpace ?? 0;
+            if (total < free) {
+                total = free;
+            }
+            return {
+                path: f.path,
+                freeBytes: free,
+                totalBytes: total
+            };
+        });
+
+        const instFree = instFolders.reduce((s: number, f: any) => s + f.freeBytes, 0);
+        const instTotal = instFolders.reduce((s: number, f: any) => s + f.totalBytes, 0);
+
+        totalFreeBytes += instFree;
+        totalBytes += instTotal;
+
+        byInstance.push({
+            folders: instFolders
+        });
+    }
+
+    const uniqueInstances = new Map<number, any>();
+    for (const inst of byInstance) {
+        const total = inst.folders.reduce((s: number, f: any) => s + f.totalBytes, 0);
+        if (!uniqueInstances.has(total) || inst.folders.some((f: any) => f.totalBytes > 0)) {
+            uniqueInstances.set(total, inst);
+        }
+    }
+
+    const deduped = Array.from(uniqueInstances.values());
+    const dedupedTotal = deduped.reduce((s, inst) => s + inst.folders.reduce((fs: number, f: any) => fs + f.totalBytes, 0), 0);
+    const dedupedFree = deduped.reduce((s, inst) => s + inst.folders.reduce((fs: number, f: any) => fs + f.freeBytes, 0), 0);
+    const dedupedUsed = dedupedTotal - dedupedFree;
+    return dedupedTotal > 0 ? Math.round((dedupedUsed / dedupedTotal) * 100) : 0;
+}
+
 export async function runSmartCleanup() {
-    const qbInstances = getInstances('qbittorrent', true);
-    if (qbInstances.length === 0) return { success: false, message: 'No active qBittorrent instances.' };
+    const radarrInstances = getInstances('radarr', true);
+    const sonarrInstances = getInstances('sonarr', true);
+
+    if (radarrInstances.length === 0 && sonarrInstances.length === 0) {
+        return { success: false, message: 'No active Radarr or Sonarr instances.' };
+    }
 
     const mode = getSetting('qbit_smart_clean_mode') || 'largest';
     const immunityEnabled = getSetting('qbit_smart_clean_immunity_enabled') === 'true';
     const immunityDays = parseInt(getSetting('qbit_smart_clean_immunity_days') || '7');
-    const deleteFiles = getSetting('qbit_cleanup_delete_files') !== 'false';
-    const blacklist = getSetting('qbit_cleanup_blacklist') !== 'false';
-
-    const radarrInstances = getInstances('radarr', true);
-    const sonarrInstances = getInstances('sonarr', true);
-
-    const radarrQueues: any[] = [];
-    for (const ri of radarrInstances) {
-        try {
-            const q = await getRadarrQueue(ri.url, ri.api_key);
-            radarrQueues.push({ instance: ri, records: q });
-        } catch {}
-    }
-
-    const sonarrQueues: any[] = [];
-    for (const si of sonarrInstances) {
-        try {
-            const q = await getSonarrQueue(si.url, si.api_key);
-            sonarrQueues.push({ instance: si, records: q });
-        } catch {}
-    }
 
     let cleanedCount = 0;
     const cleanedNames: string[] = [];
 
-    for (const qb of qbInstances) {
+    // Load the ignore list of media keys
+    const ignoredKeysStr = getSetting('media_smart_clean_ignored_keys') || '[]';
+    let ignoredKeys: string[] = [];
+    try {
+        ignoredKeys = JSON.parse(ignoredKeysStr);
+    } catch {
+        ignoredKeys = [];
+    }
+    const ignoredSet = new Set(ignoredKeys.map(k => k.toLowerCase()));
+
+    // Get configured threshold
+    const thresholdStr = getSetting('disk_pause_threshold');
+    const threshold = thresholdStr ? parseInt(thresholdStr) : 90;
+
+    let currentUsage = await getDiskUsagePercent();
+    console.log(`[SMART CLEANUP] Initial checking: Disk usage at ${currentUsage}%, threshold is ${threshold}%`);
+
+    if (currentUsage < threshold) {
+        return { success: true, message: `Disk usage (${currentUsage}%) is below threshold (${threshold}%). No clean needed.` };
+    }
+
+    // Accumulate all candidates globally from all active Radarr/Sonarr instances
+    const allCandidates: {
+        id: number;
+        title: string;
+        type: 'movie' | 'series';
+        size: number;
+        added: string;
+        path: string;
+        instanceId: string;
+        instanceName: string;
+        key: string;
+        instance: any;
+        tmdbId?: number;
+        tvdbId?: number;
+    }[] = [];
+
+    // Gather movies
+    for (const inst of radarrInstances) {
         try {
-            const cookie = await authenticateQbittorrent(qb.url, qb.api_key);
-            const torrents = await getActiveTorrents(qb.url, cookie);
+            const movies = await getAllMovies(inst.url, inst.api_key);
+            for (const m of movies) {
+                const size = m.sizeOnDisk || m.statistics?.sizeOnDisk || m.movieFile?.size || 0;
+                if (size === 0) continue; // Skip if no file on disk
 
-            // Filter candidates
-            let candidates = [...torrents];
+                const key = `movie-${inst.id}-${m.id}`.toLowerCase();
+                if (ignoredSet.has(key)) continue;
 
-            // 1. Filter out recently added if immunity enabled
-            if (immunityEnabled) {
-                const cutoff = Date.now() - immunityDays * 24 * 60 * 60 * 1000;
-                candidates = candidates.filter(t => {
-                    const addedOn = t.added_on ? t.added_on * 1000 : Date.now();
-                    return addedOn < cutoff;
+                if (immunityEnabled) {
+                    const cutoff = Date.now() - immunityDays * 24 * 60 * 60 * 1000;
+                    const addedTime = new Date(m.added).getTime();
+                    if (addedTime >= cutoff) continue; // Skip immune
+                }
+
+                allCandidates.push({
+                    id: m.id,
+                    title: m.title,
+                    type: 'movie',
+                    size,
+                    added: m.added,
+                    path: m.path || m.folder || '',
+                    instanceId: inst.id,
+                    instanceName: inst.name,
+                    key,
+                    instance: inst,
+                    tmdbId: m.tmdbId
                 });
             }
+        } catch (e) {
+            console.error(`Failed to fetch movies from Radarr instance ${inst.name}:`, e);
+        }
+    }
 
-            // 2. Sort candidates
-            if (mode === 'largest') {
-                candidates.sort((a, b) => b.size - a.size);
-            } else if (mode === 'oldest') {
-                candidates.sort((a, b) => (a.added_on || 0) - (b.added_on || 0));
-            } else if (mode === 'unplayed') {
-                candidates = candidates.filter(t => t.progress < 1);
-                candidates.sort((a, b) => (a.added_on || 0) - (b.added_on || 0));
-            }
+    // Gather series
+    for (const inst of sonarrInstances) {
+        try {
+            const series = await getAllSeries(inst.url, inst.api_key);
+            for (const s of series) {
+                const size = s.statistics?.sizeOnDisk || s.sizeOnDisk || 0;
+                if (size === 0) continue; // Skip if no files on disk
 
-            const target = candidates[0];
-            if (!target) continue;
+                const key = `series-${inst.id}-${s.id}`.toLowerCase();
+                if (ignoredSet.has(key)) continue;
 
-            let handled = false;
-            const hash = target.hash.toLowerCase();
-
-            if (blacklist) {
-                for (const rq of radarrQueues) {
-                    const match = rq.records.find((r: any) => r.downloadId && r.downloadId.toLowerCase() === hash);
-                    if (match) {
-                        await deleteFromRadarrQueue(rq.instance.url, rq.instance.api_key, match.id, true, true);
-                        handled = true;
-                        break;
-                    }
+                if (immunityEnabled) {
+                    const cutoff = Date.now() - immunityDays * 24 * 60 * 60 * 1000;
+                    const addedTime = new Date(s.added).getTime();
+                    if (addedTime >= cutoff) continue; // Skip immune
                 }
 
-                if (!handled) {
-                    for (const sq of sonarrQueues) {
-                        const match = sq.records.find((r: any) => r.downloadId && r.downloadId.toLowerCase() === hash);
-                        if (match) {
-                            await deleteFromSonarrQueue(sq.instance.url, sq.instance.api_key, match.id, true, true);
-                            handled = true;
-                            break;
-                        }
-                    }
-                }
+                allCandidates.push({
+                    id: s.id,
+                    title: s.title,
+                    type: 'series',
+                    size,
+                    added: s.added,
+                    path: s.path || '',
+                    instanceId: inst.id,
+                    instanceName: inst.name,
+                    key,
+                    instance: inst,
+                    tvdbId: s.tvdbId
+                });
+            }
+        } catch (e) {
+            console.error(`Failed to fetch series from Sonarr instance ${inst.name}:`, e);
+        }
+    }
+
+    // Sort candidates
+    if (mode === 'largest') {
+        allCandidates.sort((a, b) => b.size - a.size);
+    } else if (mode === 'oldest') {
+        allCandidates.sort((a, b) => new Date(a.added).getTime() - new Date(b.added).getTime());
+    } else if (mode === 'unplayed') {
+        // Fetch Plex watch status map if active
+        const plexInstances = getInstances('plex', true);
+        let plexWatchMap = new Map<string, boolean>();
+        if (plexInstances.length > 0) {
+            plexWatchMap = await getPlexWatchStatusMap(plexInstances[0].url, plexInstances[0].api_key);
+        }
+
+        // Filter out watched ones
+        let unplayed = allCandidates.filter(c => {
+            const titleYearKey = `${c.title.toLowerCase()}-${c.added ? new Date(c.added).getFullYear() : ''}`;
+            const tmdbKey = c.tmdbId ? `tmdb://${c.tmdbId}`.toLowerCase() : '';
+            const tvdbKey = c.tvdbId ? `tvdb://${c.tvdbId}`.toLowerCase() : '';
+
+            const isWatched = 
+                (tmdbKey && plexWatchMap.get(tmdbKey) === true) || 
+                (tvdbKey && plexWatchMap.get(tvdbKey) === true) || 
+                plexWatchMap.get(titleYearKey) === true;
+            
+            return !isWatched;
+        });
+
+        // Sort unplayed by oldest added first
+        unplayed.sort((a, b) => new Date(a.added).getTime() - new Date(b.added).getTime());
+        allCandidates.length = 0;
+        allCandidates.push(...unplayed);
+    }
+
+    // Loop and delete candidates until usage is below threshold (capped at 10 to protect against loops)
+    let candidateIndex = 0;
+    const maxDeletions = 10;
+
+    while (currentUsage >= threshold && candidateIndex < allCandidates.length && cleanedCount < maxDeletions) {
+        const candidate = allCandidates[candidateIndex];
+        candidateIndex++;
+
+        try {
+            console.log(`[SMART CLEANUP] Deleting ${candidate.type} "${candidate.title}" (Size: ${(candidate.size / (1024 ** 3)).toFixed(2)} GB) from ${candidate.instanceName}`);
+            
+            let success = false;
+            if (candidate.type === 'movie') {
+                success = await deleteMovie(candidate.instance.url, candidate.instance.api_key, candidate.id, true);
+            } else {
+                success = await deleteSeries(candidate.instance.url, candidate.instance.api_key, candidate.id, true);
             }
 
-            if (!handled) {
-                await deleteTorrents(qb.url, cookie, [hash], deleteFiles);
-            }
+            if (success) {
+                cleanedNames.push(candidate.title);
+                cleanedCount++;
 
-            cleanedNames.push(target.name);
-            cleanedCount++;
+                // Wait 3.5 seconds to let the filesystem delete and API update
+                await new Promise(resolve => setTimeout(resolve, 3500));
+
+                // Re-fetch disk usage percentage
+                currentUsage = await getDiskUsagePercent();
+                console.log(`[SMART CLEANUP] Deleted ${candidate.title}. New usage: ${currentUsage}%. Threshold: ${threshold}%`);
+            } else {
+                console.error(`[SMART CLEANUP] Delete API returned failure for "${candidate.title}"`);
+            }
 
         } catch (e: any) {
-            console.error('Smart cleanup error for instance ' + qb.name, e);
+            console.error(`Smart cleanup error deleting ${candidate.title} from instance ${candidate.instanceName}`, e);
         }
     }
 
     if (cleanedCount > 0) {
-        return { success: true, message: `Removed ${cleanedCount} torrents: ${cleanedNames.join(', ')}` };
+        const message = `Smart Clean deleted ${cleanedCount} items: [${cleanedNames.join(', ')}]. Remaining disk usage: ${currentUsage}%.`;
+        logSearchHistory('Smart Cleaner', [], [], message);
+        return { success: true, message };
     }
 
-    return { success: true, message: 'No eligible torrents found to clean.' };
+    return { success: true, message: 'No eligible library items were deleted.' };
 }
 
