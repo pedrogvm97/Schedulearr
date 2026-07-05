@@ -1,7 +1,7 @@
 import { getInstances, getSetting, getTorrentActivity, updateTorrentActivity, deleteTorrentActivity, logSearchHistory } from '@/lib/db';
 import { authenticateQbittorrent, getActiveTorrents, deleteTorrents } from '@/lib/qbittorrent';
 import { getQueue as getRadarrQueue, deleteFromQueue as deleteFromRadarrQueue, getAllMovies, deleteMovie } from '@/lib/radarr';
-import { getQueue as getSonarrQueue, deleteFromQueue as deleteFromSonarrQueue, getAllSeries, deleteSeries } from '@/lib/sonarr';
+import { getQueue as getSonarrQueue, deleteFromQueue as deleteFromSonarrQueue, getAllSeries, deleteSeries, getEpisodeFiles, deleteSeason, deleteEpisodeFile } from '@/lib/sonarr';
 import { getPlexWatchStatusMap } from '@/lib/plex';
 
 export async function runAutoCleanup() {
@@ -160,7 +160,7 @@ export async function runAutoCleanup() {
     }
 
     if (cleanupLogs.length > 0) {
-        logSearchHistory('qBit Cleaner', [], [], `Removed ${totalCleaned} items: ${cleanupLogs.join(' | ')}`);
+        logSearchHistory('qBit Cleaner', [], [], `Removed ${totalCleaned} items: ${cleanupLogs.join(' | ')}`, 'qbit_clean');
     }
 
     return { success: true, message: `Auto-cleanup complete. Cleaned ${totalCleaned} torrents.` };
@@ -255,6 +255,7 @@ export async function runSmartCleanup() {
     const mode = getSetting('qbit_smart_clean_mode') || 'largest';
     const immunityEnabled = getSetting('qbit_smart_clean_immunity_enabled') === 'true';
     const immunityDays = parseInt(getSetting('qbit_smart_clean_immunity_days') || '7');
+    const seriesLevel = (getSetting('media_smart_clean_series_level') || 'series') as 'series' | 'season' | 'episode';
 
     let cleanedCount = 0;
     const cleanedNames: string[] = [];
@@ -284,7 +285,7 @@ export async function runSmartCleanup() {
     const allCandidates: {
         id: number;
         title: string;
-        type: 'movie' | 'series';
+        type: 'movie' | 'series' | 'season' | 'episode';
         size: number;
         added: string;
         path: string;
@@ -294,6 +295,10 @@ export async function runSmartCleanup() {
         instance: any;
         tmdbId?: number;
         tvdbId?: number;
+        // For season/episode deletions
+        seriesId?: number;
+        seasonNumber?: number;
+        episodeFileId?: number;
     }[] = [];
 
     // Gather movies
@@ -302,29 +307,21 @@ export async function runSmartCleanup() {
             const movies = await getAllMovies(inst.url, inst.api_key);
             for (const m of movies) {
                 const size = m.sizeOnDisk || m.statistics?.sizeOnDisk || m.movieFile?.size || 0;
-                if (size === 0) continue; // Skip if no file on disk
+                if (size === 0) continue;
 
                 const key = `movie-${inst.id}-${m.id}`.toLowerCase();
                 if (ignoredSet.has(key)) continue;
 
                 if (immunityEnabled) {
                     const cutoff = Date.now() - immunityDays * 24 * 60 * 60 * 1000;
-                    const addedTime = new Date(m.added).getTime();
-                    if (addedTime >= cutoff) continue; // Skip immune
+                    if (new Date(m.added).getTime() >= cutoff) continue;
                 }
 
                 allCandidates.push({
-                    id: m.id,
-                    title: m.title,
-                    type: 'movie',
-                    size,
-                    added: m.added,
-                    path: m.path || m.folder || '',
-                    instanceId: inst.id,
-                    instanceName: inst.name,
-                    key,
-                    instance: inst,
-                    tmdbId: m.tmdbId
+                    id: m.id, title: m.title, type: 'movie', size,
+                    added: m.added, path: m.path || m.folder || '',
+                    instanceId: inst.id, instanceName: inst.name,
+                    key, instance: inst, tmdbId: m.tmdbId
                 });
             }
         } catch (e) {
@@ -332,36 +329,84 @@ export async function runSmartCleanup() {
         }
     }
 
-    // Gather series
+    // Gather series — split by granularity level
     for (const inst of sonarrInstances) {
         try {
             const series = await getAllSeries(inst.url, inst.api_key);
             for (const s of series) {
-                const size = s.statistics?.sizeOnDisk || s.sizeOnDisk || 0;
-                if (size === 0) continue; // Skip if no files on disk
+                if (seriesLevel === 'series') {
+                    const size = s.statistics?.sizeOnDisk || s.sizeOnDisk || 0;
+                    if (size === 0) continue;
+                    const key = `series-${inst.id}-${s.id}`.toLowerCase();
+                    if (ignoredSet.has(key)) continue;
+                    if (immunityEnabled) {
+                        const cutoff = Date.now() - immunityDays * 24 * 60 * 60 * 1000;
+                        if (new Date(s.added).getTime() >= cutoff) continue;
+                    }
+                    allCandidates.push({
+                        id: s.id, title: s.title, type: 'series',
+                        size, added: s.added, path: s.path || '',
+                        instanceId: inst.id, instanceName: inst.name,
+                        key, instance: inst, tvdbId: s.tvdbId
+                    });
+                } else {
+                    // Season or Episode level — fetch individual files
+                    const epFiles = await getEpisodeFiles(inst.url, inst.api_key, s.id);
+                    if (!epFiles.length) continue;
 
-                const key = `series-${inst.id}-${s.id}`.toLowerCase();
-                if (ignoredSet.has(key)) continue;
-
-                if (immunityEnabled) {
-                    const cutoff = Date.now() - immunityDays * 24 * 60 * 60 * 1000;
-                    const addedTime = new Date(s.added).getTime();
-                    if (addedTime >= cutoff) continue; // Skip immune
+                    if (seriesLevel === 'season') {
+                        // Group by season
+                        const bySeasonMap = new Map<number, typeof epFiles>();
+                        for (const f of epFiles) {
+                            const sn = f.seasonNumber ?? 0;
+                            if (!bySeasonMap.has(sn)) bySeasonMap.set(sn, []);
+                            bySeasonMap.get(sn)!.push(f);
+                        }
+                        for (const [seasonNum, files] of bySeasonMap.entries()) {
+                            const size = files.reduce((acc, f) => acc + (f.size || 0), 0);
+                            if (size === 0) continue;
+                            const key = `season-${inst.id}-${s.id}-${seasonNum}`.toLowerCase();
+                            if (ignoredSet.has(key)) continue;
+                            if (immunityEnabled) {
+                                const cutoff = Date.now() - immunityDays * 24 * 60 * 60 * 1000;
+                                if (new Date(s.added).getTime() >= cutoff) continue;
+                            }
+                            allCandidates.push({
+                                id: s.id,
+                                title: `${s.title} — Season ${seasonNum}`,
+                                type: 'season',
+                                size, added: s.added, path: s.path || '',
+                                instanceId: inst.id, instanceName: inst.name,
+                                key, instance: inst, tvdbId: s.tvdbId,
+                                seriesId: s.id, seasonNumber: seasonNum
+                            });
+                        }
+                    } else if (seriesLevel === 'episode') {
+                        for (const f of epFiles) {
+                            const size = f.size || 0;
+                            if (size === 0) continue;
+                            const key = `episode-${inst.id}-${s.id}-${f.id}`.toLowerCase();
+                            if (ignoredSet.has(key)) continue;
+                            if (immunityEnabled) {
+                                const cutoff = Date.now() - immunityDays * 24 * 60 * 60 * 1000;
+                                if (new Date(s.added).getTime() >= cutoff) continue;
+                            }
+                            const ep = f.episodes?.[0];
+                            const epLabel = ep
+                                ? `S${String(f.seasonNumber).padStart(2,'0')}E${String(ep.episodeNumber).padStart(2,'0')} - ${ep.title || 'Episode'}`
+                                : `S${String(f.seasonNumber).padStart(2,'0')}`;
+                            allCandidates.push({
+                                id: f.id,
+                                title: `${s.title} — ${epLabel}`,
+                                type: 'episode',
+                                size, added: f.dateAdded || s.added, path: f.relativePath || '',
+                                instanceId: inst.id, instanceName: inst.name,
+                                key, instance: inst, tvdbId: s.tvdbId,
+                                seriesId: s.id, seasonNumber: f.seasonNumber, episodeFileId: f.id
+                            });
+                        }
+                    }
                 }
-
-                allCandidates.push({
-                    id: s.id,
-                    title: s.title,
-                    type: 'series',
-                    size,
-                    added: s.added,
-                    path: s.path || '',
-                    instanceId: inst.id,
-                    instanceName: inst.name,
-                    key,
-                    instance: inst,
-                    tvdbId: s.tvdbId
-                });
             }
         } catch (e) {
             console.error(`Failed to fetch series from Sonarr instance ${inst.name}:`, e);
@@ -374,34 +419,27 @@ export async function runSmartCleanup() {
     } else if (mode === 'oldest') {
         allCandidates.sort((a, b) => new Date(a.added).getTime() - new Date(b.added).getTime());
     } else if (mode === 'unplayed') {
-        // Fetch Plex watch status map if active
         const plexInstances = getInstances('plex', true);
         let plexWatchMap = new Map<string, boolean>();
         if (plexInstances.length > 0) {
             plexWatchMap = await getPlexWatchStatusMap(plexInstances[0].url, plexInstances[0].api_key);
         }
-
-        // Filter out watched ones
         let unplayed = allCandidates.filter(c => {
             const titleYearKey = `${c.title.toLowerCase()}-${c.added ? new Date(c.added).getFullYear() : ''}`;
             const tmdbKey = c.tmdbId ? `tmdb://${c.tmdbId}`.toLowerCase() : '';
             const tvdbKey = c.tvdbId ? `tvdb://${c.tvdbId}`.toLowerCase() : '';
-
-            const isWatched = 
-                (tmdbKey && plexWatchMap.get(tmdbKey) === true) || 
-                (tvdbKey && plexWatchMap.get(tvdbKey) === true) || 
+            const isWatched =
+                (tmdbKey && plexWatchMap.get(tmdbKey) === true) ||
+                (tvdbKey && plexWatchMap.get(tvdbKey) === true) ||
                 plexWatchMap.get(titleYearKey) === true;
-            
             return !isWatched;
         });
-
-        // Sort unplayed by oldest added first
         unplayed.sort((a, b) => new Date(a.added).getTime() - new Date(b.added).getTime());
         allCandidates.length = 0;
         allCandidates.push(...unplayed);
     }
 
-    // Loop and delete candidates until usage is below threshold (capped at 10 to protect against loops)
+    // Loop and delete until below threshold (capped at 10)
     let candidateIndex = 0;
     const maxDeletions = 10;
 
@@ -410,40 +448,41 @@ export async function runSmartCleanup() {
         candidateIndex++;
 
         try {
-            console.log(`[SMART CLEANUP] Deleting ${candidate.type} "${candidate.title}" (Size: ${(candidate.size / (1024 ** 3)).toFixed(2)} GB) from ${candidate.instanceName}`);
-            
+            console.log(`[SMART CLEANUP] Deleting ${candidate.type} "${candidate.title}" (${(candidate.size / (1024 ** 3)).toFixed(2)} GB) from ${candidate.instanceName}`);
+
             let success = false;
             if (candidate.type === 'movie') {
                 success = await deleteMovie(candidate.instance.url, candidate.instance.api_key, candidate.id, true);
-            } else {
+            } else if (candidate.type === 'series') {
                 success = await deleteSeries(candidate.instance.url, candidate.instance.api_key, candidate.id, true);
+            } else if (candidate.type === 'season') {
+                success = await deleteSeason(candidate.instance.url, candidate.instance.api_key, candidate.seriesId!, candidate.seasonNumber!);
+            } else if (candidate.type === 'episode') {
+                success = await deleteEpisodeFile(candidate.instance.url, candidate.instance.api_key, candidate.episodeFileId!);
             }
 
             if (success) {
                 cleanedNames.push(candidate.title);
                 cleanedCount++;
-
-                // Wait 3.5 seconds to let the filesystem delete and API update
                 await new Promise(resolve => setTimeout(resolve, 3500));
-
-                // Re-fetch disk usage percentage
                 currentUsage = await getDiskUsagePercent();
-                console.log(`[SMART CLEANUP] Deleted ${candidate.title}. New usage: ${currentUsage}%. Threshold: ${threshold}%`);
+                console.log(`[SMART CLEANUP] Deleted "${candidate.title}". New usage: ${currentUsage}%. Threshold: ${threshold}%`);
             } else {
                 console.error(`[SMART CLEANUP] Delete API returned failure for "${candidate.title}"`);
             }
-
         } catch (e: any) {
-            console.error(`Smart cleanup error deleting ${candidate.title} from instance ${candidate.instanceName}`, e);
+            console.error(`Smart cleanup error deleting ${candidate.title}:`, e);
         }
     }
 
     if (cleanedCount > 0) {
         const message = `Smart Clean deleted ${cleanedCount} items: [${cleanedNames.join(', ')}]. Remaining disk usage: ${currentUsage}%.`;
-        logSearchHistory('Smart Cleaner', [], [], message);
+        logSearchHistory('Smart Cleaner', [], [], message, 'media_clean');
         return { success: true, message };
     }
 
     return { success: true, message: 'No eligible library items were deleted.' };
 }
+
+
 

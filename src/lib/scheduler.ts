@@ -125,7 +125,7 @@ export async function runBatchSearch(manualTrigger: boolean = false) {
                             }
                         }
                         
-                        logSearchHistory('disk_guard', [], [], reason);
+                        logSearchHistory('disk_guard', [], [], reason, 'disk_guard');
                         defaultRes.reason = reason;
                         return defaultRes;
                     } else {
@@ -162,7 +162,7 @@ export async function runBatchSearch(manualTrigger: boolean = false) {
 
     if (radarrs.length === 0 && sonarrs.length === 0) {
         defaultRes.reason = 'No Radarr or Sonarr instances configured';
-        logSearchHistory(profile, [], [], defaultRes.reason);
+        logSearchHistory(profile, [], [], defaultRes.reason, 'scheduler');
         return defaultRes;
     }
 
@@ -396,10 +396,10 @@ export async function runBatchSearch(manualTrigger: boolean = false) {
     // Log the success to the interactive history ledger
     if (mTitles.length > 0 || eTitles.length > 0) {
         console.log(`✅ Batch complete. Triggered ${mTitles.length} movies and ${eTitles.length} episodes.`);
-        logSearchHistory(profile, mTitles, eTitles, `Successfully triggered background priority searches.`);
+        logSearchHistory(profile, mTitles, eTitles, `Successfully triggered background priority searches.`, 'search');
     } else {
         console.log('ℹ️  No missing media matched priority criteria. Skipping triggers.');
-        logSearchHistory(profile, [], [], `No missing media matched priority criteria. Queue is fully downloaded.`);
+        logSearchHistory(profile, [], [], `No missing media matched priority criteria. Queue is fully downloaded.`, 'scheduler');
     }
 
     return {

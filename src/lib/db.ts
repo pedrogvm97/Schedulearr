@@ -50,7 +50,8 @@ function initializeSchema(d: any) {
         profile TEXT NOT NULL,
         movies_searched TEXT,
         episodes_searched TEXT,
-        reason TEXT
+        reason TEXT,
+        category TEXT DEFAULT 'search'
       );
     
       CREATE TABLE IF NOT EXISTS prowlarr_indexer_rules (
@@ -106,6 +107,7 @@ function initializeSchema(d: any) {
     try { d.exec("ALTER TABLE network_speed ADD COLUMN plex_up REAL DEFAULT 0;"); } catch (e) { }
     try { d.exec("ALTER TABLE network_speed ADD COLUMN total_dl REAL DEFAULT 0;"); } catch (e) { }
     try { d.exec("ALTER TABLE network_speed ADD COLUMN total_up REAL DEFAULT 0;"); } catch (e) { }
+    try { d.exec("ALTER TABLE search_history ADD COLUMN category TEXT DEFAULT 'search';"); } catch (e) { }
 }
 
 export interface Setting {
@@ -211,14 +213,17 @@ export const updateInstance = (instance: Instance) => {
     stmt.run(instance.type, instance.name, instance.url, instance.api_key, instance.color || null, instance.id);
 }
 
-export const logSearchHistory = (profile: string, movies: string[], episodes: string[], reason: string = '') => {
-    const stmt = db.prepare('INSERT INTO search_history (id, profile, movies_searched, episodes_searched, reason) VALUES (?, ?, ?, ?, ?)');
+export type LogCategory = 'search' | 'qbit_clean' | 'media_clean' | 'disk_guard' | 'scheduler' | 'system' | 'error';
+
+export const logSearchHistory = (profile: string, movies: string[], episodes: string[], reason: string = '', category: LogCategory = 'search') => {
+    const stmt = db.prepare('INSERT INTO search_history (id, profile, movies_searched, episodes_searched, reason, category) VALUES (?, ?, ?, ?, ?, ?)');
     stmt.run(
         `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         profile,
         JSON.stringify(movies),
         JSON.stringify(episodes),
-        reason
+        reason,
+        category
     );
 };
 
@@ -244,12 +249,13 @@ export const resetSchedulerAttempts = (mediaId: string, instanceId: string, type
     stmt.run(mediaId, instanceId, type);
 };
 
-export const getSearchHistory = (limit: number = 50) => {
+export const getSearchHistory = (limit: number = 100) => {
     const stmt = db.prepare('SELECT * FROM search_history ORDER BY timestamp DESC LIMIT ?');
     return stmt.all(limit).map((row: any) => ({
         ...row,
         movies_searched: row.movies_searched ? JSON.parse(row.movies_searched) : [],
-        episodes_searched: row.episodes_searched ? JSON.parse(row.episodes_searched) : []
+        episodes_searched: row.episodes_searched ? JSON.parse(row.episodes_searched) : [],
+        category: row.category || 'search'
     }));
 };
 

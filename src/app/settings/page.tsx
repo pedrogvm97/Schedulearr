@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { CustomSelect } from "@/components/CustomSelect";
 
@@ -139,8 +139,11 @@ export default function Settings() {
     const [diskSmartCleanMode, setDiskSmartCleanMode] = useState('largest');
     const [diskSmartCleanImmunityEnabled, setDiskSmartCleanImmunityEnabled] = useState(false);
     const [diskSmartCleanImmunityDays, setDiskSmartCleanImmunityDays] = useState(7);
+    const [diskSmartCleanSeriesLevel, setDiskSmartCleanSeriesLevel] = useState<'series'|'season'|'episode'>('series');
     const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(false);
     const [candidates, setCandidates] = useState<any[]>([]);
+    const [cleanupCountdown, setCleanupCountdown] = useState<number | null>(null);
+    const cleanupTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const [ignoredKeys, setIgnoredKeys] = useState<string[]>([]);
     const [loadingCandidates, setLoadingCandidates] = useState(false);
     const [releasesList, setReleasesList] = useState<any[]>([]);
@@ -304,6 +307,7 @@ export default function Settings() {
         if (allSettings.qbit_smart_clean_mode) setDiskSmartCleanMode(allSettings.qbit_smart_clean_mode);
         if (allSettings.qbit_smart_clean_immunity_enabled) setDiskSmartCleanImmunityEnabled(allSettings.qbit_smart_clean_immunity_enabled === 'true');
         if (allSettings.qbit_smart_clean_immunity_days) setDiskSmartCleanImmunityDays(parseInt(allSettings.qbit_smart_clean_immunity_days) || 7);
+        if (allSettings.media_smart_clean_series_level) setDiskSmartCleanSeriesLevel(allSettings.media_smart_clean_series_level as any);
         if (allSettings.auto_update_enabled !== undefined) setAutoUpdateEnabled(allSettings.auto_update_enabled === 'true');
         if (allSettings.media_smart_clean_ignored_keys) {
             try {
@@ -1357,6 +1361,28 @@ export default function Settings() {
                                             const val = parseInt(e.target.value);
                                             setDiskPauseThreshold(val);
                                             updateSetting('disk_pause_threshold', val);
+                                            // Start 2-minute countdown if threshold is now below current usage
+                                            if (diskInfo && val < diskInfo.usedPercent && diskAutocleanEnabled) {
+                                                if (cleanupTimerRef.current) clearInterval(cleanupTimerRef.current);
+                                                setCleanupCountdown(120);
+                                                cleanupTimerRef.current = setInterval(() => {
+                                                    setCleanupCountdown(prev => {
+                                                        if (prev === null || prev <= 1) {
+                                                            clearInterval(cleanupTimerRef.current!);
+                                                            cleanupTimerRef.current = null;
+                                                            // Trigger immediate cleanup
+                                                            fetch('/api/media/smart-clean', { method: 'POST' })
+                                                                .then(() => toast.success('Auto-cleanup triggered!'))
+                                                                .catch(() => toast.error('Cleanup trigger failed'));
+                                                            return null;
+                                                        }
+                                                        return prev - 1;
+                                                    });
+                                                }, 1000);
+                                            } else {
+                                                if (cleanupTimerRef.current) clearInterval(cleanupTimerRef.current);
+                                                setCleanupCountdown(null);
+                                            }
                                         }}
                                         className="flex-1 accent-emerald-500"
                                         disabled={!diskPauseEnabled}
@@ -1368,6 +1394,32 @@ export default function Settings() {
                                     <div className="flex items-center gap-2 p-2 bg-red-500/10 border border-red-500/20 rounded-lg">
                                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-red-400 flex-shrink-0"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
                                         <span className="text-xs font-bold text-red-400">Guard is ACTIVE — Scheduler currently paused ({diskInfo.usedPercent}% ≥ {diskPauseThreshold}%)</span>
+                                    </div>
+                                )}
+                                {/* 2-minute countdown banner */}
+                                {cleanupCountdown !== null && (
+                                    <div className="flex items-center justify-between gap-3 p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl animate-in slide-in-from-top-2 duration-300">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-8 h-8 rounded-full border-2 border-amber-400 flex items-center justify-center flex-shrink-0">
+                                                <span className="text-[10px] font-black text-amber-400">{cleanupCountdown}s</span>
+                                            </div>
+                                            <div>
+                                                <p className="text-xs font-bold text-amber-300">⏱ Auto-Cleanup in {cleanupCountdown}s</p>
+                                                <p className="text-[10px] text-amber-500/80">Threshold is below current usage. Items will be deleted unless you cancel.</p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                if (cleanupTimerRef.current) clearInterval(cleanupTimerRef.current);
+                                                cleanupTimerRef.current = null;
+                                                setCleanupCountdown(null);
+                                                toast.info('Countdown cancelled.');
+                                            }}
+                                            className="px-3 py-1.5 text-[10px] font-black uppercase rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500/30 transition-all flex-shrink-0"
+                                        >
+                                            Cancel
+                                        </button>
                                     </div>
                                 )}
                             </div>
@@ -1458,8 +1510,34 @@ export default function Settings() {
 
                                 <div className="p-3 bg-emerald-500/5 border border-emerald-500/10 rounded-xl">
                                     <p className="text-[10px] text-emerald-400 font-medium leading-relaxed">
-                                        ⚠️ <strong>CRITICAL NOTE:</strong> Automated cleanup operates <strong>ONLY</strong> when your disk space goes <strong>ABOVE</strong> the allowed fill threshold ({diskPauseThreshold}%). When triggered, the background process will delete media library items from Radarr/Sonarr sequentially according to your selection criteria until the occupied volume is below the threshold.
+                                        ⚠️ <strong>CRITICAL NOTE:</strong> Automated cleanup checks every 15 minutes and operates <strong>WHILE</strong> disk space is <strong>ABOVE</strong> the threshold ({diskPauseThreshold}%). It will delete items sequentially until space is below the threshold.
                                     </p>
+                                </div>
+
+                                {/* Series Cleanup Granularity */}
+                                <div className="border-t border-zinc-900 pt-3 space-y-2">
+                                    <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">TV Series Cleanup Level</label>
+                                    <p className="text-[10px] text-zinc-500">Control whether entire shows, individual seasons, or single episodes are listed and deleted.</p>
+                                    <div className="flex flex-wrap gap-2">
+                                        {([['series', 'Entire Show'], ['season', 'By Season'], ['episode', 'By Episode']] as const).map(([val, label]) => (
+                                            <button
+                                                key={val}
+                                                type="button"
+                                                onClick={() => {
+                                                    setDiskSmartCleanSeriesLevel(val);
+                                                    updateSetting('media_smart_clean_series_level', val);
+                                                    setTimeout(fetchCandidates, 300);
+                                                }}
+                                                className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all border ${
+                                                    diskSmartCleanSeriesLevel === val
+                                                        ? 'bg-violet-500/10 border-violet-500/30 text-violet-400'
+                                                        : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                                                }`}
+                                            >
+                                                {label}
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
 
                                 {/* Candidates List Section */}
@@ -1467,14 +1545,14 @@ export default function Settings() {
                                     <div className="flex items-center justify-between">
                                         <div>
                                             <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Cleanup Queue</label>
-                                            <p className="text-[10px] text-zinc-500 mt-0.5">Media items in line to be deleted if the threshold is reached. Check to ignore (keep) them.</p>
+                                            <p className="text-[10px] text-zinc-500 mt-0.5">Items queued for auto-deletion. Toggle Ignore to protect them; or delete right away.</p>
                                         </div>
-                                        <button 
-                                            type="button" 
-                                            onClick={fetchCandidates} 
+                                        <button
+                                            type="button"
+                                            onClick={fetchCandidates}
                                             className="px-2 py-1 bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white rounded-lg text-[10px] font-bold uppercase transition-all"
                                         >
-                                            Refresh List
+                                            Refresh
                                         </button>
                                     </div>
 
@@ -1483,58 +1561,86 @@ export default function Settings() {
                                             <div className="w-3.5 h-3.5 border border-zinc-700 border-t-zinc-400 rounded-full animate-spin" /> Fetching candidates...
                                         </div>
                                     ) : candidates.length === 0 ? (
-                                        <p className="text-xs text-zinc-600 italic text-center py-4">No eligible media items found in library.</p>
+                                        <p className="text-xs text-zinc-600 italic text-center py-4">No eligible items found.</p>
                                     ) : (
-                                        <div className="max-h-[300px] overflow-y-auto pr-2 custom-scrollbar space-y-2 border border-zinc-900/50 rounded-2xl p-2 bg-zinc-950/20">
+                                        <div className="max-h-[340px] overflow-y-auto pr-1 space-y-1.5 border border-zinc-900/50 rounded-2xl p-2 bg-zinc-950/20">
                                             {candidates.map((c, index) => (
-                                                <div 
-                                                    key={c.key} 
-                                                    className={`flex items-center justify-between p-3 rounded-xl border transition-all ${
-                                                        c.ignored 
-                                                            ? 'bg-zinc-950/40 border-zinc-900 text-zinc-600' 
-                                                            : 'bg-zinc-900 border-zinc-800/60 text-zinc-200 hover:border-zinc-850'
+                                                <div
+                                                    key={c.key}
+                                                    className={`flex items-center justify-between p-2.5 rounded-xl border transition-all ${
+                                                        c.ignored
+                                                            ? 'bg-zinc-950/40 border-zinc-900/80 opacity-60'
+                                                            : 'bg-zinc-900/80 border-zinc-800/60 hover:border-zinc-700'
                                                     }`}
                                                 >
-                                                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                                                        {!c.ignored ? (
-                                                            <div className="w-5 h-5 rounded bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[10px] font-black flex items-center justify-center">
-                                                                {index + 1}
-                                                            </div>
-                                                        ) : (
-                                                            <div className="w-5 h-5 rounded bg-zinc-850 text-zinc-600 text-[10px] font-black flex items-center justify-center">
-                                                                -
-                                                            </div>
-                                                        )}
-
+                                                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                                        <div className={`w-5 h-5 rounded text-[10px] font-black flex items-center justify-center flex-shrink-0 ${
+                                                            c.ignored ? 'bg-zinc-800 text-zinc-600' : 'bg-amber-500/10 border border-amber-500/20 text-amber-500'
+                                                        }`}>
+                                                            {c.ignored ? '–' : index + 1}
+                                                        </div>
                                                         <div className="min-w-0 flex-1">
-                                                            <div className="flex items-center gap-2">
-                                                                <span className={`text-xs font-bold truncate ${c.ignored ? 'line-through text-zinc-600' : 'text-zinc-200'}`}>{c.title}</span>
-                                                                <span className={`text-[9px] px-1.5 py-0.5 rounded font-black uppercase ${
-                                                                    c.type === 'movie' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' : 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+                                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                                <span className={`text-xs font-bold truncate max-w-[180px] ${c.ignored ? 'line-through text-zinc-600' : 'text-zinc-200'}`}>{c.title}</span>
+                                                                <span className={`text-[9px] px-1 py-0.5 rounded font-black uppercase flex-shrink-0 ${
+                                                                    c.type === 'movie' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                                                                    : c.type === 'season' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                                                    : c.type === 'episode' ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20'
+                                                                    : 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
                                                                 }`}>{c.type}</span>
-                                                                {c.isWatched && (
-                                                                    <span className="text-[8px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1 py-0.25 rounded font-bold uppercase">Watched</span>
-                                                                )}
+                                                                {c.isWatched && <span className="text-[8px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1 py-0.5 rounded font-bold uppercase flex-shrink-0">Watched</span>}
                                                             </div>
-                                                            <p className="text-[9px] text-zinc-500 mt-0.5 truncate uppercase font-semibold">
-                                                                Path: {c.path} • Added: {new Date(c.added).toLocaleDateString()} • {c.instanceName}
+                                                            <p className="text-[9px] text-zinc-600 mt-0.5 truncate font-medium">
+                                                                {new Date(c.added).toLocaleDateString()} · {c.instanceName}
                                                             </p>
                                                         </div>
                                                     </div>
-
-                                                    <div className="flex items-center gap-3 ml-3">
-                                                        <span className="text-xs font-black text-zinc-400 font-mono">{(c.size / (1024 ** 3)).toFixed(2)} GB</span>
+                                                    <div className="flex items-center gap-1.5 ml-2 flex-shrink-0">
+                                                        <span className="text-[10px] font-black text-zinc-400 font-mono">{(c.size / (1024 ** 3)).toFixed(1)}GB</span>
                                                         <button
                                                             type="button"
                                                             onClick={() => toggleIgnoreCandidate(c.key)}
-                                                            className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase border transition-all ${
+                                                            className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase border transition-all ${
                                                                 c.ignored
-                                                                    ? 'bg-red-500/15 border-red-500/30 text-red-400 hover:bg-red-500/20'
-                                                                    : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-700'
+                                                                    ? 'bg-red-500/10 border-red-500/20 text-red-400'
+                                                                    : 'bg-zinc-950 border-zinc-800 text-zinc-500 hover:text-zinc-300'
                                                             }`}
                                                         >
-                                                            {c.ignored ? 'Ignored' : 'Ignore'}
+                                                            {c.ignored ? 'Unignore' : 'Ignore'}
                                                         </button>
+                                                        {!c.ignored && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setConfirmModal({
+                                                                    title: `Delete "${c.title}"?`,
+                                                                    message: `This will immediately delete "${c.title}" (${(c.size / (1024**3)).toFixed(2)} GB) from disk. This cannot be undone.`,
+                                                                    confirmLabel: 'Delete Now',
+                                                                    onConfirm: async () => {
+                                                                        try {
+                                                                            let res;
+                                                                            if (c.type === 'movie') {
+                                                                                res = await fetch(`/api/radarr/delete?instanceId=${c.instanceId}&movieId=${c.id}&deleteFiles=true`, { method: 'DELETE' });
+                                                                            } else if (c.type === 'series') {
+                                                                                res = await fetch(`/api/sonarr/delete?instanceId=${c.instanceId}&seriesId=${c.id}&deleteFiles=true`, { method: 'DELETE' });
+                                                                            } else if (c.type === 'season') {
+                                                                                res = await fetch(`/api/sonarr/delete?instanceId=${c.instanceId}&seriesId=${c.seriesId}&seasonNumber=${c.seasonNumber}&deleteFiles=true&deleteFilesOnly=true`, { method: 'DELETE' });
+                                                                            } else if (c.type === 'episode') {
+                                                                                res = await fetch(`/api/sonarr/delete?instanceId=${c.instanceId}&episodeFileId=${c.episodeFileId}&deleteFiles=true&deleteFilesOnly=true`, { method: 'DELETE' });
+                                                                            }
+                                                                            if (res?.ok) {
+                                                                                toast.success(`Deleted "${c.title}"`);
+                                                                                setTimeout(fetchCandidates, 2000);
+                                                                            } else {
+                                                                                toast.error('Delete failed');
+                                                                            }
+                                                                        } catch (e) { toast.error('Delete failed'); }
+                                                                    }
+                                                                })}
+                                                                className="px-2 py-1 rounded-lg text-[9px] font-black uppercase border transition-all bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/20"
+                                                            >
+                                                                Delete
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 </div>
                                             ))}

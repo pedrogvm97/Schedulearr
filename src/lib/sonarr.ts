@@ -352,3 +352,37 @@ export async function getLanguageProfiles(url: string, apiKey: string) {
     });
     return res.data;
 }
+
+export async function deleteSeason(url: string, apiKey: string, seriesId: number, seasonNumber: number): Promise<boolean> {
+    try {
+        const filesRes = await axios.get(`${url}/api/v3/episodefile`, {
+            headers: { 'X-Api-Key': apiKey },
+            params: { seriesId }
+        });
+        const files = filesRes.data || [];
+        const seasonFiles = files.filter((f: any) => f.seasonNumber === seasonNumber);
+        
+        await Promise.all(seasonFiles.map(file =>
+            axios.delete(`${url}/api/v3/episodefile/${file.id}`, {
+                headers: { 'X-Api-Key': apiKey }
+            })
+        ));
+        return true;
+    } catch (e) {
+        console.error(`Error deleting season ${seasonNumber} for series ${seriesId} in Sonarr (${url}):`, e);
+        return false;
+    }
+}
+
+export async function getEpisodeFiles(url: string, apiKey: string, seriesId: number): Promise<any[]> {
+    try {
+        const res = await axios.get(`${url}/api/v3/episodefile`, {
+            headers: { 'X-Api-Key': apiKey },
+            params: { seriesId }
+        });
+        return res.data || [];
+    } catch (e) {
+        console.error(`Error fetching episode files for series ${seriesId} in Sonarr (${url}):`, e);
+        return [];
+    }
+}
