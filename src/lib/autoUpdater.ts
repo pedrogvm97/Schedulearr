@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
+import os from 'os';
 import { findSelfContainer } from './docker';
 
 declare global {
@@ -72,7 +73,7 @@ async function checkAndUpdate() {
     console.log(`[AutoUpdater] Update available: ${currentVersion} → ${latestVersion}. Auto-updating...`);
     global._schedulearrAutoUpdater.lastResult = `Updating ${currentVersion} → ${latestVersion}`;
 
-    const hostname = process.env.HOSTNAME || 'localhost';
+    const hostname = os.hostname() || 'localhost';
     const docker = axios.create({
       socketPath,
       baseURL: 'http://localhost/v1.41',
@@ -102,13 +103,39 @@ async function checkAndUpdate() {
     await docker.post(`/images/create?fromImage=${encodeURIComponent(fromImage)}&tag=${encodeURIComponent(tag)}`);
     console.log('[AutoUpdater] Image pulled. Scheduling container restart...');
 
-    // Restart container after a short delay
+    // Recreate/restart container after a short delay
     setTimeout(async () => {
       try {
-        await docker.post(`/containers/${containerId}/restart`);
-        console.log('[AutoUpdater] Container restarted successfully.');
+        if (containerInfo) {
+          const finalImage = `${fromImage}:${tag}`;
+          const oldName = containerInfo.Name.replace(/^\//, '');
+          const oldId = containerInfo.Id;
+          const oldNameTmp = `${oldName}_old`;
+
+          await docker.post(`/containers/${oldId}/stop?t=10`);
+          await docker.post(`/containers/${oldId}/rename?name=${oldNameTmp}`);
+
+          const createBody = {
+            ...containerInfo.Config,
+            Image: finalImage,
+            HostConfig: containerInfo.HostConfig,
+            NetworkingConfig: {
+              EndpointsConfig: containerInfo.NetworkSettings?.Networks || {}
+            }
+          };
+
+          const createRes = await docker.post(`/containers/create?name=${oldName}`, createBody);
+          const newId = createRes.data.Id;
+
+          await docker.post(`/containers/${newId}/start`);
+          await docker.delete(`/containers/${oldId}_old?force=true`);
+          console.log('[AutoUpdater] Container recreated and updated successfully.');
+        } else {
+          await docker.post(`/containers/${containerId}/restart`);
+          console.log('[AutoUpdater] Container restarted successfully.');
+        }
       } catch (e: any) {
-        console.error('[AutoUpdater] Failed to restart container:', e.message);
+        console.error('[AutoUpdater] Failed to restart/recreate container:', e.message);
       }
     }, 3000);
 

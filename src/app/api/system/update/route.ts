@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import axios from 'axios';
+import os from 'os';
 import { findSelfContainer } from '@/lib/docker';
 
 export const dynamic = 'force-dynamic';
@@ -14,7 +15,7 @@ export async function POST() {
     }, { status: 400 });
   }
 
-  const hostname = process.env.HOSTNAME || 'localhost';
+  const hostname = os.hostname() || 'localhost';
 
   try {
     const docker = axios.create({
@@ -26,8 +27,9 @@ export async function POST() {
     // 1. Identify image name and container ID
     let imageName = 'ghcr.io/pedrogvm97/schedulearr:latest';
     let containerId = hostname;
+    let containerInfo: any = null;
     try {
-      const containerInfo = await findSelfContainer(docker, hostname);
+      containerInfo = await findSelfContainer(docker, hostname);
       if (containerInfo) {
         imageName = containerInfo.Config?.Image || imageName;
         containerId = containerInfo.Id || hostname;
@@ -53,21 +55,47 @@ export async function POST() {
       return NextResponse.json({ error: 'Failed to pull latest image: ' + pullError.message }, { status: 500 });
     }
 
-    // 3. Restart container via Docker socket
-    console.log(`Sending restart signal to container ${containerId}`);
+    // 3. Recreate or restart container via Docker socket
+    console.log(`Triggering container recreate/restart for ${containerId}`);
     try {
-      // Trigger container restart asynchronously so we can return the response before the container goes down
+      // Trigger container recreation/restart asynchronously so we can return the response before the container goes down
       setTimeout(async () => {
         try {
-          await docker.post(`/containers/${containerId}/restart`);
+          if (containerInfo) {
+            const finalImage = `${fromImage}:${tag}`;
+            const oldName = containerInfo.Name.replace(/^\//, '');
+            const oldId = containerInfo.Id;
+            const oldNameTmp = `${oldName}_old`;
+
+            await docker.post(`/containers/${oldId}/stop?t=10`);
+            await docker.post(`/containers/${oldId}/rename?name=${oldNameTmp}`);
+
+            const createBody = {
+              ...containerInfo.Config,
+              Image: finalImage,
+              HostConfig: containerInfo.HostConfig,
+              NetworkingConfig: {
+                EndpointsConfig: containerInfo.NetworkSettings?.Networks || {}
+              }
+            };
+
+            const createRes = await docker.post(`/containers/create?name=${oldName}`, createBody);
+            const newId = createRes.data.Id;
+
+            await docker.post(`/containers/${newId}/start`);
+            await docker.delete(`/containers/${oldId}_old?force=true`);
+            console.log('[Updater] Container updated and recreated successfully.');
+          } else {
+            await docker.post(`/containers/${containerId}/restart`);
+          }
         } catch (e: any) {
-          console.error('Failed to trigger restart in background:', e.message);
+          console.error('Failed to trigger update recreation in background:', e.message);
         }
       }, 500);
 
       return NextResponse.json({ 
         success: true, 
-        message: 'Latest image pulled successfully. The application container is now restarting to apply updates.' 
+        message: 'Latest image pulled successfully. The application container is now updating/recreating.' 
       });
     } catch (restartError: any) {
       console.error('Docker restart failed:', restartError.message);

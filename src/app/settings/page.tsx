@@ -143,6 +143,91 @@ export default function Settings() {
     const [candidates, setCandidates] = useState<any[]>([]);
     const [ignoredKeys, setIgnoredKeys] = useState<string[]>([]);
     const [loadingCandidates, setLoadingCandidates] = useState(false);
+    const [releasesList, setReleasesList] = useState<any[]>([]);
+    const [selectedVersion, setSelectedVersion] = useState<string>('');
+    const [fetchingReleases, setFetchingReleases] = useState(false);
+
+    const fetchReleases = async () => {
+        setFetchingReleases(true);
+        try {
+            const res = await fetch('/api/system/releases');
+            if (res.ok) {
+                const data = await res.json();
+                if (Array.isArray(data.versions)) {
+                    setReleasesList(data.versions);
+                    if (data.versions.length > 0) {
+                        setSelectedVersion(data.versions[0].tag);
+                    }
+                }
+            }
+        } catch (e) {
+            console.error('Failed to fetch releases', e);
+        } finally {
+            setFetchingReleases(false);
+        }
+    };
+
+    const handleVersionSwitch = (tag: string) => {
+        const cleanTag = tag.replace(/^v/, '');
+        setConfirmModal({
+            title: `🚀 Switch to Version v${cleanTag}`,
+            message: `This will pull the specific Docker image tag (${cleanTag}) and recreate the container. The app will be briefly offline during the switch.`,
+            confirmLabel: 'Confirm Switch',
+            onConfirm: () => {
+                setUpdating(true);
+                setUpdateLogs([{ type: 'info', message: `[INFO] Connecting to update stream for version v${cleanTag}...` }]);
+                const eventSource = new EventSource(`/api/system/update/stream?tag=${encodeURIComponent(tag)}`);
+
+                eventSource.addEventListener('log', (event: any) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        setUpdateLogs(prev => [...prev, data]);
+                    } catch (e) {
+                        console.error("Failed to parse event data", e);
+                    }
+                });
+
+                eventSource.addEventListener('complete', (event: any) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        if (data.success) {
+                            toast.success(`Switch to version v${cleanTag} successfully initiated!`);
+                            setUpdateLogs(prev => [...prev, { type: 'success', message: `[SUCCESS] Version switch to v${cleanTag} triggered! Container is recreating.` }]);
+                        } else {
+                            toast.error("Version switch finished with issues.");
+                            setUpdateLogs(prev => [...prev, { type: 'error', message: '[ERROR] Operation completed with errors.' }]);
+                        }
+                    } catch (e) {
+                        console.error("Failed to parse complete event", e);
+                    }
+                    eventSource.close();
+                    setTimeout(() => { setUpdating(false); }, 8000);
+                });
+
+                eventSource.onerror = (err) => {
+                    console.error("SSE Connection lost:", err);
+                    setUpdateLogs(prev => {
+                        const alreadyDone = prev.some(l => l.message.includes('restarting') || l.message.includes('complete') || l.message.includes('Starting container'));
+                        if (alreadyDone) {
+                            toast.success("Container recreation started! Page will reconnect when container restarts.");
+                            return [...prev, { type: 'success', message: '[SUCCESS] Connection closed because the container is restarting!' }];
+                        } else {
+                            toast.error("Lost connection to update server.");
+                            return [...prev, { type: 'error', message: '[ERROR] Connection to the update server was lost prematurely.' }];
+                        }
+                    });
+                    eventSource.close();
+                    setUpdating(false);
+                };
+            }
+        });
+    };
+
+    useEffect(() => {
+        if (activeTab === 'status') {
+            fetchReleases();
+        }
+    }, [activeTab]);
 
     const fetchCandidates = async () => {
         setLoadingCandidates(true);
@@ -912,6 +997,52 @@ export default function Settings() {
                                     autoUpdateEnabled ? 'translate-x-7' : 'translate-x-0.5'
                                 }`} />
                             </button>
+                        </div>
+
+                        {/* Rollback / Version Switching Section */}
+                        <div className="px-6 pb-6 pt-5 border-t border-zinc-800/50 space-y-4">
+                            <div className="space-y-0.5">
+                                <p className="text-sm font-bold text-white">🔄 Version Rollback &amp; Switch</p>
+                                <p className="text-xs text-zinc-500 leading-relaxed">
+                                    Roll back or switch to any previously published version of Schedulearr directly from your container registry.
+                                </p>
+                            </div>
+                            
+                            {fetchingReleases ? (
+                                <div className="flex items-center gap-2 text-zinc-500 text-xs py-2">
+                                    <div className="w-3 h-3 border border-zinc-700 border-t-zinc-400 rounded-full animate-spin" /> Fetching available versions...
+                                </div>
+                            ) : releasesList.length === 0 ? (
+                                <p className="text-xs text-zinc-600 italic">No releases found on GitHub.</p>
+                            ) : (
+                                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 bg-zinc-950/20 p-4 rounded-xl border border-zinc-800/30">
+                                    <div className="flex-1 space-y-1.5">
+                                        <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Select Version</label>
+                                        <select
+                                            value={selectedVersion}
+                                            onChange={e => setSelectedVersion(e.target.value)}
+                                            className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
+                                        >
+                                            {releasesList.map(r => {
+                                                const isCurrent = `v${versionInfo?.currentVersion}` === r.tag || versionInfo?.currentVersion === r.tag;
+                                                return (
+                                                    <option key={r.tag} value={r.tag}>
+                                                        {r.tag} {isCurrent ? ' (Current)' : ''} {r.prerelease ? ' [Pre-release]' : ''}
+                                                    </option>
+                                                );
+                                            })}
+                                        </select>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleVersionSwitch(selectedVersion)}
+                                        disabled={updating || !selectedVersion}
+                                        className="sm:self-end bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-200 hover:text-white font-bold py-2 px-5 rounded-lg text-xs transition-all border border-zinc-700/50"
+                                    >
+                                        Switch Version
+                                    </button>
+                                </div>
+                            )}
                         </div>
 
                         {/* SSE Update Terminal Panel */}
