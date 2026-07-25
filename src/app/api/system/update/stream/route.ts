@@ -1,4 +1,4 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import fs from "fs";
 import axios from "axios";
 import os from "os";
@@ -51,17 +51,13 @@ export async function GET(request: Request) {
         }
 
         // Step 2: Determine image and tag
-        let fromImage = containerInfo?.Config?.Image || "ghcr.io/pedrogvm97/schedulearr:latest";
-        let tag = "latest";
+        let fromImage = "ghcr.io/pedrogvm97/schedulearr";
+        let tag = tagParam ? tagParam.replace(/^v/, "") : "latest";
 
-        if (tagParam) {
-          tag = tagParam.replace(/^v/, "");
-          if (fromImage.includes(":")) fromImage = fromImage.split(":").slice(0, -1).join(":");
-        } else {
-          if (fromImage.includes(":")) {
-            const parts = fromImage.split(":");
-            tag = parts.pop() || "latest";
-            fromImage = parts.join(":");
+        if (containerInfo?.Config?.Image) {
+          const currentImg = containerInfo.Config.Image;
+          if (currentImg.includes("/")) {
+            fromImage = currentImg.split(":")[0];
           }
         }
 

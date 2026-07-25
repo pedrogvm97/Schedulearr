@@ -5,56 +5,15 @@
   --color-zinc-950: #09090b;
 }
 
-html {
-  /* 125% Base Text Scaling preference for visual comfort and readability */
-  font-size: 112.5%; /* 18px base scaling */
-}
-
-@media (min-width: 768px) {
-  html {
-    font-size: 125%; /* 20px base scaling for tablets and desktops */
-  }
-}
-
 body {
   background-color: var(--color-zinc-950);
   color: white;
-  -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
-}
-
-/* Touch Input & Target Standard Utilities */
-.touch-target {
-  min-height: 44px;
-  min-width: 44px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-button, a, input, select {
-  touch-action: manipulation;
 }
 
 /* Mobile bottom tab bar: add padding so content isn't hidden underneath it */
 @media (max-width: 767px) {
   main {
-    padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
-  }
-}
-
-/* Dedicated Tablet Layout Adjustments */
-@media (min-width: 768px) and (max-width: 1024px) {
-  /* Tablet Portrait Optimization */
-  .tablet-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-  }
-}
-
-@media (min-width: 1025px) and (max-width: 1280px) {
-  /* Tablet Landscape Optimization */
-  .tablet-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    padding-bottom: calc(3.5rem + env(safe-area-inset-bottom, 0px));
   }
 }
 

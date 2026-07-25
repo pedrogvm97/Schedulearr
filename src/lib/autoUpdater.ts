@@ -80,24 +80,21 @@ async function checkAndUpdate() {
       timeout: 300000,
     });
 
-    // Resolve container info and image name
-    let imageName = 'ghcr.io/pedrogvm97/schedulearr:latest';
+    let fromImage = 'ghcr.io/pedrogvm97/schedulearr';
+    let tag = latestVersion || 'latest';
     let containerId = hostname;
+    let containerInfo: any = null;
+
     try {
-      const containerInfo = await findSelfContainer(docker, hostname);
+      containerInfo = await findSelfContainer(docker, hostname);
       if (containerInfo) {
-        imageName = containerInfo.Config?.Image || imageName;
         containerId = containerInfo.Id || hostname;
+        const currentImg = containerInfo.Config?.Image || '';
+        if (currentImg.includes('/')) {
+          fromImage = currentImg.split(':')[0];
+        }
       }
     } catch (_) {}
-
-    let fromImage = imageName;
-    let tag = 'latest';
-    if (imageName.includes(':')) {
-      const parts = imageName.split(':');
-      tag = parts.pop() || 'latest';
-      fromImage = parts.join(':');
-    }
 
     // Pull latest image
     await docker.post(`/images/create?fromImage=${encodeURIComponent(fromImage)}&tag=${encodeURIComponent(tag)}`);

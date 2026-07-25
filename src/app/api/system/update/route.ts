@@ -1,4 +1,4 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import fs from "fs";
 import axios from "axios";
 import os from "os";
@@ -20,24 +20,21 @@ export async function POST() {
   try {
     const docker = axios.create({ socketPath, baseURL: "http://localhost/v1.41", timeout: 180000 });
 
-    let imageName = "ghcr.io/pedrogvm97/schedulearr:latest";
+    let fromImage = "ghcr.io/pedrogvm97/schedulearr";
+    let tag = "latest";
     let containerId = hostname;
+
     try {
       const containerInfo = await findSelfContainer(docker, hostname);
       if (containerInfo) {
-        imageName = containerInfo.Config?.Image || imageName;
         containerId = containerInfo.Id || hostname;
+        const currentImg = containerInfo.Config?.Image || "";
+        if (currentImg.includes("/")) {
+          fromImage = currentImg.split(":")[0];
+        }
       }
     } catch (e) {
       console.warn("Could not read container config, using defaults");
-    }
-
-    let fromImage = imageName;
-    let tag = "latest";
-    if (imageName.includes(":")) {
-      const parts = imageName.split(":");
-      tag = parts.pop() || "latest";
-      fromImage = parts.join(":");
     }
 
     try {
