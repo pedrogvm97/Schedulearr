@@ -51,3 +51,9 @@ resize_icon.ps1
 test-prowl.js
 test-prowl.ts
 update_key.ts
+
+# Host device recovery and backup files
+*Blade15*
+*.bak
+*.tmp
+.antigravity/
