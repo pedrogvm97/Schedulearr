@@ -1199,9 +1199,9 @@ export default function Settings() {
                         <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-4">
                             <div className="flex items-center justify-between">
                                 <div>
-                                    <div className="text-sm font-bold text-zinc-200">Smart Auto-Clean Torrents When Full</div>
+                                    <div className="text-sm font-bold text-zinc-200">Smart Auto-Clean Library Media When Full</div>
                                     <p className="text-[10px] text-zinc-500 font-medium mt-0.5">
-                                        Automatically delete eligible qBittorrent torrents to free up disk space when the guard threshold is reached.
+                                        Automatically delete library media files from Radarr/Sonarr to free up space when the threshold is reached.
                                     </p>
                                 </div>
                                 <button
@@ -1243,7 +1243,7 @@ export default function Settings() {
                                 <div className="border-t border-zinc-900 pt-3 flex items-center justify-between">
                                     <div>
                                         <div className="text-xs font-bold text-zinc-300">Protect Recently Added (Immunity)</div>
-                                        <p className="text-[10px] text-zinc-500 mt-0.5">Skip files added to qBittorrent within the last few days.</p>
+                                        <p className="text-[10px] text-zinc-500 mt-0.5">Skip media files added to Radarr/Sonarr within the last few days.</p>
                                     </div>
                                     <button
                                         onClick={() => {
@@ -1280,8 +1280,163 @@ export default function Settings() {
 
                                 <div className="p-3 bg-emerald-500/5 border border-emerald-500/10 rounded-xl">
                                     <p className="text-[10px] text-emerald-400 font-medium leading-relaxed">
-                                        ⚠️ <strong>CRITICAL NOTE:</strong> Automated cleanup operates <strong>ONLY</strong> when your disk space goes <strong>ABOVE</strong> the allowed fill threshold ({diskPauseThreshold}%). When triggered, the background process will delete the single target torrent according to your selection criteria to free up storage space.
+                                        ⚠️ <strong>CRITICAL NOTE:</strong> Automated cleanup checks every 15 minutes and operates <strong>WHILE</strong> disk space is <strong>ABOVE</strong> the threshold ({diskPauseThreshold}%). It will delete items sequentially from Radarr/Sonarr until space is below the threshold.
                                     </p>
+                                </div>
+
+                                {/* TV Series Cleanup Level */}
+                                <div className="border-t border-zinc-900 pt-3 space-y-2">
+                                    <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">TV Series Cleanup Level</label>
+                                    <p className="text-[10px] text-zinc-500">Control whether entire shows, individual seasons, or single episodes are listed and cleaned.</p>
+                                    <div className="flex flex-wrap gap-2">
+                                        {(['series', 'season', 'episode'] as const).map(level => (
+                                            <button
+                                                key={level}
+                                                type="button"
+                                                onClick={() => {
+                                                    setDiskSmartCleanSeriesLevel(level);
+                                                    updateSetting('media_smart_clean_series_level', level);
+                                                    setTimeout(fetchCandidates, 300);
+                                                }}
+                                                className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all border ${
+                                                    diskSmartCleanSeriesLevel === level
+                                                        ? 'bg-violet-500/10 border-violet-500/30 text-violet-400'
+                                                        : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                                                }`}
+                                            >
+                                                {level === 'series' ? 'Entire Show' : level === 'season' ? 'By Season' : 'By Episode'}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Candidates List Section */}
+                                <div className="border-t border-zinc-900 pt-4 space-y-3">
+                                    <div className="flex items-center justify-between flex-wrap gap-2">
+                                        <div>
+                                            <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Cleanup Queue</label>
+                                            <p className="text-[10px] text-zinc-500 mt-0.5">Items queued for auto-deletion. Ignore items to protect them, or clean files now.</p>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={async () => {
+                                                    try {
+                                                        toast.info('Trimming disk usage to target threshold...');
+                                                        const res = await fetch('/api/media/smart-clean', { method: 'POST' });
+                                                        const json = await res.json();
+                                                        if (json.cleanedCount > 0) {
+                                                            toast.success(json.message || `Cleaned ${json.cleanedCount} items.`);
+                                                        } else {
+                                                            toast.info(json.message || 'Disk space is within target threshold.');
+                                                        }
+                                                        setTimeout(() => { fetchCandidates(); fetch('/api/system/disk').then(r => r.ok ? r.json() : null).then(d => { if (d) setDiskInfo(d); }); }, 1500);
+                                                    } catch (e: any) {
+                                                        toast.error('Clean to threshold failed');
+                                                    }
+                                                }}
+                                                className="px-3 py-1.5 min-h-[36px] bg-amber-500/10 border border-amber-500/30 text-amber-400 hover:bg-amber-500/20 active:scale-95 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-1.5 touch-target"
+                                                title="Trim items until disk space falls below target threshold"
+                                            >
+                                                Clean to Threshold Now
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={fetchCandidates}
+                                                className="px-2.5 py-1.5 min-h-[36px] bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white rounded-xl text-xs font-bold uppercase transition-all touch-target"
+                                            >
+                                                Refresh
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {loadingCandidates ? (
+                                        <div className="flex items-center gap-2 text-zinc-600 text-xs py-4 justify-center">
+                                            <div className="w-3.5 h-3.5 border border-zinc-700 border-t-zinc-400 rounded-full animate-spin" /> Fetching candidates...
+                                        </div>
+                                    ) : candidates.length === 0 ? (
+                                        <p className="text-xs text-zinc-600 italic text-center py-4">No eligible items found.</p>
+                                    ) : (
+                                        <div className="max-h-[340px] overflow-y-auto pr-1 space-y-1.5 border border-zinc-900/50 rounded-2xl p-2 bg-zinc-950/20">
+                                            {candidates.map((c, index) => (
+                                                <div
+                                                    key={c.key}
+                                                    className={`flex items-center justify-between p-2.5 rounded-xl border transition-all ${
+                                                        c.ignored
+                                                            ? 'bg-zinc-950/40 border-zinc-900/80 opacity-60'
+                                                            : 'bg-zinc-900/80 border-zinc-800/60 hover:border-zinc-700'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                                        <div className={`w-5 h-5 rounded text-[10px] font-black flex items-center justify-center flex-shrink-0 ${
+                                                            c.ignored ? 'bg-zinc-800 text-zinc-600' : 'bg-amber-500/10 border border-amber-500/20 text-amber-500'
+                                                        }`}>
+                                                            {c.ignored ? '–' : index + 1}
+                                                        </div>
+                                                        <div className="min-w-0 flex-1">
+                                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                                <span className={`text-xs font-bold truncate max-w-[180px] ${c.ignored ? 'line-through text-zinc-600' : 'text-zinc-200'}`}>{c.title}</span>
+                                                                <span className={`text-[9px] px-1 py-0.5 rounded font-black uppercase flex-shrink-0 ${
+                                                                    c.type === 'movie' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                                                                    : c.type === 'season' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                                                    : c.type === 'episode' ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20'
+                                                                    : 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+                                                                }`}>{c.type}</span>
+                                                                {c.isWatched && <span className="text-[8px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1 py-0.5 rounded font-bold uppercase flex-shrink-0">Watched</span>}
+                                                            </div>
+                                                            <p className="text-[9px] text-zinc-600 mt-0.5 truncate font-medium">
+                                                                {new Date(c.added).toLocaleDateString()} · {c.instanceName}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-1.5 ml-2 flex-shrink-0">
+                                                        <span className="text-[10px] font-black text-zinc-400 font-mono">{(c.size / (1024 ** 3)).toFixed(1)}GB</span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => toggleIgnoreCandidate(c.key)}
+                                                            className={`px-2.5 py-1.5 min-h-[32px] rounded-lg text-[10px] font-black uppercase border transition-all ${
+                                                                c.ignored
+                                                                    ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                                                                    : 'bg-zinc-950 border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                                                            }`}
+                                                        >
+                                                            {c.ignored ? 'Unignore' : 'Ignore'}
+                                                        </button>
+                                                        {!c.ignored && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={async () => {
+                                                                    try {
+                                                                        let res;
+                                                                        if (c.type === 'movie') {
+                                                                            res = await fetch(`/api/radarr/delete?instanceId=${c.instanceId}&movieId=${c.id}&deleteFiles=true`, { method: 'DELETE' });
+                                                                        } else if (c.type === 'series') {
+                                                                            res = await fetch(`/api/sonarr/delete?instanceId=${c.instanceId}&seriesId=${c.id}&deleteFiles=true`, { method: 'DELETE' });
+                                                                        } else if (c.type === 'season') {
+                                                                            res = await fetch(`/api/sonarr/delete?instanceId=${c.instanceId}&seriesId=${c.seriesId}&seasonNumber=${c.seasonNumber}&deleteFiles=true&deleteFilesOnly=true`, { method: 'DELETE' });
+                                                                        } else if (c.type === 'episode') {
+                                                                            res = await fetch(`/api/sonarr/delete?instanceId=${c.instanceId}&episodeFileId=${c.episodeFileId}&deleteFiles=true&deleteFilesOnly=true`, { method: 'DELETE' });
+                                                                        }
+                                                                        if (res?.ok) {
+                                                                            toast.success(`Cleaned "${c.title}"`);
+                                                                            fetchCandidates();
+                                                                            fetch('/api/system/disk').then(r => r.ok ? r.json() : null).then(d => { if (d) setDiskInfo(d); });
+                                                                        } else {
+                                                                            toast.error('Clean failed');
+                                                                        }
+                                                                    } catch (e) { toast.error('Clean failed'); }
+                                                                }}
+                                                                className="px-2.5 py-1.5 min-h-[32px] rounded-lg text-[10px] font-black uppercase border transition-all active:scale-95 bg-rose-500/10 border-rose-500/30 text-rose-400 hover:bg-rose-500 hover:text-white flex items-center gap-1 touch-target"
+                                                                title="Clean file now"
+                                                            >
+                                                                Clean Now
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
