@@ -29,3 +29,6 @@ Before proposing, writing, or executing ANY code changes, version bumps, or rele
 
 7. **Shared Volume Deduplication**:
    - Disk space API (`/api/system/disk`) and Storage Guard MUST deduplicate root folders by volume signatures (`${totalMB}_${freeMB}`) so shared Unraid NAS array storage is counted exactly once.
+
+8. **Build Completion Verification**:
+   - MUST verify GitHub Actions job completion (`gh run view`) and confirm image push to GHCR is 100% finished before telling the user to click **Update App**, preventing race conditions.
