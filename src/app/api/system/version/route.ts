@@ -12,11 +12,13 @@ export async function GET() {
 
   try {
     // 1. Get current version from package.json or system fallback
-    let currentVersion = '0.2.0';
+    let currentVersion = '0.2.1';
     const possiblePaths = [
       path.join(process.cwd(), 'package.json'),
       path.join(process.cwd(), '..', 'package.json'),
-      '/app/package.json'
+      path.join(process.cwd(), '..', '..', 'package.json'),
+      '/app/package.json',
+      '/app/.next/standalone/package.json'
     ];
     for (const p of possiblePaths) {
       if (fs.existsSync(p)) {
