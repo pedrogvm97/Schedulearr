@@ -114,15 +114,32 @@ export async function recreateSelfContainer(docker: any, containerInfo: any, tar
     throw new Error('Container info not found');
   }
 
+  // First: Purge any leftover _old_ containers from previous update attempts
+  try {
+    const listRes = await docker.get('/containers/json?all=true');
+    const containers = listRes.data || [];
+    for (const c of containers) {
+      const names = c.Names || [];
+      if (names.some((n: string) => n.includes('_old_'))) {
+        await docker.delete(`/containers/${c.Id}?v=true&force=true`).catch(() => {});
+      }
+    }
+  } catch (e) {}
+
   const containerId = containerInfo.Id;
   const rawName = containerInfo.Name || 'Schedulearr';
   const name = rawName.replace(/^\//, '');
   const tempName = `${name}_old_${Date.now()}`;
 
-  // 1. Rename existing running container
+  // 1. Stop existing container to release port bindings
+  try {
+    await docker.post(`/containers/${containerId}/stop?t=5`);
+  } catch (e) {}
+
+  // 2. Rename existing container
   await docker.post(`/containers/${containerId}/rename?name=${tempName}`);
 
-  // 2. Prepare container config with new image
+  // 3. Prepare container config with new image
   const createBody = {
     ...containerInfo.Config,
     Image: targetImage,
@@ -133,19 +150,21 @@ export async function recreateSelfContainer(docker: any, containerInfo: any, tar
   };
 
   try {
-    // 3. Create new container with original name
+    // 4. Create new container with original name on freed port
     const createRes = await docker.post(`/containers/create?name=${name}`, createBody);
     const newContainerId = createRes.data.Id;
 
-    // 4. Start new container
+    // 5. Start new container
     await docker.post(`/containers/${newContainerId}/start`);
 
-    // 5. Cleanup old container asynchronously
-    docker.delete(`/containers/${tempName}?force=true`).catch(() => {});
+    // 6. Delete old container synchronously to prevent orphan containers in Unraid
+    await docker.delete(`/containers/${tempName}?v=true&force=true`).catch(() => {});
+    await docker.delete(`/containers/${containerId}?v=true&force=true`).catch(() => {});
     return true;
   } catch (err: any) {
-    // If creation failed, restore original container name
-    await docker.post(`/containers/${containerId}/rename?name=${name}`).catch(() => {});
+    // If creation failed, attempt to restart original container
+    await docker.post(`/containers/${tempName}/rename?name=${name}`).catch(() => {});
+    await docker.post(`/containers/${containerId}/start`).catch(() => {});
     throw err;
   }
 }
