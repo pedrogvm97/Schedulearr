@@ -32,3 +32,9 @@ Before proposing, writing, or executing ANY code changes, version bumps, or rele
 
 8. **Build Completion Verification**:
    - MUST verify GitHub Actions job completion (`gh run view`) and confirm image push to GHCR is 100% finished before telling the user to click **Update App**, preventing race conditions.
+
+9. **GHCR SemVer Docker Image Tagging**:
+   - `.github/workflows/docker-publish.yml` MUST configure Docker metadata tags to generate explicit SemVer tags (`X.Y.Z`, `latest`) on GHCR for every release, so version-specific docker pulls never fail with `manifest unknown`.
+
+10. **Strict Question Interruption Protocol**:
+    - Whenever the user asks a question or includes a question mark (`?`), HALT all tool execution immediately. Answer the question completely, request permission for any file/terminal operations, and wait for explicit approval before running any tools.
