@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { CustomSelect } from "@/components/CustomSelect";
 
@@ -139,7 +139,130 @@ export default function Settings() {
     const [diskSmartCleanMode, setDiskSmartCleanMode] = useState('largest');
     const [diskSmartCleanImmunityEnabled, setDiskSmartCleanImmunityEnabled] = useState(false);
     const [diskSmartCleanImmunityDays, setDiskSmartCleanImmunityDays] = useState(7);
+    const [diskSmartCleanSeriesLevel, setDiskSmartCleanSeriesLevel] = useState<'series'|'season'|'episode'>('series');
     const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(false);
+    const [candidates, setCandidates] = useState<any[]>([]);
+    const [cleanupCountdown, setCleanupCountdown] = useState<number | null>(null);
+    const cleanupTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const [ignoredKeys, setIgnoredKeys] = useState<string[]>([]);
+    const [loadingCandidates, setLoadingCandidates] = useState(false);
+    const [releasesList, setReleasesList] = useState<any[]>([]);
+    const [selectedVersion, setSelectedVersion] = useState<string>('');
+    const [fetchingReleases, setFetchingReleases] = useState(false);
+
+    const fetchReleases = async () => {
+        setFetchingReleases(true);
+        try {
+            const res = await fetch('/api/system/releases');
+            if (res.ok) {
+                const data = await res.json();
+                if (Array.isArray(data.versions)) {
+                    setReleasesList(data.versions);
+                    if (data.versions.length > 0) {
+                        setSelectedVersion(data.versions[0].tag);
+                    }
+                }
+            }
+        } catch (e) {
+            console.error('Failed to fetch releases', e);
+        } finally {
+            setFetchingReleases(false);
+        }
+    };
+
+    const handleVersionSwitch = (tag: string) => {
+        const cleanTag = tag.replace(/^v/, '');
+        setConfirmModal({
+            title: `🚀 Switch to Version v${cleanTag}`,
+            message: `This will pull the specific Docker image tag (${cleanTag}) and recreate the container. The app will be briefly offline during the switch.`,
+            confirmLabel: 'Confirm Switch',
+            onConfirm: () => {
+                setUpdating(true);
+                setUpdateLogs([{ type: 'info', message: `[INFO] Connecting to update stream for version v${cleanTag}...` }]);
+                const eventSource = new EventSource(`/api/system/update/stream?tag=${encodeURIComponent(tag)}`);
+
+                eventSource.addEventListener('log', (event: any) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        setUpdateLogs(prev => [...prev, data]);
+                    } catch (e) {
+                        console.error("Failed to parse event data", e);
+                    }
+                });
+
+                eventSource.addEventListener('complete', (event: any) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        if (data.success) {
+                            toast.success(`Switch to version v${cleanTag} successfully initiated!`);
+                            setUpdateLogs(prev => [...prev, { type: 'success', message: `[SUCCESS] Version switch to v${cleanTag} triggered! Container is recreating.` }]);
+                        } else {
+                            toast.error("Version switch finished with issues.");
+                            setUpdateLogs(prev => [...prev, { type: 'error', message: '[ERROR] Operation completed with errors.' }]);
+                        }
+                    } catch (e) {
+                        console.error("Failed to parse complete event", e);
+                    }
+                    eventSource.close();
+                    setTimeout(() => { setUpdating(false); }, 8000);
+                });
+
+                eventSource.onerror = (err) => {
+                    console.error("SSE Connection lost:", err);
+                    setUpdateLogs(prev => {
+                        const alreadyDone = prev.some(l => l.message.includes('restarting') || l.message.includes('complete') || l.message.includes('Starting container'));
+                        if (alreadyDone) {
+                            toast.success("Container recreation started! Page will reconnect when container restarts.");
+                            return [...prev, { type: 'success', message: '[SUCCESS] Connection closed because the container is restarting!' }];
+                        } else {
+                            toast.error("Lost connection to update server.");
+                            return [...prev, { type: 'error', message: '[ERROR] Connection to the update server was lost prematurely.' }];
+                        }
+                    });
+                    eventSource.close();
+                    setUpdating(false);
+                };
+            }
+        });
+    };
+
+    useEffect(() => {
+        if (activeTab === 'status') {
+            fetchReleases();
+        }
+    }, [activeTab]);
+
+    const fetchCandidates = async () => {
+        setLoadingCandidates(true);
+        try {
+            const res = await fetch('/api/media/smart-clean-candidates');
+            if (res.ok) {
+                const data = await res.json();
+                if (Array.isArray(data.candidates)) {
+                    setCandidates(data.candidates);
+                }
+            }
+        } catch (e) {
+            console.error('Failed to fetch candidates', e);
+        } finally {
+            setLoadingCandidates(false);
+        }
+    };
+
+    const toggleIgnoreCandidate = async (key: string) => {
+        const nextIgnored = ignoredKeys.includes(key)
+            ? ignoredKeys.filter(k => k !== key)
+            : [...ignoredKeys, key];
+        setIgnoredKeys(nextIgnored);
+        await updateSetting('media_smart_clean_ignored_keys', JSON.stringify(nextIgnored));
+        setCandidates(prev => prev.map(c => c.key === key ? { ...c, ignored: !c.ignored } : c));
+    };
+
+    useEffect(() => {
+        if (isDiskOpen && diskAutocleanEnabled) {
+            fetchCandidates();
+        }
+    }, [isDiskOpen, diskAutocleanEnabled, diskSmartCleanMode, diskSmartCleanImmunityEnabled, diskSmartCleanImmunityDays]);
 
     const fetchInstances = async () => {
         setLoading(true);
@@ -156,6 +279,11 @@ export default function Settings() {
                 setTmdbApiKey(sData.tmdb_api_key || "");
                 setTmdbInput(sData.tmdb_api_key || "");
                 setTmdbState(sData.tmdb_api_key ? 'view' : 'edit');
+                if (sData.media_smart_clean_ignored_keys) {
+                    try {
+                        setIgnoredKeys(JSON.parse(sData.media_smart_clean_ignored_keys));
+                    } catch {}
+                }
             }
         } catch (e) {
             console.error(e);
@@ -179,7 +307,15 @@ export default function Settings() {
         if (allSettings.qbit_smart_clean_mode) setDiskSmartCleanMode(allSettings.qbit_smart_clean_mode);
         if (allSettings.qbit_smart_clean_immunity_enabled) setDiskSmartCleanImmunityEnabled(allSettings.qbit_smart_clean_immunity_enabled === 'true');
         if (allSettings.qbit_smart_clean_immunity_days) setDiskSmartCleanImmunityDays(parseInt(allSettings.qbit_smart_clean_immunity_days) || 7);
+        if (allSettings.media_smart_clean_series_level) setDiskSmartCleanSeriesLevel(allSettings.media_smart_clean_series_level as any);
         if (allSettings.auto_update_enabled !== undefined) setAutoUpdateEnabled(allSettings.auto_update_enabled === 'true');
+        if (allSettings.media_smart_clean_ignored_keys) {
+            try {
+                setIgnoredKeys(JSON.parse(allSettings.media_smart_clean_ignored_keys));
+            } catch {
+                setIgnoredKeys([]);
+            }
+        }
     }, [allSettings]);
 
     const fetchSelfInfo = async () => {
@@ -867,6 +1003,52 @@ export default function Settings() {
                             </button>
                         </div>
 
+                        {/* Rollback / Version Switching Section */}
+                        <div className="px-6 pb-6 pt-5 border-t border-zinc-800/50 space-y-4">
+                            <div className="space-y-0.5">
+                                <p className="text-sm font-bold text-white">🔄 Version Rollback &amp; Switch</p>
+                                <p className="text-xs text-zinc-500 leading-relaxed">
+                                    Roll back or switch to any previously published version of Schedulearr directly from your container registry.
+                                </p>
+                            </div>
+                            
+                            {fetchingReleases ? (
+                                <div className="flex items-center gap-2 text-zinc-500 text-xs py-2">
+                                    <div className="w-3 h-3 border border-zinc-700 border-t-zinc-400 rounded-full animate-spin" /> Fetching available versions...
+                                </div>
+                            ) : releasesList.length === 0 ? (
+                                <p className="text-xs text-zinc-600 italic">No releases found on GitHub.</p>
+                            ) : (
+                                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 bg-zinc-950/20 p-4 rounded-xl border border-zinc-800/30">
+                                    <div className="flex-1 space-y-1.5">
+                                        <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Select Version</label>
+                                        <select
+                                            value={selectedVersion}
+                                            onChange={e => setSelectedVersion(e.target.value)}
+                                            className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
+                                        >
+                                            {releasesList.map(r => {
+                                                const isCurrent = `v${versionInfo?.currentVersion}` === r.tag || versionInfo?.currentVersion === r.tag;
+                                                return (
+                                                    <option key={r.tag} value={r.tag}>
+                                                        {r.tag} {isCurrent ? ' (Current)' : ''} {r.prerelease ? ' [Pre-release]' : ''}
+                                                    </option>
+                                                );
+                                            })}
+                                        </select>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleVersionSwitch(selectedVersion)}
+                                        disabled={updating || !selectedVersion}
+                                        className="sm:self-end bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-200 hover:text-white font-bold py-2 px-5 rounded-lg text-xs transition-all border border-zinc-700/50"
+                                    >
+                                        Switch Version
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+
                         {/* SSE Update Terminal Panel */}
                         {updateLogs.length > 0 && (
                             <div className="px-6 pb-6 animate-in slide-in-from-bottom-2 duration-300">
@@ -1179,6 +1361,28 @@ export default function Settings() {
                                             const val = parseInt(e.target.value);
                                             setDiskPauseThreshold(val);
                                             updateSetting('disk_pause_threshold', val);
+                                            // Start 2-minute countdown if threshold is now below current usage
+                                            if (diskInfo && val < diskInfo.usedPercent && diskAutocleanEnabled) {
+                                                if (cleanupTimerRef.current) clearInterval(cleanupTimerRef.current);
+                                                setCleanupCountdown(120);
+                                                cleanupTimerRef.current = setInterval(() => {
+                                                    setCleanupCountdown(prev => {
+                                                        if (prev === null || prev <= 1) {
+                                                            clearInterval(cleanupTimerRef.current!);
+                                                            cleanupTimerRef.current = null;
+                                                            // Trigger immediate cleanup
+                                                            fetch('/api/media/smart-clean', { method: 'POST' })
+                                                                .then(() => toast.success('Auto-cleanup triggered!'))
+                                                                .catch(() => toast.error('Cleanup trigger failed'));
+                                                            return null;
+                                                        }
+                                                        return prev - 1;
+                                                    });
+                                                }, 1000);
+                                            } else {
+                                                if (cleanupTimerRef.current) clearInterval(cleanupTimerRef.current);
+                                                setCleanupCountdown(null);
+                                            }
                                         }}
                                         className="flex-1 accent-emerald-500"
                                         disabled={!diskPauseEnabled}
@@ -1192,6 +1396,32 @@ export default function Settings() {
                                         <span className="text-xs font-bold text-red-400">Guard is ACTIVE — Scheduler currently paused ({diskInfo.usedPercent}% ≥ {diskPauseThreshold}%)</span>
                                     </div>
                                 )}
+                                {/* 2-minute countdown banner */}
+                                {cleanupCountdown !== null && (
+                                    <div className="flex items-center justify-between gap-3 p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl animate-in slide-in-from-top-2 duration-300">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-8 h-8 rounded-full border-2 border-amber-400 flex items-center justify-center flex-shrink-0">
+                                                <span className="text-[10px] font-black text-amber-400">{cleanupCountdown}s</span>
+                                            </div>
+                                            <div>
+                                                <p className="text-xs font-bold text-amber-300">⏱ Auto-Cleanup in {cleanupCountdown}s</p>
+                                                <p className="text-[10px] text-amber-500/80">Threshold is below current usage. Items will be deleted unless you cancel.</p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                if (cleanupTimerRef.current) clearInterval(cleanupTimerRef.current);
+                                                cleanupTimerRef.current = null;
+                                                setCleanupCountdown(null);
+                                                toast.info('Countdown cancelled.');
+                                            }}
+                                            className="px-3 py-1.5 text-[10px] font-black uppercase rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500/30 transition-all flex-shrink-0"
+                                        >
+                                            Cancel
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         </div>
 
@@ -1199,9 +1429,9 @@ export default function Settings() {
                         <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-4">
                             <div className="flex items-center justify-between">
                                 <div>
-                                    <div className="text-sm font-bold text-zinc-200">Smart Auto-Clean Torrents When Full</div>
+                                    <div className="text-sm font-bold text-zinc-200">Smart Auto-Clean Library Media When Full</div>
                                     <p className="text-[10px] text-zinc-500 font-medium mt-0.5">
-                                        Automatically delete eligible qBittorrent torrents to free up disk space when the guard threshold is reached.
+                                        Automatically delete library media files from Radarr/Sonarr to free up space when the threshold is reached.
                                     </p>
                                 </div>
                                 <button
@@ -1243,7 +1473,7 @@ export default function Settings() {
                                 <div className="border-t border-zinc-900 pt-3 flex items-center justify-between">
                                     <div>
                                         <div className="text-xs font-bold text-zinc-300">Protect Recently Added (Immunity)</div>
-                                        <p className="text-[10px] text-zinc-500 mt-0.5">Skip files added to qBittorrent within the last few days.</p>
+                                        <p className="text-[10px] text-zinc-500 mt-0.5">Skip media files added to Radarr/Sonarr within the last few days.</p>
                                     </div>
                                     <button
                                         onClick={() => {
@@ -1280,8 +1510,163 @@ export default function Settings() {
 
                                 <div className="p-3 bg-emerald-500/5 border border-emerald-500/10 rounded-xl">
                                     <p className="text-[10px] text-emerald-400 font-medium leading-relaxed">
-                                        ⚠️ <strong>CRITICAL NOTE:</strong> Automated cleanup operates <strong>ONLY</strong> when your disk space goes <strong>ABOVE</strong> the allowed fill threshold ({diskPauseThreshold}%). When triggered, the background process will delete the single target torrent according to your selection criteria to free up storage space.
+                                        ⚠️ <strong>CRITICAL NOTE:</strong> Automated cleanup checks every 15 minutes and operates <strong>WHILE</strong> disk space is <strong>ABOVE</strong> the threshold ({diskPauseThreshold}%). It will delete items sequentially until space is below the threshold.
                                     </p>
+                                </div>
+
+                                {/* Series Cleanup Granularity */}
+                                <div className="border-t border-zinc-900 pt-3 space-y-2">
+                                    <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">TV Series Cleanup Level</label>
+                                    <p className="text-[10px] text-zinc-500">Control whether entire shows, individual seasons, or single episodes are listed and deleted.</p>
+                                    <div className="flex flex-wrap gap-2">
+                                        {([['series', 'Entire Show'], ['season', 'By Season'], ['episode', 'By Episode']] as const).map(([val, label]) => (
+                                            <button
+                                                key={val}
+                                                type="button"
+                                                onClick={() => {
+                                                    setDiskSmartCleanSeriesLevel(val);
+                                                    updateSetting('media_smart_clean_series_level', val);
+                                                    setTimeout(fetchCandidates, 300);
+                                                }}
+                                                className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all border ${
+                                                    diskSmartCleanSeriesLevel === val
+                                                        ? 'bg-violet-500/10 border-violet-500/30 text-violet-400'
+                                                        : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                                                }`}
+                                            >
+                                                {label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Candidates List Section */}
+                                <div className="border-t border-zinc-900 pt-4 space-y-3">
+                                    <div className="flex items-center justify-between flex-wrap gap-2">
+                                        <div>
+                                            <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Cleanup Queue</label>
+                                            <p className="text-[10px] text-zinc-500 mt-0.5">Items queued for auto-deletion. Ignore items to protect them, or clean files now.</p>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={async () => {
+                                                    try {
+                                                        toast.info('Trimming disk usage to target threshold...');
+                                                        const res = await fetch('/api/media/smart-clean', { method: 'POST' });
+                                                        const json = await res.json();
+                                                        if (json.cleanedCount > 0) {
+                                                            toast.success(json.message || `Cleaned ${json.cleanedCount} items.`);
+                                                        } else {
+                                                            toast.info(json.message || 'Disk space is within target threshold.');
+                                                        }
+                                                        setTimeout(() => { fetchCandidates(); fetchDiskInfo(); }, 1500);
+                                                    } catch (e: any) {
+                                                        toast.error('Clean to threshold failed');
+                                                    }
+                                                }}
+                                                className="px-3 py-1.5 min-h-[36px] bg-amber-500/10 border border-amber-500/30 text-amber-400 hover:bg-amber-500/20 active:scale-95 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-1.5 touch-target"
+                                                title="Trim items until disk space falls below target threshold"
+                                            >
+                                                <Trash2 size={13} /> Clean to Threshold Now
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={fetchCandidates}
+                                                className="px-2.5 py-1.5 min-h-[36px] bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white rounded-xl text-xs font-bold uppercase transition-all touch-target"
+                                            >
+                                                Refresh
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {loadingCandidates ? (
+                                        <div className="flex items-center gap-2 text-zinc-600 text-xs py-4 justify-center">
+                                            <div className="w-3.5 h-3.5 border border-zinc-700 border-t-zinc-400 rounded-full animate-spin" /> Fetching candidates...
+                                        </div>
+                                    ) : candidates.length === 0 ? (
+                                        <p className="text-xs text-zinc-600 italic text-center py-4">No eligible items found.</p>
+                                    ) : (
+                                        <div className="max-h-[340px] overflow-y-auto pr-1 space-y-1.5 border border-zinc-900/50 rounded-2xl p-2 bg-zinc-950/20">
+                                            {candidates.map((c, index) => (
+                                                <div
+                                                    key={c.key}
+                                                    className={`flex items-center justify-between p-2.5 rounded-xl border transition-all ${
+                                                        c.ignored
+                                                            ? 'bg-zinc-950/40 border-zinc-900/80 opacity-60'
+                                                            : 'bg-zinc-900/80 border-zinc-800/60 hover:border-zinc-700'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                                        <div className={`w-5 h-5 rounded text-[10px] font-black flex items-center justify-center flex-shrink-0 ${
+                                                            c.ignored ? 'bg-zinc-800 text-zinc-600' : 'bg-amber-500/10 border border-amber-500/20 text-amber-500'
+                                                        }`}>
+                                                            {c.ignored ? '–' : index + 1}
+                                                        </div>
+                                                        <div className="min-w-0 flex-1">
+                                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                                <span className={`text-xs font-bold truncate max-w-[180px] ${c.ignored ? 'line-through text-zinc-600' : 'text-zinc-200'}`}>{c.title}</span>
+                                                                <span className={`text-[9px] px-1 py-0.5 rounded font-black uppercase flex-shrink-0 ${
+                                                                    c.type === 'movie' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                                                                    : c.type === 'season' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                                                    : c.type === 'episode' ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20'
+                                                                    : 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+                                                                }`}>{c.type}</span>
+                                                                {c.isWatched && <span className="text-[8px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1 py-0.5 rounded font-bold uppercase flex-shrink-0">Watched</span>}
+                                                            </div>
+                                                            <p className="text-[9px] text-zinc-600 mt-0.5 truncate font-medium">
+                                                                {new Date(c.added).toLocaleDateString()} · {c.instanceName}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-1.5 ml-2 flex-shrink-0">
+                                                        <span className="text-[10px] font-black text-zinc-400 font-mono">{(c.size / (1024 ** 3)).toFixed(1)}GB</span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => toggleIgnoreCandidate(c.key)}
+                                                            className={`px-2.5 py-1.5 min-h-[32px] rounded-lg text-[10px] font-black uppercase border transition-all ${
+                                                                c.ignored
+                                                                    ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                                                                    : 'bg-zinc-950 border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                                                            }`}
+                                                        >
+                                                            {c.ignored ? 'Unignore' : 'Ignore'}
+                                                        </button>
+                                                        {!c.ignored && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={async () => {
+                                                                    try {
+                                                                        let res;
+                                                                        if (c.type === 'movie') {
+                                                                            res = await fetch(`/api/radarr/delete?instanceId=${c.instanceId}&movieId=${c.id}&deleteFiles=true`, { method: 'DELETE' });
+                                                                        } else if (c.type === 'series') {
+                                                                            res = await fetch(`/api/sonarr/delete?instanceId=${c.instanceId}&seriesId=${c.id}&deleteFiles=true`, { method: 'DELETE' });
+                                                                        } else if (c.type === 'season') {
+                                                                            res = await fetch(`/api/sonarr/delete?instanceId=${c.instanceId}&seriesId=${c.seriesId}&seasonNumber=${c.seasonNumber}&deleteFiles=true&deleteFilesOnly=true`, { method: 'DELETE' });
+                                                                        } else if (c.type === 'episode') {
+                                                                            res = await fetch(`/api/sonarr/delete?instanceId=${c.instanceId}&episodeFileId=${c.episodeFileId}&deleteFiles=true&deleteFilesOnly=true`, { method: 'DELETE' });
+                                                                        }
+                                                                        if (res?.ok) {
+                                                                            toast.success(`Cleaned "${c.title}"`);
+                                                                            fetchCandidates();
+                                                                            fetchDiskInfo();
+                                                                        } else {
+                                                                            toast.error('Clean failed');
+                                                                        }
+                                                                    } catch (e) { toast.error('Clean failed'); }
+                                                                }}
+                                                                className="px-2.5 py-1.5 min-h-[32px] rounded-lg text-[10px] font-black uppercase border transition-all active:scale-95 bg-rose-500/10 border-rose-500/30 text-rose-400 hover:bg-rose-500 hover:text-white flex items-center gap-1 touch-target"
+                                                                title="Clean file now"
+                                                            >
+                                                                <Trash2 size={12} /> Clean Now
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
