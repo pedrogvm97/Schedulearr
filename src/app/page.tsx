@@ -327,8 +327,8 @@ export default function Dashboard() {
   }, [timeframe]);
 
   useEffect(() => {
-    const seenWelcome = localStorage.getItem('has_seen_welcome');
-    if (!seenWelcome) setShowWelcome(true);
+    // Disabled welcome intro wizard on new devices per user configuration
+    setShowWelcome(false);
 
     const fetchProwlarrHealth = async () => {
       try {

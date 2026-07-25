@@ -1542,18 +1542,42 @@ export default function Settings() {
 
                                 {/* Candidates List Section */}
                                 <div className="border-t border-zinc-900 pt-4 space-y-3">
-                                    <div className="flex items-center justify-between">
+                                    <div className="flex items-center justify-between flex-wrap gap-2">
                                         <div>
                                             <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Cleanup Queue</label>
-                                            <p className="text-[10px] text-zinc-500 mt-0.5">Items queued for auto-deletion. Toggle Ignore to protect them; or delete right away.</p>
+                                            <p className="text-[10px] text-zinc-500 mt-0.5">Items queued for auto-deletion. Ignore items to protect them, or clean files now.</p>
                                         </div>
-                                        <button
-                                            type="button"
-                                            onClick={fetchCandidates}
-                                            className="px-2 py-1 bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white rounded-lg text-[10px] font-bold uppercase transition-all"
-                                        >
-                                            Refresh
-                                        </button>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={async () => {
+                                                    try {
+                                                        toast.info('Trimming disk usage to target threshold...');
+                                                        const res = await fetch('/api/media/smart-clean', { method: 'POST' });
+                                                        const json = await res.json();
+                                                        if (json.cleanedCount > 0) {
+                                                            toast.success(json.message || `Cleaned ${json.cleanedCount} items.`);
+                                                        } else {
+                                                            toast.info(json.message || 'Disk space is within target threshold.');
+                                                        }
+                                                        setTimeout(() => { fetchCandidates(); fetchDiskInfo(); }, 1500);
+                                                    } catch (e: any) {
+                                                        toast.error('Clean to threshold failed');
+                                                    }
+                                                }}
+                                                className="px-3 py-1.5 min-h-[36px] bg-amber-500/10 border border-amber-500/30 text-amber-400 hover:bg-amber-500/20 active:scale-95 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-1.5 touch-target"
+                                                title="Trim items until disk space falls below target threshold"
+                                            >
+                                                <Trash2 size={13} /> Clean to Threshold Now
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={fetchCandidates}
+                                                className="px-2.5 py-1.5 min-h-[36px] bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white rounded-xl text-xs font-bold uppercase transition-all touch-target"
+                                            >
+                                                Refresh
+                                            </button>
+                                        </div>
                                     </div>
 
                                     {loadingCandidates ? (
@@ -1600,9 +1624,9 @@ export default function Settings() {
                                                         <button
                                                             type="button"
                                                             onClick={() => toggleIgnoreCandidate(c.key)}
-                                                            className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase border transition-all ${
+                                                            className={`px-2.5 py-1.5 min-h-[32px] rounded-lg text-[10px] font-black uppercase border transition-all ${
                                                                 c.ignored
-                                                                    ? 'bg-red-500/10 border-red-500/20 text-red-400'
+                                                                    ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
                                                                     : 'bg-zinc-950 border-zinc-800 text-zinc-500 hover:text-zinc-300'
                                                             }`}
                                                         >
@@ -1611,34 +1635,31 @@ export default function Settings() {
                                                         {!c.ignored && (
                                                             <button
                                                                 type="button"
-                                                                onClick={() => setConfirmModal({
-                                                                    title: `Delete "${c.title}"?`,
-                                                                    message: `This will immediately delete "${c.title}" (${(c.size / (1024**3)).toFixed(2)} GB) from disk. This cannot be undone.`,
-                                                                    confirmLabel: 'Delete Now',
-                                                                    onConfirm: async () => {
-                                                                        try {
-                                                                            let res;
-                                                                            if (c.type === 'movie') {
-                                                                                res = await fetch(`/api/radarr/delete?instanceId=${c.instanceId}&movieId=${c.id}&deleteFiles=true`, { method: 'DELETE' });
-                                                                            } else if (c.type === 'series') {
-                                                                                res = await fetch(`/api/sonarr/delete?instanceId=${c.instanceId}&seriesId=${c.id}&deleteFiles=true`, { method: 'DELETE' });
-                                                                            } else if (c.type === 'season') {
-                                                                                res = await fetch(`/api/sonarr/delete?instanceId=${c.instanceId}&seriesId=${c.seriesId}&seasonNumber=${c.seasonNumber}&deleteFiles=true&deleteFilesOnly=true`, { method: 'DELETE' });
-                                                                            } else if (c.type === 'episode') {
-                                                                                res = await fetch(`/api/sonarr/delete?instanceId=${c.instanceId}&episodeFileId=${c.episodeFileId}&deleteFiles=true&deleteFilesOnly=true`, { method: 'DELETE' });
-                                                                            }
-                                                                            if (res?.ok) {
-                                                                                toast.success(`Deleted "${c.title}"`);
-                                                                                setTimeout(fetchCandidates, 2000);
-                                                                            } else {
-                                                                                toast.error('Delete failed');
-                                                                            }
-                                                                        } catch (e) { toast.error('Delete failed'); }
-                                                                    }
-                                                                })}
-                                                                className="px-2 py-1 rounded-lg text-[9px] font-black uppercase border transition-all bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/20"
+                                                                onClick={async () => {
+                                                                    try {
+                                                                        let res;
+                                                                        if (c.type === 'movie') {
+                                                                            res = await fetch(`/api/radarr/delete?instanceId=${c.instanceId}&movieId=${c.id}&deleteFiles=true`, { method: 'DELETE' });
+                                                                        } else if (c.type === 'series') {
+                                                                            res = await fetch(`/api/sonarr/delete?instanceId=${c.instanceId}&seriesId=${c.id}&deleteFiles=true`, { method: 'DELETE' });
+                                                                        } else if (c.type === 'season') {
+                                                                            res = await fetch(`/api/sonarr/delete?instanceId=${c.instanceId}&seriesId=${c.seriesId}&seasonNumber=${c.seasonNumber}&deleteFiles=true&deleteFilesOnly=true`, { method: 'DELETE' });
+                                                                        } else if (c.type === 'episode') {
+                                                                            res = await fetch(`/api/sonarr/delete?instanceId=${c.instanceId}&episodeFileId=${c.episodeFileId}&deleteFiles=true&deleteFilesOnly=true`, { method: 'DELETE' });
+                                                                        }
+                                                                        if (res?.ok) {
+                                                                            toast.success(`Cleaned "${c.title}"`);
+                                                                            fetchCandidates();
+                                                                            fetchDiskInfo();
+                                                                        } else {
+                                                                            toast.error('Clean failed');
+                                                                        }
+                                                                    } catch (e) { toast.error('Clean failed'); }
+                                                                }}
+                                                                className="px-2.5 py-1.5 min-h-[32px] rounded-lg text-[10px] font-black uppercase border transition-all active:scale-95 bg-rose-500/10 border-rose-500/30 text-rose-400 hover:bg-rose-500 hover:text-white flex items-center gap-1 touch-target"
+                                                                title="Clean file now"
                                                             >
-                                                                Delete
+                                                                <Trash2 size={12} /> Clean Now
                                                             </button>
                                                         )}
                                                     </div>
