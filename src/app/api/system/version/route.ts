@@ -32,32 +32,53 @@ export async function GET() {
       }
     }
 
-    // 2. Get latest version from GitHub
+    // 2. Get latest version from GitHub (checking Releases API first, falling back to Tags API)
     let latestVersion = currentVersion;
     let updateAvailable = false;
     let changelog = '';
 
     try {
-      const response = await axios.get('https://api.github.com/repos/pedrogvm97/Schedulearr/releases/latest', {
-        headers: {
-          'Accept': 'application/vnd.github.v3+json',
-          'User-Agent': 'Schedulearr-Update-Checker'
-        }
-      });
+      let fetchedVersion = '';
+      try {
+        const response = await axios.get('https://api.github.com/repos/pedrogvm97/Schedulearr/releases/latest', {
+          headers: {
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'Schedulearr-Update-Checker'
+          },
+          timeout: 5000
+        });
 
-      if (response.data && response.data.tag_name) {
-        // Remove 'v' prefix if present
-        latestVersion = response.data.tag_name.replace(/^v/, '');
-        changelog = response.data.body || '';
-        
-        // Simple semver comparison (approximate)
+        if (response.data && response.data.tag_name) {
+          fetchedVersion = response.data.tag_name.replace(/^v/, '');
+          changelog = response.data.body || '';
+        }
+      } catch (relErr) {
+        // Fallback to tags endpoint if no official release draft is published
+      }
+
+      if (!fetchedVersion) {
+        try {
+          const tagsRes = await axios.get('https://api.github.com/repos/pedrogvm97/Schedulearr/tags', {
+            headers: {
+              'Accept': 'application/vnd.github.v3+json',
+              'User-Agent': 'Schedulearr-Update-Checker'
+            },
+            timeout: 5000
+          });
+          if (Array.isArray(tagsRes.data) && tagsRes.data.length > 0) {
+            fetchedVersion = tagsRes.data[0].name.replace(/^v/, '');
+          }
+        } catch (tagErr) {}
+      }
+
+      if (fetchedVersion) {
+        latestVersion = fetchedVersion;
         if (latestVersion !== currentVersion) {
-            updateAvailable = true;
+          updateAvailable = true;
         }
       }
     } catch (githubError: any) {
       console.error('Failed to fetch latest version from GitHub:', githubError.message);
-      // Fallback: stay on current version info
     }
 
     return NextResponse.json({
