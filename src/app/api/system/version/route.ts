@@ -11,16 +11,23 @@ export async function GET() {
   initAutoUpdater();
 
   try {
-    // 1. Get current version from package.json
-    let currentVersion = '0.1.9';
-    try {
-      const packageJsonPath = path.join(process.cwd(), 'package.json');
-      if (fs.existsSync(packageJsonPath)) {
-        const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-        currentVersion = packageJson.version || '0.1.9';
+    // 1. Get current version from package.json or system fallback
+    let currentVersion = '0.2.0';
+    const possiblePaths = [
+      path.join(process.cwd(), 'package.json'),
+      path.join(process.cwd(), '..', 'package.json'),
+      '/app/package.json'
+    ];
+    for (const p of possiblePaths) {
+      if (fs.existsSync(p)) {
+        try {
+          const packageJson = JSON.parse(fs.readFileSync(p, 'utf8'));
+          if (packageJson.version) {
+            currentVersion = packageJson.version;
+            break;
+          }
+        } catch (e) {}
       }
-    } catch (e) {
-      console.warn('Could not read package.json version:', e);
     }
 
     // 2. Get latest version from GitHub
