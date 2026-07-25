@@ -71,41 +71,6 @@ export default function Dashboard() {
   const [diskSmartCleanMode, setDiskSmartCleanMode] = useState('largest');
   const [diskSmartCleanImmunityEnabled, setDiskSmartCleanImmunityEnabled] = useState(false);
   const [diskSmartCleanImmunityDays, setDiskSmartCleanImmunityDays] = useState(7);
-  const [candidates, setCandidates] = useState<any[]>([]);
-  const [ignoredKeys, setIgnoredKeys] = useState<string[]>([]);
-  const [loadingCandidates, setLoadingCandidates] = useState(false);
-
-  const fetchCandidates = async () => {
-    setLoadingCandidates(true);
-    try {
-      const res = await fetch('/api/media/smart-clean-candidates');
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data.candidates)) {
-          setCandidates(data.candidates);
-        }
-      }
-    } catch (e) {
-      console.error('Failed to fetch candidates', e);
-    } finally {
-      setLoadingCandidates(false);
-    }
-  };
-
-  const toggleIgnoreCandidate = async (key: string) => {
-    const nextIgnored = ignoredKeys.includes(key)
-        ? ignoredKeys.filter(k => k !== key)
-        : [...ignoredKeys, key];
-    setIgnoredKeys(nextIgnored);
-    await updateSetting('media_smart_clean_ignored_keys', JSON.stringify(nextIgnored));
-    setCandidates(prev => prev.map(c => c.key === key ? { ...c, ignored: !c.ignored } : c));
-  };
-
-  useEffect(() => {
-    if (diskAutocleanEnabled) {
-      fetchCandidates();
-    }
-  }, [diskAutocleanEnabled, diskSmartCleanMode, diskSmartCleanImmunityEnabled, diskSmartCleanImmunityDays]);
 
   // Data States
   const [allTimeData, setAllTimeData] = useState<ChartData[]>([]);
@@ -212,13 +177,6 @@ export default function Dashboard() {
     if (allSettings.qbit_smart_clean_mode) setDiskSmartCleanMode(allSettings.qbit_smart_clean_mode);
     if (allSettings.qbit_smart_clean_immunity_enabled) setDiskSmartCleanImmunityEnabled(allSettings.qbit_smart_clean_immunity_enabled === 'true');
     if (allSettings.qbit_smart_clean_immunity_days) setDiskSmartCleanImmunityDays(parseInt(allSettings.qbit_smart_clean_immunity_days) || 7);
-    if (allSettings.media_smart_clean_ignored_keys) {
-      try {
-        setIgnoredKeys(JSON.parse(allSettings.media_smart_clean_ignored_keys));
-      } catch {
-        setIgnoredKeys([]);
-      }
-    }
   }, [allSettings]);
 
   const updateSetting = async (key: string, value: any) => {
@@ -327,8 +285,8 @@ export default function Dashboard() {
   }, [timeframe]);
 
   useEffect(() => {
-    // Disabled welcome intro wizard on new devices per user configuration
-    setShowWelcome(false);
+    const seenWelcome = localStorage.getItem('has_seen_welcome');
+    if (!seenWelcome) setShowWelcome(true);
 
     const fetchProwlarrHealth = async () => {
       try {
@@ -802,8 +760,8 @@ export default function Dashboard() {
                   {/* Smart Auto-Clean Control */}
                   <div className="flex items-center justify-between border-t border-zinc-800/50 pt-2.5">
                     <div>
-                      <span className="text-xs font-bold text-zinc-200">Smart Auto-Clean Library Media</span>
-                      <p className="text-[9px] text-zinc-500">Delete library media files from Radarr/Sonarr when usage exceeds threshold.</p>
+                      <span className="text-xs font-bold text-zinc-200">Smart Auto-Clean Torrents</span>
+                      <p className="text-[9px] text-zinc-500">Delete qBittorrent files when usage exceeds threshold.</p>
                     </div>
                     <button
                       onClick={() => {
@@ -883,54 +841,11 @@ export default function Dashboard() {
 
                 {/* Important Notice Warning */}
                 {diskAutocleanEnabled && (
-                  <div className="space-y-3 mt-3">
-                    <div className="p-3 bg-emerald-500/5 border border-emerald-500/10 rounded-xl flex gap-2.5 items-start">
-                      <AlertTriangle className="text-emerald-400 flex-shrink-0 mt-0.5" size={13} />
-                      <p className="text-[9px] text-emerald-400/80 font-medium leading-normal">
-                        <strong>CRITICAL RULES:</strong> Media items are deleted <strong>ONLY</strong> when storage exceeds the allowed threshold ({diskPauseThreshold}%). Media items within the recently added immunity window or marked as ignored are protected.
-                      </p>
-                    </div>
-
-                    {/* Dashboard Candidates list */}
-                    <div className="border-t border-zinc-850 pt-3 space-y-2">
-                      <div className="flex justify-between items-center text-[9px] font-bold text-zinc-400 uppercase tracking-widest">
-                        <span>Cleanup Queue</span>
-                        <button onClick={fetchCandidates} className="text-emerald-400 hover:text-emerald-300 transition-colors uppercase">Refresh</button>
-                      </div>
-
-                      {loadingCandidates ? (
-                        <div className="text-center text-zinc-500 text-[10px] py-2">Loading queue...</div>
-                      ) : candidates.length === 0 ? (
-                        <div className="text-center text-zinc-600 text-[10px] italic py-2">No eligible media found</div>
-                      ) : (
-                        <div className="max-h-[160px] overflow-y-auto space-y-1.5 pr-1 custom-scrollbar">
-                          {candidates.map((c, index) => (
-                            <div key={c.key} className={`flex items-center justify-between p-2 rounded-lg border text-[10px] ${
-                              c.ignored ? 'bg-zinc-950/45 border-zinc-900 text-zinc-600' : 'bg-zinc-950/20 border-zinc-800/60 text-zinc-300'
-                            }`}>
-                              <div className="flex items-center gap-2 min-w-0 flex-1">
-                                <span className="font-bold text-zinc-500">{!c.ignored ? `${index + 1}.` : '-'}</span>
-                                <span className={`font-semibold truncate ${c.ignored ? 'line-through text-zinc-600' : 'text-zinc-200'}`} title={c.title}>{c.title}</span>
-                                <span className={`text-[8px] px-1 rounded-sm font-black uppercase ${
-                                  c.type === 'movie' ? 'bg-blue-500/10 text-blue-400' : 'bg-purple-500/10 text-purple-400'
-                                }`}>{c.type === 'movie' ? 'Movie' : 'TV'}</span>
-                              </div>
-                              <div className="flex items-center gap-2 ml-2">
-                                <span className="font-mono text-zinc-400">{(c.size / (1024 ** 3)).toFixed(1)}G</span>
-                                <button
-                                  onClick={() => toggleIgnoreCandidate(c.key)}
-                                  className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase border transition-all ${
-                                    c.ignored ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
-                                  }`}
-                                >
-                                  {c.ignored ? 'Ignored' : 'Ignore'}
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                  <div className="p-3 bg-emerald-500/5 border border-emerald-500/10 rounded-xl flex gap-2.5 items-start">
+                    <AlertTriangle className="text-emerald-400 flex-shrink-0 mt-0.5" size={13} />
+                    <p className="text-[9px] text-emerald-400/80 font-medium leading-normal">
+                      <strong>CRITICAL RULES:</strong> Torrents are deleted <strong>ONLY</strong> when storage exceeds the allowed threshold ({diskPauseThreshold}%). Torrents within the recently added immunity window are protected from cleanup.
+                    </p>
                   </div>
                 )}
               </div>
