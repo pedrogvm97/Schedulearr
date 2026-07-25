@@ -228,7 +228,8 @@ export default function Settings() {
     };
 
     const startUpdateStream = () => {
-        const eventSource = new EventSource('/api/system/update/stream');
+        const targetTag = versionInfo?.latestVersion || 'latest';
+        const eventSource = new EventSource(`/api/system/update/stream?tag=${encodeURIComponent(targetTag)}`);
 
         eventSource.addEventListener('log', (event: any) => {
             try {
