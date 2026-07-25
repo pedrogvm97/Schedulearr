@@ -408,55 +408,56 @@ export function MediaDetailsPanel({
                                         </div>
                                     )}
 
-                                    <div className="pt-4 flex flex-wrap gap-2 border-t border-white/5">
+                                    <div className="pt-4 flex flex-col sm:flex-row flex-wrap gap-2.5 border-t border-white/5">
                                         <button
                                             onClick={() => onInteractiveSearch?.({
                                                 type: isSeries ? 'series' : 'movie',
-                                                id: libStatus.instances[0]?.internalId || item.id,
-                                                instanceId: libStatus.instances[0]?.id,
+                                                id: libStatus.instances?.[0]?.internalId || item.id,
+                                                instanceId: libStatus.instances?.[0]?.id || item.instanceId,
                                                 title: item.title || details?.name,
                                                 poster: posterUrl
                                             })}
-                                            className="flex-1 p-2.5 rounded-xl bg-zinc-900 border border-white/5 text-zinc-400 hover:text-white hover:border-white/10 transition-all flex items-center justify-center gap-1.5 text-[10px] font-black uppercase tracking-wider"
+                                            className="flex-1 min-h-[44px] px-3 py-2.5 rounded-xl bg-zinc-900 border border-white/5 text-zinc-300 hover:text-white hover:border-white/10 active:scale-95 transition-all flex items-center justify-center gap-2 text-xs font-black uppercase tracking-wider touch-target"
                                             title="Interactive Search"
                                         >
-                                            <Search size={12} /> Interactive
+                                            <Search size={14} /> Interactive
                                         </button>
                                         <button
                                             onClick={() => onQuickSearch?.({
                                                 type: isSeries ? 'series' : 'movie',
-                                                id: libStatus.instances[0]?.internalId || item.id,
-                                                instanceId: libStatus.instances[0]?.id
+                                                id: libStatus.instances?.[0]?.internalId || item.id,
+                                                instanceId: libStatus.instances?.[0]?.id || item.instanceId
                                             })}
-                                            className="flex-1 p-2.5 rounded-xl bg-zinc-900 border border-white/5 text-zinc-400 hover:text-emerald-400 hover:border-white/10 transition-all flex items-center justify-center gap-1.5 text-[10px] font-black uppercase tracking-wider"
+                                            className="flex-1 min-h-[44px] px-3 py-2.5 rounded-xl bg-zinc-900 border border-white/5 text-zinc-300 hover:text-emerald-400 hover:border-white/10 active:scale-95 transition-all flex items-center justify-center gap-2 text-xs font-black uppercase tracking-wider touch-target"
                                             title="Automatic Search"
                                         >
-                                            <PlayCircle size={12} /> Quick Search
+                                            <PlayCircle size={14} /> Quick Search
                                         </button>
                                         <button
                                             onClick={() => onTransfer?.({
                                                 ...item,
-                                                id: libStatus.instances[0]?.internalId || item.id,
-                                                instanceId: libStatus.instances[0]?.id,
-                                                instanceName: libStatus.instances[0]?.name,
-                                                qualityProfileId: libStatus.qualityProfileId || item.qualityProfileId
+                                                id: libStatus.instances?.[0]?.internalId || item.id,
+                                                instanceId: libStatus.instances?.[0]?.id || item.instanceId,
+                                                instanceName: libStatus.instances?.[0]?.name || item.instanceName,
+                                                qualityProfileId: libStatus.qualityProfileId || item.qualityProfileId,
+                                                title: item.title || details?.name
                                             })}
-                                            className="w-full p-2.5 rounded-xl bg-zinc-900 border border-white/5 text-zinc-400 hover:text-white hover:border-white/10 transition-all flex items-center justify-center gap-1.5 text-[10px] font-black uppercase tracking-wider"
+                                            className="w-full min-h-[44px] px-3 py-2.5 rounded-xl bg-zinc-900 border border-white/5 text-zinc-300 hover:text-white hover:border-white/10 active:scale-95 transition-all flex items-center justify-center gap-2 text-xs font-black uppercase tracking-wider touch-target"
                                             title="Transfer / Copy Instance"
                                         >
-                                            <MoveHorizontal size={12} /> Transfer Instance
+                                            <MoveHorizontal size={14} /> Transfer Instance
                                         </button>
                                         <button
                                             onClick={() => onDelete?.({
                                                 ...item,
-                                                id: libStatus.instances[0]?.internalId || item.id,
-                                                instanceId: libStatus.instances[0]?.id,
+                                                id: libStatus.instances?.[0]?.internalId || item.id,
+                                                instanceId: libStatus.instances?.[0]?.id || item.instanceId,
                                                 title: item.title || details?.name
                                             })}
-                                            className="w-full p-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 hover:bg-red-500 hover:text-white transition-all flex items-center justify-center gap-1.5 text-[10px] font-black uppercase tracking-wider"
+                                            className="w-full min-h-[44px] px-3 py-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white active:scale-95 transition-all flex items-center justify-center gap-2 text-xs font-black uppercase tracking-wider touch-target"
                                             title="Delete from Library"
                                         >
-                                            <Trash2 size={12} /> Delete Media
+                                            <Trash2 size={14} /> Delete Media
                                         </button>
                                     </div>
                                 </>

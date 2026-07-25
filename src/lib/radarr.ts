@@ -327,3 +327,19 @@ export async function getCustomFormats(url: string, apiKey: string) {
     });
     return res.data;
 }
+
+export const triggerRescanMovie = async (url: string, apiKey: string, movieId: number): Promise<boolean> => {
+    try {
+        await axios.post(`${url}/api/v3/command`, {
+            name: 'RescanMovie',
+            movieId: movieId
+        }, {
+            headers: { 'X-Api-Key': apiKey }
+        });
+        return true;
+    } catch (e) {
+        console.error(`Error triggering RescanMovie on Radarr (${url}):`, e);
+        return false;
+    }
+};
+

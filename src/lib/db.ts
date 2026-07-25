@@ -95,6 +95,14 @@ function initializeSchema(d: any) {
         total_dl REAL DEFAULT 0,
         total_up REAL DEFAULT 0
       );
+
+      CREATE TABLE IF NOT EXISTS media_cache (
+        instance_id TEXT NOT NULL,
+        media_type TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY(instance_id, media_type)
+      );
     `);
 
     // Migrations
@@ -450,6 +458,54 @@ export const executeHousekeeping = (daysToKeep?: number, sizeLimitMB?: number) =
     }
 
     return results;
+};
+
+export const getMediaCache = (instanceId: string, mediaType: string): any[] | null => {
+    try {
+        const row = db.prepare('SELECT payload, updated_at FROM media_cache WHERE instance_id = ? AND media_type = ?').get(instanceId, mediaType) as any;
+        if (row && row.payload) {
+            return JSON.parse(row.payload);
+        }
+        return null;
+    } catch (e) {
+        console.error('Error fetching media cache:', e);
+        return null;
+    }
+};
+
+export const setMediaCache = (instanceId: string, mediaType: string, payload: any[]) => {
+    try {
+        const stmt = db.prepare(`
+            INSERT INTO media_cache (instance_id, media_type, payload, updated_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(instance_id, media_type) DO UPDATE SET
+                payload = excluded.payload,
+                updated_at = CURRENT_TIMESTAMP
+        `);
+        stmt.run(instanceId, mediaType, JSON.stringify(payload));
+    } catch (e) {
+        console.error('Error setting media cache:', e);
+    }
+};
+
+export const getCombinedMediaCache = (mediaType: string): any[] | null => {
+    try {
+        const rows = db.prepare('SELECT payload FROM media_cache WHERE media_type = ?').all(mediaType) as any[];
+        if (!rows || rows.length === 0) return null;
+        let combined: any[] = [];
+        for (const row of rows) {
+            if (row.payload) {
+                const items = JSON.parse(row.payload);
+                if (Array.isArray(items)) {
+                    combined = combined.concat(items);
+                }
+            }
+        }
+        return combined;
+    } catch (e) {
+        console.error('Error getting combined media cache:', e);
+        return null;
+    }
 };
 
 export default db;

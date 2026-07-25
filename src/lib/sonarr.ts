@@ -386,3 +386,19 @@ export async function getEpisodeFiles(url: string, apiKey: string, seriesId: num
         return [];
     }
 }
+
+export const triggerRescanSeries = async (url: string, apiKey: string, seriesId: number): Promise<boolean> => {
+    try {
+        await axios.post(`${url}/api/v3/command`, {
+            name: 'RescanSeries',
+            seriesId: seriesId
+        }, {
+            headers: { 'X-Api-Key': apiKey }
+        });
+        return true;
+    } catch (e) {
+        console.error(`Error triggering RescanSeries on Sonarr (${url}):`, e);
+        return false;
+    }
+};
+
