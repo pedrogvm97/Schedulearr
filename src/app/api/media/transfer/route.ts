@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getInstanceById } from '@/lib/db';
 import * as radarr from '@/lib/radarr';
 import * as sonarr from '@/lib/sonarr';
+import { refreshRadarrCacheForInstance, refreshSonarrCacheForInstance } from '@/lib/mediaCache';
 import fs from 'fs';
 import path from 'path';
 
@@ -33,36 +34,72 @@ export async function POST(request: Request) {
         }
 
         const isMovie = mediaType === 'movie';
-        const lib = isMovie ? radarr : sonarr;
 
         // 1. Prepare payload for adding to target
         let addPayload: any;
         if (isMovie) {
+            let lookupObj: any = null;
+            if (item.tmdbId) {
+                try {
+                    const lookups = await radarr.searchMovies(targetInstance.url, targetInstance.api_key, `tmdb:${item.tmdbId}`);
+                    if (Array.isArray(lookups) && lookups.length > 0) {
+                        lookupObj = lookups[0];
+                    }
+                } catch (e) {
+                    console.warn(`Radarr lookup failed for tmdb:${item.tmdbId}, using item data`);
+                }
+            }
+
             addPayload = {
+                ...(lookupObj || {}),
                 title: item.title,
                 tmdbId: item.tmdbId,
-                year: item.year,
+                year: item.year || lookupObj?.year,
                 qualityProfileId: targetProfileId,
                 rootFolderPath: targetRootFolder,
                 monitored: true,
-                addOptions: { searchForMovie: true }
+                addOptions: { searchForMovie: !moveFiles }
             };
         } else {
+            let lookupObj: any = null;
+            if (item.tvdbId) {
+                try {
+                    const lookups = await sonarr.searchSeries(targetInstance.url, targetInstance.api_key, `tvdb:${item.tvdbId}`);
+                    if (Array.isArray(lookups) && lookups.length > 0) {
+                        lookupObj = lookups[0];
+                    }
+                } catch (e) {
+                    console.warn(`Sonarr lookup failed for tvdb:${item.tvdbId}, using item data`);
+                }
+            }
+
+            // Determine seriesType ('anime' vs 'standard')
+            let seriesType = item.seriesType || lookupObj?.seriesType || 'standard';
+            if (targetInstance.name.toLowerCase().includes('anime')) {
+                seriesType = 'anime';
+            } else if (sourceInstance.name.toLowerCase().includes('anime') && !targetInstance.name.toLowerCase().includes('anime')) {
+                seriesType = 'standard';
+            }
+
             addPayload = {
+                ...(lookupObj || {}),
                 title: item.title,
                 tvdbId: item.tvdbId,
                 qualityProfileId: targetProfileId,
                 rootFolderPath: targetRootFolder,
+                seriesType: seriesType,
                 monitored: true,
-                addOptions: { searchForMissingEpisodes: true }
+                seasons: lookupObj?.seasons || item.seasons || [],
+                addOptions: { searchForMissingEpisodes: !moveFiles }
             };
         }
 
         // 2. Add to target instance
-        const addResult = await (isMovie ? radarr.addMovie(targetInstance.url, targetInstance.api_key, addPayload) : sonarr.addSeries(targetInstance.url, targetInstance.api_key, addPayload));
+        const addResult = await (isMovie 
+            ? radarr.addMovie(targetInstance.url, targetInstance.api_key, addPayload) 
+            : sonarr.addSeries(targetInstance.url, targetInstance.api_key, addPayload));
 
         if (!addResult.success) {
-            // Check if this is a duplicate conflict (Radarr/Sonarr return messages containing these strings)
             const errStr = typeof addResult.error === 'string'
                 ? addResult.error
                 : Array.isArray(addResult.error)
@@ -81,7 +118,10 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: `Failed to add to target: ${errStr}` }, { status: 400 });
         }
 
-        // 3. Handle Files if requested
+        const addedTargetId = addResult.data?.id;
+
+        // 3. Handle physical files on disk if requested
+        let filesMovedSuccessfully = false;
         if (moveFiles && item.path) {
             try {
                 const sourcePath = item.path;
@@ -89,43 +129,60 @@ export async function POST(request: Request) {
                 const destPath = path.join(targetRootFolder, folderName);
 
                 if (fs.existsSync(sourcePath)) {
-                    // Create destination parent if it doesn't exist
                     if (!fs.existsSync(targetRootFolder)) {
                         fs.mkdirSync(targetRootFolder, { recursive: true });
                     }
 
                     if (action === 'transfer') {
-                        // Move: Copy + then let the deleteMedia handle it if it fails, 
-                        // but better to move now if possible for speed
                         try {
                             fs.renameSync(sourcePath, destPath);
                             console.log(`[TRANSFER] Moved files from ${sourcePath} to ${destPath}`);
+                            filesMovedSuccessfully = true;
                         } catch (moveErr) {
-                            // If rename fails (e.g. cross-drive), try copy + unlink
                             fs.cpSync(sourcePath, destPath, { recursive: true });
-                            console.log(`[TRANSFER] Copied files from ${sourcePath} to ${destPath} (rename failed)`);
+                            console.log(`[TRANSFER] Copied files from ${sourcePath} to ${destPath} (rename fallback)`);
+                            filesMovedSuccessfully = true;
                         }
                     } else {
-                        // Copy: Just copy
                         fs.cpSync(sourcePath, destPath, { recursive: true });
                         console.log(`[TRANSFER] Copied files from ${sourcePath} to ${destPath}`);
+                        filesMovedSuccessfully = true;
                     }
+                } else {
+                    console.warn(`[TRANSFER] Source path "${sourcePath}" does not exist directly on server filesystem.`);
                 }
             } catch (fileErr) {
                 console.error(`[TRANSFER] Failed to manage physical files for ${item.title}:`, fileErr);
-                // We don't fail the whole request, as the item was added to the *arr instance
             }
         }
 
-        // 4. If action is 'transfer', delete from source
+        // 4. Trigger rescan on target instance if files were moved/copied
+        if (filesMovedSuccessfully && addedTargetId) {
+            if (isMovie) {
+                await radarr.triggerRescanMovie(targetInstance.url, targetInstance.api_key, addedTargetId);
+            } else {
+                await sonarr.triggerRescanSeries(targetInstance.url, targetInstance.api_key, addedTargetId);
+            }
+        }
+
+        // 5. If action is 'transfer', delete from source
         if (action === 'transfer') {
             const deleteSuccess = await (isMovie
-                ? radarr.deleteMovie(sourceInstance.url, sourceInstance.api_key, item.id, !moveFiles) // If we already moved files, don't ask radarr to delete them (they are gone)
-                : sonarr.deleteSeries(sourceInstance.url, sourceInstance.api_key, item.id, !moveFiles)
+                ? radarr.deleteMovie(sourceInstance.url, sourceInstance.api_key, item.id, !filesMovedSuccessfully)
+                : sonarr.deleteSeries(sourceInstance.url, sourceInstance.api_key, item.id, !filesMovedSuccessfully)
             );
             if (!deleteSuccess) {
                 console.warn(`[TRANSFER] Added to target but failed to delete from source: ${item.title}`);
             }
+        }
+
+        // 6. Refresh local caches asynchronously
+        if (isMovie) {
+            refreshRadarrCacheForInstance(sourceInstance).catch(() => {});
+            refreshRadarrCacheForInstance(targetInstance).catch(() => {});
+        } else {
+            refreshSonarrCacheForInstance(sourceInstance).catch(() => {});
+            refreshSonarrCacheForInstance(targetInstance).catch(() => {});
         }
 
         return NextResponse.json({ success: true, targetItem: addResult.data });
@@ -135,3 +192,4 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Internal server error during transfer' }, { status: 500 });
     }
 }
+

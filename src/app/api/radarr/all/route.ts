@@ -1,40 +1,18 @@
 import { NextResponse } from 'next/server';
-import { getInstances } from '@/lib/db';
-import { getAllMovies, getQueue } from '@/lib/radarr';
-import { twColorToHex } from '@/lib/instanceColor';
+import { getCachedRadarrMovies } from '@/lib/mediaCache';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(request: Request) {
     try {
-        const instances = getInstances('radarr');
-        let allMedia: any[] = [];
+        const { searchParams } = new URL(request.url);
+        const forceFresh = searchParams.get('fresh') === 'true';
 
-        for (const instance of instances) {
-            const [movies, queue] = await Promise.all([
-                getAllMovies(instance.url, instance.api_key),
-                getQueue(instance.url, instance.api_key)
-            ]);
-            const queuedIds = new Set(queue.map(q => q.movieId));
-
-            // Map instance name to the list so UI knows where it came from
-            allMedia = [...allMedia, ...movies.map(m => ({
-                ...m,
-                instanceName: instance.name,
-                instanceId: instance.id,
-                instanceUrl: instance.url,
-                instanceColor: instance.color,
-                colorHex: twColorToHex(instance.color),
-                isDownloading: queuedIds.has(m.id)
-            }))];
-        }
-
-        // Sort by date added descending (newest first)
-        allMedia.sort((a, b) => new Date(b.added).getTime() - new Date(a.added).getTime());
-
+        const allMedia = await getCachedRadarrMovies(forceFresh);
         return NextResponse.json(allMedia);
     } catch (error) {
         console.error('API /radarr/all error:', error);
         return NextResponse.json({ error: 'Failed to fetch all movies' }, { status: 500 });
     }
 }
+

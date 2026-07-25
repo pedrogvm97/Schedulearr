@@ -702,16 +702,33 @@ export function SchedulerQueuePanel() {
                                                                             : <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-500 border border-zinc-700">Unmonitored</span>}
                                                                 </div>
                                                             </div>
-                                                            <div className="flex items-center gap-2">
+                                                            <div className="flex items-center gap-2 flex-wrap">
                                                                 {ep.hasFile && ep.episodeFileId && (
-                                                                    <button onClick={e => { e.stopPropagation(); handleDeleteFile('episode', ep.id, item.instanceId, ep.episodeFileId!, `${item.title} S${String(ep.seasonNumber).padStart(2,'0')}E${String(ep.episodeNumber).padStart(2,'0')}`); }} className="p-1 text-rose-500 hover:bg-rose-500/10 rounded"><Trash2 size={12} /></button>
+                                                                    <button 
+                                                                        onPointerDown={e => e.stopPropagation()} 
+                                                                        onClick={e => { e.stopPropagation(); handleDeleteFile('episode', ep.id, item.instanceId, ep.episodeFileId!, `${item.title} S${String(ep.seasonNumber).padStart(2,'0')}E${String(ep.episodeNumber).padStart(2,'0')}`); }} 
+                                                                        className="min-h-[44px] min-w-[44px] p-2 text-rose-400 hover:bg-rose-500/20 active:scale-95 rounded-xl border border-rose-500/20 touch-target flex items-center justify-center"
+                                                                        title="Delete Episode File"
+                                                                    >
+                                                                        <Trash2 size={16} />
+                                                                    </button>
                                                                 )}
                                                                 {!ep.hasFile && ep.monitored && new Date(ep.airDateUtc || '').getTime() < Date.now() && (
                                                                     <>
-                                                                        <button onClick={e => { e.stopPropagation(); handleInteractiveSearch('episode', ep.id, item.instanceId, `${item.title} S${String(ep.seasonNumber).padStart(2, '0')}E${String(ep.episodeNumber).padStart(2, '0')}`); }}
-                                                                            className="px-2 py-1 text-[10px] font-semibold bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 rounded border border-indigo-500/20">Interactive</button>
-                                                                        <button onClick={e => { e.stopPropagation(); handleForceSearch({ idStr: `episode-${item.instanceId}-${ep.id}`, instanceId: item.instanceId, type: 'episode', id: ep.id }); }}
-                                                                            className="px-2 py-1 text-[10px] font-semibold bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 rounded border border-emerald-500/20 flex items-center gap-1"><RefreshCw size={10} /> Force</button>
+                                                                        <button 
+                                                                            onPointerDown={e => e.stopPropagation()} 
+                                                                            onClick={e => { e.stopPropagation(); handleInteractiveSearch('episode', ep.id, item.instanceId, `${item.title} S${String(ep.seasonNumber).padStart(2, '0')}E${String(ep.episodeNumber).padStart(2, '0')}`); }}
+                                                                            className="min-h-[44px] px-3 py-2 text-xs font-bold bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/30 active:scale-95 rounded-xl border border-indigo-500/20 touch-target flex items-center justify-center"
+                                                                        >
+                                                                            Interactive
+                                                                        </button>
+                                                                        <button 
+                                                                            onPointerDown={e => e.stopPropagation()} 
+                                                                            onClick={e => { e.stopPropagation(); handleForceSearch({ idStr: `episode-${item.instanceId}-${ep.id}`, instanceId: item.instanceId, type: 'episode', id: ep.id }); }}
+                                                                            className="min-h-[44px] px-3 py-2 text-xs font-bold bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 active:scale-95 rounded-xl border border-emerald-500/20 touch-target flex items-center justify-center gap-1.5"
+                                                                        >
+                                                                            <RefreshCw size={12} /> Force
+                                                                        </button>
                                                                     </>
                                                                 )}
                                                             </div>
