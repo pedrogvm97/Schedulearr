@@ -49,7 +49,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 # Create a data directory for the SQLite database
 # We do NOT switch to 'USER nextjs' here because Unraid mounts /app/data as root/nobody
 # Running Next.js standalone as root ensures it has permission to create and read the SQLite database on the host machine.
-RUN mkdir /app/data
+RUN mkdir -p /app/data
 
 EXPOSE 3010
 
