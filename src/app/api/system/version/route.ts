@@ -12,9 +12,16 @@ export async function GET() {
 
   try {
     // 1. Get current version from package.json
-    const packageJsonPath = path.join(process.cwd(), 'package.json');
-    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-    const currentVersion = packageJson.version || '0.0.0';
+    let currentVersion = '0.1.9';
+    try {
+      const packageJsonPath = path.join(process.cwd(), 'package.json');
+      if (fs.existsSync(packageJsonPath)) {
+        const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+        currentVersion = packageJson.version || '0.1.9';
+      }
+    } catch (e) {
+      console.warn('Could not read package.json version:', e);
+    }
 
     // 2. Get latest version from GitHub
     let latestVersion = currentVersion;
