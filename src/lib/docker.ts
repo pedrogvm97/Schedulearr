@@ -1,6 +1,27 @@
 import fs from 'fs';
 
 /**
+ * Sweeps and force-deletes all orphaned _old_ temporary containers created during updates.
+ */
+export async function cleanupOrphanContainers(docker: any): Promise<number> {
+  let count = 0;
+  try {
+    const listRes = await docker.get('/containers/json?all=true');
+    const containers = listRes.data || [];
+    for (const c of containers) {
+      const names = c.Names || [];
+      if (names.some((n: string) => n.includes('_old_') || n.toLowerCase().includes('schedulearr_old'))) {
+        try {
+          await docker.delete(`/containers/${c.Id}?v=true&force=true`);
+          count++;
+        } catch (e) {}
+      }
+    }
+  } catch (e) {}
+  return count;
+}
+
+/**
  * Searches for the running container metadata of the application itself.
  * Uses cgroups, mountinfo, hostname, standard fallbacks, and listing all containers.
  */

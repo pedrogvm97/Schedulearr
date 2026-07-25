@@ -1356,7 +1356,7 @@ export default function Settings() {
                                         <div className="flex items-center gap-2 text-zinc-600 text-xs py-4 justify-center">
                                             <div className="w-3.5 h-3.5 border border-zinc-700 border-t-zinc-400 rounded-full animate-spin" /> Fetching candidates...
                                         </div>
-                                    ) : candidates.length === 0 ? (
+                                    ) : (!Array.isArray(candidates) || candidates.length === 0) ? (
                                         <p className="text-xs text-zinc-600 italic text-center py-4">No eligible items found.</p>
                                     ) : (
                                         <div className="max-h-[340px] overflow-y-auto pr-1 space-y-1.5 border border-zinc-900/50 rounded-2xl p-2 bg-zinc-950/20">

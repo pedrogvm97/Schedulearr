@@ -922,7 +922,7 @@ export default function Dashboard() {
         {/* Indexers and Downloads */}
         <div className="space-y-8 mb-8">
           {/* Prowlarr Indexers Health */}
-          {!loadingProwlarr && prowlarrHealth.length > 0 && (
+          {!loadingProwlarr && Array.isArray(prowlarrHealth) && prowlarrHealth.length > 0 && (
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col max-h-[500px]">
               <h2 className="text-xl font-bold text-white mb-6">Prowlarr Indexer Health</h2>
               <div className="flex flex-col gap-6 overflow-y-auto pr-2 custom-scrollbar">
@@ -934,11 +934,11 @@ export default function Dashboard() {
                         <h3 className="text-lg font-bold text-white">{prowlarrInst.name}</h3>
                       </div>
                       <div className="text-sm text-zinc-400 font-medium">
-                        {prowlarrInst.health?.indexers?.length || 0} Enabled Indexers
+                        {Array.isArray(prowlarrInst?.health?.indexers) ? prowlarrInst.health.indexers.length : 0} Enabled Indexers
                       </div>
                     </div>
 
-                    {(!prowlarrInst.health?.indexers || prowlarrInst.health.indexers.length === 0) ? (
+                    {(!Array.isArray(prowlarrInst?.health?.indexers) || prowlarrInst.health.indexers.length === 0) ? (
                       <div className="text-zinc-500 italic text-sm py-2">No indexers enabled or accessible.</div>
                     ) : (
                       <div className="grid grid-cols-1 xl:grid-cols-2 gap-2">
