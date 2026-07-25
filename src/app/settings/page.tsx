@@ -1113,15 +1113,16 @@ export default function Settings() {
                                 </div>
 
                                 {/* Per-instance breakdown */}
-                                {diskInfo.byInstance.length > 0 && (
+                                {Array.isArray(diskInfo?.byInstance) && diskInfo.byInstance.length > 0 && (
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
                                         {diskInfo.byInstance.map((inst: any) => {
-                                            const instTotal = inst.folders.reduce((s: number, f: any) => s + f.totalBytes, 0);
-                                            const instFree = inst.folders.reduce((s: number, f: any) => s + f.freeBytes, 0);
+                                            const folders = Array.isArray(inst?.folders) ? inst.folders : [];
+                                            const instTotal = folders.reduce((s: number, f: any) => s + (f?.totalBytes || 0), 0);
+                                            const instFree = folders.reduce((s: number, f: any) => s + (f?.freeBytes || 0), 0);
                                             const instUsed = instTotal - instFree;
                                             const instPct = instTotal > 0 ? Math.round((instUsed / instTotal) * 100) : 0;
                                             return (
-                                                <div key={inst.id} className="p-3 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-1.5">
+                                                <div key={inst.id || inst.name} className="p-3 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-1.5">
                                                     <div className="flex items-center justify-between">
                                                         <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider truncate">{inst.name}</span>
                                                         <span className={`text-[10px] font-bold ${ instPct >= 90 ? 'text-red-400' : instPct >= 75 ? 'text-amber-400' : 'text-emerald-400'}`}>{instPct}%</span>
