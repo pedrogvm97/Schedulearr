@@ -71,20 +71,32 @@ export async function GET() {
         });
     }
 
-    // Simple de-duplication: if multiple instances report the same totalSpace, only count once
-    // Group by totalBytes value and take unique totals
-    const uniqueInstances = new Map<number, typeof byInstance[0]>();
+    // Deduplicate shared NAS volumes across instances
+    // Root folders residing on the same volume share matching total & free space signatures
+    const allFolders: { path: string; freeBytes: number; totalBytes: number; instanceName: string }[] = [];
     for (const inst of byInstance) {
-        const total = inst.folders.reduce((s, f) => s + f.totalBytes, 0);
-        if (!uniqueInstances.has(total) || inst.folders.some(f => f.totalBytes > 0)) {
-            uniqueInstances.set(total, inst);
+        for (const f of inst.folders) {
+            allFolders.push({ ...f, instanceName: inst.name });
         }
     }
 
-    const deduped = Array.from(uniqueInstances.values());
-    const dedupedTotal = deduped.reduce((s, inst) => s + inst.folders.reduce((fs, f) => fs + f.totalBytes, 0), 0);
-    const dedupedFree = deduped.reduce((s, inst) => s + inst.folders.reduce((fs, f) => fs + f.freeBytes, 0), 0);
-    const dedupedUsed = dedupedTotal - dedupedFree;
+    const uniqueVolumes = new Map<string, typeof allFolders[0]>();
+    for (const f of allFolders) {
+        if (f.totalBytes <= 0) continue;
+        // Group by 10MB rounded signature to prevent minor API jitter from creating duplicates
+        const totalMB = Math.round(f.totalBytes / (1024 * 1024 * 10));
+        const freeMB = Math.round(f.freeBytes / (1024 * 1024 * 10));
+        const volumeSig = `${totalMB}_${freeMB}`;
+
+        if (!uniqueVolumes.has(volumeSig)) {
+            uniqueVolumes.set(volumeSig, f);
+        }
+    }
+
+    const dedupedFolders = Array.from(uniqueVolumes.values());
+    const dedupedTotal = dedupedFolders.reduce((s, f) => s + f.totalBytes, 0);
+    const dedupedFree = dedupedFolders.reduce((s, f) => s + f.freeBytes, 0);
+    const dedupedUsed = Math.max(0, dedupedTotal - dedupedFree);
     const usedPercent = dedupedTotal > 0 ? Math.round((dedupedUsed / dedupedTotal) * 100) : 0;
 
     return NextResponse.json({
@@ -92,6 +104,6 @@ export async function GET() {
         freeBytes: dedupedFree,
         usedBytes: dedupedUsed,
         usedPercent,
-        byInstance: deduped
+        byInstance
     });
 }
