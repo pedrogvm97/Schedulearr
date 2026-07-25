@@ -104,3 +104,48 @@ export async function findSelfContainer(docker: any, hostname: string): Promise<
 
   return null;
 }
+
+/**
+ * Recreates a container in-place with a new image tag while preserving all
+ * port bindings, volumes, environment variables, and network configurations.
+ */
+export async function recreateSelfContainer(docker: any, containerInfo: any, targetImage: string): Promise<boolean> {
+  if (!containerInfo || !containerInfo.Id) {
+    throw new Error('Container info not found');
+  }
+
+  const containerId = containerInfo.Id;
+  const rawName = containerInfo.Name || 'Schedulearr';
+  const name = rawName.replace(/^\//, '');
+  const tempName = `${name}_old_${Date.now()}`;
+
+  // 1. Rename existing running container
+  await docker.post(`/containers/${containerId}/rename?name=${tempName}`);
+
+  // 2. Prepare container config with new image
+  const createBody = {
+    ...containerInfo.Config,
+    Image: targetImage,
+    HostConfig: containerInfo.HostConfig,
+    NetworkingConfig: {
+      EndpointsConfig: containerInfo.NetworkSettings?.Networks || {}
+    }
+  };
+
+  try {
+    // 3. Create new container with original name
+    const createRes = await docker.post(`/containers/create?name=${name}`, createBody);
+    const newContainerId = createRes.data.Id;
+
+    // 4. Start new container
+    await docker.post(`/containers/${newContainerId}/start`);
+
+    // 5. Cleanup old container asynchronously
+    docker.delete(`/containers/${tempName}?force=true`).catch(() => {});
+    return true;
+  } catch (err: any) {
+    // If creation failed, restore original container name
+    await docker.post(`/containers/${containerId}/rename?name=${name}`).catch(() => {});
+    throw err;
+  }
+}

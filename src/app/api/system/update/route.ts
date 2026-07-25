@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import axios from "axios";
 import os from "os";
-import { findSelfContainer } from "@/lib/docker";
+import { findSelfContainer, recreateSelfContainer } from "@/lib/docker";
 
 export const dynamic = "force-dynamic";
 
@@ -23,9 +23,10 @@ export async function POST() {
     let fromImage = "ghcr.io/pedrogvm97/schedulearr";
     let tag = "latest";
     let containerId = hostname;
+    let containerInfo: any = null;
 
     try {
-      const containerInfo = await findSelfContainer(docker, hostname);
+      containerInfo = await findSelfContainer(docker, hostname);
       if (containerInfo) {
         containerId = containerInfo.Id || hostname;
         const currentImg = containerInfo.Config?.Image || "";
@@ -43,13 +44,17 @@ export async function POST() {
       return NextResponse.json({ error: "Failed to pull latest image: " + pullError.message }, { status: 500 });
     }
 
-    // Restart — not recreate. The server dies when the container stops;
-    // Docker restart policy (unless-stopped) brings it back on the new image.
+    const finalImage = `${fromImage}:${tag}`;
+
     setTimeout(async () => {
       try {
-        await docker.post(`/containers/${containerId}/restart?t=5`);
+        if (containerInfo) {
+          await recreateSelfContainer(docker, containerInfo, finalImage);
+        } else {
+          await docker.post(`/containers/${containerId}/restart?t=5`);
+        }
       } catch (e: any) {
-        console.log("[Updater] Restart in flight (connection drop expected):", e.message);
+        console.log("[Updater] Container recreate in flight:", e.message);
       }
     }, 500);
 
