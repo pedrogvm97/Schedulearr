@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import axios from "axios";
 import os from "os";
-import { findSelfContainer } from "@/lib/docker";
+import { findSelfContainer, recreateSelfContainer } from "@/lib/docker";
 
 export const dynamic = "force-dynamic";
 
@@ -100,18 +100,21 @@ export async function GET(request: Request) {
         // Restarting is safe: the server dies, Docker's restart policy brings it back
         // on the new image. Recreating inside the running process is broken because
         // the server dies before it can start the new container.
-        sendEvent("log", { type: "info", message: "[INFO] Sending restart signal. Container will automatically come back on the new image..." });
+        sendEvent("log", { type: "info", message: "[INFO] Recreating container on newly pulled image layer..." });
 
         // Tell the UI we are done — give it time to receive the event before we die
         sendEvent("complete", { success: true, restarting: true });
         await new Promise(resolve => setTimeout(resolve, 800));
 
         try {
-          // t=5 gives the app 5 seconds to shut down gracefully before SIGKILL
-          await docker.post(`/containers/${containerId}/restart?t=5`);
+          if (containerInfo) {
+            await recreateSelfContainer(docker, containerInfo, finalImage);
+          } else {
+            await docker.post(`/containers/${containerId}/restart?t=5`);
+          }
         } catch (e: any) {
-          // Expected — connection drops as container stops. Restart is already in flight.
-          console.log("[Updater] Restart in progress (connection closed is normal):", e.message);
+          // Expected — connection drops as container stops and new one starts
+          console.log("[Updater] Recreate in progress (connection closed is normal):", e.message);
         }
 
         closeStream();
