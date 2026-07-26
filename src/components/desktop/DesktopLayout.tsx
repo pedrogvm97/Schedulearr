@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const desktopNavItems = [
-  { href: '/discover', label: 'My Media' },
+  { href: '/discover', label: 'Media' },
   { href: '/scheduler', label: 'Scheduler' },
   { href: '/downloads', label: 'Downloads' },
   { href: '/indexers', label: 'Indexers' },
@@ -27,7 +27,6 @@ export function DesktopLayout({ children }: { children: React.ReactNode }) {
           </div>
           <div className="flex flex-col">
             <span className="font-extrabold text-base text-white tracking-tight">Schedulearr</span>
-            <span className="text-[10px] font-semibold uppercase tracking-widest text-emerald-400/90 leading-none">Automated Engine</span>
           </div>
         </Link>
 

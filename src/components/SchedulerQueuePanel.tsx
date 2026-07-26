@@ -434,8 +434,7 @@ export function SchedulerQueuePanel() {
                             ⏱️
                         </div>
                         <div>
-                            <h2 className="text-base sm:text-lg font-extrabold text-white">Automated Batch Scheduler</h2>
-                            <p className="text-xs text-zinc-400">Configure search interval, batch sizes, and manual run triggers.</p>
+                            <h2 className="text-base sm:text-lg font-extrabold text-white">Scheduler</h2>
                         </div>
                     </div>
 

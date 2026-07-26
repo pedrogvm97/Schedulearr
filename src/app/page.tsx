@@ -505,18 +505,13 @@ export default function Dashboard() {
   return (
     <>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 space-y-6 sm:space-y-8 pb-12">
-        {/* Modern Mobile-First Hero Header Card */}
+        {/* Dashboard Header Card */}
         <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-zinc-900 via-zinc-900/95 to-zinc-950 p-5 sm:p-8 border border-zinc-800/80 shadow-2xl space-y-6">
           <div className="absolute top-0 right-0 -mt-8 -mr-8 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
           
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
-            <div className="space-y-1.5 max-w-2xl">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold uppercase tracking-wider">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                Live Engine Metrics
-              </div>
+            <div className="space-y-1 max-w-2xl">
               <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight text-white">Search History</h1>
-              <p className="text-xs sm:text-base text-zinc-400 leading-relaxed">View logs of background engine batches and manual search triggers in real-time.</p>
             </div>
 
             <button

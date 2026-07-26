@@ -101,72 +101,60 @@ export function PhoneLayout({ children }: { children: React.ReactNode }) {
           <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-500/25 via-teal-500/15 to-zinc-900 p-1 border border-emerald-500/40 flex items-center justify-center shadow-[0_0_12px_rgba(16,185,129,0.25)]">
             <img src="/icon.png" alt="Schedulearr" className="w-full h-full object-contain" />
           </div>
-          <div className="flex flex-col">
-            <div className="flex items-center gap-1.5">
+            <div className="flex flex-col">
               <span className="font-extrabold text-sm text-white tracking-tight">Schedulearr</span>
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.9)]" />
             </div>
-            <span className="text-[9px] font-bold uppercase tracking-widest text-emerald-400/90 leading-none">Phone Edition</span>
-          </div>
-        </Link>
+          </Link>
 
-        <button
-          onClick={() => setDrawerOpen(!drawerOpen)}
-          className="h-10 px-3 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-200 active:scale-95 transition-all flex items-center gap-1.5 touch-target shadow-md"
-          aria-label="Toggle Phone Menu"
-        >
-          {drawerOpen ? (
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18"></line>
-              <line x1="6" y1="6" x2="18" y2="18"></line>
-            </svg>
-          ) : (
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="3" y1="12" x2="21" y2="12"></line>
-              <line x1="3" y1="6" x2="21" y2="6"></line>
-              <line x1="3" y1="18" x2="21" y2="18"></line>
-            </svg>
-          )}
-          <span className="text-[11px] font-extrabold uppercase tracking-wider text-zinc-300">Menu</span>
-        </button>
-      </header>
+          <button
+            onClick={() => setDrawerOpen(!drawerOpen)}
+            className="h-10 px-3 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-200 active:scale-95 transition-all flex items-center gap-1.5 touch-target shadow-md"
+            aria-label="Toggle Menu"
+          >
+            {drawerOpen ? (
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="3" y1="12" x2="21" y2="12"></line>
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+              </svg>
+            )}
+            <span className="text-[11px] font-extrabold uppercase tracking-wider text-zinc-300">Menu</span>
+          </button>
+        </header>
 
-      {/* 100% Dedicated Full-Screen Phone Menu Drawer */}
-      {drawerOpen && (
-        <div className="fixed inset-0 z-40 bg-zinc-950/98 backdrop-blur-3xl pt-16 px-4 pb-28 overflow-y-auto space-y-2.5 animate-in fade-in slide-in-from-top-4 duration-200">
-          <div className="p-3 bg-zinc-900/60 border border-zinc-800/80 rounded-2xl mb-3 flex items-center justify-between">
-            <span className="text-xs font-extrabold uppercase tracking-widest text-emerald-400">Phone Navigation Center</span>
-            <span className="text-[10px] text-zinc-500 font-bold uppercase">v0.3.10</span>
-          </div>
-
-          {allPhoneDrawerLinks.map(item => {
-            const active = pathname === item.href;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={() => setDrawerOpen(false)}
-                className={`flex items-center gap-3.5 p-3.5 rounded-2xl border transition-all active:scale-98 touch-target ${
-                  active
-                    ? 'bg-emerald-500/15 border-emerald-500/40 text-white shadow-xl shadow-emerald-950/30'
-                    : 'bg-zinc-900/70 border-zinc-800/80 text-zinc-300 hover:bg-zinc-900'
-                }`}
-              >
-                <div className={`p-2.5 rounded-xl ${active ? 'bg-emerald-500/20 text-emerald-400' : 'bg-zinc-800 text-zinc-400'}`}>
-                  {item.icon}
-                </div>
-                <div className="flex flex-col">
+        {/* Dedicated Full-Screen Menu Drawer */}
+        {drawerOpen && (
+          <div className="fixed inset-0 z-40 bg-zinc-950/98 backdrop-blur-3xl pt-16 px-4 pb-28 overflow-y-auto space-y-2.5 animate-in fade-in slide-in-from-top-4 duration-200">
+            {allPhoneDrawerLinks.map(item => {
+              const active = pathname === item.href;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setDrawerOpen(false)}
+                  className={`flex items-center gap-3.5 p-3.5 rounded-2xl border transition-all active:scale-98 touch-target ${
+                    active
+                      ? 'bg-emerald-500/15 border-emerald-500/40 text-white shadow-xl shadow-emerald-950/30'
+                      : 'bg-zinc-900/70 border-zinc-800/80 text-zinc-300 hover:bg-zinc-900'
+                  }`}
+                >
+                  <div className={`p-2.5 rounded-xl ${active ? 'bg-emerald-500/20 text-emerald-400' : 'bg-zinc-800 text-zinc-400'}`}>
+                    {item.icon}
+                  </div>
                   <span className="font-extrabold text-sm text-white">{item.label}</span>
-                  <span className="text-[11px] text-zinc-400">Open {item.label} view</span>
-                </div>
-                {active && (
-                  <span className="ml-auto w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]" />
-                )}
-              </Link>
-            );
-          })}
-        </div>
-      )}
+                  {active && (
+                    <span className="ml-auto w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]" />
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+        )}
 
       {/* Main Content Area */}
       <main className="flex-1 w-full max-w-full px-3 py-5 pb-28 overflow-x-hidden">

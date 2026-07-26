@@ -500,7 +500,6 @@ export default function Settings() {
         <div className="max-w-4xl mx-auto p-6 space-y-8 pb-24">
             <div>
                 <h1 className="text-3xl font-bold text-white mb-2">Settings</h1>
-                <p className="text-zinc-400">Configure your connections to Radarr, Sonarr, and Prowlarr.</p>
             </div>
 
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">

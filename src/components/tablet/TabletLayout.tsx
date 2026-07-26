@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const tabletNavLinks = [
-  { href: '/discover', label: 'My Media', icon: '🎬' },
+  { href: '/discover', label: 'Media', icon: '🎬' },
   { href: '/scheduler', label: 'Scheduler', icon: '⏱️' },
   { href: '/downloads', label: 'Downloads', icon: '📥' },
   { href: '/indexers', label: 'Indexers', icon: '🔍' },
@@ -48,18 +48,10 @@ export function TabletLayout({ children }: { children: React.ReactNode }) {
 
       {/* Main Tablet Content View Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-x-hidden">
-        {/* Top Tablet Status Header Bar */}
+        {/* Top Tablet Header Bar */}
         <header className="sticky top-0 z-40 h-16 bg-zinc-950/90 backdrop-blur-2xl border-b border-zinc-800/80 px-6 flex items-center justify-between shadow-md">
           <div className="flex items-center gap-3">
-            <span className="font-extrabold text-base text-white tracking-tight">Schedulearr Tablet Console</span>
-            <span className="px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-bold uppercase tracking-wider">
-              Tablet OS Active
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2 text-xs font-bold text-zinc-400">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.9)]" />
-            <span>Automated Engine Online</span>
+            <span className="font-extrabold text-base text-white tracking-tight">Schedulearr</span>
           </div>
         </header>
 

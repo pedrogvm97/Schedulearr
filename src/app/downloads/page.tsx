@@ -427,7 +427,6 @@ export default function Downloads() {
         <div className="max-w-6xl mx-auto p-6 space-y-8 pb-24">
             <div>
                 <h1 className="text-3xl font-bold text-white mb-2">Active Downloads</h1>
-                <p className="text-zinc-400">Monitor and manage your active qBittorrent transfers.</p>
             </div>
 
             {/* ── Auto-Cleanup Panel ─────────────────────────────────────────── */}

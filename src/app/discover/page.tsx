@@ -1209,24 +1209,11 @@ export default function DiscoverPage() {
     return (
         <>
             <div className="px-4 py-6 lg:p-10 space-y-6 max-w-[1800px] mx-auto">
-            {/* Header */}
-            <div className="flex flex-col gap-2">
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 w-fit">
-                    <Sparkles size={12} className="text-emerald-500" />
-                    <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Media</span>
-                </div>
-                <h1 className="text-2xl sm:text-4xl font-black text-white tracking-tight">Media Browser</h1>
-            </div>
-
-            {/* Modern Mobile Hero Header */}
+            {/* Hero Header */}
             <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-zinc-900 via-zinc-900/95 to-zinc-950 p-5 sm:p-8 border border-zinc-800/80 shadow-2xl space-y-4">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div className="space-y-1">
-                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-bold uppercase tracking-wider">
-                            <Sparkles size={12} /> Media Catalog
-                        </div>
-                        <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight text-white">My Media</h1>
-                        <p className="text-xs sm:text-base text-zinc-400 leading-relaxed">Browse, manage, and audit your media instances and download queues.</p>
+                        <h1 className="text-2xl sm:text-4xl font-black tracking-tight text-white">Media</h1>
                     </div>
 
                     {/* Mode Selector */}
@@ -1241,7 +1228,7 @@ export default function DiscoverPage() {
                             }}
                             className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-extrabold rounded-xl transition-all flex-1 justify-center ${pageMode !== 'queue' ? 'bg-zinc-800 text-white shadow-lg border border-zinc-700/60' : 'text-zinc-400 hover:text-zinc-200'}`}
                         >
-                            <Sparkles size={16} /> <span>Media Browser</span>
+                            <Sparkles size={16} /> <span>Catalog</span>
                         </button>
                         <button
                             onClick={() => setPageMode('queue')}
@@ -1265,7 +1252,7 @@ export default function DiscoverPage() {
                             }}
                             className={`flex items-center gap-2 px-4 py-2 text-xs font-black rounded-xl transition-all ${browseMode === 'all' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30' : 'text-zinc-500 hover:text-zinc-400'}`}
                         >
-                            All Media
+                            All
                         </button>
                         <button
                             onClick={() => {
