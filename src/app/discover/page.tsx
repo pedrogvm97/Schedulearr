@@ -1298,28 +1298,6 @@ export default function DiscoverPage() {
                     <div className="space-y-1">
                         <h1 className="text-2xl sm:text-4xl font-black tracking-tight text-white">Media</h1>
                     </div>
-
-                    {/* Mode Selector */}
-                    <div className="flex bg-zinc-950/80 p-1.5 rounded-2xl border border-zinc-800/80 w-full md:w-auto">
-                        <button
-                            onClick={() => {
-                                setBrowseMode('discover');
-                                setPageMode('discover');
-                            }}
-                            className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-extrabold rounded-xl transition-all flex-1 justify-center ${pageMode === 'discover' ? 'bg-zinc-800 text-white shadow-lg border border-zinc-700/60' : 'text-zinc-400 hover:text-zinc-200'}`}
-                        >
-                            <Sparkles size={16} /> <span>Discover Catalog</span>
-                        </button>
-                        <button
-                            onClick={() => {
-                                setBrowseMode('library');
-                                setPageMode('mylibrary');
-                            }}
-                            className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-extrabold rounded-xl transition-all flex-1 justify-center ${pageMode === 'mylibrary' ? 'bg-zinc-800 text-white shadow-lg border border-zinc-700/60' : 'text-zinc-400 hover:text-zinc-200'}`}
-                        >
-                            <Film size={16} /> <span>My Library</span>
-                        </button>
-                    </div>
                 </div>
             </div>
 
@@ -1342,7 +1320,7 @@ export default function DiscoverPage() {
                             }}
                             className={`flex items-center gap-2 px-4 py-2 text-xs font-black rounded-xl transition-all ${browseMode === 'library' ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30' : 'text-zinc-500 hover:text-zinc-400'}`}
                         >
-                            In Library Only
+                            In Library
                         </button>
                         <button
                             onClick={() => {
@@ -1351,7 +1329,7 @@ export default function DiscoverPage() {
                             }}
                             className={`flex items-center gap-2 px-4 py-2 text-xs font-black rounded-xl transition-all ${browseMode === 'discover' ? 'bg-purple-600/20 text-purple-400 border border-purple-500/30' : 'text-zinc-500 hover:text-zinc-400'}`}
                         >
-                            TMDB Discover Only
+                            Discover Catalog
                         </button>
                     </div>
 
