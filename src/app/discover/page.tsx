@@ -971,16 +971,64 @@ export default function DiscoverPage() {
         setIsSearching(true);
         setResults([]);
         const endpoint = mediaType === 'movie' ? '/api/radarr/lookup' : '/api/sonarr/lookup';
-        const res = await fetch(`${endpoint}?instanceId=${targetId}&term=${encodeURIComponent(searchQuery)}&page=${currentPage + 1}`).catch(() => null);
-        if (res?.ok) {
-            const data = await res.json();
-            setResults(Array.isArray(data.results) ? data.results : []);
-            setServerTotalPages(data.total_pages || 1);
-        } else {
+        
+        try {
+            const startPage = (currentPage * 3) + 1;
+            const pagesToFetch = [startPage, startPage + 1, startPage + 2];
+            
+            const responses = await Promise.all(
+                pagesToFetch.map(p => 
+                    fetch(`${endpoint}?instanceId=${targetId}&term=${encodeURIComponent(searchQuery)}&page=${p}`)
+                        .then(r => r.ok ? r.json() : null)
+                        .catch(() => null)
+                )
+            );
+
+            let pooledResults: any[] = [];
+            let tmdbTotalPages = 1;
+
+            responses.forEach(data => {
+                if (data && Array.isArray(data.results)) {
+                    pooledResults.push(...data.results);
+                    if (data.total_pages) tmdbTotalPages = data.total_pages;
+                }
+            });
+
+            // If active filters (genre/platform/year/rating) are set, pool 2 more pages to gather enough matching candidates
+            const isFilteringActive = filterGenre !== 'All' || filterPlatform !== 'All' || filterYear !== 'All' || filterRating > 0;
+            if (isFilteringActive && startPage + 2 < tmdbTotalPages) {
+                const extraPages = [startPage + 3, startPage + 4];
+                const extraResponses = await Promise.all(
+                    extraPages.map(p => 
+                        fetch(`${endpoint}?instanceId=${targetId}&term=${encodeURIComponent(searchQuery)}&page=${p}`)
+                            .then(r => r.ok ? r.json() : null)
+                            .catch(() => null)
+                    )
+                );
+                extraResponses.forEach(data => {
+                    if (data && Array.isArray(data.results)) {
+                        pooledResults.push(...data.results);
+                    }
+                });
+            }
+
+            // Deduplicate by tmdbId or title
+            const seen = new Set();
+            pooledResults = pooledResults.filter(item => {
+                const id = item.tmdbId || item.id || item.title;
+                if (!id || seen.has(id)) return false;
+                seen.add(id);
+                return true;
+            });
+
+            setResults(pooledResults);
+            setServerTotalPages(Math.max(1, Math.ceil(tmdbTotalPages / 3)));
+        } catch {
             toast.error('Search failed');
+        } finally {
+            setIsSearching(false);
         }
-        setIsSearching(false);
-    }, [searchQuery, selectedInstanceIds, availableInstances, mediaType, currentPage]);
+    }, [searchQuery, selectedInstanceIds, availableInstances, mediaType, currentPage, filterGenre, filterPlatform, filterYear, filterRating]);
 
     const handleFinalAdd = useCallback(async (item: any, targetInstanceId: string, profileId: number, rootFolderPath: string, startSearch: boolean) => {
         setIsAddingInModal(true);
