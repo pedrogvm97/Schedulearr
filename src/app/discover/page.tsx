@@ -331,7 +331,7 @@ function UnifiedMediaCard({
     // Progress math
     const sizeBytes = libStatus.exists ? libStatus.sizeOnDisk : (item.movieFile?.size || 0);
     const sizeStr = sizeBytes > 1e12 ? `${(sizeBytes / 1e12).toFixed(1)} TB` : sizeBytes > 1e9 ? `${(sizeBytes / 1e9).toFixed(1)} GB` : sizeBytes > 1e6 ? `${(sizeBytes / 1e6).toFixed(0)} MB` : null;
-    const pct = libStatus.exists ? libStatus.percentage : (isSeries ? 0 : (item.hasFile ? 100 : 0));
+    const pct = libStatus.exists ? Math.round(libStatus.percentage || 0) : (isSeries ? 0 : (item.hasFile ? 100 : 0));
 
     const path = item.path || 'In Library';
 
@@ -378,7 +378,7 @@ function UnifiedMediaCard({
                                 <div className="w-24 h-1.5 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800">
                                     <div className={`h-full transition-all duration-1000 ${pct === 100 ? 'bg-emerald-500' : 'bg-amber-500'}`} style={{ width: `${pct}%` }} />
                                 </div>
-                                <span className={`text-[10px] font-black uppercase tracking-widest ${pct === 100 ? 'text-emerald-500' : 'text-amber-400'}`}>{pct}%</span>
+                                <span className={`text-[10px] font-black uppercase tracking-widest ${pct === 100 ? 'text-emerald-500' : 'text-amber-400'}`}>{Math.round(pct)}%</span>
                             </div>
 
                             {libStatus.exists && (
@@ -526,7 +526,7 @@ function UnifiedMediaCard({
                     <div className="flex items-center gap-2 mt-1 text-[10px] text-zinc-400 font-bold uppercase tracking-widest opacity-80">
                         {item.year && <span>{item.year}</span>}
                         <span className="opacity-40">•</span>
-                        <span className={pct === 100 ? 'text-emerald-400' : 'text-amber-400'}>{pct}%</span>
+                        <span className={pct === 100 ? 'text-emerald-400' : 'text-amber-400'}>{Math.round(pct)}%</span>
                         {sizeStr && <><span className="opacity-30">•</span><span className="text-zinc-500">{sizeStr}</span></>}
                         {libStatus.exists && <><span className="opacity-30">•</span><span className="truncate text-zinc-500 max-w-[80px]">{instanceName}</span></>}
                     </div>
@@ -690,14 +690,14 @@ export default function DiscoverPage() {
                         });
                     }
 
-                    const pct = m.statistics?.percentOfEpisodes ?? (m.hasFile ? 100 : 0);
+                    const pct = Math.round(m.statistics?.percentOfEpisodes ?? (m.hasFile ? 100 : 0));
                     const currentSize = m.statistics?.sizeOnDisk || m.sizeOnDisk || m.movieFile?.size || 0;
 
                     map.set(key, {
                         hasFile: (existing?.hasFile || m.hasFile || (m.statistics?.percentOfEpisodes === 100)) ?? false,
                         isDownloading: (existing?.isDownloading || m.isDownloading || (m.queuedEpisodeIds?.length > 0)) ?? false,
                         instances: itemInstances,
-                        percentage: pct,
+                        percentage: Math.round(pct),
                         sizeOnDisk: Math.max(existing?.sizeOnDisk || 0, currentSize),
                         qualityProfileId: m.qualityProfileId
                     });

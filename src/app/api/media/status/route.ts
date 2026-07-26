@@ -85,14 +85,14 @@ export async function GET(req: NextRequest) {
                         );
 
                         const hasFile = (series.statistics?.percentOfEpisodes === 100) || (series.statistics?.episodeFileCount && series.statistics.episodeFileCount > 0);
-                        const pct = series.statistics?.percentOfEpisodes || 0;
+                        const pct = Math.round(series.statistics?.percentOfEpisodes || 0);
                         const size = series.statistics?.sizeOnDisk || 0;
 
                         results.hasFile = results.hasFile || !!hasFile;
                         results.isDownloading = results.isDownloading || isDownloading;
                         results.isStalled = results.isStalled || isStalled;
                         results.isSearching = results.isSearching || isSearching;
-                        results.percentage = Math.max(results.percentage, pct);
+                        results.percentage = Math.round(Math.max(results.percentage, pct));
                         results.sizeOnDisk = Math.max(results.sizeOnDisk, size);
                         
                         results.instances.push({
