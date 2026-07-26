@@ -13,7 +13,6 @@ import {
 import { toast, Toaster } from 'sonner';
 import { CustomSelect } from '@/components/CustomSelect';
 import { twColorToHex } from '@/lib/instanceColor';
-import { SchedulerQueuePanel } from '@/components/SchedulerQueuePanel';
 import { MediaDetailsPanel } from '@/components/MediaDetailsPanel';
 import { PersonDetailsPanel } from '@/components/PersonDetailsPanel';
 import { InteractiveSearchModal } from '@/components/InteractiveSearchModal';
@@ -573,7 +572,7 @@ function UnifiedMediaCard({
 // Main Page
 // ──────────────────────────────────────────────
 export default function DiscoverPage() {
-    const [pageMode, setPageMode] = useState<'discover' | 'mylibrary' | 'queue'>('discover');
+    const [pageMode, setPageMode] = useState<'discover' | 'mylibrary'>('discover');
     const [browseMode, setBrowseMode] = useState<'all' | 'library' | 'discover'>('all');
     const [mediaType, setMediaType] = useState<'movie' | 'series'>('series');
     const [searchQuery, setSearchQuery] = useState('');
@@ -1320,21 +1319,21 @@ export default function DiscoverPage() {
                     <div className="flex bg-zinc-950/80 p-1.5 rounded-2xl border border-zinc-800/80 w-full md:w-auto">
                         <button
                             onClick={() => {
-                                if (browseMode === 'library') {
-                                    setPageMode('mylibrary');
-                                } else {
-                                    setPageMode('discover');
-                                }
+                                setBrowseMode('discover');
+                                setPageMode('discover');
                             }}
-                            className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-extrabold rounded-xl transition-all flex-1 justify-center ${pageMode !== 'queue' ? 'bg-zinc-800 text-white shadow-lg border border-zinc-700/60' : 'text-zinc-400 hover:text-zinc-200'}`}
+                            className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-extrabold rounded-xl transition-all flex-1 justify-center ${pageMode === 'discover' ? 'bg-zinc-800 text-white shadow-lg border border-zinc-700/60' : 'text-zinc-400 hover:text-zinc-200'}`}
                         >
-                            <Sparkles size={16} /> <span>Catalog</span>
+                            <Sparkles size={16} /> <span>Discover Catalog</span>
                         </button>
                         <button
-                            onClick={() => setPageMode('queue')}
-                            className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-extrabold rounded-xl transition-all flex-1 justify-center ${pageMode === 'queue' ? 'bg-zinc-800 text-white shadow-lg border border-zinc-700/60' : 'text-zinc-400 hover:text-zinc-200'}`}
+                            onClick={() => {
+                                setBrowseMode('library');
+                                setPageMode('mylibrary');
+                            }}
+                            className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-extrabold rounded-xl transition-all flex-1 justify-center ${pageMode === 'mylibrary' ? 'bg-zinc-800 text-white shadow-lg border border-zinc-700/60' : 'text-zinc-400 hover:text-zinc-200'}`}
                         >
-                            <ListOrdered size={16} /> <span>Queue</span>
+                            <Film size={16} /> <span>My Library</span>
                         </button>
                     </div>
                 </div>
@@ -1342,9 +1341,7 @@ export default function DiscoverPage() {
 
             {/* Sub-Control Filter Chips Bar */}
             <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-
-                {pageMode !== 'queue' && (
-                    <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/50">
+                <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/50">
                         <button
                             onClick={() => {
                                 setBrowseMode('all');
@@ -1373,14 +1370,11 @@ export default function DiscoverPage() {
                             TMDB Discover Only
                         </button>
                     </div>
-                )}
 
-                {pageMode !== 'queue' && (
                     <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/50">
                         <button onClick={() => setMediaType('movie')} className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black rounded-xl transition-all ${mediaType === 'movie' ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30' : 'text-zinc-500 hover:text-zinc-400'}`}><Film size={14} /> Movies</button>
                         <button onClick={() => setMediaType('series')} className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black rounded-xl transition-all ${mediaType === 'series' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30' : 'text-zinc-500 hover:text-zinc-400'}`}><Tv size={14} /> Series</button>
                     </div>
-                )}
 
                 {pageMode === 'mylibrary' && (
                     <div className="flex flex-wrap bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/50 gap-1.5 max-w-full">
@@ -1441,10 +1435,7 @@ export default function DiscoverPage() {
                 </div>
             )}
 
-            {pageMode === 'queue' ? (
-                <SchedulerQueuePanel />
-            ) : (
-                <div className="flex flex-col lg:flex-row gap-8 items-start">
+            <div className="flex flex-col lg:flex-row gap-8 items-start">
                     {showFilters && (
                         <div className="w-full lg:w-72 space-y-7 bg-zinc-950/20 p-6 rounded-3xl border border-zinc-900/50 flex-shrink-0">
                             <div className="space-y-2">
@@ -1647,7 +1638,6 @@ export default function DiscoverPage() {
                         )}
                     </div>
                 </div>
-            )}
 
             {/* Add Media Modal */}
             {
