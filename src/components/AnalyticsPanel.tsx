@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { SystemActionLedger } from "@/components/SystemActionLedger";
+import { PlexTelemetryPanel } from "@/components/PlexTelemetryPanel";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, AreaChart, Area } from 'recharts';
 import { X, Film, Info, HardDrive, Sliders, AlertTriangle, Trash2, Search, MoveHorizontal, PlayCircle, CheckCircle } from 'lucide-react';
 import { MediaDetailsPanel } from "@/components/MediaDetailsPanel";
@@ -54,6 +55,7 @@ interface ChartData {
 }
 
 export function AnalyticsPanel() {
+  const [dashboardSubtab, setDashboardSubtab] = useState<'overview' | 'tautulli'>('overview');
   const [triggerResult, setTriggerResult] = useState<{
     show: boolean,
     success?: boolean,
@@ -510,8 +512,30 @@ export function AnalyticsPanel() {
           <div className="absolute top-0 right-0 -mt-8 -mr-8 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
           
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
-            <div className="space-y-1 max-w-2xl">
-              <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight text-white">Search History</h1>
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight text-white">Dashboard</h1>
+              <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800 gap-1 sm:ml-4">
+                <button
+                  onClick={() => setDashboardSubtab('overview')}
+                  className={`px-3 py-1.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all ${
+                    dashboardSubtab === 'overview'
+                      ? 'bg-zinc-800 text-white border border-zinc-700 shadow-md'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  📊 System Overview
+                </button>
+                <button
+                  onClick={() => setDashboardSubtab('tautulli')}
+                  className={`px-3 py-1.5 text-xs font-black uppercase tracking-wider rounded-xl transition-all ${
+                    dashboardSubtab === 'tautulli'
+                      ? 'bg-zinc-800 text-white border border-zinc-700 shadow-md'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  🍿 Users &amp; Telemetry (Tautulli)
+                </button>
+              </div>
             </div>
 
             <button
@@ -597,7 +621,11 @@ export function AnalyticsPanel() {
           </div>
         </div>
 
-        {/* Analytics Dashboard Top Row: Left Column (Rankings + Top Indexers) | Right Column (Trend BarChart) */}
+        {dashboardSubtab === 'tautulli' ? (
+          <PlexTelemetryPanel />
+        ) : (
+          <>
+            {/* Analytics Dashboard Top Row: Left Column (Rankings + Top Indexers) | Right Column (Trend BarChart) */}
         <div className="flex flex-col lg:flex-row gap-6 mb-8 mt-2 items-stretch">
           {/* Left Column: Stacked Instance Rankings & Top Indexers */}
           <div className="w-full lg:w-96 flex-shrink-0 flex flex-col gap-4">
@@ -1064,6 +1092,8 @@ export function AnalyticsPanel() {
           </div>
           <SystemActionLedger />
         </div>
+      </>
+    )}
 
         {/* Manual Trigger Result Modal */}
         {
