@@ -658,7 +658,7 @@ export default function Settings() {
                         <label className="text-sm font-medium text-zinc-300">URL</label>
                         <input
                             type="url"
-                            placeholder="http://192.168.1.125:7878"
+                            placeholder={type === 'plex' ? "http://192.168.1.125:32400" : "http://192.168.1.125:7878"}
                             value={url}
                             onChange={e => setUrl(e.target.value)}
                             className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
@@ -666,9 +666,21 @@ export default function Settings() {
                     </div>
 
                     <div className="space-y-1">
-                        <label className="text-sm font-medium text-zinc-300">
-                            {type === 'qbittorrent' ? 'Credentials (username:password)' : type === 'plex' ? 'X-Plex-Token' : 'API Key'}
-                        </label>
+                        <div className="flex items-center justify-between">
+                            <label className="text-sm font-medium text-zinc-300">
+                                {type === 'qbittorrent' ? 'Credentials (username:password)' : type === 'plex' ? 'X-Plex-Token' : 'API Key'}
+                            </label>
+                            {type === 'plex' && (
+                                <a
+                                    href="https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-[10px] font-bold text-amber-400 hover:text-amber-300 underline"
+                                >
+                                    Plex Token Guide ↗
+                                </a>
+                            )}
+                        </div>
                         <input
                             type="password"
                             placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
@@ -677,6 +689,27 @@ export default function Settings() {
                             className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
                         />
                     </div>
+
+                    {type === 'plex' && (
+                        <div className="md:col-span-2 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-2">
+                            <div className="flex items-center justify-between">
+                                <span className="text-xs font-black uppercase text-amber-400 tracking-wider flex items-center gap-1.5">
+                                    🍿 Why Connect Plex Media Server?
+                                </span>
+                            </div>
+                            <p className="text-xs text-zinc-300 leading-relaxed">
+                                Connecting Plex allows Schedulearr to monitor <strong>real-time Plex streaming bandwidth</strong> on the Dashboard speed graph and check <strong>watch state (played vs unplayed)</strong> for Storage Guard auto-cleanup rules.
+                            </p>
+                            <div className="pt-2 border-t border-amber-500/20 text-[11px] text-zinc-400 space-y-1.5">
+                                <span className="font-bold text-white block">How to get your X-Plex-Token (3 simple steps):</span>
+                                <ol className="list-decimal list-inside space-y-1 text-zinc-300">
+                                    <li>Open your Plex Web App in browser (e.g. <code className="text-amber-300 font-mono bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">http://192.168.1.x:32400/web</code>).</li>
+                                    <li>Open any movie or episode, click the 3-dots menu <code className="text-amber-300 font-mono bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">...</code> → select <strong className="text-white">Get Info</strong> → click <strong className="text-white">View XML</strong>.</li>
+                                    <li>Look at the end of the address bar URL for <code className="text-amber-300 font-mono bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">X-Plex-Token=YOUR_TOKEN</code>. Copy and paste it above!</li>
+                                </ol>
+                            </div>
+                        </div>
+                    )}
 
                     <div className="md:col-span-2 space-y-2 mt-2">
                         <label className="text-sm font-medium text-zinc-300">Instance Indicator Color</label>

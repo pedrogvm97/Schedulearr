@@ -40,6 +40,12 @@ export async function GET(req: Request) {
                 // Must authenticate first to prove URL and credentials are valid
                 const cookie = await authenticateQbittorrent(instance.url, instance.api_key);
                 if (cookie) isOnline = true;
+            } else if (instance.type === 'plex') {
+                const res = await axios.get(`${instance.url}/identity`, {
+                    headers: { 'X-Plex-Token': instance.api_key },
+                    timeout: 5000
+                });
+                if (res.status === 200) isOnline = true;
             }
         } catch (e: any) {
             // Expected if offline, wrong port, wrong API key, etc.
