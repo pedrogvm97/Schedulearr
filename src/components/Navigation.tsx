@@ -107,27 +107,27 @@ export function Navigation() {
 
     return (
         <>
-            {/* Desktop Top Nav */}
-            <nav className="border-b border-zinc-900 bg-zinc-950/50 backdrop-blur-xl sticky top-0 z-50">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-                    <div className="flex items-center gap-4 sm:gap-8">
-                        <div className="flex items-center gap-2 sm:gap-3 group flex-shrink-0">
-                            <div className="w-9 h-9 sm:w-12 sm:h-12 flex items-center justify-center transition-transform group-hover:scale-105">
+            {/* Desktop & Tablet Top Nav */}
+            <nav className="border-b border-zinc-900 bg-zinc-950/50 backdrop-blur-xl sticky top-0 z-50 w-full max-w-full overflow-hidden">
+                <div className="max-w-7xl mx-auto px-3 sm:px-6 h-16 flex items-center justify-between gap-2 overflow-hidden">
+                    <div className="flex items-center gap-2 sm:gap-6 min-w-0 max-w-full overflow-hidden">
+                        <Link href="/" className="flex items-center gap-2 group flex-shrink-0">
+                            <div className="w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center transition-transform group-hover:scale-105">
                                 <img src="/icon.png" alt="Schedulearr Logo" className="w-full h-full object-contain" />
                             </div>
-                            <span className="hidden sm:block font-bold text-lg text-white tracking-tight">Schedulearr</span>
-                        </div>
+                            <span className="hidden md:block font-bold text-base sm:text-lg text-white tracking-tight truncate">Schedulearr</span>
+                        </Link>
                         {/* Top nav links */}
-                        <div className="hidden sm:flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+                        <div className="hidden sm:flex items-center gap-1 sm:gap-1.5 max-w-full overflow-x-auto no-scrollbar py-1">
                             {primaryNavItems.map(item => {
                                 const active = pathname === item.href;
                                 return (
                                     <Link 
                                         key={item.href} 
                                         href={item.href} 
-                                        className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-xl transition-all ${
+                                        className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap flex-shrink-0 ${
                                             active 
-                                                ? 'text-white bg-zinc-900 border border-zinc-800 shadow-md scale-105' 
+                                                ? 'text-white bg-zinc-900 border border-zinc-800 shadow-md' 
                                                 : 'text-zinc-400 hover:text-white hover:bg-zinc-900/40 border border-transparent'
                                         }`}
                                     >
@@ -138,12 +138,14 @@ export function Navigation() {
                                     </Link>
                                 );
                             })}
-                            <div className="h-6 w-[1px] bg-zinc-800 mx-2 self-center flex-shrink-0" />
-                            {secondaryNavItems.map(item => (
-                                <Link key={item.href} href={item.href} className={isActive(item.href)}>
-                                    {item.label}
-                                </Link>
-                            ))}
+                            <div className="h-5 w-[1px] bg-zinc-800 mx-1 self-center flex-shrink-0 hidden lg:block" />
+                            <div className="hidden lg:flex items-center gap-1">
+                                {secondaryNavItems.map(item => (
+                                    <Link key={item.href} href={item.href} className={`${isActive(item.href)} whitespace-nowrap flex-shrink-0`}>
+                                        {item.label}
+                                    </Link>
+                                ))}
+                            </div>
                         </div>
                     </div>
                 </div>

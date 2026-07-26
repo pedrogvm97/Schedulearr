@@ -5,6 +5,13 @@
   --color-zinc-950: #09090b;
 }
 
+html, body {
+  overflow-x: hidden !important;
+  max-width: 100vw !important;
+  width: 100% !important;
+  touch-action: pan-y;
+}
+
 body {
   background-color: var(--color-zinc-950);
   color: white;
