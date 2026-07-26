@@ -136,6 +136,7 @@ export default function Settings() {
     const [diskPauseEnabled, setDiskPauseEnabled] = useState(false);
     const [diskPauseThreshold, setDiskPauseThreshold] = useState(90);
     const [diskAutocleanEnabled, setDiskAutocleanEnabled] = useState(false);
+    const [diskAutocleanThreshold, setDiskAutocleanThreshold] = useState(85);
     const [diskSmartCleanMode, setDiskSmartCleanMode] = useState('largest');
     const [diskSmartCleanImmunityEnabled, setDiskSmartCleanImmunityEnabled] = useState(false);
     const [diskSmartCleanImmunityDays, setDiskSmartCleanImmunityDays] = useState(7);
@@ -202,6 +203,7 @@ export default function Settings() {
         if (allSettings.disk_pause_enabled) setDiskPauseEnabled(allSettings.disk_pause_enabled === 'true');
         if (allSettings.disk_pause_threshold) setDiskPauseThreshold(parseInt(allSettings.disk_pause_threshold) || 90);
         if (allSettings.disk_autoclean_enabled) setDiskAutocleanEnabled(allSettings.disk_autoclean_enabled === 'true');
+        if (allSettings.disk_autoclean_threshold) setDiskAutocleanThreshold(parseInt(allSettings.disk_autoclean_threshold) || 85);
         if (allSettings.qbit_smart_clean_mode) setDiskSmartCleanMode(allSettings.qbit_smart_clean_mode);
         if (allSettings.qbit_smart_clean_immunity_enabled) setDiskSmartCleanImmunityEnabled(allSettings.qbit_smart_clean_immunity_enabled === 'true');
         if (allSettings.qbit_smart_clean_immunity_days) setDiskSmartCleanImmunityDays(parseInt(allSettings.qbit_smart_clean_immunity_days) || 7);
@@ -1258,6 +1260,27 @@ export default function Settings() {
                             </div>
 
                             <div className={`space-y-4 transition-all duration-300 ${diskAutocleanEnabled ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
+                                <div className="space-y-2">
+                                    <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Auto-Clean Trigger Threshold (%)</label>
+                                    <div className="flex items-center gap-3">
+                                        <input
+                                            type="range"
+                                            min="50"
+                                            max="99"
+                                            value={diskAutocleanThreshold}
+                                            onChange={e => {
+                                                const val = parseInt(e.target.value);
+                                                setDiskAutocleanThreshold(val);
+                                                updateSetting('disk_autoclean_threshold', val);
+                                            }}
+                                            className="flex-1 accent-emerald-500"
+                                            disabled={!diskAutocleanEnabled}
+                                        />
+                                        <span className="text-lg font-black text-emerald-400 w-12 text-right">{diskAutocleanThreshold}%</span>
+                                    </div>
+                                    <p className="text-[10px] text-zinc-500">Auto-clean will delete files when disk usage reaches or exceeds this percentage. Searches will continue downloading without pausing.</p>
+                                </div>
+
                                 <div className="border-t border-zinc-900 pt-3 space-y-3">
                                     <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Delete Selection Criteria</label>
                                     <div className="flex flex-wrap gap-2">
