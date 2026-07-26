@@ -1084,9 +1084,20 @@ export default function DiscoverPage() {
             const target = filterGenre.toLowerCase();
             items = items.filter(i => {
                 const genres: string[] = (i.genres || []).map((g: any) => (typeof g === 'string' ? g : g?.name || '')).filter(Boolean);
+                if (target === 'anime' || target === 'animation') {
+                    return genres.some(g => {
+                        const lowG = g.toLowerCase();
+                        return lowG.includes('animation') || lowG.includes('anime');
+                    });
+                }
+                if (target === 'sci-fi') {
+                    return genres.some(g => {
+                        const lowG = g.toLowerCase();
+                        return lowG.includes('science fiction') || lowG.includes('sci-fi') || lowG.includes('scifi');
+                    });
+                }
                 return genres.some(g => {
                     const lowG = g.toLowerCase();
-                    if (target === 'sci-fi' && (lowG.includes('science fiction') || lowG.includes('sci-fi') || lowG.includes('scifi'))) return true;
                     return lowG.includes(target) || target.includes(lowG);
                 });
             });
@@ -1148,9 +1159,20 @@ export default function DiscoverPage() {
             const target = filterGenre.toLowerCase();
             items = items.filter(i => {
                 const genres: string[] = (i.genres || []).map((g: any) => (typeof g === 'string' ? g : g?.name || '')).filter(Boolean);
+                if (target === 'anime' || target === 'animation') {
+                    return genres.some(g => {
+                        const lowG = g.toLowerCase();
+                        return lowG.includes('animation') || lowG.includes('anime');
+                    });
+                }
+                if (target === 'sci-fi') {
+                    return genres.some(g => {
+                        const lowG = g.toLowerCase();
+                        return lowG.includes('science fiction') || lowG.includes('sci-fi') || lowG.includes('scifi');
+                    });
+                }
                 return genres.some(g => {
                     const lowG = g.toLowerCase();
-                    if (target === 'sci-fi' && (lowG.includes('science fiction') || lowG.includes('sci-fi') || lowG.includes('scifi'))) return true;
                     return lowG.includes(target) || target.includes(lowG);
                 });
             });

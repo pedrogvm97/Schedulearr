@@ -195,10 +195,8 @@ export const discoverTMDB = async (apiKey: string, type: 'movie' | 'tv', provide
         }
 
         if (genre) {
-            if (genre === 'Anime') {
+            if (genre === 'Anime' || genre === 'Animation') {
                 params.with_genres = 16;
-                params.with_origin_country = 'JP';
-                // Don't restrict by region/monetization for anime as it's often globally licensed differently
             } else {
                 const mapping = UNIFIED_GENRES[genre];
                 const genreIdForType = type === 'movie' ? mapping?.movie : mapping?.tv;
