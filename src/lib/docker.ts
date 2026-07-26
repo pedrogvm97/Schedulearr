@@ -161,8 +161,11 @@ export async function recreateSelfContainer(docker: any, containerInfo: any, tar
   await docker.post(`/containers/${containerId}/rename?name=${tempName}`);
 
   // 3. Prepare container config with new image
+  const config = { ...containerInfo.Config };
+  delete config.Hostname;
+
   const createBody = {
-    ...containerInfo.Config,
+    ...config,
     Image: targetImage,
     HostConfig: {
       ...(containerInfo.HostConfig || {}),
