@@ -254,7 +254,18 @@ export default function Settings() {
                 console.error("Failed to parse complete event", e);
             }
             eventSource.close();
-            setTimeout(() => { setUpdating(false); }, 8000);
+            const pollServer = async () => {
+                try {
+                    const r = await fetch('/api/system/version', { cache: 'no-store' });
+                    if (r.ok) {
+                        toast.success("Reconnected to updated application!");
+                        window.location.reload();
+                        return;
+                    }
+                } catch (e) {}
+                setTimeout(pollServer, 2000);
+            };
+            setTimeout(pollServer, 4000);
         });
 
         eventSource.onerror = (err) => {

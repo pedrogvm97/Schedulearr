@@ -164,7 +164,10 @@ export async function recreateSelfContainer(docker: any, containerInfo: any, tar
   const createBody = {
     ...containerInfo.Config,
     Image: targetImage,
-    HostConfig: containerInfo.HostConfig,
+    HostConfig: {
+      ...(containerInfo.HostConfig || {}),
+      RestartPolicy: containerInfo.HostConfig?.RestartPolicy?.Name ? containerInfo.HostConfig.RestartPolicy : { Name: 'unless-stopped' }
+    },
     NetworkingConfig: {
       EndpointsConfig: containerInfo.NetworkSettings?.Networks || {}
     }
