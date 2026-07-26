@@ -68,3 +68,30 @@ export const getIndexerHealth = async (url: string, apiKey: string): Promise<Ind
         };
     }
 };
+
+export const testProwlarrIndexer = async (url: string, apiKey: string, indexerId: number): Promise<{ success: boolean; message?: string }> => {
+    try {
+        const response = await axios.post(`${url}/api/v1/indexer/test`, { id: indexerId }, {
+            headers: { 'X-Api-Key': apiKey },
+            timeout: 15000
+        });
+        return { success: true, message: 'Indexer tested successfully!' };
+    } catch (error: any) {
+        const msg = error.response?.data?.[0]?.errorMessage || error.response?.data?.message || error.message || 'Indexer test failed';
+        return { success: false, message: msg };
+    }
+};
+
+export const getProwlarrIndexerStats = async (url: string, apiKey: string): Promise<any[]> => {
+    try {
+        const response = await axios.get(`${url}/api/v1/indexer/stats`, {
+            headers: { 'X-Api-Key': apiKey },
+            timeout: 10000
+        });
+        return Array.isArray(response.data) ? response.data : [];
+    } catch (error) {
+        console.warn(`Could not fetch indexer stats from ${url}:`, error);
+        return [];
+    }
+};
+

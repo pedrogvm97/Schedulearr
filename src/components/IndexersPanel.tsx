@@ -28,6 +28,14 @@ interface Indexer {
     prowlarr_instance_id: string;
     prowlarr_color?: string;
     rule: IndexerRule | null;
+    stats?: {
+        indexerId?: number;
+        numberOfQueries?: number;
+        numberOfGrabs?: number;
+        numberOfRssQueries?: number;
+        numberOfAuthQueries?: number;
+        averageResponseTime?: number;
+    } | null;
 }
 
 const tailwindToHex = (twClass: string) => {
@@ -64,6 +72,8 @@ export function IndexersPanel() {
     const [selectedIndexer, setSelectedIndexer] = useState<Indexer | null>(null);
     const [showModal, setShowModal] = useState(false);
     const [isGlobalMode, setIsGlobalMode] = useState(false);
+    const [timeWindow, setTimeWindow] = useState<'period' | '24h' | '7d' | '30d' | 'all'>('period');
+    const [testingMap, setTestingMap] = useState<Record<string, boolean>>({});
 
     // Form State
     const [formSnatches, setFormSnatches] = useState<string>('');
@@ -82,6 +92,26 @@ export function IndexersPanel() {
             toast.error('Failed to load Prowlarr indexers');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleTestIndexer = async (indexer: Indexer) => {
+        const key = `${indexer.prowlarr_instance_id}-${indexer.id}`;
+        setTestingMap(prev => ({ ...prev, [key]: true }));
+        try {
+            const res = await axios.post('/api/prowlarr/indexers', {
+                indexerId: indexer.id,
+                prowlarrInstanceId: indexer.prowlarr_instance_id
+            });
+            if (res.data.success) {
+                toast.success(`✅ ${indexer.name} tested successfully!`);
+            } else {
+                toast.error(`❌ Test failed for ${indexer.name}: ${res.data.message || 'Unknown error'}`);
+            }
+        } catch (e: any) {
+            toast.error(`❌ Test failed: ${e.response?.data?.message || e.message}`);
+        } finally {
+            setTestingMap(prev => ({ ...prev, [key]: false }));
         }
     };
 
@@ -207,14 +237,40 @@ export function IndexersPanel() {
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h2 className="text-xl font-black text-white">Indexers & Prowlarr Rules</h2>
-                    <p className="text-xs text-zinc-500 font-medium">Manage indexers, set snatch limits, and configure monthly download quotas.</p>
+                    <p className="text-xs text-zinc-500 font-medium">Manage indexers, monitor snatch metrics, test connections, and set quotas.</p>
                 </div>
-                <button
-                    onClick={() => openConfigModal('global')}
-                    className="px-4 py-2 bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 rounded-xl text-xs font-black uppercase tracking-wider hover:bg-emerald-600/30 transition-all flex items-center gap-2 self-start md:self-auto"
-                >
-                    Apply Limits To All
-                </button>
+                
+                <div className="flex items-center gap-3 self-start md:self-auto flex-wrap">
+                    {/* Time Window Selector */}
+                    <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800 text-[10px] font-bold">
+                        {[
+                            { id: 'period', label: 'Reset Period' },
+                            { id: '24h', label: '24h' },
+                            { id: '7d', label: '7d' },
+                            { id: '30d', label: '30d' },
+                            { id: 'all', label: 'All Time' },
+                        ].map((w) => (
+                            <button
+                                key={w.id}
+                                onClick={() => setTimeWindow(w.id as any)}
+                                className={`px-2.5 py-1 rounded-lg uppercase transition-all ${
+                                    timeWindow === w.id
+                                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-black'
+                                        : 'text-zinc-500 hover:text-zinc-300'
+                                }`}
+                            >
+                                {w.label}
+                            </button>
+                        ))}
+                    </div>
+
+                    <button
+                        onClick={() => openConfigModal('global')}
+                        className="px-3.5 py-1.5 bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 rounded-xl text-xs font-black uppercase tracking-wider hover:bg-emerald-600/30 transition-all flex items-center gap-2"
+                    >
+                        Apply Limits To All
+                    </button>
+                </div>
             </div>
 
             {loading ? (
@@ -232,10 +288,17 @@ export function IndexersPanel() {
                         const hexColor = tailwindToHex(indexer.prowlarr_color || '');
                         const rule = indexer.rule;
                         const isAutoDisabled = rule?.auto_manage && !indexer.enable;
+                        const testKey = `${indexer.prowlarr_instance_id}-${indexer.id}`;
+                        const isTesting = !!testingMap[testKey];
 
                         const snatchesExceeded = rule?.max_snatches && rule.current_snatches >= rule.max_snatches;
                         const sizeExceeded = rule?.max_size_bytes && rule.current_size_bytes >= rule.max_size_bytes;
                         const limitReached = snatchesExceeded || sizeExceeded;
+
+                        // Display snatches & grabbed data based on stats or rule
+                        const totalGrabs = indexer.stats?.numberOfGrabs ?? rule?.current_snatches ?? 0;
+                        const totalQueries = indexer.stats?.numberOfQueries ?? 0;
+                        const avgLatency = indexer.stats?.averageResponseTime ? `${Math.round(indexer.stats.averageResponseTime)}ms` : null;
 
                         return (
                             <div
@@ -261,38 +324,62 @@ export function IndexersPanel() {
                                         </div>
                                     </div>
 
-                                    <button
-                                        onClick={() => toggleIndexer(indexer)}
-                                        className={`w-12 h-6 rounded-full transition-all relative flex-shrink-0 p-0.5 ${
-                                            indexer.enable ? 'bg-emerald-500' : 'bg-zinc-800'
-                                        }`}
-                                    >
-                                        <div
-                                            className={`w-5 h-5 rounded-full bg-white transition-transform ${
-                                                indexer.enable ? 'translate-x-6' : 'translate-x-0'
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleTestIndexer(indexer)}
+                                            disabled={isTesting}
+                                            className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wider bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700/60 rounded-lg transition-all flex items-center gap-1.5 disabled:opacity-50"
+                                            title="Test indexer connection"
+                                        >
+                                            {isTesting ? (
+                                                <div className="w-3 h-3 border-2 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin" />
+                                            ) : (
+                                                <svg className="w-3 h-3 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                                            )}
+                                            {isTesting ? 'Testing...' : 'Test'}
+                                        </button>
+
+                                        <button
+                                            onClick={() => toggleIndexer(indexer)}
+                                            className={`w-12 h-6 rounded-full transition-all relative flex-shrink-0 p-0.5 ${
+                                                indexer.enable ? 'bg-emerald-500' : 'bg-zinc-800'
                                             }`}
-                                        />
-                                    </button>
+                                        >
+                                            <div
+                                                className={`w-5 h-5 rounded-full bg-white transition-transform ${
+                                                    indexer.enable ? 'translate-x-6' : 'translate-x-0'
+                                                }`}
+                                            />
+                                        </button>
+                                    </div>
                                 </div>
 
                                 <div className="space-y-2 pt-2 border-t border-zinc-800/50 text-xs">
                                     <div className="flex justify-between items-center text-zinc-400">
-                                        <span className="font-bold text-zinc-500 text-[10px] uppercase tracking-wider">Snatches</span>
-                                        <span className="font-bold text-white">
-                                            {rule ? `${rule.current_snatches} / ${rule.max_snatches ?? '∞'}` : 'No limit'}
+                                        <span className="font-bold text-zinc-500 text-[10px] uppercase tracking-wider">Total Grabs ({timeWindow.toUpperCase()})</span>
+                                        <span className="font-black text-emerald-400">
+                                            {totalGrabs} {rule?.max_snatches ? `/ ${rule.max_snatches}` : ''}
                                         </span>
                                     </div>
 
                                     <div className="flex justify-between items-center text-zinc-400">
-                                        <span className="font-bold text-zinc-500 text-[10px] uppercase tracking-wider">Data Limit</span>
+                                        <span className="font-bold text-zinc-500 text-[10px] uppercase tracking-wider">Data Downloaded</span>
                                         <span className="font-bold text-white">
-                                            {rule ? `${(rule.current_size_bytes / (1024 ** 3)).toFixed(1)}GB / ${formatBytes(rule.max_size_bytes)}` : 'No limit'}
+                                            {rule ? `${(rule.current_size_bytes / (1024 ** 3)).toFixed(1)} GB` : '0 GB'} {rule?.max_size_bytes ? `/ ${formatBytes(rule.max_size_bytes)}` : ''}
                                         </span>
                                     </div>
 
+                                    {totalQueries > 0 && (
+                                        <div className="flex justify-between items-center text-zinc-500 text-[10px]">
+                                            <span>Queries: <strong className="text-zinc-400">{totalQueries}</strong></span>
+                                            {avgLatency && <span>Avg Latency: <strong className="text-emerald-400">{avgLatency}</strong></span>}
+                                        </div>
+                                    )}
+
                                     {rule && (
                                         <div className="flex justify-between items-center text-zinc-500 text-[10px]">
-                                            <span>Interval: <strong className="text-zinc-400 capitalize">{rule.interval}</strong></span>
+                                            <span>Quota Interval: <strong className="text-zinc-400 capitalize">{rule.interval}</strong></span>
                                             {isAutoDisabled && (
                                                 <span className="text-amber-400 font-bold uppercase tracking-wider text-[9px]">Auto-Paused</span>
                                             )}
@@ -304,7 +391,7 @@ export function IndexersPanel() {
                                     onClick={() => openConfigModal(indexer)}
                                     className="w-full py-2 bg-zinc-900 border border-zinc-800 rounded-xl text-xs font-bold text-zinc-300 hover:text-white hover:border-zinc-700 transition-all text-center"
                                 >
-                                    {rule ? 'Edit Limits' : 'Set Limits'}
+                                    {rule ? 'Edit Quota Limits' : 'Set Quota Limits'}
                                 </button>
                             </div>
                         );

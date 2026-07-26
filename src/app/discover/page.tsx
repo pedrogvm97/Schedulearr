@@ -595,6 +595,12 @@ export default function DiscoverPage() {
 
     const [addingItemStr, setAddingItemStr] = useState<string>('');
     const [showFilters, setShowFilters] = useState(true);
+
+    useEffect(() => {
+        if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+            setShowFilters(false);
+        }
+    }, []);
     const [viewMode, setViewMode] = useState<'grid' | 'list'>(pageMode === 'mylibrary' ? 'list' : 'grid');
     const [startSearch, setStartSearch] = useState(true);
     const [currentPage, setCurrentPage] = useState(0);
@@ -1367,6 +1373,19 @@ export default function DiscoverPage() {
                         <button onClick={() => setMediaType('series')} className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black rounded-xl transition-all ${mediaType === 'series' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30' : 'text-zinc-500 hover:text-zinc-400'}`}><Tv size={14} /> Series</button>
                     </div>
 
+                    <button
+                        onClick={() => setShowFilters(!showFilters)}
+                        className={`flex items-center gap-2 px-4 py-2 text-xs font-black rounded-2xl border transition-all ${
+                            showFilters
+                                ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                                : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-zinc-200'
+                        }`}
+                        title={showFilters ? 'Hide Filters' : 'Show Filters'}
+                    >
+                        <Filter size={14} />
+                        <span>Filters</span>
+                    </button>
+
                 {pageMode === 'mylibrary' && (
                     <div className="flex flex-wrap bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/50 gap-1.5 max-w-full">
                         {availableInstances.map(inst => {
@@ -1428,7 +1447,7 @@ export default function DiscoverPage() {
 
             <div className="flex flex-col lg:flex-row gap-8 items-start">
                     {showFilters && (
-                        <div className="w-full lg:w-72 space-y-7 bg-zinc-950/20 p-6 rounded-3xl border border-zinc-900/50 flex-shrink-0">
+                        <div className="w-full lg:w-72 space-y-5 bg-zinc-950/20 p-5 lg:p-6 rounded-3xl border border-zinc-900/50 flex-shrink-0">
                             <div className="space-y-2">
                                 <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em]">Search</label>
                                 <form onSubmit={handleSearch} className="relative group">

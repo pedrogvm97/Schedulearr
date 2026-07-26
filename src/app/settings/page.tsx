@@ -291,12 +291,25 @@ export default function Settings() {
         }
     };
 
+    const [availableReleases, setAvailableReleases] = useState<{ tag: string; name: string; publishedAt: string }[]>([]);
+    const [selectedReleaseTag, setSelectedReleaseTag] = useState<string>('');
+
     const fetchVersionInfo = async () => {
         try {
             const res = await fetch('/api/system/version');
             if (res.ok) {
                 const data = await res.json();
                 setVersionInfo(data);
+            }
+            const relRes = await fetch('/api/system/releases');
+            if (relRes.ok) {
+                const relData = await relRes.json();
+                if (Array.isArray(relData.versions)) {
+                    setAvailableReleases(relData.versions);
+                    if (relData.versions.length > 0 && !selectedReleaseTag) {
+                        setSelectedReleaseTag(relData.versions[0].tag);
+                    }
+                }
             }
         } catch (e) {
             console.error('Failed to fetch version info', e);
@@ -311,21 +324,24 @@ export default function Settings() {
         toast.info("Update check complete");
     };
 
-    const handleUpdate = () => {
+    const handleUpdate = (customTag?: string) => {
+        const tagToUse = customTag || selectedReleaseTag || versionInfo?.latestVersion || 'latest';
+        const isDowngrade = versionInfo?.currentVersion && tagToUse.replace(/^v/, '') < versionInfo.currentVersion;
+        
         setConfirmModal({
-            title: '🚀 Apply Update',
-            message: 'This will pull the latest Docker image and automatically restart the container. The app will be briefly offline while it restarts.',
-            confirmLabel: 'Yes, Update Now',
+            title: isDowngrade ? `⬇️ Downgrade to ${tagToUse}` : `🚀 Install ${tagToUse}`,
+            message: `This will pull the Docker image for ${tagToUse} and automatically restart the container. The app will be briefly offline while restarting.`,
+            confirmLabel: isDowngrade ? 'Yes, Downgrade Now' : 'Yes, Install Now',
             onConfirm: () => {
                 setUpdating(true);
-                setUpdateLogs([{ type: 'info', message: '[INFO] Connecting to update stream...' }]);
-                startUpdateStream();
+                setUpdateLogs([{ type: 'info', message: `[INFO] Connecting to update stream for version ${tagToUse}...` }]);
+                startUpdateStream(tagToUse);
             }
         });
     };
 
-    const startUpdateStream = () => {
-        const targetTag = versionInfo?.latestVersion || 'latest';
+    const startUpdateStream = (tagParam?: string) => {
+        const targetTag = tagParam || selectedReleaseTag || versionInfo?.latestVersion || 'latest';
         const eventSource = new EventSource(`/api/system/update/stream?tag=${encodeURIComponent(targetTag)}`);
 
         eventSource.addEventListener('log', (event: any) => {
@@ -1243,7 +1259,7 @@ export default function Settings() {
 
                                 {versionInfo?.updateAvailable ? (
                                     <button
-                                        onClick={handleUpdate}
+                                        onClick={() => handleUpdate()}
                                         disabled={updating}
                                         className="flex-1 md:flex-none bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-white font-black py-2.5 px-6 rounded-xl transition-all shadow-lg shadow-emerald-500/15 flex items-center justify-center gap-2 active:scale-95 border border-emerald-500/30"
                                     >
@@ -1265,6 +1281,40 @@ export default function Settings() {
                                         Running latest version
                                     </div>
                                 )}
+                            </div>
+                        </div>
+
+                        {/* Specific Version Switcher & Downgrade Panel */}
+                        <div className="px-6 pb-5 border-t border-zinc-800/50 pt-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                            <div className="space-y-0.5">
+                                <p className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
+                                    <svg className="w-4 h-4 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
+                                    Switch or Downgrade to Specific Version
+                                </p>
+                                <p className="text-[11px] text-zinc-400 font-medium">Select any previous release or tag to downgrade or roll back to a specific build.</p>
+                            </div>
+
+                            <div className="flex items-center gap-3 w-full md:w-auto">
+                                <select
+                                    value={selectedReleaseTag}
+                                    onChange={(e) => setSelectedReleaseTag(e.target.value)}
+                                    className="bg-zinc-950 border border-zinc-800 text-white font-mono text-xs font-bold rounded-xl px-3 py-2 outline-none focus:border-violet-500/50 min-w-[140px]"
+                                >
+                                    {availableReleases.map(r => (
+                                        <option key={r.tag} value={r.tag}>
+                                            {r.tag} {versionInfo?.currentVersion && r.tag.includes(versionInfo.currentVersion) ? '(Current)' : ''}
+                                        </option>
+                                    ))}
+                                </select>
+
+                                <button
+                                    type="button"
+                                    onClick={() => handleUpdate(selectedReleaseTag)}
+                                    disabled={updating || !selectedReleaseTag}
+                                    className="px-4 py-2 bg-violet-600/20 hover:bg-violet-600/30 text-violet-300 border border-violet-500/40 rounded-xl text-xs font-black uppercase tracking-wider transition-all disabled:opacity-50 whitespace-nowrap flex items-center gap-1.5"
+                                >
+                                    {updating ? 'Switching...' : 'Switch Version'}
+                                </button>
                             </div>
                         </div>
 
