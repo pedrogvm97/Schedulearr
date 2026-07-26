@@ -139,6 +139,7 @@ export default function Settings() {
     const [diskSmartCleanMode, setDiskSmartCleanMode] = useState('largest');
     const [diskSmartCleanImmunityEnabled, setDiskSmartCleanImmunityEnabled] = useState(false);
     const [diskSmartCleanImmunityDays, setDiskSmartCleanImmunityDays] = useState(7);
+    const [diskSmartCleanSeriesLevel, setDiskSmartCleanSeriesLevel] = useState<'series' | 'season' | 'episode'>('series');
     const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(false);
     const [candidates, setCandidates] = useState<any[]>([]);
     const [loadingCandidates, setLoadingCandidates] = useState(false);
@@ -204,6 +205,7 @@ export default function Settings() {
         if (allSettings.qbit_smart_clean_mode) setDiskSmartCleanMode(allSettings.qbit_smart_clean_mode);
         if (allSettings.qbit_smart_clean_immunity_enabled) setDiskSmartCleanImmunityEnabled(allSettings.qbit_smart_clean_immunity_enabled === 'true');
         if (allSettings.qbit_smart_clean_immunity_days) setDiskSmartCleanImmunityDays(parseInt(allSettings.qbit_smart_clean_immunity_days) || 7);
+        if (allSettings.media_smart_clean_series_level) setDiskSmartCleanSeriesLevel(allSettings.media_smart_clean_series_level as any);
         if (allSettings.auto_update_enabled !== undefined) setAutoUpdateEnabled(allSettings.auto_update_enabled === 'true');
     }, [allSettings]);
 
