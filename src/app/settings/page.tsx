@@ -58,17 +58,82 @@ export default function Settings() {
 
     // Smart update logging and Self container info
     const [selfInfo, setSelfInfo] = useState<{
-        available: boolean;
-        isDataWritable: boolean;
         containerId?: string;
         containerName?: string;
         image?: string;
-        mounts?: any[];
-        ports?: any[];
-        dataHostPath?: string;
-        reason?: string;
+        available: boolean;
     } | null>(null);
-    const [updateLogs, setUpdateLogs] = useState<{ type: string; message: string }[]>([]);
+    const [updateLogs, setUpdateLogs] = useState<{ type: 'info' | 'warn' | 'error' | 'success', message: string }[]>([]);
+
+    // 1-Click Plex PIN Auth state
+    const [plexPairing, setPlexPairing] = useState(false);
+    const [plexPairingStatus, setPlexPairingStatus] = useState<string | null>(null);
+
+
+
+    const handlePairPlex = async () => {
+        setPlexPairing(true);
+        setPlexPairingStatus("Connecting to Plex Auth...");
+        try {
+            const res = await fetch('/api/plex/auth', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'create_pin' })
+            });
+
+            if (!res.ok) throw new Error('Failed to create Plex auth pin');
+
+            const { id, code, authUrl } = await res.json();
+
+            // Open official Plex login page
+            window.open(authUrl, '_blank');
+            setPlexPairingStatus(`Waiting for Plex Approval (PIN: ${code})...`);
+
+            // Poll for approval
+            let attempts = 0;
+            const poll = setInterval(async () => {
+                attempts++;
+                if (attempts > 60) {
+                    clearInterval(poll);
+                    setPlexPairing(false);
+                    setPlexPairingStatus(null);
+                    toast.error("Plex login timed out. Please try again.");
+                    return;
+                }
+
+                try {
+                    const checkRes = await fetch('/api/plex/auth', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'check_pin', pinId: id })
+                    });
+                    const checkData = await checkRes.json();
+
+                    if (checkData.approved && checkData.authToken) {
+                        clearInterval(poll);
+                        setApiKey(checkData.authToken);
+
+                        if (checkData.servers && checkData.servers.length > 0) {
+                            const server = checkData.servers[0];
+                            setUrl(server.localUri || server.uri);
+                            setName(server.name || 'Plex Server');
+                        } else {
+                            if (!url) setUrl('http://localhost:32400');
+                            if (!name) setName('Plex Server');
+                        }
+
+                        setPlexPairing(false);
+                        setPlexPairingStatus(null);
+                        toast.success("⚡ Plex Account Paired Successfully!");
+                    }
+                } catch (e) {}
+            }, 2000);
+        } catch (e: any) {
+            setPlexPairing(false);
+            setPlexPairingStatus(null);
+            toast.error(e.message || "Plex Auth Error");
+        }
+    };
     const [activeTab, setActiveTab] = useState<'status' | 'doctor'>('status');
 
     const copyToClipboard = (text: string) => {
@@ -691,23 +756,30 @@ export default function Settings() {
                     </div>
 
                     {type === 'plex' && (
-                        <div className="md:col-span-2 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-2">
-                            <div className="flex items-center justify-between">
-                                <span className="text-xs font-black uppercase text-amber-400 tracking-wider flex items-center gap-1.5">
-                                    🍿 Why Connect Plex Media Server?
+                        <div className="md:col-span-2 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4">
+                            <div>
+                                <span className="text-xs font-black uppercase text-amber-400 tracking-wider block">
+                                    ⚡ Automated 1-Click Plex Pairing
                                 </span>
+                                <p className="text-xs text-zinc-300">
+                                    Click pair, log into your Plex account, and Schedulearr will automatically fill your URL &amp; Token.
+                                </p>
                             </div>
-                            <p className="text-xs text-zinc-300 leading-relaxed">
-                                Connecting Plex allows Schedulearr to monitor <strong>real-time Plex streaming bandwidth</strong> on the Dashboard speed graph and check <strong>watch state (played vs unplayed)</strong> for Storage Guard auto-cleanup rules.
-                            </p>
-                            <div className="pt-2 border-t border-amber-500/20 text-[11px] text-zinc-400 space-y-1.5">
-                                <span className="font-bold text-white block">How to get your X-Plex-Token (3 simple steps):</span>
-                                <ol className="list-decimal list-inside space-y-1 text-zinc-300">
-                                    <li>Open your Plex Web App in browser (e.g. <code className="text-amber-300 font-mono bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">http://192.168.1.x:32400/web</code>).</li>
-                                    <li>Open any movie or episode, click the 3-dots menu <code className="text-amber-300 font-mono bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">...</code> → select <strong className="text-white">Get Info</strong> → click <strong className="text-white">View XML</strong>.</li>
-                                    <li>Look at the end of the address bar URL for <code className="text-amber-300 font-mono bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">X-Plex-Token=YOUR_TOKEN</code>. Copy and paste it above!</li>
-                                </ol>
-                            </div>
+                            <button
+                                type="button"
+                                onClick={handlePairPlex}
+                                disabled={plexPairing}
+                                className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg flex-shrink-0 flex items-center gap-2 cursor-pointer"
+                            >
+                                {plexPairing ? (
+                                    <>
+                                        <div className="w-3.5 h-3.5 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                                        <span>{plexPairingStatus || 'Pairing...'}</span>
+                                    </>
+                                ) : (
+                                    <span>Pair with Plex Account</span>
+                                )}
+                            </button>
                         </div>
                     )}
 
@@ -768,11 +840,62 @@ export default function Settings() {
                 <div className="flex items-center justify-between">
                     <div>
                         <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                            💾 Storage Guard & Capacity Thresholds
+                            💾 Storage Guard
                         </h2>
-                        <p className="text-xs text-zinc-400 mt-1">Automatic storage protection and content nuking rules when disk space is low.</p>
                     </div>
                 </div>
+
+                {/* Disk Storage Capacity Fill Bar Meter */}
+                {diskInfo ? (
+                    <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-800 space-y-2">
+                        <div className="flex justify-between items-center text-xs">
+                            <span className="font-bold text-white uppercase tracking-wider">Storage Capacity</span>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${
+                                diskInfo.usedPercent >= diskPauseThreshold
+                                    ? 'bg-red-500/10 text-red-400 border border-red-500/20'
+                                    : diskInfo.usedPercent >= 75
+                                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                    : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                            }`}>
+                                {diskInfo.usedPercent}% Used
+                            </span>
+                        </div>
+
+                        {/* Progress Bar Meter */}
+                        <div className="relative h-3 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800">
+                            <div
+                                className={`h-full rounded-full transition-all duration-1000 ${
+                                    diskInfo.usedPercent >= 90 ? 'bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.4)]'
+                                    : diskInfo.usedPercent >= 75 ? 'bg-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.3)]'
+                                    : 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.3)]'
+                                }`}
+                                style={{ width: `${diskInfo.usedPercent}%` }}
+                            />
+                            <div
+                                className="absolute top-0 bottom-0 w-0.5 bg-white/50 border-r border-dashed border-white/30"
+                                style={{ left: `${diskPauseThreshold}%` }}
+                                title={`Nuke Threshold: ${diskPauseThreshold}%`}
+                            />
+                        </div>
+
+                        <div className="flex justify-between text-[11px] text-zinc-400 font-semibold">
+                            <span>
+                                {diskInfo.totalBytes >= 1e12
+                                    ? `${(diskInfo.usedBytes / 1e12).toFixed(2)} TB used of ${(diskInfo.totalBytes / 1e12).toFixed(2)} TB`
+                                    : `${(diskInfo.usedBytes / 1e9).toFixed(0)} GB used of ${(diskInfo.totalBytes / 1e9).toFixed(0)} GB`}
+                            </span>
+                            <span className="text-emerald-400 font-black">
+                                {diskInfo.totalBytes >= 1e12
+                                    ? `${(diskInfo.freeBytes / 1e12).toFixed(2)} TB free`
+                                    : `${(diskInfo.freeBytes / 1e9).toFixed(0)} GB free`}
+                            </span>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-800 text-xs font-bold text-zinc-500 animate-pulse">
+                        Loading storage capacity data...
+                    </div>
+                )}
 
                 {/* Master ON / OFF Toggle */}
                 <div className="flex items-center justify-between bg-zinc-950 p-4 rounded-xl border border-zinc-800">
@@ -885,6 +1008,79 @@ export default function Settings() {
                             >
                                 <div className={`w-4.5 h-4.5 rounded-full bg-white transition-transform ${diskPauseEnabled ? 'translate-x-4.5' : 'translate-x-0'}`} />
                             </button>
+                        </div>
+                        {/* Next Items to be Nuked Preview List */}
+                        <div className="space-y-3 border-t border-zinc-800 pt-4">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <span className="text-xs font-black text-white uppercase tracking-wider block flex items-center gap-1.5">
+                                        🔥 Next Candidates in Line to be Purged ({candidates.length})
+                                    </span>
+                                    <p className="text-[11px] text-zinc-500">Sorted by priority mode ({diskSmartCleanMode.toUpperCase()}). Items with immunity active are excluded.</p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={fetchCandidates}
+                                    className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 hover:text-emerald-300 bg-zinc-900 border border-zinc-800 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                                >
+                                    <svg className={`w-3 h-3 ${loadingCandidates ? 'animate-spin' : ''}`} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                                    Refresh Queue
+                                </button>
+                            </div>
+
+                            {loadingCandidates ? (
+                                <div className="p-4 text-center text-xs font-bold text-zinc-500 italic">Calculating candidate purge queue...</div>
+                            ) : candidates.length === 0 ? (
+                                <div className="p-4 text-center bg-zinc-950 rounded-xl border border-zinc-800 text-xs font-bold text-zinc-500">
+                                    No items currently matching purge criteria (or all recent items are protected by immunity).
+                                </div>
+                            ) : (
+                                <div className="space-y-2 max-h-72 overflow-y-auto custom-scrollbar pr-1">
+                                    {candidates.slice(0, 15).map((item, idx) => (
+                                        <div key={item.key || idx} className="flex items-center justify-between p-3 rounded-xl bg-zinc-950 border border-zinc-800/80 hover:border-zinc-700 transition-all">
+                                            <div className="flex items-center gap-3 min-w-0">
+                                                <span className="w-5 h-5 rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/20 text-[10px] font-black flex items-center justify-center flex-shrink-0">
+                                                    #{idx + 1}
+                                                </span>
+                                                <div className="space-y-0.5 min-w-0">
+                                                    <h4 className="text-xs font-bold text-white truncate max-w-sm" title={item.title}>{item.title}</h4>
+                                                    <div className="flex items-center gap-2 text-[10px] text-zinc-500 font-medium">
+                                                        <span>{item.instanceName}</span>
+                                                        <span>•</span>
+                                                        <span className="text-zinc-400 font-bold">{((item.size || 0) / (1024 ** 3)).toFixed(2)} GB</span>
+                                                        <span>•</span>
+                                                        <span className={item.isWatched ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}>
+                                                            {item.isWatched ? 'Watched' : 'Unplayed'}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <button
+                                                type="button"
+                                                onClick={async () => {
+                                                    if (!confirm(`Are you sure you want to purge "${item.title}"?`)) return;
+                                                    try {
+                                                        const epUrl = item.type === 'movie' ? `/api/radarr/delete?id=${item.id}&instanceId=${item.instanceId}` : `/api/sonarr/delete?id=${item.id}&instanceId=${item.instanceId}`;
+                                                        const res = await fetch(epUrl, { method: 'DELETE' });
+                                                        if (res.ok) {
+                                                            toast.success(`Purged ${item.title}`);
+                                                            fetchCandidates();
+                                                        } else {
+                                                            toast.error('Failed to purge item');
+                                                        }
+                                                    } catch (e) {
+                                                        toast.error('Error purging item');
+                                                    }
+                                                }}
+                                                className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition-colors flex-shrink-0 cursor-pointer"
+                                            >
+                                                Purge Now
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
