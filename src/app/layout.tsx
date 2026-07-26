@@ -25,7 +25,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <body className="min-h-screen bg-zinc-950 text-zinc-300 font-sans selection:bg-emerald-500/30">
         <Navigation />
 
-        <main className="py-8">
+        <main className="py-8 pb-24 sm:pb-8">
           {children}
         </main>
         <Toaster position="top-right" theme="dark" closeButton richColors />

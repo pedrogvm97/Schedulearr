@@ -117,28 +117,28 @@ export function Navigation() {
                             </div>
                             <span className="hidden sm:block font-bold text-lg text-white tracking-tight">Schedulearr</span>
                         </div>
-                        {/* Desktop nav links with primary vs secondary split */}
-                        <div className="hidden md:flex items-center gap-2">
+                        {/* Top nav links */}
+                        <div className="hidden sm:flex items-center gap-1.5 overflow-x-auto no-scrollbar">
                             {primaryNavItems.map(item => {
                                 const active = pathname === item.href;
                                 return (
                                     <Link 
                                         key={item.href} 
                                         href={item.href} 
-                                        className={`flex items-center gap-2.5 px-4 py-2 text-sm font-extrabold rounded-xl transition-all duration-300 ${
+                                        className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-xl transition-all ${
                                             active 
-                                                ? 'text-white bg-zinc-900 border border-zinc-800 shadow-[0_0_20px_rgba(0,0,0,0.4)] scale-105' 
+                                                ? 'text-white bg-zinc-900 border border-zinc-800 shadow-md scale-105' 
                                                 : 'text-zinc-400 hover:text-white hover:bg-zinc-900/40 border border-transparent'
                                         }`}
                                     >
-                                        <span className={`transition-all duration-300 ${active ? 'scale-110 text-emerald-400' : 'text-zinc-500'}`}>
+                                        <span className={active ? 'text-emerald-400' : 'text-zinc-500'}>
                                             {item.icon(active)}
                                         </span>
                                         <span className="tracking-tight">{item.label}</span>
                                     </Link>
                                 );
                             })}
-                            <div className="h-8 w-[2px] bg-gradient-to-b from-transparent via-zinc-700/80 to-transparent mx-4 self-center shadow-[0_0_10px_rgba(255,255,255,0.05)]" />
+                            <div className="h-6 w-[1px] bg-zinc-800 mx-2 self-center flex-shrink-0" />
                             {secondaryNavItems.map(item => (
                                 <Link key={item.href} href={item.href} className={isActive(item.href)}>
                                     {item.label}
@@ -146,14 +146,11 @@ export function Navigation() {
                             ))}
                         </div>
                     </div>
-                    <div className="flex items-center gap-4">
-                        {/* Right side slot */}
-                    </div>
                 </div>
             </nav>
 
-            {/* Mobile Bottom Tab Bar */}
-            <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-zinc-950/95 backdrop-blur-xl border-t border-zinc-800/60 shadow-[0_-4px_30px_rgba(0,0,0,0.5)]" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+            {/* Mobile Bottom Tab Bar (<640px only) */}
+            <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-50 bg-zinc-950/95 backdrop-blur-xl border-t border-zinc-800/80 shadow-2xl" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
                 <div className="flex items-stretch h-14">
                     {mobileNavItems.map(item => {
                         const active = pathname === item.href;
@@ -162,7 +159,7 @@ export function Navigation() {
                                 key={item.href}
                                 href={item.href}
                                 className={`relative flex flex-col items-center justify-center flex-1 gap-0.5 transition-all active:scale-95 select-none ${
-                                    active ? 'text-emerald-400' : 'text-zinc-600'
+                                    active ? 'text-emerald-400' : 'text-zinc-500'
                                 }`}
                             >
                                 {active && (
@@ -171,7 +168,7 @@ export function Navigation() {
                                 <div className={`transition-transform ${active ? 'scale-110' : ''}`}>
                                     {item.icon(active)}
                                 </div>
-                                <span className={`text-[8px] font-black uppercase tracking-widest leading-none ${active ? 'text-emerald-400' : 'text-zinc-700'}`}>
+                                <span className={`text-[9px] font-bold uppercase tracking-wider leading-none ${active ? 'text-emerald-400' : 'text-zinc-500'}`}>
                                     {item.label}
                                 </span>
                             </Link>
