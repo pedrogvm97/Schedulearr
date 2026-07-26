@@ -972,8 +972,10 @@ export default function DiscoverPage() {
         const endpoint = mediaType === 'movie' ? '/api/radarr/lookup' : '/api/sonarr/lookup';
         
         try {
-            const startPage = (currentPage * 3) + 1;
-            const pagesToFetch = [startPage, startPage + 1, startPage + 2];
+            const isFilteringActive = filterGenre !== 'All' || filterPlatform !== 'All' || filterYear !== 'All' || filterRating > 0;
+            const pagesToFetchCount = isFilteringActive ? 15 : 5;
+            const startPage = (currentPage * pagesToFetchCount) + 1;
+            const pagesToFetch = Array.from({ length: pagesToFetchCount }, (_, i) => startPage + i);
             
             const responses = await Promise.all(
                 pagesToFetch.map(p => 
@@ -993,24 +995,6 @@ export default function DiscoverPage() {
                 }
             });
 
-            // If active filters (genre/platform/year/rating) are set, pool 2 more pages to gather enough matching candidates
-            const isFilteringActive = filterGenre !== 'All' || filterPlatform !== 'All' || filterYear !== 'All' || filterRating > 0;
-            if (isFilteringActive && startPage + 2 < tmdbTotalPages) {
-                const extraPages = [startPage + 3, startPage + 4];
-                const extraResponses = await Promise.all(
-                    extraPages.map(p => 
-                        fetch(`${endpoint}?instanceId=${targetId}&term=${encodeURIComponent(searchQuery)}&page=${p}`)
-                            .then(r => r.ok ? r.json() : null)
-                            .catch(() => null)
-                    )
-                );
-                extraResponses.forEach(data => {
-                    if (data && Array.isArray(data.results)) {
-                        pooledResults.push(...data.results);
-                    }
-                });
-            }
-
             // Deduplicate by tmdbId or title
             const seen = new Set();
             pooledResults = pooledResults.filter(item => {
@@ -1021,7 +1005,7 @@ export default function DiscoverPage() {
             });
 
             setResults(pooledResults);
-            setServerTotalPages(Math.max(1, Math.ceil(tmdbTotalPages / 3)));
+            setServerTotalPages(Math.max(1, Math.ceil(tmdbTotalPages / pagesToFetchCount)));
         } catch {
             toast.error('Search failed');
         } finally {
