@@ -7,10 +7,11 @@ export async function GET(req: Request) {
     try {
         const { searchParams } = new URL(req.url);
         const episodeId = searchParams.get('episodeId');
+        const seriesId = searchParams.get('seriesId');
         const instanceId = searchParams.get('instanceId');
 
-        if (!episodeId || !instanceId) {
-            return NextResponse.json({ error: 'Missing parameters' }, { status: 400 });
+        if ((!episodeId && !seriesId) || !instanceId) {
+            return NextResponse.json({ error: 'Missing parameters (need episodeId or seriesId + instanceId)' }, { status: 400 });
         }
 
         const instances = getInstances();
@@ -20,10 +21,14 @@ export async function GET(req: Request) {
             return NextResponse.json({ error: 'Instance not found' }, { status: 404 });
         }
 
-        // Fetch live releases for the specific episode ID from Sonarr
+        // Fetch live releases — Sonarr supports both episodeId and seriesId params
+        const queryParams: Record<string, string> = {};
+        if (episodeId) queryParams.episodeId = episodeId;
+        if (seriesId) queryParams.seriesId = seriesId;
+
         const response = await axios.get(`${instance.url}/api/v3/release`, {
             headers: { 'X-Api-Key': instance.api_key },
-            params: { episodeId }
+            params: queryParams
         });
 
         let releases = Array.isArray(response.data) ? response.data : [];
@@ -35,21 +40,22 @@ export async function GET(req: Request) {
             return scoreB - scoreA;
         });
 
-        // Map and slice top 10
-        const top10 = releases.slice(0, 10).map((r: any) => ({
+        // Map and return top results (more for series-level searches)
+        const limit = seriesId ? 25 : 10;
+        const topResults = releases.slice(0, limit).map((r: any) => ({
             guid: r.guid,
             title: r.title,
             size: r.size,
             protocol: r.protocol,
             customFormatScore: r.customFormatScore || 0,
             indexer: r.indexer,
-            indexerId: r.indexerId, // Added for robust grab
+            indexerId: r.indexerId,
             rejected: r.rejected,
             rejections: r.rejections,
             quality: r.quality?.quality?.name
         }));
 
-        return NextResponse.json(top10);
+        return NextResponse.json(topResults);
     } catch (e) {
         console.error('Error in sonarr release lookup:', e);
         return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

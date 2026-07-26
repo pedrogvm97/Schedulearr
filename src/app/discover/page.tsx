@@ -781,9 +781,15 @@ export default function DiscoverPage() {
         setLoadingReleases(true);
         setInteractiveReleases([]);
         try {
-            const endpoint = media.type === 'movie'
-                ? `/api/radarr/releases?movieId=${media.id}&instanceId=${media.instanceId}`
-                : `/api/sonarr/releases?episodeId=${media.id}&instanceId=${media.instanceId}`;
+            let endpoint: string;
+            if (media.type === 'movie') {
+                endpoint = `/api/radarr/releases?movieId=${media.id}&instanceId=${media.instanceId}`;
+            } else if (media.type === 'series') {
+                endpoint = `/api/sonarr/releases?seriesId=${media.id}&instanceId=${media.instanceId}`;
+            } else {
+                // episode-level
+                endpoint = `/api/sonarr/releases?episodeId=${media.id}&instanceId=${media.instanceId}`;
+            }
             const res = await fetch(endpoint);
             const data = await res.json();
             setInteractiveReleases(Array.isArray(data) ? data : []);
