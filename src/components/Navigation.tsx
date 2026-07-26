@@ -102,75 +102,122 @@ export function Navigation() {
 
     const isActive = (path: string) =>
         pathname === path
-            ? "px-3 py-2 text-sm font-medium rounded-md text-white bg-zinc-900 transition-colors"
-            : "px-3 py-2 text-sm font-medium rounded-md text-zinc-400 hover:text-white hover:bg-zinc-900 transition-colors";
+            ? "px-3 py-2 text-sm font-semibold rounded-xl text-white bg-zinc-800/80 border border-zinc-700/50 shadow-sm transition-all"
+            : "px-3 py-2 text-sm font-medium rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-900/50 transition-all";
 
     return (
         <>
-            {/* Desktop & Tablet Top Nav */}
-            <nav className="border-b border-zinc-900 bg-zinc-950/50 backdrop-blur-xl sticky top-0 z-50 w-full max-w-full overflow-hidden">
-                <div className="max-w-7xl mx-auto px-3 sm:px-6 h-16 flex items-center justify-between gap-2 overflow-hidden">
-                    <div className="flex items-center gap-2 sm:gap-6 min-w-0 max-w-full overflow-hidden">
-                        <Link href="/" className="flex items-center gap-2 group flex-shrink-0">
-                            <div className="w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center transition-transform group-hover:scale-105">
-                                <img src="/icon.png" alt="Schedulearr Logo" className="w-full h-full object-contain" />
-                            </div>
-                            <span className="hidden md:block font-bold text-base sm:text-lg text-white tracking-tight truncate">Schedulearr</span>
-                        </Link>
-                        {/* Top nav links */}
-                        <div className="hidden sm:flex items-center gap-1 sm:gap-1.5 max-w-full overflow-x-auto no-scrollbar py-1">
-                            {primaryNavItems.map(item => {
-                                const active = pathname === item.href;
-                                return (
-                                    <Link 
-                                        key={item.href} 
-                                        href={item.href} 
-                                        className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap flex-shrink-0 ${
-                                            active 
-                                                ? 'text-white bg-zinc-900 border border-zinc-800 shadow-md' 
-                                                : 'text-zinc-400 hover:text-white hover:bg-zinc-900/40 border border-transparent'
-                                        }`}
-                                    >
-                                        <span className={active ? 'text-emerald-400' : 'text-zinc-500'}>
-                                            {item.icon(active)}
-                                        </span>
-                                        <span className="tracking-tight">{item.label}</span>
-                                    </Link>
-                                );
-                            })}
-                            <div className="h-5 w-[1px] bg-zinc-800 mx-1 self-center flex-shrink-0 hidden lg:block" />
-                            <div className="hidden lg:flex items-center gap-1">
-                                {secondaryNavItems.map(item => (
-                                    <Link key={item.href} href={item.href} className={`${isActive(item.href)} whitespace-nowrap flex-shrink-0`}>
-                                        {item.label}
-                                    </Link>
-                                ))}
-                            </div>
+            {/* Top Mobile App Header (<640px) */}
+            <header className="sm:hidden sticky top-0 z-50 w-full bg-zinc-950/80 backdrop-blur-xl border-b border-zinc-800/60 px-4 h-14 flex items-center justify-between">
+                <Link href="/" className="flex items-center gap-2.5 active:scale-95 transition-transform">
+                    <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-emerald-500/20 to-teal-500/20 p-1 border border-emerald-500/30 flex items-center justify-center">
+                        <img src="/icon.png" alt="Schedulearr Logo" className="w-full h-full object-contain" />
+                    </div>
+                    <div className="flex flex-col">
+                        <div className="flex items-center gap-1.5">
+                            <span className="font-extrabold text-sm text-white tracking-tight">Schedulearr</span>
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
                         </div>
+                    </div>
+                </Link>
+
+                <div className="flex items-center gap-2">
+                    <Link
+                        href="/settings"
+                        className={`p-2 rounded-xl border transition-all ${
+                            pathname === '/settings'
+                                ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                                : 'bg-zinc-900/80 text-zinc-400 border-zinc-800 hover:text-white'
+                        }`}
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="12" cy="12" r="3"></circle>
+                            <path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"></path>
+                        </svg>
+                    </Link>
+                </div>
+            </header>
+
+            {/* Desktop & Tablet Top Nav (≥640px) */}
+            <nav className="hidden sm:block border-b border-zinc-800/60 bg-zinc-950/70 backdrop-blur-2xl sticky top-0 z-50 w-full max-w-full overflow-hidden">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
+                    <Link href="/" className="flex items-center gap-3 group flex-shrink-0">
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500/20 via-teal-500/10 to-zinc-900 p-1.5 border border-emerald-500/30 transition-transform group-hover:scale-105 shadow-[0_0_15px_rgba(16,185,129,0.15)] flex items-center justify-center">
+                            <img src="/icon.png" alt="Schedulearr Logo" className="w-full h-full object-contain" />
+                        </div>
+                        <div className="flex flex-col">
+                            <span className="font-extrabold text-base text-white tracking-tight">Schedulearr</span>
+                            <span className="text-[10px] font-semibold uppercase tracking-widest text-emerald-400/90 leading-none">Automated Engine</span>
+                        </div>
+                    </Link>
+
+                    {/* Nav Items Container */}
+                    <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-1">
+                        {primaryNavItems.map(item => {
+                            const active = pathname === item.href;
+                            return (
+                                <Link 
+                                    key={item.href} 
+                                    href={item.href} 
+                                    className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap flex-shrink-0 ${
+                                        active 
+                                            ? 'text-white bg-zinc-900 border border-zinc-700/60 shadow-lg shadow-black/40' 
+                                            : 'text-zinc-400 hover:text-white hover:bg-zinc-900/50 border border-transparent'
+                                    }`}
+                                >
+                                    <span className={active ? 'text-emerald-400' : 'text-zinc-500'}>
+                                        {item.icon(active)}
+                                    </span>
+                                    <span className="tracking-tight">{item.label}</span>
+                                </Link>
+                            );
+                        })}
+                        <div className="h-5 w-[1px] bg-zinc-800 mx-2 flex-shrink-0" />
+                        {secondaryNavItems.map(item => {
+                            const active = pathname === item.href;
+                            return (
+                                <Link 
+                                    key={item.href} 
+                                    href={item.href} 
+                                    className={`flex items-center gap-2 px-3 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap flex-shrink-0 ${
+                                        active 
+                                            ? 'text-white bg-zinc-900 border border-zinc-700/60 shadow-lg shadow-black/40' 
+                                            : 'text-zinc-400 hover:text-white hover:bg-zinc-900/50 border border-transparent'
+                                    }`}
+                                >
+                                    <span className={active ? 'text-emerald-400' : 'text-zinc-500'}>
+                                        {item.icon(active)}
+                                    </span>
+                                    <span className="tracking-tight">{item.label}</span>
+                                </Link>
+                            );
+                        })}
                     </div>
                 </div>
             </nav>
 
-            {/* Mobile Bottom Tab Bar (<640px only) */}
-            <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-50 bg-zinc-950/95 backdrop-blur-xl border-t border-zinc-800/80 shadow-2xl" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-                <div className="flex items-stretch h-14">
+            {/* Floating Glass Bottom Tab Bar (<640px Mobile Only) */}
+            <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-50 px-3 pb-3 pointer-events-none" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
+                <div className="pointer-events-auto max-w-md mx-auto bg-zinc-900/90 backdrop-blur-2xl border border-zinc-800/90 rounded-2xl shadow-[0_10px_30px_rgba(0,0,0,0.8)] flex items-stretch h-14 p-1">
                     {mobileNavItems.map(item => {
                         const active = pathname === item.href;
                         return (
                             <Link
                                 key={item.href}
                                 href={item.href}
-                                className={`relative flex flex-col items-center justify-center flex-1 gap-0.5 transition-all active:scale-95 select-none ${
-                                    active ? 'text-emerald-400' : 'text-zinc-500'
+                                className={`relative flex flex-col items-center justify-center flex-1 gap-0.5 rounded-xl transition-all active:scale-95 select-none ${
+                                    active 
+                                        ? 'text-emerald-400 bg-zinc-800/80 border border-zinc-700/50 shadow-inner' 
+                                        : 'text-zinc-400 hover:text-zinc-200'
                                 }`}
                             >
                                 {active && (
-                                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-emerald-400 rounded-full shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
+                                    <div className="absolute top-1 w-1.5 h-1.5 bg-emerald-400 rounded-full shadow-[0_0_8px_rgba(52,211,153,0.9)]" />
                                 )}
-                                <div className={`transition-transform ${active ? 'scale-110' : ''}`}>
+                                <div className={`transition-transform ${active ? 'scale-110 mt-1' : ''}`}>
                                     {item.icon(active)}
                                 </div>
-                                <span className={`text-[9px] font-bold uppercase tracking-wider leading-none ${active ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                                <span className={`text-[9px] font-extrabold uppercase tracking-wider leading-none ${active ? 'text-emerald-400' : 'text-zinc-400'}`}>
                                     {item.label}
                                 </span>
                             </Link>
