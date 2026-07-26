@@ -1295,7 +1295,7 @@ export default function DiscoverPage() {
                 )}
 
                 {pageMode === 'mylibrary' && (
-                    <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/50 overflow-x-auto gap-1 max-w-full">
+                    <div className="flex flex-wrap bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/50 gap-1.5 max-w-full">
                         {availableInstances.map(inst => {
                             const isSelected = selectedInstanceIds.includes(inst.id);
                             const hex = inst.colorHex || '#3b82f6';

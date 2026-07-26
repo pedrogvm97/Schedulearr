@@ -548,15 +548,15 @@ export default function Dashboard() {
             </button>
           </div>
 
-          {/* Filter Bar Chips */}
+          {/* Filter Bar Chips — Clean Wrapped Mobile Grid */}
           <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-zinc-800/60 relative z-10">
             {/* Timeframe Selector */}
-            <div className="flex items-center bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-1 overflow-x-auto max-w-full no-scrollbar">
+            <div className="flex flex-wrap items-center bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-1.5 gap-1 w-full sm:w-auto">
               {(['day', 'week', 'month', 'year', 'all'] as const).map((t) => (
                 <button
                   key={t}
                   onClick={() => setTimeframe(t)}
-                  className={`px-3.5 py-2 text-[10px] sm:text-xs font-extrabold uppercase tracking-wider rounded-xl transition-all whitespace-nowrap ${
+                  className={`flex-1 sm:flex-none px-3 py-2 text-[10px] sm:text-xs font-extrabold uppercase tracking-wider rounded-xl transition-all text-center ${
                     timeframe === t 
                       ? 'bg-zinc-800 text-white shadow-lg border border-zinc-700/60' 
                       : 'text-zinc-400 hover:text-zinc-200'
@@ -568,10 +568,10 @@ export default function Dashboard() {
             </div>
 
             {/* Metric Selector */}
-            <div className="flex items-center bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-1 overflow-x-auto max-w-full no-scrollbar">
+            <div className="flex flex-wrap items-center bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-1.5 gap-1 w-full sm:w-auto">
               <button
                 onClick={() => setChartType('grabbed')}
-                className={`px-3.5 py-2 text-[10px] sm:text-xs font-extrabold uppercase tracking-wider rounded-xl transition-all whitespace-nowrap ${
+                className={`flex-1 sm:flex-none px-3.5 py-2 text-[10px] sm:text-xs font-extrabold uppercase tracking-wider rounded-xl transition-all text-center ${
                   chartType === 'grabbed' 
                     ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-md' 
                     : 'text-zinc-400 hover:text-zinc-200'
@@ -581,7 +581,7 @@ export default function Dashboard() {
               </button>
               <button
                 onClick={() => setChartType('imported')}
-                className={`px-3.5 py-2 text-[10px] sm:text-xs font-extrabold uppercase tracking-wider rounded-xl transition-all whitespace-nowrap ${
+                className={`flex-1 sm:flex-none px-3.5 py-2 text-[10px] sm:text-xs font-extrabold uppercase tracking-wider rounded-xl transition-all text-center ${
                   chartType === 'imported' 
                     ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-md' 
                     : 'text-zinc-400 hover:text-zinc-200'
@@ -591,7 +591,7 @@ export default function Dashboard() {
               </button>
               <button
                 onClick={() => setChartType('sizeGB')}
-                className={`px-3.5 py-2 text-[10px] sm:text-xs font-extrabold uppercase tracking-wider rounded-xl transition-all whitespace-nowrap ${
+                className={`flex-1 sm:flex-none px-3.5 py-2 text-[10px] sm:text-xs font-extrabold uppercase tracking-wider rounded-xl transition-all text-center ${
                   chartType === 'sizeGB' 
                     ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-md' 
                     : 'text-zinc-400 hover:text-zinc-200'

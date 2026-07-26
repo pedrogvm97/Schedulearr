@@ -183,35 +183,61 @@ export async function recreateSelfContainer(targetImage: string): Promise<boolea
   const docker = getDockerClient();
   const rawName = containerInfo.Name || 'Schedulearr';
   const baseName = rawName.replace(/^\//, '').replace(/_new.*$/, '').replace(/_old.*$/, '');
-  const tempNewName = `${baseName}_new_${Date.now()}`;
+  const timestamp = Date.now();
+  const helperName = `schedulearr_updater_${timestamp}`;
 
-  // 1. Prepare minimal clean container config with new image
-  const createBody = {
-    Image: targetImage,
-    Env: containerInfo.Config?.Env || [],
-    Cmd: containerInfo.Config?.Cmd,
-    Entrypoint: containerInfo.Config?.Entrypoint,
-    WorkingDir: containerInfo.Config?.WorkingDir,
-    Volumes: containerInfo.Config?.Volumes || {},
-    Labels: {
-      ...(containerInfo.Config?.Labels || {}),
-      'schedulearr.cleanup_target': containerInfo.Id,
-      'schedulearr.original_name': baseName
-    },
+  // Extract binds array
+  const binds: string[] = containerInfo.HostConfig?.Binds || [
+    '/var/run/docker.sock:/var/run/docker.sock',
+    '/mnt/user/appdata/schedulearr/data:/app/data'
+  ];
+
+  // Format binds for docker run CLI execution inside helper
+  const bindFlags = binds.map((b: string) => `-v ${b}`).join(' ');
+  const envFlags = (containerInfo.Config?.Env || [])
+    .filter((e: string) => !e.startsWith('PATH=') && !e.startsWith('HOSTNAME='))
+    .map((e: string) => `-e ${e}`)
+    .join(' ');
+
+  const helperCmd = [
+    'sh',
+    '-c',
+    `sleep 2 && docker stop ${containerInfo.Id} && docker rm ${containerInfo.Id} && docker run -d --name ${baseName} --net=host ${bindFlags} ${envFlags} --restart=unless-stopped ${targetImage} && docker rm -f ${helperName}`
+  ];
+
+  // 1. Create lightweight updater helper container with docker.sock mounted
+  const helperConfig = {
+    Image: 'docker:cli',
+    Cmd: helperCmd,
     HostConfig: {
-      Binds: containerInfo.HostConfig?.Binds || [],
-      NetworkMode: 'host',
-      RestartPolicy: { Name: 'unless-stopped' }
+      Binds: ['/var/run/docker.sock:/var/run/docker.sock']
     }
   };
 
-  // 2. Create replacement container under temporary unique name (no 409 name conflicts, process stays alive)
-  const createRes = await docker.post(`/containers/create?name=${tempNewName}`, createBody);
-  const newContainerId = createRes.data.Id;
+  try {
+    const createRes = await docker.post(`/containers/create?name=${helperName}`, helperConfig);
+    const helperId = createRes.data.Id;
 
-  // 3. Start replacement container
-  await docker.post(`/containers/${newContainerId}/start`);
+    // 2. Start helper container detached
+    await docker.post(`/containers/${helperId}/start`);
+  } catch (e: any) {
+    // Fallback: If docker:cli image is missing, try alpine with curl/docker socket or direct fallback
+    const alpineCmd = [
+      'sh',
+      '-c',
+      `sleep 2 && wget -qO- --post-data="" http://localhost/containers/${containerInfo.Id}/stop?t=5 --unix-socket /var/run/docker.sock || true`
+    ];
+    const fallbackConfig = {
+      Image: 'alpine:latest',
+      Cmd: alpineCmd,
+      HostConfig: {
+        Binds: ['/var/run/docker.sock:/var/run/docker.sock']
+      }
+    };
+    const createRes = await docker.post(`/containers/create?name=${helperName}`, fallbackConfig);
+    await docker.post(`/containers/${createRes.data.Id}/start`);
+  }
 
-  // 4. Return true cleanly to HTTP SSE stream
+  // 3. Return true so HTTP SSE stream closes 100% cleanly to user's browser BEFORE current container stops
   return true;
 }
