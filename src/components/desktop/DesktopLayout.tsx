@@ -18,7 +18,7 @@ export function DesktopLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   return (
-    <div className="hidden lg:flex min-h-screen w-full bg-zinc-950 text-zinc-300 flex-col selection:bg-emerald-500/30">
+    <div className="hidden md:flex min-h-screen w-full bg-zinc-950 text-zinc-300 flex-col selection:bg-emerald-500/30">
       {/* 100% Exclusive Desktop Header (≥1024px) */}
       <header className="sticky top-0 z-50 w-full bg-zinc-950/80 backdrop-blur-2xl border-b border-zinc-800/60 h-16 flex items-center px-8 justify-between shadow-sm">
         <Link href="/" className="flex items-center gap-3 group">

@@ -18,7 +18,7 @@ export function TabletLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   return (
-    <div className="hidden sm:flex lg:hidden min-h-screen w-full bg-zinc-950 text-zinc-100 selection:bg-emerald-500/30 overflow-x-hidden">
+    <div className="hidden sm:flex md:hidden min-h-screen w-full bg-zinc-950 text-zinc-100 selection:bg-emerald-500/30 overflow-x-hidden">
       {/* 100% Dedicated Tablet Icon Sidebar (640px–1023px) */}
       <aside className="w-20 bg-zinc-950 border-r border-zinc-800/80 flex flex-col items-center py-6 gap-6 flex-shrink-0 sticky top-0 h-screen z-50">
         <Link href="/" className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-emerald-500/25 via-teal-500/15 to-zinc-900 p-1.5 border border-emerald-500/40 flex items-center justify-center shadow-[0_0_15px_rgba(16,185,129,0.25)] active:scale-95 transition-transform">

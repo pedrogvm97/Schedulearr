@@ -174,41 +174,76 @@ export async function performStartupContainerCleanup(): Promise<void> {
   }
 }
 
-export async function recreateSelfContainer(targetImage: string): Promise<boolean> {
-  const containerInfo = await getSelfContainerInfo();
+export async function recreateSelfContainer(docker: any, containerInfo: any, targetImage: string): Promise<boolean> {
   if (!containerInfo) {
     throw new Error('Could not inspect current container over Docker socket.');
   }
 
-  const docker = getDockerClient();
   const rawName = containerInfo.Name || 'Schedulearr';
   const baseName = rawName.replace(/^\//, '').replace(/_new.*$/, '').replace(/_old.*$/, '');
   const timestamp = Date.now();
   const helperName = `schedulearr_updater_${timestamp}`;
 
-  // Extract binds array
   const binds: string[] = containerInfo.HostConfig?.Binds || [
     '/var/run/docker.sock:/var/run/docker.sock',
     '/mnt/user/appdata/schedulearr/data:/app/data'
   ];
 
-  // Format binds for docker run CLI execution inside helper
-  const bindFlags = binds.map((b: string) => `-v ${b}`).join(' ');
-  const envFlags = (containerInfo.Config?.Env || [])
-    .filter((e: string) => !e.startsWith('PATH=') && !e.startsWith('HOSTNAME='))
-    .map((e: string) => `-e ${e}`)
-    .join(' ');
+  const newContainerConfig = {
+    Image: targetImage,
+    Cmd: containerInfo.Config?.Cmd,
+    Env: containerInfo.Config?.Env,
+    HostConfig: containerInfo.HostConfig || {
+      NetworkMode: 'host',
+      Binds: binds,
+      RestartPolicy: { Name: 'unless-stopped' }
+    },
+    Labels: {
+      ...(containerInfo.Config?.Labels || {}),
+      'schedulearr.original_name': baseName
+    }
+  };
 
-  const helperCmd = [
-    'sh',
-    '-c',
-    `sleep 2 && docker stop ${containerInfo.Id} && docker rm ${containerInfo.Id} && docker run -d --name ${baseName} --net=host ${bindFlags} ${envFlags} --restart=unless-stopped ${targetImage} && docker rm -f ${helperName}`
-  ];
+  const nodeScript = `
+const http = require('http');
+const oldId = '${containerInfo.Id}';
+const baseName = '${baseName}';
+const newConfig = ${JSON.stringify(newContainerConfig)};
 
-  // 1. Create lightweight updater helper container with docker.sock mounted
+function request(path, method, body, callback) {
+  const req = http.request({
+    socketPath: '/var/run/docker.sock',
+    path: '/v1.41' + path,
+    method: method || 'POST',
+    headers: body ? { 'Content-Type': 'application/json' } : {}
+  }, (res) => {
+    let data = '';
+    res.on('data', chunk => data += chunk);
+    res.on('end', () => callback && callback(null, data));
+  });
+  req.on('error', err => callback && callback(err));
+  if (body) req.write(JSON.stringify(body));
+  req.end();
+}
+
+setTimeout(() => {
+  request('/containers/' + oldId + '/stop?t=5', 'POST', null, () => {
+    request('/containers/' + oldId + '?v=true&force=true', 'DELETE', null, () => {
+      request('/containers/create?name=' + baseName, 'POST', newConfig, (err, resData) => {
+        let createdId = baseName;
+        try { createdId = JSON.parse(resData).Id || baseName; } catch(e) {}
+        request('/containers/' + createdId + '/start', 'POST', null, () => {
+          process.exit(0);
+        });
+      });
+    });
+  });
+}, 2000);
+`;
+
   const helperConfig = {
-    Image: 'docker:cli',
-    Cmd: helperCmd,
+    Image: targetImage,
+    Cmd: ['node', '-e', nodeScript],
     HostConfig: {
       Binds: ['/var/run/docker.sock:/var/run/docker.sock']
     }
@@ -217,27 +252,11 @@ export async function recreateSelfContainer(targetImage: string): Promise<boolea
   try {
     const createRes = await docker.post(`/containers/create?name=${helperName}`, helperConfig);
     const helperId = createRes.data.Id;
-
-    // 2. Start helper container detached
     await docker.post(`/containers/${helperId}/start`);
   } catch (e: any) {
-    // Fallback: If docker:cli image is missing, try alpine with curl/docker socket or direct fallback
-    const alpineCmd = [
-      'sh',
-      '-c',
-      `sleep 2 && wget -qO- --post-data="" http://localhost/containers/${containerInfo.Id}/stop?t=5 --unix-socket /var/run/docker.sock || true`
-    ];
-    const fallbackConfig = {
-      Image: 'alpine:latest',
-      Cmd: alpineCmd,
-      HostConfig: {
-        Binds: ['/var/run/docker.sock:/var/run/docker.sock']
-      }
-    };
-    const createRes = await docker.post(`/containers/create?name=${helperName}`, fallbackConfig);
-    await docker.post(`/containers/${createRes.data.Id}/start`);
+    console.error('Failed to launch self-updater helper container:', e.message);
+    throw e;
   }
 
-  // 3. Return true so HTTP SSE stream closes 100% cleanly to user's browser BEFORE current container stops
   return true;
 }

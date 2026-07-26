@@ -1,8 +1,6 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { PhoneMediaView } from '@/components/phone/views/PhoneMediaView';
-import { TabletMediaView } from '@/components/tablet/views/TabletMediaView';
 import {
     Search, Plus, Film, Tv, CheckCircle,
     Filter, X, Star, Calendar,
@@ -1210,18 +1208,7 @@ export default function DiscoverPage() {
 
     return (
         <>
-            {/* 100% Dedicated Mobile Phone Media View (<640px) */}
-            <div className="block sm:hidden">
-                <PhoneMediaView />
-            </div>
-
-            {/* 100% Dedicated Tablet Media View (640px–1023px) */}
-            <div className="hidden sm:block lg:hidden">
-                <TabletMediaView />
-            </div>
-
-            {/* 100% Dedicated Desktop Media View (>=1024px) */}
-            <div className="hidden lg:block px-4 py-6 lg:p-10 space-y-6 max-w-[1800px] mx-auto">
+            <div className="px-4 py-6 lg:p-10 space-y-6 max-w-[1800px] mx-auto">
             {/* Header */}
             <div className="flex flex-col gap-2">
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 w-fit">

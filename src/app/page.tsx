@@ -1,8 +1,6 @@
 'use client';
 
 import React, { useState, useEffect } from "react";
-import { PhoneAnalyticsView } from '@/components/phone/views/PhoneAnalyticsView';
-import { TabletAnalyticsView } from '@/components/tablet/views/TabletAnalyticsView';
 import HistoryLedger from "@/components/HistoryLedger";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, AreaChart, Area } from 'recharts';
 import { X, Film, Info, HardDrive, Sliders, AlertTriangle, Trash2, Search, MoveHorizontal, PlayCircle, CheckCircle } from 'lucide-react';
@@ -506,18 +504,7 @@ export default function Dashboard() {
 
   return (
     <>
-      {/* 100% Dedicated Mobile Phone Analytics View (<640px) */}
-      <div className="block sm:hidden">
-        <PhoneAnalyticsView />
-      </div>
-
-      {/* 100% Dedicated Tablet Analytics View (640px–1023px) */}
-      <div className="hidden sm:block lg:hidden">
-        <TabletAnalyticsView />
-      </div>
-
-      {/* 100% Dedicated Desktop Analytics View (>=1024px) */}
-      <div className="hidden lg:block max-w-7xl mx-auto px-6 space-y-8 pb-12">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 space-y-6 sm:space-y-8 pb-12">
         {/* Modern Mobile-First Hero Header Card */}
         <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-zinc-900 via-zinc-900/95 to-zinc-950 p-5 sm:p-8 border border-zinc-800/80 shadow-2xl space-y-6">
           <div className="absolute top-0 right-0 -mt-8 -mr-8 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
@@ -1487,7 +1474,7 @@ export default function Dashboard() {
             </div>
           </div>
         )}
-      </div>
+      </div> 
       <StickyTooltipOverlay />
 
       {selectedMedia && (
