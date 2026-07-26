@@ -83,13 +83,18 @@ export async function GET() {
     const uniqueVolumes = new Map<string, typeof allFolders[0]>();
     for (const f of allFolders) {
         if (f.totalBytes <= 0) continue;
-        // Group by 10MB rounded signature to prevent minor API jitter from creating duplicates
+        // Group by totalBytes only (stable across API calls) — freeBytes jitters between Radarr/Sonarr calls and creates false duplicates
         const totalMB = Math.round(f.totalBytes / (1024 * 1024 * 10));
-        const freeMB = Math.round(f.freeBytes / (1024 * 1024 * 10));
-        const volumeSig = `${totalMB}_${freeMB}`;
+        const volumeSig = `${totalMB}`;
 
         if (!uniqueVolumes.has(volumeSig)) {
             uniqueVolumes.set(volumeSig, f);
+        } else {
+            // Keep the entry with the most recent (smallest) freeBytes to be conservative
+            const existing = uniqueVolumes.get(volumeSig)!;
+            if (f.freeBytes < existing.freeBytes) {
+                uniqueVolumes.set(volumeSig, f);
+            }
         }
     }
 

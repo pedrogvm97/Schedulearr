@@ -948,6 +948,32 @@ export default function Settings() {
                             </div>
                         </div>
 
+                        {/* TV Series Cleanup Level */}
+                        <div className="space-y-2">
+                            <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">TV Series Cleanup Level</span>
+                            <p className="text-[10px] text-zinc-500">Choose whether to delete entire shows, individual seasons, or single episodes.</p>
+                            <div className="grid grid-cols-3 gap-2">
+                                {(['series', 'season', 'episode'] as const).map(level => (
+                                    <button
+                                        key={level}
+                                        type="button"
+                                        onClick={() => {
+                                            setDiskSmartCleanSeriesLevel(level);
+                                            updateSetting('media_smart_clean_series_level', level);
+                                            setTimeout(fetchCandidates, 300);
+                                        }}
+                                        className={`py-2 px-3 text-xs font-bold rounded-xl uppercase tracking-wider transition-all border ${
+                                            diskSmartCleanSeriesLevel === level
+                                                ? 'bg-violet-500/20 text-violet-400 border-violet-500/40 shadow-sm'
+                                                : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:text-zinc-300'
+                                        }`}
+                                    >
+                                        {level === 'series' ? 'Entire Show' : level === 'season' ? 'By Season' : 'By Episode'}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
                         {/* Immunity Window */}
                         <div className="flex items-center justify-between pt-2">
                             <div>
