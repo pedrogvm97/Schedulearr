@@ -140,6 +140,31 @@ export default function Settings() {
     const [diskSmartCleanImmunityEnabled, setDiskSmartCleanImmunityEnabled] = useState(false);
     const [diskSmartCleanImmunityDays, setDiskSmartCleanImmunityDays] = useState(7);
     const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(false);
+    const [candidates, setCandidates] = useState<any[]>([]);
+    const [loadingCandidates, setLoadingCandidates] = useState(false);
+
+    const fetchCandidates = async () => {
+        setLoadingCandidates(true);
+        try {
+            const res = await fetch('/api/media/smart-clean-candidates');
+            if (res.ok) {
+                const json = await res.json();
+                if (Array.isArray(json.candidates)) {
+                    setCandidates(json.candidates);
+                } else if (Array.isArray(json)) {
+                    setCandidates(json);
+                } else {
+                    setCandidates([]);
+                }
+            } else {
+                setCandidates([]);
+            }
+        } catch (e) {
+            console.error('Failed to fetch candidates', e);
+            setCandidates([]);
+        }
+        setLoadingCandidates(false);
+    };
 
     const fetchInstances = async () => {
         setLoading(true);
@@ -1049,6 +1074,7 @@ export default function Settings() {
                     onClick={() => {
                         setIsDiskOpen(!isDiskOpen);
                         if (!isDiskOpen) {
+                            fetchCandidates();
                             fetch('/api/system/disk').then(r => r.ok ? r.json() : null).then(d => { if (d) setDiskInfo(d); }).catch(() => {});
                         }
                     }}
