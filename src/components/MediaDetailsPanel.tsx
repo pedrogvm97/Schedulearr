@@ -511,10 +511,34 @@ export function MediaDetailsPanel({
                         {details?.genres && (
                             <div className="flex flex-wrap gap-2 pt-2">
                                 {details.genres.map((g: any) => (
-                                    <span key={g.id} className="px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                                    <span key={g.id} className="px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-widest text-zinc-400">
                                         {g.name}
                                     </span>
                                 ))}
+                            </div>
+                        )}
+
+                        {((details?.networks && details.networks.length > 0) || (details?.production_companies && details.production_companies.length > 0) || (item.productionCompanies && item.productionCompanies.length > 0) || item.network || item.studio) && (
+                            <div className="space-y-2 pt-2">
+                                <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">Studios & Networks</span>
+                                <div className="flex flex-wrap gap-2">
+                                    {[
+                                        ...(details?.networks || []),
+                                        ...(details?.production_companies || []),
+                                        ...(item.productionCompanies || []).map((name: string) => ({ name })),
+                                        ...(item.network ? [{ name: item.network }] : []),
+                                        ...(item.studio ? [{ name: item.studio }] : [])
+                                    ]
+                                    .filter((c: any, index: number, self: any[]) => c?.name && self.findIndex((x: any) => x.name?.toLowerCase() === c.name?.toLowerCase()) === index)
+                                    .map((c: any, idx: number) => (
+                                        <span key={c.id || idx} className="px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-bold text-emerald-400 flex items-center gap-1.5">
+                                            {c.logo_path && (
+                                                <img src={`https://image.tmdb.org/t/p/w92${c.logo_path}`} className="h-3.5 object-contain brightness-200" alt="" />
+                                            )}
+                                            {c.name}
+                                        </span>
+                                    ))}
+                                </div>
                             </div>
                         )}
 

@@ -737,6 +737,31 @@ export default function DiscoverPage() {
                 fetchedData = Array.isArray(data.results) ? data.results : [];
                 totalP = data.total_pages || 1;
             }
+
+            // Pool pages 2 and 3 if results count is low and more pages are available
+            if (fetchedData.length < 24 && totalP > pageNum + 1) {
+                const pagesToFetch = [pageNum + 2, pageNum + 3].filter(p => p <= totalP);
+                const extraRes = await Promise.all(
+                    pagesToFetch.map(p => {
+                        const sp = new URLSearchParams(searchParams);
+                        sp.set('page', p.toString());
+                        return fetch(`${base}/lookup?${sp.toString()}`).then(r => r.ok ? r.json() : null).catch(() => null);
+                    })
+                );
+                extraRes.forEach(d => {
+                    if (d && Array.isArray(d.results)) {
+                        fetchedData.push(...d.results);
+                    }
+                });
+
+                const seen = new Set();
+                fetchedData = fetchedData.filter(item => {
+                    const id = item.tmdbId || item.id || item.title;
+                    if (!id || seen.has(id)) return false;
+                    seen.add(id);
+                    return true;
+                });
+            }
         } catch (e) {
             console.error('Discovery error:', e);
             toast.error('Failed to load discovery content');
