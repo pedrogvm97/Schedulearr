@@ -506,20 +506,20 @@ export default function Dashboard() {
   return (
     <>
       <div className="max-w-7xl mx-auto px-6 space-y-8 pb-12">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 sm:gap-6 border-b border-zinc-900 pb-6">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-white mb-2">Search History</h1>
-            <p className="text-zinc-400">View logs of background engine batches and manual search triggers.</p>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white mb-1">Search History</h1>
+            <p className="text-xs sm:text-sm text-zinc-400 leading-relaxed">View logs of background engine batches and manual search triggers.</p>
           </div>
 
-          <div className="flex flex-wrap gap-4 items-center">
+          <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
             {/* Timeframe Selector */}
-            <div className="flex bg-zinc-900 border border-zinc-800 rounded-lg p-1">
+            <div className="flex bg-zinc-900 border border-zinc-800 rounded-xl p-1 overflow-x-auto max-w-full no-scrollbar">
               {(['day', 'week', 'month', 'year', 'all'] as const).map((t) => (
                 <button
                   key={t}
                   onClick={() => setTimeframe(t)}
-                  className={`px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md transition ${timeframe === t ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                  className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all ${timeframe === t ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
                 >
                   {t === 'day' ? 'Today' : t}
                 </button>
@@ -530,19 +530,19 @@ export default function Dashboard() {
             <div className="flex bg-zinc-900 border border-zinc-800 rounded-lg p-1">
               <button
                 onClick={() => setChartType('grabbed')}
-                className={`px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md transition ${chartType === 'grabbed' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all ${chartType === 'grabbed' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
               >
                 Grabs
               </button>
               <button
                 onClick={() => setChartType('imported')}
-                className={`px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md transition ${chartType === 'imported' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all ${chartType === 'imported' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
               >
                 Finalized
               </button>
               <button
                 onClick={() => setChartType('sizeGB')}
-                className={`px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md transition ${chartType === 'sizeGB' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all ${chartType === 'sizeGB' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
               >
                 Data
               </button>
@@ -551,7 +551,7 @@ export default function Dashboard() {
             <button
               onClick={handleManualTrigger}
               disabled={isTriggering}
-              className={`${isTriggering ? 'bg-emerald-600/10 text-emerald-600' : 'bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30'} border border-emerald-500/30 rounded-lg px-4 py-2 text-sm font-medium transition-colors`}
+              className={`w-full sm:w-auto min-h-[40px] ${isTriggering ? 'bg-emerald-600/10 text-emerald-600' : 'bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30'} border border-emerald-500/30 rounded-xl px-4 py-2 text-xs sm:text-sm font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2 touch-target`}
             >
               {isTriggering ? 'Triggering...' : 'Trigger Search Now'}
             </button>
