@@ -368,20 +368,26 @@ export async function GET(req: Request) {
         // Convert the map to an array for recharts
         const chartData = Object.keys(dailyStats).sort().map(date => {
             const dayObj: ChartDay = { date };
+            let hasAnyActivity = false;
+
             Object.keys(instanceMetadata).forEach(instanceId => {
-                const summary = statsSummary[date][instanceId];
+                const summary = statsSummary[date]?.[instanceId] || { grabbed: 0, imported: 0, failed: 0, sizeBytes: 0, downloading: 0 };
                 dayObj[`${instanceId}_grabbed`] = summary.grabbed;
                 dayObj[`${instanceId}_imported`] = summary.imported;
                 dayObj[`${instanceId}_failed`] = summary.failed;
                 dayObj[`${instanceId}_downloading`] = summary.downloading;
                 dayObj[`${instanceId}_sizeGB`] = parseFloat((summary.sizeBytes / (1024 ** 3)).toFixed(2));
 
-                const titles = dailyStats[date][instanceId];
+                if (summary.grabbed > 0 || summary.imported > 0 || summary.failed > 0 || summary.downloading > 0 || summary.sizeBytes > 0) {
+                    hasAnyActivity = true;
+                }
+
+                const titles = dailyStats[date]?.[instanceId] || { grabbed: [], imported: [], failed: [], downloading: [] };
                 dayObj[`${instanceId}_grabbed_titles`] = titles?.grabbed || [];
                 dayObj[`${instanceId}_imported_titles`] = titles?.imported || [];
                 dayObj[`${instanceId}_failed_titles`] = titles?.failed || [];
                 dayObj[`${instanceId}_downloading_titles`] = titles?.downloading || [];
-                dayObj[`${instanceId}_sizeGB_titles`] = titles?.imported || []; // Use imported titles for size
+                dayObj[`${instanceId}_sizeGB_titles`] = titles?.imported || [];
 
                 dayObj[instanceId] = summary.grabbed;
                 dayObj[`${instanceId}_titles`] = Array.from(new Set([
@@ -391,7 +397,15 @@ export async function GET(req: Request) {
                     ...(titles?.downloading || [])
                 ]));
             });
+            
+            dayObj._hasActivity = hasAnyActivity;
             return dayObj;
+        }).filter((d, index, arr) => {
+            // Keep days with activity, or keep days within the last 30 days so the axis has context
+            if (timeframe === 'all') {
+                return d._hasActivity;
+            }
+            return true;
         });
 
         allRecentRecords.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
