@@ -160,16 +160,23 @@ export async function recreateSelfContainer(docker: any, containerInfo: any, tar
   // 2. Rename existing container
   await docker.post(`/containers/${containerId}/rename?name=${tempName}`);
 
-  // 3. Prepare container config with new image
-  const config = { ...containerInfo.Config };
-  delete config.Hostname;
-
+  // 3. Prepare clean container config with new image
   const createBody = {
-    ...config,
     Image: targetImage,
+    Env: containerInfo.Config?.Env || [],
+    Cmd: containerInfo.Config?.Cmd,
+    Entrypoint: containerInfo.Config?.Entrypoint,
+    WorkingDir: containerInfo.Config?.WorkingDir,
+    ExposedPorts: containerInfo.Config?.ExposedPorts || {},
+    Labels: containerInfo.Config?.Labels || {},
+    Volumes: containerInfo.Config?.Volumes || {},
     HostConfig: {
-      ...(containerInfo.HostConfig || {}),
-      RestartPolicy: containerInfo.HostConfig?.RestartPolicy?.Name ? containerInfo.HostConfig.RestartPolicy : { Name: 'unless-stopped' }
+      Binds: containerInfo.HostConfig?.Binds || [],
+      NetworkMode: containerInfo.HostConfig?.NetworkMode || 'host',
+      PortBindings: containerInfo.HostConfig?.PortBindings || {},
+      RestartPolicy: containerInfo.HostConfig?.RestartPolicy?.Name ? containerInfo.HostConfig.RestartPolicy : { Name: 'unless-stopped' },
+      ExtraHosts: containerInfo.HostConfig?.ExtraHosts || [],
+      Privileged: containerInfo.HostConfig?.Privileged || false
     },
     NetworkingConfig: {
       EndpointsConfig: containerInfo.NetworkSettings?.Networks || {}
