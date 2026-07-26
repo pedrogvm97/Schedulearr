@@ -1373,6 +1373,34 @@ export default function DiscoverPage() {
                         <button onClick={() => setMediaType('series')} className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black rounded-xl transition-all ${mediaType === 'series' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30' : 'text-zinc-500 hover:text-zinc-400'}`}><Tv size={14} /> Series</button>
                     </div>
 
+                    {/* Permanent Top Search Input Bar */}
+                    <form onSubmit={handleSearch} className="relative group flex-1 min-w-[200px] max-w-md">
+                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500 group-focus-within:text-emerald-400 transition-colors" size={15} />
+                        <input
+                            type="text"
+                            placeholder="Search title, keyword..."
+                            value={searchQuery}
+                            onChange={e => setSearchQuery(e.target.value)}
+                            onKeyDown={e => {
+                                if (e.key === 'Enter') handleSearch();
+                                if (e.key === 'Escape') { setSearchQuery(''); handleDiscovery(); }
+                            }}
+                            className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl pl-10 pr-8 py-2 text-xs text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all placeholder-zinc-600 font-medium"
+                        />
+                        {searchQuery && (
+                            <button
+                                type="button"
+                                onClick={() => { setSearchQuery(''); handleDiscovery(); }}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                            >
+                                <X size={13} />
+                            </button>
+                        )}
+                        {isSearching && (
+                            <div className="absolute right-3 top-1/2 -translate-y-1/2 w-3 h-3 border-2 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin" />
+                        )}
+                    </form>
+
                     <button
                         onClick={() => setShowFilters(!showFilters)}
                         className={`flex items-center gap-2 px-4 py-2 text-xs font-black rounded-2xl border transition-all ${
@@ -1380,7 +1408,7 @@ export default function DiscoverPage() {
                                 ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
                                 : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-zinc-200'
                         }`}
-                        title={showFilters ? 'Hide Filters' : 'Show Filters'}
+                        title={showFilters ? 'Hide Advanced Filters' : 'Show Advanced Filters'}
                     >
                         <Filter size={14} />
                         <span>Filters</span>

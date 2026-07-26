@@ -832,12 +832,57 @@ export default function Settings() {
             </div>
 
             {/* Storage Guard Control Panel */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 space-y-6">
-                <div className="flex items-center justify-between">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-6">
+                {/* Top Banner Header with Master Switch & Nuke Threshold Number */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-800">
                     <div>
-                        <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                        <h2 className="text-xl font-black text-white flex items-center gap-2.5">
                             💾 Storage Guard
+                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                                diskAutocleanEnabled ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-[0_0_10px_rgba(16,185,129,0.2)]' : 'bg-zinc-800 text-zinc-500 border border-zinc-700'
+                            }`}>
+                                {diskAutocleanEnabled ? 'ACTIVE' : 'OFF'}
+                            </span>
                         </h2>
+                        <p className="text-xs text-zinc-400 font-medium mt-1">Core Rule: IF Total Occupied Space &gt; Nuke Threshold %, automatically nuke media to free space.</p>
+                    </div>
+
+                    {/* Master ON / OFF Toggle + Threshold % */}
+                    <div className="flex items-center gap-4 bg-zinc-950 p-3 rounded-2xl border border-zinc-800 flex-shrink-0">
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs font-black text-zinc-400 uppercase tracking-wider">Nuke Threshold:</span>
+                            <input
+                                type="number"
+                                min="50"
+                                max="99"
+                                value={diskPauseThreshold}
+                                onChange={e => {
+                                    const val = Math.min(99, Math.max(50, parseInt(e.target.value) || 90));
+                                    setDiskPauseThreshold(val);
+                                    updateSetting('storage_guard_threshold', String(val));
+                                    updateSetting('disk_pause_threshold', String(val));
+                                    updateSetting('disk_autoclean_threshold', String(val));
+                                }}
+                                className="w-16 bg-zinc-900 border border-zinc-700 rounded-xl text-center py-1 text-emerald-400 font-black text-sm outline-none focus:border-emerald-500"
+                            />
+                            <span className="text-xs font-black text-emerald-400">%</span>
+                        </div>
+
+                        <div className="w-px h-6 bg-zinc-800" />
+
+                        <button
+                            onClick={async () => {
+                                const next = !diskAutocleanEnabled;
+                                setDiskAutocleanEnabled(next);
+                                await updateSetting('storage_guard_enabled', String(next));
+                                await updateSetting('disk_autoclean_enabled', String(next));
+                                toast.success(next ? 'Storage Guard Activated' : 'Storage Guard Deactivated');
+                            }}
+                            className={`w-12 h-6.5 rounded-full transition-all relative flex-shrink-0 p-0.5 ${diskAutocleanEnabled ? 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.4)]' : 'bg-zinc-800'}`}
+                            title={diskAutocleanEnabled ? 'Deactivate Storage Guard' : 'Activate Storage Guard'}
+                        >
+                            <div className={`w-5.5 h-5.5 rounded-full bg-white transition-transform ${diskAutocleanEnabled ? 'translate-x-5.5' : 'translate-x-0'}`} />
+                        </button>
                     </div>
                 </div>
 
@@ -893,29 +938,9 @@ export default function Settings() {
                     </div>
                 )}
 
-                {/* Master ON / OFF Toggle */}
-                <div className="flex items-center justify-between bg-zinc-950 p-4 rounded-xl border border-zinc-800">
-                    <div>
-                        <span className="text-sm font-bold text-white uppercase tracking-wider block">Storage Guard Active</span>
-                        <p className="text-xs text-zinc-400 font-medium">When occupied space exceeds threshold, automatically nuke items according to policy.</p>
-                    </div>
-                    <button
-                        onClick={async () => {
-                            const next = !diskAutocleanEnabled;
-                            setDiskAutocleanEnabled(next);
-                            await updateSetting('storage_guard_enabled', String(next));
-                            await updateSetting('disk_autoclean_enabled', String(next));
-                            toast.success(next ? 'Storage Guard Activated' : 'Storage Guard Deactivated');
-                        }}
-                        className={`w-12 h-6.5 rounded-full transition-all relative flex-shrink-0 p-0.5 ${diskAutocleanEnabled ? 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.4)]' : 'bg-zinc-800'}`}
-                    >
-                        <div className={`w-5.5 h-5.5 rounded-full bg-white transition-transform ${diskAutocleanEnabled ? 'translate-x-5.5' : 'translate-x-0'}`} />
-                    </button>
-                </div>
-
                 {diskAutocleanEnabled && (
                     <div className="space-y-6 p-4 bg-zinc-950/60 rounded-xl border border-zinc-800">
-                        {/* Threshold Slider & Input */}
+                        {/* Threshold Slider */}
                         <div className="space-y-2">
                             <div className="flex justify-between items-center text-xs font-bold">
                                 <span className="text-zinc-400 uppercase tracking-wider">Occupied Space Nuke Threshold</span>
