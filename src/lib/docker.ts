@@ -157,8 +157,10 @@ export async function recreateSelfContainer(docker: any, containerInfo: any, tar
     await docker.post(`/containers/${containerId}/stop?t=5`);
   } catch (e) {}
 
-  // 2. Rename existing container
-  await docker.post(`/containers/${containerId}/rename?name=${tempName}`);
+  // 2. Delete existing container to release container name lock in Docker registry
+  try {
+    await docker.delete(`/containers/${containerId}?v=true&force=true`);
+  } catch (e) {}
 
   // 3. Prepare minimal clean container config with new image
   const createBody = {
@@ -176,22 +178,11 @@ export async function recreateSelfContainer(docker: any, containerInfo: any, tar
     }
   };
 
-  try {
-    // 4. Create new container with original name on freed port
-    const createRes = await docker.post(`/containers/create?name=${name}`, createBody);
-    const newContainerId = createRes.data.Id;
+  // 4. Create new container with original name
+  const createRes = await docker.post(`/containers/create?name=${name}`, createBody);
+  const newContainerId = createRes.data.Id;
 
-    // 5. Start new container
-    await docker.post(`/containers/${newContainerId}/start`);
-
-    // 6. Delete old container synchronously to prevent orphan containers in Unraid
-    await docker.delete(`/containers/${tempName}?v=true&force=true`).catch(() => {});
-    await docker.delete(`/containers/${containerId}?v=true&force=true`).catch(() => {});
-    return true;
-  } catch (err: any) {
-    // If creation failed, attempt to restart original container
-    await docker.post(`/containers/${tempName}/rename?name=${name}`).catch(() => {});
-    await docker.post(`/containers/${containerId}/start`).catch(() => {});
-    throw err;
-  }
+  // 5. Start new container
+  await docker.post(`/containers/${newContainerId}/start`);
+  return true;
 }
