@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { logSearchHistory, getInstances } from '@/lib/db';
 import { triggerMovieSearch } from '@/lib/radarr';
-import { triggerEpisodeSearch } from '@/lib/sonarr';
+import { triggerEpisodeSearch, triggerSeriesSearch } from '@/lib/sonarr';
 
 export async function POST(req: Request) {
     try {
@@ -25,6 +25,11 @@ export async function POST(req: Request) {
                 logSearchHistory('manual', [`Movie ID: ${mediaId}`], [], `Manual force search via UI`);
             }
         } else if (type === 'series') {
+            success = await triggerSeriesSearch(instance.url, instance.api_key, mediaId);
+            if (success) {
+                logSearchHistory('manual', [], [`Series ID: ${mediaId}`], `Manual force search via UI`);
+            }
+        } else if (type === 'episode') {
             success = await triggerEpisodeSearch(instance.url, instance.api_key, [mediaId]);
             if (success) {
                 logSearchHistory('manual', [], [`Episode ID: ${mediaId}`], `Manual force search via UI`);

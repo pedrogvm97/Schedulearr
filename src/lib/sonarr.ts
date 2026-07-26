@@ -186,6 +186,28 @@ export const triggerEpisodeSearch = async (url: string, apiKey: string, episodeI
     }
 };
 
+// Function to trigger a search for an entire series on a Sonarr instance
+export const triggerSeriesSearch = async (url: string, apiKey: string, seriesId: number): Promise<boolean> => {
+    try {
+        console.log(`📺 [SONARR] Triggering series search for series ID: ${seriesId}`);
+        const response = await axios.post(`${url}/api/v3/command`, {
+            name: 'SeriesSearch',
+            seriesId: Number(seriesId)
+        }, {
+            headers: { 'X-Api-Key': apiKey }
+        });
+
+        if (response.status === 201) {
+            console.log(`✅ [SONARR] Series search command accepted successfully.`);
+            return true;
+        }
+        return false;
+    } catch (error) {
+        console.error(`Error triggering series search on Sonarr (${url}):`, error);
+        return false;
+    }
+};
+
 // Function to get Quality Profiles
 export const getQualityProfiles = async (url: string, apiKey: string): Promise<SonarrQualityProfile[]> => {
     try {

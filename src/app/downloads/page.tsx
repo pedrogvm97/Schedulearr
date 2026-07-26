@@ -5,6 +5,7 @@ import { formatDistanceToNow } from "date-fns";
 import { Film, Pause, Play, Trash2, Info, ShieldCheck, Clock, HardDrive, Tv } from "lucide-react";
 import { MediaDetailsPanel } from "@/components/MediaDetailsPanel";
 import { IndexersPanel } from "@/components/IndexersPanel";
+import { ProfilesPanel } from "@/components/ProfilesPanel";
 import { toast } from "sonner";
 
 // --- Interfaces ---
@@ -183,7 +184,7 @@ function MediaCardRow({ torrent, onOpenMedia, onPauseResume, onDeleteClick }: Me
 
 // ─── Main Component ────────────────────────────────────────────────────────────
 export default function Downloads() {
-    const [activeTab, setActiveTab] = useState<'downloads' | 'indexers'>('downloads');
+    const [activeTab, setActiveTab] = useState<'downloads' | 'indexers' | 'profiles'>('downloads');
     const [torrents, setTorrents] = useState<Torrent[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -432,24 +433,32 @@ export default function Downloads() {
                     <h1 className="text-3xl font-bold text-white mb-1">Downloads & Indexers</h1>
                 </div>
 
-                <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800">
+                <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800 gap-1">
                     <button
                         onClick={() => setActiveTab('downloads')}
-                        className={`px-5 py-2 text-xs font-black rounded-xl transition-all ${activeTab === 'downloads' ? 'bg-zinc-800 text-white shadow-lg border border-zinc-700/60' : 'text-zinc-400 hover:text-zinc-200'}`}
+                        className={`px-4 py-2 text-xs font-black rounded-xl transition-all ${activeTab === 'downloads' ? 'bg-zinc-800 text-white shadow-lg border border-zinc-700/60' : 'text-zinc-400 hover:text-zinc-200'}`}
                     >
-                        Active Downloads
+                        📥 Downloads
                     </button>
                     <button
                         onClick={() => setActiveTab('indexers')}
-                        className={`px-5 py-2 text-xs font-black rounded-xl transition-all ${activeTab === 'indexers' ? 'bg-zinc-800 text-white shadow-lg border border-zinc-700/60' : 'text-zinc-400 hover:text-zinc-200'}`}
+                        className={`px-4 py-2 text-xs font-black rounded-xl transition-all ${activeTab === 'indexers' ? 'bg-zinc-800 text-white shadow-lg border border-zinc-700/60' : 'text-zinc-400 hover:text-zinc-200'}`}
                     >
-                        Indexers & Rules
+                        🔍 Indexers &amp; Rules
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('profiles')}
+                        className={`px-4 py-2 text-xs font-black rounded-xl transition-all ${activeTab === 'profiles' ? 'bg-zinc-800 text-white shadow-lg border border-zinc-700/60' : 'text-zinc-400 hover:text-zinc-200'}`}
+                    >
+                        ⚙️ Quality Profiles
                     </button>
                 </div>
             </div>
 
             {activeTab === 'indexers' ? (
                 <IndexersPanel />
+            ) : activeTab === 'profiles' ? (
+                <ProfilesPanel />
             ) : (
                 <>
 

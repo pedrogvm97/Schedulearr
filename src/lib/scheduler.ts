@@ -244,16 +244,16 @@ export async function runBatchSearch(manualTrigger: boolean = false) {
         console.log(`[FILTER] Applying Frontend Constraints. Genres: ${selectedGenres.length > 1 ? selectedGenres.length : 'All'} | Logic: ${uiGenreLogic}`);
 
         // Define a universal filter function that mimics the frontend's visual culling logic
-        const applyFilters = (targets: any[], type: 'movie' | 'series', idMapper: (t: any) => string) => {
+        const applyFilters = (targets: any[], type: 'movie' | 'series') => {
             return targets.filter(t => {
-                const idStr = `${type}-${idMapper(t)}`;
+                const mediaId = type === 'movie' ? t.movie.id : (t.seriesInfo?.id || t.id);
+                const idStr = `${type}-${t.instanceId}-${mediaId}`;
 
                 // Explicit Pause Toggle Filter
                 if (searchToggles[idStr] === false) return false;
 
-                // Media Instance Filter (The instance URL/Name must map correctly, assuming instance filtering maps to Radarr/Sonarr name)
-                const instanceName = type === 'movie' ? radarrs.find(r => r.url === t.apiUrl)?.name : sonarrs.find(s => s.url === t.apiUrl)?.name;
-                if (instanceName && instanceFilters[instanceName] === false) return false;
+                // Media Instance Filter by Instance ID
+                if (t.instanceId && instanceFilters[t.instanceId] === false) return false;
 
                 // Genre Logic Filter
                 if (!selectedGenres.includes('All')) {
@@ -276,8 +276,8 @@ export async function runBatchSearch(manualTrigger: boolean = false) {
         const initialMovieCount = allMovieTargets.length;
         const initialEpCount = allEpTargets.length;
 
-        allMovieTargets = applyFilters(allMovieTargets, 'movie', t => t.movie.id.toString());
-        allEpTargets = applyFilters(allEpTargets, 'series', t => t.id.toString());
+        allMovieTargets = applyFilters(allMovieTargets, 'movie');
+        allEpTargets = applyFilters(allEpTargets, 'series');
 
         console.log(`[FILTER] Eliminated ${initialMovieCount - allMovieTargets.length} movies and ${initialEpCount - allEpTargets.length} episodes via UI constraints.`);
 

@@ -570,27 +570,7 @@ export default function Settings() {
                 <div>
                     <h1 className="text-3xl font-bold text-white mb-1">System Settings</h1>
                 </div>
-
-                <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800 flex-wrap sm:flex-nowrap gap-1">
-                    <button
-                        onClick={() => setSettingsNavTab('settings')}
-                        className={`px-4 py-2 text-xs font-black rounded-xl transition-all ${settingsNavTab === 'settings' ? 'bg-zinc-800 text-white shadow-lg border border-zinc-700/60' : 'text-zinc-400 hover:text-zinc-200'}`}
-                    >
-                        System Settings
-                    </button>
-                    <button
-                        onClick={() => setSettingsNavTab('profiles')}
-                        className={`px-4 py-2 text-xs font-black rounded-xl transition-all ${settingsNavTab === 'profiles' ? 'bg-zinc-800 text-white shadow-lg border border-zinc-700/60' : 'text-zinc-400 hover:text-zinc-200'}`}
-                    >
-                        Quality Profiles
-                    </button>
-                </div>
             </div>
-
-            {settingsNavTab === 'profiles' ? (
-                <ProfilesPanel />
-            ) : (
-                <>
 
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
                 <h2 className="text-xl font-semibold text-white mb-4">General Settings</h2>
@@ -2277,8 +2257,6 @@ export default function Settings() {
                         </div>
                     </div>
                 </div>
-            )}
-            </>
             )}
         </div>
     );
