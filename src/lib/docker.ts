@@ -160,39 +160,21 @@ export async function recreateSelfContainer(docker: any, containerInfo: any, tar
   // 2. Rename existing container
   await docker.post(`/containers/${containerId}/rename?name=${tempName}`);
 
-  // 3. Prepare clean container config with new image
-  const networkMode = containerInfo.HostConfig?.NetworkMode || 'host';
-  const isHostNet = networkMode === 'host' || networkMode === 'container';
-
-  const hostConfig: any = {
-    Binds: containerInfo.HostConfig?.Binds || [],
-    NetworkMode: networkMode,
-    RestartPolicy: containerInfo.HostConfig?.RestartPolicy?.Name ? containerInfo.HostConfig.RestartPolicy : { Name: 'unless-stopped' },
-    ExtraHosts: containerInfo.HostConfig?.ExtraHosts || [],
-    Privileged: containerInfo.HostConfig?.Privileged || false
-  };
-
-  if (!isHostNet && containerInfo.HostConfig?.PortBindings) {
-    hostConfig.PortBindings = containerInfo.HostConfig.PortBindings;
-  }
-
-  const createBody: any = {
+  // 3. Prepare minimal clean container config with new image
+  const createBody = {
     Image: targetImage,
     Env: containerInfo.Config?.Env || [],
     Cmd: containerInfo.Config?.Cmd,
     Entrypoint: containerInfo.Config?.Entrypoint,
     WorkingDir: containerInfo.Config?.WorkingDir,
-    Labels: containerInfo.Config?.Labels || {},
     Volumes: containerInfo.Config?.Volumes || {},
-    HostConfig: hostConfig,
-    NetworkingConfig: {
-      EndpointsConfig: containerInfo.NetworkSettings?.Networks || {}
+    Labels: containerInfo.Config?.Labels || {},
+    HostConfig: {
+      Binds: containerInfo.HostConfig?.Binds || [],
+      NetworkMode: 'host',
+      RestartPolicy: { Name: 'unless-stopped' }
     }
   };
-
-  if (!isHostNet && containerInfo.Config?.ExposedPorts) {
-    createBody.ExposedPorts = containerInfo.Config.ExposedPorts;
-  }
 
   try {
     // 4. Create new container with original name on freed port
