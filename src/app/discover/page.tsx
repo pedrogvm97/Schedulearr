@@ -1021,37 +1021,45 @@ export default function DiscoverPage() {
     const filteredDiscovery = useMemo(() => {
         let items = [...results];
         if (searchQuery && !isSearching) {
-            const q = searchQuery.toLowerCase();
+            const q = searchQuery.toLowerCase().trim();
             items = items.filter(i => i.title?.toLowerCase().includes(q) || i.overview?.toLowerCase().includes(q));
         }
-        if (pageMode === 'mylibrary') {
-            if (filterGenre !== 'All') items = items.filter(i => i.genres?.includes(filterGenre));
-            if (filterPlatform !== 'All') {
-                const platformLower = filterPlatform.toLowerCase();
-                items = items.filter(i => {
-                    const all: string[] = [
-                        ...(i.productionCompanies || []),
-                        i.studio,
-                        i.network
-                    ].filter(Boolean).map((s: string) => s.toLowerCase());
-                    return all.some(c => c.includes(platformLower));
+        if (filterGenre !== 'All') {
+            const target = filterGenre.toLowerCase();
+            items = items.filter(i => {
+                const genres: string[] = (i.genres || []).map((g: any) => (typeof g === 'string' ? g : g?.name || '')).filter(Boolean);
+                return genres.some(g => {
+                    const lowG = g.toLowerCase();
+                    if (target === 'sci-fi' && (lowG.includes('science fiction') || lowG.includes('sci-fi') || lowG.includes('scifi'))) return true;
+                    return lowG.includes(target) || target.includes(lowG);
                 });
-            }
-            if (filterYear !== 'All') items = items.filter(i => i.year?.toString() === filterYear);
-            if (filterRating > 0) {
-                items = items.filter(i => {
-                    const r = i.ratings?.value ?? i.vote_average ?? 0;
-                    return r >= filterRating;
-                });
-            }
+            });
+        }
+        if (filterPlatform !== 'All') {
+            const platformLower = filterPlatform.toLowerCase();
+            items = items.filter(i => {
+                const companies: string[] = [
+                    ...(Array.isArray(i.productionCompanies) ? i.productionCompanies.map((c: any) => typeof c === 'string' ? c : c?.name || '') : []),
+                    i.studio,
+                    i.network,
+                    ...(Array.isArray(i.networks) ? i.networks.map((n: any) => typeof n === 'string' ? n : n?.name || '') : [])
+                ].filter(Boolean).map(s => String(s).toLowerCase());
+                return companies.some(c => c.includes(platformLower) || platformLower.includes(c) || (platformLower.includes('apple') && c.includes('apple')));
+            });
+        }
+        if (filterYear !== 'All') items = items.filter(i => i.year?.toString() === filterYear);
+        if (filterRating > 0) {
+            items = items.filter(i => {
+                const r = i.ratings?.value ?? i.vote_average ?? 0;
+                return r >= filterRating;
+            });
         }
 
         items.sort((a, b) => {
             let comparison = 0;
             if (sortBy === 'popularity') {
-                // Higher popularity or vote count first
-                const popA = a.popularity || a.ratings?.votes || 0;
-                const popB = b.popularity || b.ratings?.votes || 0;
+                const popA = a.popularity || a.ratings?.votes || a.ratings?.value || 0;
+                const popB = b.popularity || b.ratings?.votes || b.ratings?.value || 0;
                 comparison = popA - popB;
             } else if (sortBy === 'year') {
                 comparison = (a.year || 0) - (b.year || 0);
@@ -1077,18 +1085,31 @@ export default function DiscoverPage() {
             );
         }
         if (searchQuery) {
-            const q = searchQuery.toLowerCase();
-            items = items.filter(i => i.title?.toLowerCase().includes(q));
+            const q = searchQuery.toLowerCase().trim();
+            items = items.filter(i => i.title?.toLowerCase().includes(q) || i.overview?.toLowerCase().includes(q));
         }
         if (filterGenre !== 'All') {
             const target = filterGenre.toLowerCase();
-            items = items.filter(i =>
-                i.genres?.some((g: string) => {
+            items = items.filter(i => {
+                const genres: string[] = (i.genres || []).map((g: any) => (typeof g === 'string' ? g : g?.name || '')).filter(Boolean);
+                return genres.some(g => {
                     const lowG = g.toLowerCase();
                     if (target === 'sci-fi' && (lowG.includes('science fiction') || lowG.includes('sci-fi') || lowG.includes('scifi'))) return true;
-                    return lowG.includes(target);
-                })
-            );
+                    return lowG.includes(target) || target.includes(lowG);
+                });
+            });
+        }
+        if (filterPlatform !== 'All') {
+            const platformLower = filterPlatform.toLowerCase();
+            items = items.filter(i => {
+                const companies: string[] = [
+                    ...(Array.isArray(i.productionCompanies) ? i.productionCompanies.map((c: any) => typeof c === 'string' ? c : c?.name || '') : []),
+                    i.studio,
+                    i.network,
+                    ...(Array.isArray(i.networks) ? i.networks.map((n: any) => typeof n === 'string' ? n : n?.name || '') : [])
+                ].filter(Boolean).map(s => String(s).toLowerCase());
+                return companies.some(c => c.includes(platformLower) || platformLower.includes(c) || (platformLower.includes('apple') && c.includes('apple')));
+            });
         }
         if (filterYear !== 'All') items = items.filter(i => i.year?.toString() === filterYear);
         if (filterRating > 0) items = items.filter(i => (i.ratings?.value || i.vote_average || 0) >= filterRating);
@@ -1131,15 +1152,21 @@ export default function DiscoverPage() {
             return sortOrder === 'asc' ? comparison : -comparison;
         });
         return items;
-    }, [libraryItems, instances, mediaType, searchQuery, filterGenre, filterYear, filterRating, filterPopularity, filterSize, sortBy, sortOrder, selectedInstanceIds]);
+    }, [libraryItems, instances, mediaType, searchQuery, filterGenre, filterPlatform, filterYear, filterRating, filterPopularity, filterSize, sortBy, sortOrder, selectedInstanceIds]);
 
     const allPlatforms = useMemo(() => {
+        const items = pageMode === 'discover' ? results : libraryItems;
         const ps = new Set<string>();
-        results.forEach(i => {
-            [...(i.productionCompanies || []), i.studio, i.network].filter(Boolean).forEach((s: string) => ps.add(s));
+        items.forEach(i => {
+            [
+                ...(Array.isArray(i.productionCompanies) ? i.productionCompanies.map((c: any) => typeof c === 'string' ? c : c?.name || '') : []),
+                i.studio,
+                i.network,
+                ...(Array.isArray(i.networks) ? i.networks.map((n: any) => typeof n === 'string' ? n : n?.name || '') : [])
+            ].filter(Boolean).forEach((s: string) => ps.add(s));
         });
         return ['All', ...Array.from(ps).sort()];
-    }, [results]);
+    }, [results, libraryItems, pageMode]);
 
     const allYears = useMemo(() => {
         const items = pageMode === 'discover' ? results : libraryItems;
