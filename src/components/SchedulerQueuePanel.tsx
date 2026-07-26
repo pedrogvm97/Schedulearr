@@ -427,7 +427,7 @@ export function SchedulerQueuePanel() {
     return (
         <div className="space-y-6">
             {/* Modern Mobile & Tablet Scheduler Config Hero Card */}
-            <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-zinc-900 via-zinc-900/95 to-zinc-950 p-5 sm:p-6 border border-zinc-800/80 shadow-2xl space-y-4">
+            <div className="relative rounded-3xl bg-gradient-to-br from-zinc-900 via-zinc-900/95 to-zinc-950 p-5 sm:p-6 border border-zinc-800/80 shadow-2xl space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 font-extrabold text-sm flex-shrink-0">
@@ -562,7 +562,7 @@ export function SchedulerQueuePanel() {
                             );
                         })}
                     </div>
-                    <div className="ml-auto flex flex-wrap items-center gap-4 bg-zinc-900/40 border border-zinc-800/60 px-4 py-2.5 rounded-xl">
+                    <div className="flex flex-wrap items-center gap-4 bg-zinc-900/40 border border-zinc-800/60 px-4 py-2.5 rounded-xl">
                         <label className="flex items-center cursor-pointer gap-2">
                             <div className="relative"><input type="checkbox" className="sr-only" checked={showNextBatchOnly} onChange={() => setShowNextBatchOnly(v => !v)} /><div className={`block w-10 h-5 rounded-full transition-colors ${showNextBatchOnly ? 'bg-amber-500' : 'bg-zinc-700'}`} /><div className={`absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full transition-transform ${showNextBatchOnly ? 'translate-x-5' : ''}`} /></div>
                             <span className="text-xs font-bold text-amber-500">Preview Batch</span>
