@@ -3,8 +3,11 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { CustomSelect } from "@/components/CustomSelect";
+import { AnalyticsPanel } from "@/components/AnalyticsPanel";
+import { ProfilesPanel } from "@/components/ProfilesPanel";
 
 export default function Settings() {
+    const [settingsNavTab, setSettingsNavTab] = useState<'settings' | 'analytics' | 'profiles'>('settings');
     const [instances, setInstances] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -497,10 +500,40 @@ export default function Settings() {
     };
 
     return (
-        <div className="max-w-4xl mx-auto p-6 space-y-8 pb-24">
-            <div>
-                <h1 className="text-3xl font-bold text-white mb-2">Settings</h1>
+        <div className="max-w-6xl mx-auto p-6 space-y-8 pb-24">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                    <h1 className="text-3xl font-bold text-white mb-1">Settings & Analytics</h1>
+                </div>
+
+                <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800 flex-wrap sm:flex-nowrap gap-1">
+                    <button
+                        onClick={() => setSettingsNavTab('settings')}
+                        className={`px-4 py-2 text-xs font-black rounded-xl transition-all ${settingsNavTab === 'settings' ? 'bg-zinc-800 text-white shadow-lg border border-zinc-700/60' : 'text-zinc-400 hover:text-zinc-200'}`}
+                    >
+                        System Settings
+                    </button>
+                    <button
+                        onClick={() => setSettingsNavTab('analytics')}
+                        className={`px-4 py-2 text-xs font-black rounded-xl transition-all ${settingsNavTab === 'analytics' ? 'bg-zinc-800 text-white shadow-lg border border-zinc-700/60' : 'text-zinc-400 hover:text-zinc-200'}`}
+                    >
+                        Analytics & Metrics
+                    </button>
+                    <button
+                        onClick={() => setSettingsNavTab('profiles')}
+                        className={`px-4 py-2 text-xs font-black rounded-xl transition-all ${settingsNavTab === 'profiles' ? 'bg-zinc-800 text-white shadow-lg border border-zinc-700/60' : 'text-zinc-400 hover:text-zinc-200'}`}
+                    >
+                        Quality Profiles
+                    </button>
+                </div>
             </div>
+
+            {settingsNavTab === 'analytics' ? (
+                <AnalyticsPanel />
+            ) : settingsNavTab === 'profiles' ? (
+                <ProfilesPanel />
+            ) : (
+                <>
 
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
                 <h2 className="text-xl font-semibold text-white mb-4">General Settings</h2>
@@ -1896,6 +1929,8 @@ export default function Settings() {
                         </div>
                     </div>
                 </div>
+            )}
+            </>
             )}
         </div>
     );

@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { Film, Pause, Play, Trash2, Info, ShieldCheck, Clock, HardDrive, Tv } from "lucide-react";
 import { MediaDetailsPanel } from "@/components/MediaDetailsPanel";
+import { IndexersPanel } from "@/components/IndexersPanel";
 import { toast } from "sonner";
 
 // --- Interfaces ---
@@ -182,6 +183,7 @@ function MediaCardRow({ torrent, onOpenMedia, onPauseResume, onDeleteClick }: Me
 
 // ─── Main Component ────────────────────────────────────────────────────────────
 export default function Downloads() {
+    const [activeTab, setActiveTab] = useState<'downloads' | 'indexers'>('downloads');
     const [torrents, setTorrents] = useState<Torrent[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -425,9 +427,31 @@ export default function Downloads() {
     // ─── Render ───────────────────────────────────────────────────────────────
     return (
         <div className="max-w-6xl mx-auto p-6 space-y-8 pb-24">
-            <div>
-                <h1 className="text-3xl font-bold text-white mb-2">Active Downloads</h1>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                    <h1 className="text-3xl font-bold text-white mb-1">Downloads & Indexers</h1>
+                </div>
+
+                <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800">
+                    <button
+                        onClick={() => setActiveTab('downloads')}
+                        className={`px-5 py-2 text-xs font-black rounded-xl transition-all ${activeTab === 'downloads' ? 'bg-zinc-800 text-white shadow-lg border border-zinc-700/60' : 'text-zinc-400 hover:text-zinc-200'}`}
+                    >
+                        Active Downloads
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('indexers')}
+                        className={`px-5 py-2 text-xs font-black rounded-xl transition-all ${activeTab === 'indexers' ? 'bg-zinc-800 text-white shadow-lg border border-zinc-700/60' : 'text-zinc-400 hover:text-zinc-200'}`}
+                    >
+                        Indexers & Rules
+                    </button>
+                </div>
             </div>
+
+            {activeTab === 'indexers' ? (
+                <IndexersPanel />
+            ) : (
+                <>
 
             {/* ── Auto-Cleanup Panel ─────────────────────────────────────────── */}
             <div className={`bg-zinc-900 border ${isCleanupSettingsOpen ? 'border-emerald-500/30' : 'border-zinc-800'} rounded-2xl transition-all overflow-hidden`}>
@@ -720,6 +744,8 @@ export default function Downloads() {
                     libStatus={libStatus}
                     onClose={() => { setSelectedMedia(null); setLibStatus(null); }}
                 />
+            )}
+            </>
             )}
         </div>
     );

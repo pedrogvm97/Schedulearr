@@ -6,11 +6,7 @@ import { usePathname } from 'next/navigation';
 
 const desktopNavItems = [
   { href: '/discover', label: 'Media' },
-  { href: '/scheduler', label: 'Scheduler' },
   { href: '/downloads', label: 'Downloads' },
-  { href: '/indexers', label: 'Indexers' },
-  { href: '/profiles', label: 'Profiles' },
-  { href: '/', label: 'Analytics' },
   { href: '/settings', label: 'Settings' }
 ];
 
