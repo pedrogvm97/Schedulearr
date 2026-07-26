@@ -573,7 +573,6 @@ function UnifiedMediaCard({
 // Main Page
 // ──────────────────────────────────────────────
 export default function DiscoverPage() {
-    const [activeTab, setActiveTab] = useState<'media' | 'scheduler'>('media');
     const [pageMode, setPageMode] = useState<'discover' | 'mylibrary'>('discover');
     const [browseMode, setBrowseMode] = useState<'all' | 'library' | 'discover'>('all');
     const [mediaType, setMediaType] = useState<'movie' | 'series'>('series');
@@ -1320,30 +1319,10 @@ export default function DiscoverPage() {
             <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-zinc-900 via-zinc-900/95 to-zinc-950 p-5 sm:p-8 border border-zinc-800/80 shadow-2xl space-y-4">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div className="space-y-1">
-                        <h1 className="text-2xl sm:text-4xl font-black tracking-tight text-white">Media</h1>
-                    </div>
-
-                    {/* Subtabs: Media vs Scheduler */}
-                    <div className="flex bg-zinc-950/80 p-1.5 rounded-2xl border border-zinc-800/80 w-full md:w-auto">
-                        <button
-                            onClick={() => setActiveTab('media')}
-                            className={`flex items-center gap-2 px-5 py-2.5 text-xs sm:text-sm font-extrabold rounded-xl transition-all flex-1 justify-center ${activeTab === 'media' ? 'bg-zinc-800 text-white shadow-lg border border-zinc-700/60' : 'text-zinc-400 hover:text-zinc-200'}`}
-                        >
-                            <Sparkles size={16} /> <span>Media Catalog</span>
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('scheduler')}
-                            className={`flex items-center gap-2 px-5 py-2.5 text-xs sm:text-sm font-extrabold rounded-xl transition-all flex-1 justify-center ${activeTab === 'scheduler' ? 'bg-zinc-800 text-white shadow-lg border border-zinc-700/60' : 'text-zinc-400 hover:text-zinc-200'}`}
-                        >
-                            <ListOrdered size={16} /> <span>Scheduler & Queue</span>
-                        </button>
+                        <h1 className="text-2xl sm:text-4xl font-black tracking-tight text-white">Media Catalog</h1>
                     </div>
                 </div>
             </div>
-
-            {activeTab === 'scheduler' ? (
-                <SchedulerQueuePanel />
-            ) : (
                 <>
                     {/* Sub-Control Filter Chips Bar */}
             <div className="flex flex-wrap items-center gap-2 sm:gap-3">
@@ -1645,7 +1624,6 @@ export default function DiscoverPage() {
                     </div>
                 </div>
             </>
-            )}
 
             {/* Add Media Modal */}
             {

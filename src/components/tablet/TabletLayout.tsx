@@ -5,7 +5,9 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const tabletNavLinks = [
+  { href: '/', label: 'Dashboard', icon: '📊' },
   { href: '/discover', label: 'Media', icon: '🎬' },
+  { href: '/scheduler', label: 'Scheduler', icon: '⏱️' },
   { href: '/downloads', label: 'Downloads', icon: '📥' },
   { href: '/settings', label: 'Settings', icon: '⚙️' }
 ];
