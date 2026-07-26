@@ -597,62 +597,54 @@ export function AnalyticsPanel() {
           </div>
         </div>
 
-        {/* Analytics Dashboard Re-design */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8 mt-2 items-stretch">
-          {/* Left Stats Column */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-4">
-            {/* Instance Rankings */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col justify-between">
-              <div>
-                <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-widest mb-4">Instance Rankings</h3>
-                <div className="space-y-4">
-                  {Object.keys(instances).filter(id => recentDownloadFilters[id] !== false).map(id => {
-                    const totals = summaryData.instanceTotals[id] || { grabbed: 0, imported: 0, failed: 0, sizeBytes: 0 };
-                    const value = chartType === 'grabbed' ? totals.grabbed : (chartType === 'imported' ? totals.imported : (totals.sizeBytes / (1024 ** 3)));
+        {/* Analytics Dashboard Top Row: Left Column (Rankings + Top Indexers) | Right Column (Trend BarChart) */}
+        <div className="flex flex-col lg:flex-row gap-6 mb-8 mt-2 items-stretch">
+          {/* Left Column: Stacked Instance Rankings & Top Indexers */}
+          <div className="w-full lg:w-96 flex-shrink-0 flex flex-col gap-4">
+            {/* Instance Rankings Card */}
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col flex-1">
+              <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-widest mb-4">Instance Rankings</h3>
+              <div className="space-y-4 flex-1">
+                {Object.keys(instances).filter(id => recentDownloadFilters[id] !== false).map(id => {
+                  const totals = summaryData.instanceTotals[id] || { grabbed: 0, imported: 0, failed: 0, sizeBytes: 0 };
+                  const value = chartType === 'grabbed' ? totals.grabbed : (chartType === 'imported' ? totals.imported : (totals.sizeBytes / (1024 ** 3)));
 
-                    // Calculate max for bar width
-                    const maxVal = Math.max(...Object.keys(instances).filter(k => recentDownloadFilters[k] !== false).map((id: any) => {
-                      const t = summaryData.instanceTotals[id] || { grabbed: 0, imported: 0, sizeBytes: 0 };
-                      return chartType === 'grabbed' ? t.grabbed : (chartType === 'imported' ? t.imported : (t.sizeBytes / (1024 ** 3)));
-                    }), 1);
-                    const percentage = Math.min(100, (value / maxVal) * 100);
+                  const maxVal = Math.max(...Object.keys(instances).filter(k => recentDownloadFilters[k] !== false).map((id: any) => {
+                    const t = summaryData.instanceTotals[id] || { grabbed: 0, imported: 0, sizeBytes: 0 };
+                    return chartType === 'grabbed' ? t.grabbed : (chartType === 'imported' ? t.imported : (t.sizeBytes / (1024 ** 3)));
+                  }), 1);
+                  const percentage = Math.min(100, (value / maxVal) * 100);
 
-                    return (
-                      <div key={id} className="space-y-1.5">
-                        <div className="flex justify-between items-center text-xs">
-                          <span className="font-bold text-zinc-200">{instances[id].name}</span>
-                          <span className="text-zinc-400 font-black">
-                            {chartType === 'sizeGB' ? `${value.toFixed(1)} GB` : value}
-                          </span>
-                        </div>
-                        <div className="h-1.5 w-full bg-zinc-950 rounded-full overflow-hidden border border-zinc-800/50">
-                          <div
-                            className="h-full transition-all duration-1000 ease-out rounded-full"
-                            style={{
-                              width: `${percentage}%`,
-                              backgroundColor: instances[id].color,
-                              boxShadow: `0 0 10px ${instances[id].color}40`
-                            }}
-                          />
-                        </div>
+                  return (
+                    <div key={id} className="space-y-1.5">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="font-bold text-zinc-200">{instances[id].name}</span>
+                        <span className="text-zinc-400 font-black">
+                          {chartType === 'sizeGB' ? `${value.toFixed(1)} GB` : value}
+                        </span>
                       </div>
-                    );
-                  })}
-                </div>
+                      <div className="h-1.5 w-full bg-zinc-950 rounded-full overflow-hidden border border-zinc-800/50">
+                        <div
+                          className="h-full transition-all duration-1000 ease-out rounded-full"
+                          style={{
+                            width: `${percentage}%`,
+                            backgroundColor: instances[id].color,
+                            boxShadow: `0 0 10px ${instances[id].color}40`
+                          }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
-            {/* Top Indexers */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col">
+            {/* Top Indexers Card (Stacked below Instance Rankings) */}
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col flex-1">
               <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-widest mb-4">Top Indexers</h3>
               <div className="space-y-3 flex-1 flex flex-col justify-center">
                 {(() => {
-                  // Determine filtered indexer stats on the fly
                   const filteredIndexerStats: Record<string, { grabbed: number, imported: number, sizeBytes: number }> = {};
-
-                  // We use the full recentDownloads pool from API (which is now 500 records)
-                  // BUT wait, recentDownloads is already finalized by date in the API. 
-                  // Let's use it to calculate the top indexers for the current view.
                   recentDownloads.filter(dl => recentDownloadFilters[dl.instanceId] !== false).forEach(dl => {
                     if (!dl.indexer || dl.indexer === 'Unknown') return;
                     if (!filteredIndexerStats[dl.indexer]) {
@@ -682,7 +674,7 @@ export function AnalyticsPanel() {
                             }`}>
                             {idx + 1}
                           </div>
-                          <span className="text-xs font-bold text-zinc-200 truncate max-w-[100px]">{indexer.name}</span>
+                          <span className="text-xs font-bold text-zinc-200 truncate max-w-[140px]">{indexer.name}</span>
                         </div>
                         <span className="text-xs font-black text-white px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800/50 min-w-[50px] text-center">
                           {chartType === 'sizeGB' ? `${indexer.value.toFixed(1)}G` : indexer.value}
@@ -695,203 +687,18 @@ export function AnalyticsPanel() {
                 )}
               </div>
             </div>
-
-            {/* Storage Guard Dashboard Card */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col justify-between md:col-span-2 lg:col-span-1 xl:col-span-2">
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <HardDrive className="text-emerald-400" size={18} />
-                    <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-widest">Storage Guard</h3>
-                  </div>
-                  {diskInfo && (
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${
-                      diskInfo.usedPercent >= diskPauseThreshold && diskPauseEnabled
-                        ? 'bg-red-500/10 text-red-400 border border-red-500/20'
-                        : diskInfo.usedPercent >= 80
-                        ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                        : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                    }`}>
-                      {diskInfo.usedPercent}% used
-                    </span>
-                  )}
-                </div>
-
-                {/* Disk Progress Bar */}
-                {diskInfo ? (
-                  <div className="space-y-2">
-                    <div className="relative h-3 bg-zinc-950 rounded-full overflow-hidden border border-zinc-800">
-                      <div
-                        className={`h-full rounded-full transition-all duration-1000 ${
-                          diskInfo.usedPercent >= 90 ? 'bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.4)]'
-                          : diskInfo.usedPercent >= 75 ? 'bg-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.3)]'
-                          : 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.3)]'
-                        }`}
-                        style={{ width: `${diskInfo.usedPercent}%` }}
-                      />
-                      {diskPauseEnabled && (
-                        <div
-                          className="absolute top-0 bottom-0 w-0.5 bg-white/50 border-r border-dashed border-white/30"
-                          style={{ left: `${diskPauseThreshold}%` }}
-                          title={`Pause threshold: ${diskPauseThreshold}%`}
-                        />
-                      )}
-                    </div>
-                    <div className="flex justify-between text-[10px] text-zinc-500 font-semibold uppercase tracking-tight">
-                      <span>
-                        {diskInfo.totalBytes >= 1e12
-                          ? `${(diskInfo.freeBytes / 1e12).toFixed(1)} TB free`
-                          : `${(diskInfo.freeBytes / 1e9).toFixed(0)} GB free`}
-                      </span>
-                      <span>
-                        {diskInfo.totalBytes >= 1e12
-                          ? `${(diskInfo.usedBytes / 1e12).toFixed(1)} / ${(diskInfo.totalBytes / 1e12).toFixed(1)} TB`
-                          : `${(diskInfo.usedBytes / 1e9).toFixed(0)} / ${(diskInfo.totalBytes / 1e9).toFixed(0)} GB`}
-                      </span>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 text-zinc-600 text-xs py-2">
-                    <div className="w-3.5 h-3.5 border border-zinc-700 border-t-zinc-400 rounded-full animate-spin" /> Loading storage data...
-                  </div>
-                )}
-
-                {/* Storage Settings Controls */}
-                <div className="border-t border-zinc-800/80 pt-3 space-y-4">
-                  {/* MASTER ON / OFF TOGGLE */}
-                  <div className="flex items-center justify-between bg-zinc-950/60 p-3 rounded-xl border border-zinc-800">
-                    <div>
-                      <span className="text-xs font-black text-white uppercase tracking-wider block">Storage Guard</span>
-                      <p className="text-[10px] text-zinc-400 font-medium">When space occupied exceeds threshold, automatically nuke items.</p>
-                    </div>
-                    <button
-                      onClick={() => {
-                        const next = !diskAutocleanEnabled;
-                        setDiskAutocleanEnabled(next);
-                        updateSetting('storage_guard_enabled', next);
-                        updateSetting('disk_autoclean_enabled', next);
-                      }}
-                      className={`w-11 h-6 rounded-full transition-all relative flex-shrink-0 p-0.5 ${diskAutocleanEnabled ? 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.4)]' : 'bg-zinc-800'}`}
-                    >
-                      <div className={`w-5 h-5 rounded-full bg-white transition-transform ${diskAutocleanEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
-                    </button>
-                  </div>
-
-                  {/* THRESHOLD NUMBER + NUKE POLICY SETTINGS */}
-                  {diskAutocleanEnabled && (
-                    <div className="space-y-4 animate-in fade-in duration-200 p-3 bg-zinc-950/40 rounded-xl border border-zinc-800/80">
-                      {/* Space Limit / Threshold Slider & Number Input */}
-                      <div className="space-y-2">
-                        <div className="flex justify-between items-center text-xs font-bold">
-                          <span className="text-zinc-400 uppercase tracking-wider text-[10px]">Nuke Threshold (% Occupied Space)</span>
-                          <span className="text-emerald-400 font-black text-sm">{diskPauseThreshold}%</span>
-                        </div>
-                        <input
-                          type="range"
-                          min="50"
-                          max="99"
-                          value={diskPauseThreshold}
-                          onChange={e => {
-                            const val = parseInt(e.target.value);
-                            setDiskPauseThreshold(val);
-                            updateSetting('storage_guard_threshold', val);
-                            updateSetting('disk_pause_threshold', val);
-                            updateSetting('disk_autoclean_threshold', val);
-                          }}
-                          className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
-                        />
-                      </div>
-
-                      {/* Nuke Policy Mode Selection */}
-                      <div className="space-y-1.5">
-                        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Nuke Selection Priority</span>
-                        <div className="grid grid-cols-3 gap-1">
-                          {[
-                            { id: 'largest', label: 'Largest' },
-                            { id: 'oldest', label: 'Oldest' },
-                            { id: 'unplayed', label: 'Unplayed' }
-                          ].map(mode => (
-                            <button
-                              key={mode.id}
-                              onClick={() => {
-                                setDiskSmartCleanMode(mode.id);
-                                updateSetting('qbit_smart_clean_mode', mode.id);
-                              }}
-                              className={`py-1.5 px-2 text-[10px] font-bold rounded-lg uppercase tracking-wider transition-all border ${
-                                diskSmartCleanMode === mode.id
-                                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-sm'
-                                  : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:text-zinc-300'
-                              }`}
-                            >
-                              {mode.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Immunity Days */}
-                      <div className="flex items-center justify-between pt-1">
-                        <div>
-                          <span className="text-xs font-bold text-zinc-300">Immunity Window</span>
-                          <p className="text-[9px] text-zinc-500">Protect downloads added within last N days</p>
-                        </div>
-                        <input
-                          type="number"
-                          min="0"
-                          max="365"
-                          value={diskSmartCleanImmunityDays}
-                          onChange={e => {
-                            const val = parseInt(e.target.value) || 0;
-                            setDiskSmartCleanImmunityDays(val);
-                            updateSetting('qbit_smart_clean_immunity_days', val);
-                          }}
-                          className="w-14 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-xs font-bold text-white text-center outline-none focus:border-emerald-500/50"
-                        />
-                      </div>
-
-                      {/* Sub-option: Also Pause Scheduler Searches */}
-                      <div className="flex items-center justify-between border-t border-zinc-800/60 pt-2.5">
-                        <div>
-                          <span className="text-xs font-bold text-zinc-300">Also Pause Scheduler Search</span>
-                          <p className="text-[9px] text-zinc-500">Stop automated searches when above threshold</p>
-                        </div>
-                        <button
-                          onClick={() => {
-                            const next = !diskPauseEnabled;
-                            setDiskPauseEnabled(next);
-                            updateSetting('storage_guard_pause_scheduler', next);
-                            updateSetting('disk_pause_enabled', next);
-                          }}
-                          className={`w-8 h-4.5 rounded-full transition-all relative flex-shrink-0 ${diskPauseEnabled ? 'bg-emerald-500' : 'bg-zinc-800'}`}
-                        >
-                          <div className={`w-3.5 h-3.5 rounded-full bg-white transition-transform ${diskPauseEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Important Notice Warning */}
-                {diskAutocleanEnabled && (
-                  <div className="p-3 bg-emerald-500/5 border border-emerald-500/10 rounded-xl flex gap-2.5 items-start">
-                    <AlertTriangle className="text-emerald-400 flex-shrink-0 mt-0.5" size={13} />
-                    <p className="text-[9px] text-emerald-400/80 font-medium leading-normal">
-                      <strong>CRITICAL RULES:</strong> Torrents are deleted <strong>ONLY</strong> when storage exceeds the allowed threshold ({diskPauseThreshold}%). Torrents within the recently added immunity window are protected from cleanup.
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
           </div>
 
-          {/* Right Trend Graph Column */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-widest">Trend Analysis</h3>
-              <div className="text-[10px] text-zinc-500 font-medium">Daily Totals</div>
+          {/* Right Column: Expanded Historical Trend BarChart */}
+          <div className="flex-1 bg-zinc-900 border border-zinc-800 rounded-2xl p-6 flex flex-col justify-between min-h-[420px]">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-widest">Trend Analysis</h3>
+                <div className="text-[10px] text-zinc-500 font-medium">Daily Aggregated Totals</div>
+              </div>
             </div>
 
-            <div className="flex-1 min-h-[220px]">
+            <div className="flex-1 min-h-[350px]">
               {loadingStats ? (
                 <div className="w-full h-full flex items-center justify-center text-zinc-500 font-medium">Loading aggregated statistics...</div>
               ) : chartData.length === 0 ? (

@@ -503,7 +503,7 @@ export default function Settings() {
         <div className="max-w-6xl mx-auto p-6 space-y-8 pb-24">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold text-white mb-1">Settings & Analytics</h1>
+                    <h1 className="text-3xl font-bold text-white mb-1">System Settings</h1>
                 </div>
 
                 <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800 flex-wrap sm:flex-nowrap gap-1">
@@ -514,12 +514,6 @@ export default function Settings() {
                         System Settings
                     </button>
                     <button
-                        onClick={() => setSettingsNavTab('analytics')}
-                        className={`px-4 py-2 text-xs font-black rounded-xl transition-all ${settingsNavTab === 'analytics' ? 'bg-zinc-800 text-white shadow-lg border border-zinc-700/60' : 'text-zinc-400 hover:text-zinc-200'}`}
-                    >
-                        Analytics & Metrics
-                    </button>
-                    <button
                         onClick={() => setSettingsNavTab('profiles')}
                         className={`px-4 py-2 text-xs font-black rounded-xl transition-all ${settingsNavTab === 'profiles' ? 'bg-zinc-800 text-white shadow-lg border border-zinc-700/60' : 'text-zinc-400 hover:text-zinc-200'}`}
                     >
@@ -528,9 +522,7 @@ export default function Settings() {
                 </div>
             </div>
 
-            {settingsNavTab === 'analytics' ? (
-                <AnalyticsPanel />
-            ) : settingsNavTab === 'profiles' ? (
+            {settingsNavTab === 'profiles' ? (
                 <ProfilesPanel />
             ) : (
                 <>
@@ -736,6 +728,133 @@ export default function Settings() {
                         </button>
                     </div>
                 </div>
+            </div>
+
+            {/* Storage Guard Control Panel */}
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 space-y-6">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                            💾 Storage Guard & Capacity Thresholds
+                        </h2>
+                        <p className="text-xs text-zinc-400 mt-1">Automatic storage protection and content nuking rules when disk space is low.</p>
+                    </div>
+                </div>
+
+                {/* Master ON / OFF Toggle */}
+                <div className="flex items-center justify-between bg-zinc-950 p-4 rounded-xl border border-zinc-800">
+                    <div>
+                        <span className="text-sm font-bold text-white uppercase tracking-wider block">Storage Guard Active</span>
+                        <p className="text-xs text-zinc-400 font-medium">When occupied space exceeds threshold, automatically nuke items according to policy.</p>
+                    </div>
+                    <button
+                        onClick={async () => {
+                            const next = !diskAutocleanEnabled;
+                            setDiskAutocleanEnabled(next);
+                            await updateSetting('storage_guard_enabled', String(next));
+                            await updateSetting('disk_autoclean_enabled', String(next));
+                            toast.success(next ? 'Storage Guard Activated' : 'Storage Guard Deactivated');
+                        }}
+                        className={`w-12 h-6.5 rounded-full transition-all relative flex-shrink-0 p-0.5 ${diskAutocleanEnabled ? 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.4)]' : 'bg-zinc-800'}`}
+                    >
+                        <div className={`w-5.5 h-5.5 rounded-full bg-white transition-transform ${diskAutocleanEnabled ? 'translate-x-5.5' : 'translate-x-0'}`} />
+                    </button>
+                </div>
+
+                {diskAutocleanEnabled && (
+                    <div className="space-y-6 p-4 bg-zinc-950/60 rounded-xl border border-zinc-800">
+                        {/* Threshold Slider & Input */}
+                        <div className="space-y-2">
+                            <div className="flex justify-between items-center text-xs font-bold">
+                                <span className="text-zinc-400 uppercase tracking-wider">Occupied Space Nuke Threshold</span>
+                                <span className="text-emerald-400 font-black text-base">{diskPauseThreshold}%</span>
+                            </div>
+                            <input
+                                type="range"
+                                min="50"
+                                max="99"
+                                value={diskPauseThreshold}
+                                onChange={e => {
+                                    const val = parseInt(e.target.value);
+                                    setDiskPauseThreshold(val);
+                                    updateSetting('storage_guard_threshold', String(val));
+                                    updateSetting('disk_pause_threshold', String(val));
+                                    updateSetting('disk_autoclean_threshold', String(val));
+                                }}
+                                className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                            />
+                        </div>
+
+                        {/* Nuke Selection Priority */}
+                        <div className="space-y-2">
+                            <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Nuke Selection Priority</span>
+                            <div className="grid grid-cols-3 gap-2">
+                                {[
+                                    { id: 'largest', label: 'Largest Downloads' },
+                                    { id: 'oldest', label: 'Oldest Downloads' },
+                                    { id: 'unplayed', label: 'Unplayed Content' }
+                                ].map(mode => (
+                                    <button
+                                        key={mode.id}
+                                        onClick={async () => {
+                                            setDiskSmartCleanMode(mode.id);
+                                            await updateSetting('qbit_smart_clean_mode', mode.id);
+                                        }}
+                                        className={`py-2 px-3 text-xs font-bold rounded-xl uppercase tracking-wider transition-all border ${
+                                            diskSmartCleanMode === mode.id
+                                                ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-sm'
+                                                : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:text-zinc-300'
+                                        }`}
+                                    >
+                                        {mode.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Immunity Window */}
+                        <div className="flex items-center justify-between pt-2">
+                            <div>
+                                <span className="text-sm font-bold text-zinc-300">Immunity Window</span>
+                                <p className="text-xs text-zinc-500">Protect items added within last N days from being nuked</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <input
+                                    type="number"
+                                    min="0"
+                                    max="365"
+                                    value={diskSmartCleanImmunityDays}
+                                    onChange={async e => {
+                                        const val = parseInt(e.target.value) || 0;
+                                        setDiskSmartCleanImmunityDays(val);
+                                        await updateSetting('qbit_smart_clean_immunity_days', String(val));
+                                    }}
+                                    className="w-20 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-sm font-bold text-white text-center outline-none focus:border-emerald-500/50"
+                                />
+                                <span className="text-xs font-bold text-zinc-500">Days</span>
+                            </div>
+                        </div>
+
+                        {/* Also Pause Scheduler Option */}
+                        <div className="flex items-center justify-between border-t border-zinc-800 pt-4">
+                            <div>
+                                <span className="text-sm font-bold text-zinc-300">Also Pause Automated Search Batches</span>
+                                <p className="text-xs text-zinc-500">Pause scheduler search activity when above threshold</p>
+                            </div>
+                            <button
+                                onClick={async () => {
+                                    const next = !diskPauseEnabled;
+                                    setDiskPauseEnabled(next);
+                                    await updateSetting('storage_guard_pause_scheduler', String(next));
+                                    await updateSetting('disk_pause_enabled', String(next));
+                                }}
+                                className={`w-10 h-5.5 rounded-full transition-all relative flex-shrink-0 p-0.5 ${diskPauseEnabled ? 'bg-emerald-500' : 'bg-zinc-800'}`}
+                            >
+                                <div className={`w-4.5 h-4.5 rounded-full bg-white transition-transform ${diskPauseEnabled ? 'translate-x-4.5' : 'translate-x-0'}`} />
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
 
             <div className="space-y-4">
