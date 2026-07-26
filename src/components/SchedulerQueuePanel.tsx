@@ -426,43 +426,75 @@ export function SchedulerQueuePanel() {
 
     return (
         <div className="space-y-6">
-            {/* Scheduler Config Bar */}
-            <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-5 shadow-sm">
-                <div className="flex flex-wrap items-center gap-4">
-                    <span className="text-sm font-semibold text-zinc-300">Scheduler:</span>
-                    <button
-                        onClick={() => { const nc = { ...schedulerConfig, enabled: !schedulerConfig.enabled }; setSchedulerConfig(nc); fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(nc) }); }}
-                        className={`px-4 py-2 text-sm font-bold rounded-lg border transition-all ${schedulerConfig.enabled ? 'bg-green-600 border-green-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.3)]' : 'bg-zinc-800 text-zinc-400 border-zinc-700'}`}
-                    >{schedulerConfig.enabled ? 'ON' : 'OFF'}</button>
-
-                    <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2">
-                        <label className="text-sm text-zinc-400">Interval (m):</label>
-                        <input type="number" min={1} max={10080} value={schedulerConfig.interval}
-                            onChange={e => { const v = Math.max(1, Math.min(10080, Number(e.target.value))); const nc = { ...schedulerConfig, interval: v }; setSchedulerConfig(nc); fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(nc) }); }}
-                            className="w-14 bg-transparent text-white text-sm font-bold outline-none text-center" />
+            {/* Modern Mobile & Tablet Scheduler Config Hero Card */}
+            <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-zinc-900 via-zinc-900/95 to-zinc-950 p-5 sm:p-6 border border-zinc-800/80 shadow-2xl space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 font-extrabold text-sm flex-shrink-0">
+                            ⏱️
+                        </div>
+                        <div>
+                            <h2 className="text-base sm:text-lg font-extrabold text-white">Automated Batch Scheduler</h2>
+                            <p className="text-xs text-zinc-400">Configure search interval, batch sizes, and manual run triggers.</p>
+                        </div>
                     </div>
 
-                    <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-1">
-                        <label className="text-sm text-zinc-400">Batch:</label>
+                    <div className="flex items-center gap-3 w-full sm:w-auto">
+                        <button
+                            onClick={() => { const nc = { ...schedulerConfig, enabled: !schedulerConfig.enabled }; setSchedulerConfig(nc); fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(nc) }); }}
+                            className={`flex-1 sm:flex-none h-11 px-5 text-xs sm:text-sm font-extrabold uppercase tracking-wider rounded-2xl border transition-all touch-target flex items-center justify-center gap-2 ${
+                                schedulerConfig.enabled 
+                                    ? 'bg-emerald-500 hover:bg-emerald-400 text-zinc-950 shadow-[0_0_20px_rgba(16,185,129,0.3)] border-emerald-400' 
+                                    : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white'
+                            }`}
+                        >
+                            <span className={`w-2 h-2 rounded-full ${schedulerConfig.enabled ? 'bg-zinc-950 animate-ping' : 'bg-zinc-500'}`} />
+                            {schedulerConfig.enabled ? 'Engine Active' : 'Engine Paused'}
+                        </button>
+
+                        <button 
+                            onClick={async () => { setIsRunningBatch(true); try { await fetch('/api/scheduler/run', { method: 'POST' }); await fetchData(); } catch { } setIsRunningBatch(false); }}
+                            disabled={isRunningBatch || !schedulerConfig.enabled}
+                            className={`flex-1 sm:flex-none h-11 px-5 text-xs sm:text-sm font-extrabold uppercase tracking-wider rounded-2xl transition-all border touch-target flex items-center justify-center gap-2 ${
+                                isRunningBatch 
+                                    ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' 
+                                    : !schedulerConfig.enabled 
+                                        ? 'bg-zinc-900 text-zinc-600 border-zinc-800 cursor-not-allowed' 
+                                        : 'bg-zinc-800 hover:bg-zinc-700 text-white border-zinc-700 shadow-md'
+                            }`}
+                        >
+                            {isRunningBatch ? <div className="w-4 h-4 rounded-full border-2 border-amber-400 border-t-transparent animate-spin" /> : <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3" /></svg>}
+                            {isRunningBatch ? 'Running...' : 'Run Now'}
+                        </button>
+                    </div>
+                </div>
+
+                {/* Configuration Inputs Grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3 border-t border-zinc-800/60">
+                    <div className="flex flex-col gap-1 bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-3">
+                        <label className="text-[10px] font-extrabold uppercase tracking-wider text-zinc-400">Interval (Minutes)</label>
+                        <input 
+                            type="number" min={1} max={10080} value={schedulerConfig.interval}
+                            onChange={e => { const v = Math.max(1, Math.min(10080, Number(e.target.value))); const nc = { ...schedulerConfig, interval: v }; setSchedulerConfig(nc); fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(nc) }); }}
+                            className="bg-transparent text-white text-sm font-extrabold outline-none w-full" 
+                        />
+                    </div>
+
+                    <div className="flex flex-col gap-1 bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-3">
+                        <label className="text-[10px] font-extrabold uppercase tracking-wider text-zinc-400">Batch Size</label>
                         <CustomSelect minimal options={[...Array(50)].map((_, i) => ({ id: i + 1, name: (i + 1).toString() }))} value={schedulerConfig.batchSize}
                             onChange={val => { const n = Number(String(val).match(/\d+/)?.[0] || 10); const nc = { ...schedulerConfig, batchSize: n }; setSchedulerConfig(nc); fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(nc) }); }} />
                     </div>
 
-                    <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-1">
-                        <label className="text-sm text-zinc-400">Behavior:</label>
+                    <div className="flex flex-col gap-1 bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-3">
+                        <label className="text-[10px] font-extrabold uppercase tracking-wider text-zinc-400">Rotation Mode</label>
                         <CustomSelect minimal options={[{ id: 'repeat', name: 'Repeat' }, { id: 'rotate', name: 'Rotate' }]} value={schedulerConfig.batchBehavior}
                             onChange={val => { const nc = { ...schedulerConfig, batchBehavior: val }; setSchedulerConfig(nc); fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(nc) }); }} />
                     </div>
 
-                    <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-1.5 ml-auto">
-                        <span className="text-sm text-zinc-400">Next:</span>
+                    <div className="flex flex-col gap-1 bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-3 justify-center">
+                        <span className="text-[10px] font-extrabold uppercase tracking-wider text-zinc-400">Next Scheduled Run</span>
                         <CountdownTimer nextRun={nextRun} enabled={schedulerConfig.enabled} />
-                        <button onClick={async () => { setIsRunningBatch(true); try { await fetch('/api/scheduler/run', { method: 'POST' }); await fetchData(); } catch { } setIsRunningBatch(false); }}
-                            disabled={isRunningBatch || !schedulerConfig.enabled}
-                            className={`flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-md ml-2 transition-all ${isRunningBatch ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30' : !schedulerConfig.enabled ? 'bg-zinc-900 text-zinc-600 cursor-not-allowed' : 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-600/30'}`}>
-                            {isRunningBatch ? <div className="w-3 h-3 rounded-full border-2 border-amber-500 border-t-transparent animate-spin" /> : <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3" /></svg>}
-                            {isRunningBatch ? 'Running...' : 'Run Now'}
-                        </button>
                     </div>
                 </div>
             </div>

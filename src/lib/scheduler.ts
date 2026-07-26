@@ -12,13 +12,13 @@ declare global {
 }
 
 import { startSpeedMonitor } from '@/lib/speedMonitor';
+import { performStartupContainerCleanup } from '@/lib/docker';
 
 if (!global.globalSchedulerRunning && process.env.NEXT_PHASE !== 'phase-production-build') {
     global.globalSchedulerRunning = true;
 
-    // Note: For a robust Unraid app handling potential crashes, a library like `node-cron` or `bree` 
-    // or a separate worker thread would be superior. For this single-container Next.js app, 
-    // a `setInterval` initialized on startup is the simplest MVP approach.
+    // Run container cleanup handoff on boot
+    performStartupContainerCleanup().catch(() => {});
 
     const startScheduler = () => {
         console.log('🏁 Schedulearr background orchestrator started.');

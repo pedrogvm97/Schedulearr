@@ -126,43 +126,66 @@ export async function findSelfContainer(docker: any, hostname: string): Promise<
   return null;
 }
 
-/**
- * Recreates a container in-place with a new image tag while preserving all
- * port bindings, volumes, environment variables, and network configurations.
- */
-export async function recreateSelfContainer(docker: any, containerInfo: any, targetImage: string): Promise<boolean> {
-  if (!containerInfo || !containerInfo.Id) {
-    throw new Error('Container info not found');
-  }
-
-  // First: Purge any leftover _old_ containers from previous update attempts
+export async function performStartupContainerCleanup(): Promise<void> {
   try {
+    const docker = getDockerClient();
     const listRes = await docker.get('/containers/json?all=true');
     const containers = listRes.data || [];
+
+    const hostname = process.env.HOSTNAME;
+    if (!hostname) return;
+
+    let currentContainer: any = null;
+    for (const c of containers) {
+      if (c.Id.startsWith(hostname) || hostname.startsWith(c.Id)) {
+        currentContainer = c;
+        break;
+      }
+    }
+
+    if (!currentContainer) return;
+
+    const labels = currentContainer.Labels || {};
+    const cleanupTargetId = labels['schedulearr.cleanup_target'];
+    const originalName = labels['schedulearr.original_name'] || 'Schedulearr';
+
+    if (cleanupTargetId) {
+      // 1. Force stop and delete old container over Docker socket
+      await docker.post(`/containers/${cleanupTargetId}/stop?t=5`).catch(() => {});
+      await docker.delete(`/containers/${cleanupTargetId}?v=true&force=true`).catch(() => {});
+
+      // 2. Rename current container to original name
+      const currentNames = currentContainer.Names || [];
+      const isAlreadyOriginalName = currentNames.some((n: string) => n === `/${originalName}`);
+      if (!isAlreadyOriginalName) {
+        await docker.post(`/containers/${currentContainer.Id}/rename?name=${originalName}`).catch(() => {});
+      }
+    }
+
+    // Clean up any stale orphan containers from past runs
     for (const c of containers) {
       const names = c.Names || [];
-      if (names.some((n: string) => n.includes('_old_'))) {
+      if (c.Id !== currentContainer.Id && names.some((n: string) => n.includes('_new_') || n.includes('_old_'))) {
         await docker.delete(`/containers/${c.Id}?v=true&force=true`).catch(() => {});
       }
     }
-  } catch (e) {}
+  } catch (e) {
+    // Ignore cleanup errors on non-docker environments
+  }
+}
 
-  const containerId = containerInfo.Id;
+export async function recreateSelfContainer(targetImage: string): Promise<boolean> {
+  const containerInfo = await getSelfContainerInfo();
+  if (!containerInfo) {
+    throw new Error('Could not inspect current container over Docker socket.');
+  }
+
+  const docker = getDockerClient();
   const rawName = containerInfo.Name || 'Schedulearr';
-  const name = rawName.replace(/^\//, '');
-  const tempName = `${name}_old_${Date.now()}`;
+  const baseName = rawName.replace(/^\//, '').replace(/_new.*$/, '').replace(/_old.*$/, '');
+  const tempNewName = `${baseName}_new_${Date.now()}`;
 
-  // 1. Stop existing container to release port bindings
-  try {
-    await docker.post(`/containers/${containerId}/stop?t=5`);
-  } catch (e) {}
-
-  // 2. Delete existing container to release container name lock in Docker registry
-  try {
-    await docker.delete(`/containers/${containerId}?v=true&force=true`);
-  } catch (e) {}
-
-  // 3. Prepare minimal clean container config with new image
+  // 1. Prepare minimal clean container config with new image
   const createBody = {
     Image: targetImage,
     Env: containerInfo.Config?.Env || [],
@@ -170,7 +193,11 @@ export async function recreateSelfContainer(docker: any, containerInfo: any, tar
     Entrypoint: containerInfo.Config?.Entrypoint,
     WorkingDir: containerInfo.Config?.WorkingDir,
     Volumes: containerInfo.Config?.Volumes || {},
-    Labels: containerInfo.Config?.Labels || {},
+    Labels: {
+      ...(containerInfo.Config?.Labels || {}),
+      'schedulearr.cleanup_target': containerInfo.Id,
+      'schedulearr.original_name': baseName
+    },
     HostConfig: {
       Binds: containerInfo.HostConfig?.Binds || [],
       NetworkMode: 'host',
@@ -178,11 +205,13 @@ export async function recreateSelfContainer(docker: any, containerInfo: any, tar
     }
   };
 
-  // 4. Create new container with original name
-  const createRes = await docker.post(`/containers/create?name=${name}`, createBody);
+  // 2. Create replacement container under temporary unique name (no 409 name conflicts, process stays alive)
+  const createRes = await docker.post(`/containers/create?name=${tempNewName}`, createBody);
   const newContainerId = createRes.data.Id;
 
-  // 5. Start new container
+  // 3. Start replacement container
   await docker.post(`/containers/${newContainerId}/start`);
+
+  // 4. Return true cleanly to HTTP SSE stream
   return true;
 }
