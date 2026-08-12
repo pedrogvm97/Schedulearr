@@ -18,7 +18,6 @@ export default function Settings() {
     // Housekeeping stats
     const [dbStats, setDbStats] = useState<{ totalSizeBytes: number, tableStats: any[] } | null>(null);
     const [isHousekeepingOpen, setIsHousekeepingOpen] = useState(false);
-    const [isDiskOpen, setIsDiskOpen] = useState(false);
     const [isQbitCleanOpen, setIsQbitCleanOpen] = useState(false);
     const [editTargetId, setEditTargetId] = useState<string | null>(null);
     const [schedulerConfig, setSchedulerConfig] = useState({ enabled: true, interval: 30, batchSize: 10, batchBehavior: 'repeat', maxAttempts: 3 });
