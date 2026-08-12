@@ -343,3 +343,15 @@ export const triggerRescanMovie = async (url: string, apiKey: string, movieId: n
     }
 };
 
+export const getCalendar = async (url: string, apiKey: string, start: string, end: string, unmonitored: boolean = true) => {
+    try {
+        const res = await axios.get(`${url}/api/v3/calendar`, {
+            params: { start, end, unmonitored },
+            headers: { 'X-Api-Key': apiKey }
+        });
+        return res.data;
+    } catch (e) {
+        console.error(`Error fetching calendar from Radarr (${url}):`, e);
+        return [];
+    }
+};
