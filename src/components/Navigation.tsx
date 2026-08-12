@@ -16,6 +16,7 @@ const primaryNavItems = [
                 <line x1="2" y1="12" x2="22" y2="12"></line>
             </svg>
         )
+    }
 ];
 
 const secondaryNavItems = [
