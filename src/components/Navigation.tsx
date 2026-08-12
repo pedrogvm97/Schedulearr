@@ -16,21 +16,6 @@ const primaryNavItems = [
                 <line x1="2" y1="12" x2="22" y2="12"></line>
             </svg>
         )
-    },
-    {
-        href: '/scheduler',
-        label: 'Scheduler',
-        icon: (active: boolean) => (
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={active ? 2.5 : 2} strokeLinecap="round" strokeLinejoin="round">
-                <line x1="8" y1="6" x2="21" y2="6"></line>
-                <line x1="8" y1="12" x2="21" y2="12"></line>
-                <line x1="8" y1="18" x2="21" y2="18"></line>
-                <line x1="3" y1="6" x2="3.01" y2="6"></line>
-                <line x1="3" y1="12" x2="3.01" y2="12"></line>
-                <line x1="3" y1="18" x2="3.01" y2="18"></line>
-            </svg>
-        )
-    }
 ];
 
 const secondaryNavItems = [
@@ -92,15 +77,14 @@ const secondaryNavItems = [
 
 const mobileNavItems = [
     primaryNavItems[0], // My Media
-    primaryNavItems[1], // Scheduler
     secondaryNavItems[0], // Downloads
+    secondaryNavItems[1], // Indexers
     secondaryNavItems[3], // Analytics
     secondaryNavItems[4]  // Settings
 ];
 
 export function Navigation() {
     const pathname = usePathname();
-    const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
     const allNavItems = [...primaryNavItems, ...secondaryNavItems];
 
@@ -115,68 +99,12 @@ export function Navigation() {
                     <div className="flex flex-col">
                         <div className="flex items-center gap-1.5">
                             <span className="font-extrabold text-sm text-white tracking-tight">Schedulearr</span>
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
                         </div>
                     </div>
                 </Link>
-
-                <button
-                    onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                    className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-300 active:scale-95 transition-all flex items-center gap-1.5 touch-target"
-                    aria-label="Toggle Navigation Menu"
-                >
-                    {mobileMenuOpen ? (
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <line x1="18" y1="6" x2="6" y2="18"></line>
-                            <line x1="6" y1="6" x2="18" y2="18"></line>
-                        </svg>
-                    ) : (
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <line x1="3" y1="12" x2="21" y2="12"></line>
-                            <line x1="3" y1="6" x2="21" y2="6"></line>
-                            <line x1="3" y1="18" x2="21" y2="18"></line>
-                        </svg>
-                    )}
-                </button>
             </header>
 
-            {/* Mobile Full-Screen Menu Drawer (<640px) */}
-            {mobileMenuOpen && (
-                <div className="sm:hidden fixed inset-0 z-40 bg-zinc-950/98 backdrop-blur-3xl pt-16 px-4 pb-24 overflow-y-auto space-y-3 animate-in fade-in slide-in-from-top-4 duration-200">
-                    <div className="p-3 bg-zinc-900/50 border border-zinc-800/80 rounded-2xl mb-4">
-                        <span className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-400">Navigation Menu</span>
-                    </div>
-
-                    {allNavItems.map(item => {
-                        const active = pathname === item.href;
-                        return (
-                            <Link
-                                key={item.href}
-                                href={item.href}
-                                onClick={() => setMobileMenuOpen(false)}
-                                className={`flex items-center gap-3.5 p-4 rounded-2xl border transition-all active:scale-98 ${
-                                    active 
-                                        ? 'bg-emerald-500/10 border-emerald-500/30 text-white shadow-lg shadow-emerald-950/20' 
-                                        : 'bg-zinc-900/60 border-zinc-800/80 text-zinc-300 hover:bg-zinc-900'
-                                }`}
-                            >
-                                <div className={`p-2.5 rounded-xl ${active ? 'bg-emerald-500/20 text-emerald-400' : 'bg-zinc-800 text-zinc-400'}`}>
-                                    {item.icon(active)}
-                                </div>
-                                <div className="flex flex-col">
-                                    <span className="font-extrabold text-sm text-white">{item.label}</span>
-                                    <span className="text-xs text-zinc-400">Open {item.label} overview</span>
-                                </div>
-                                {active && (
-                                    <span className="ml-auto w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]" />
-                                )}
-                            </Link>
-                        );
-                    })}
-                </div>
-            )}
-
-            {/* Desktop & Tablet Top Nav (≥640px) — Zero Horizontal Scroll */}
+            {/* Desktop & Tablet Top Nav (≥640px) */}
             <nav className="hidden sm:block border-b border-zinc-800/60 bg-zinc-950/70 backdrop-blur-2xl sticky top-0 z-50 w-full max-w-full">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
                     <Link href="/" className="flex items-center gap-3 group flex-shrink-0">
@@ -185,7 +113,6 @@ export function Navigation() {
                         </div>
                         <div className="flex flex-col">
                             <span className="font-extrabold text-base text-white tracking-tight">Schedulearr</span>
-                            <span className="text-[10px] font-semibold uppercase tracking-widest text-emerald-400/90 leading-none">Automated Engine</span>
                         </div>
                     </Link>
 

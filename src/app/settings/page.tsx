@@ -18,7 +18,11 @@ export default function Settings() {
     // Housekeeping stats
     const [dbStats, setDbStats] = useState<{ totalSizeBytes: number, tableStats: any[] } | null>(null);
     const [isHousekeepingOpen, setIsHousekeepingOpen] = useState(false);
+    const [isDiskOpen, setIsDiskOpen] = useState(false);
+    const [isQbitCleanOpen, setIsQbitCleanOpen] = useState(false);
     const [editTargetId, setEditTargetId] = useState<string | null>(null);
+    const [schedulerConfig, setSchedulerConfig] = useState({ enabled: true, interval: 30, batchSize: 10, batchBehavior: 'repeat', maxAttempts: 3 });
+    const [isRunningBatch, setIsRunningBatch] = useState(false);
     const [type, setType] = useState("radarr");
     const [name, setName] = useState("");
     const [url, setUrl] = useState("");
@@ -124,7 +128,7 @@ export default function Settings() {
 
                         setPlexPairing(false);
                         setPlexPairingStatus(null);
-                        toast.success("⚡ Plex Account Paired Successfully!");
+                        toast.success("Plex Account Paired Successfully!");
                     }
                 } catch (e) {}
             }, 2000);
@@ -243,6 +247,12 @@ export default function Settings() {
             const data = await res.json();
             if (Array.isArray(data)) setInstances(data);
 
+            const cRes = await fetch('/api/scheduler/status');
+            if (cRes.ok) {
+                const cData = await cRes.json();
+                setSchedulerConfig({ enabled: cData.enabled, interval: cData.interval, batchSize: cData.batchSize, batchBehavior: cData.batchBehavior || 'repeat', maxAttempts: cData.maxAttempts || 3 });
+            }
+
             // Fetch All Settings
             const sRes = await fetch('/api/settings');
             if (sRes.ok) {
@@ -329,7 +339,7 @@ export default function Settings() {
         const isDowngrade = versionInfo?.currentVersion && tagToUse.replace(/^v/, '') < versionInfo.currentVersion;
         
         setConfirmModal({
-            title: isDowngrade ? `⬇️ Downgrade to ${tagToUse}` : `🚀 Install ${tagToUse}`,
+            title: isDowngrade ? `Downgrade to ${tagToUse}` : `Install ${tagToUse}`,
             message: `This will pull the Docker image for ${tagToUse} and automatically restart the container. The app will be briefly offline while restarting.`,
             confirmLabel: isDowngrade ? 'Yes, Downgrade Now' : 'Yes, Install Now',
             onConfirm: () => {
@@ -466,7 +476,7 @@ export default function Settings() {
 
     const handleDelete = async (id: string) => {
         setConfirmModal({
-            title: '🗑️ Delete Instance',
+            title: 'Delete Instance',
             message: 'Are you sure you want to delete this instance? This cannot be undone.',
             confirmLabel: 'Delete',
             danger: true,
@@ -668,7 +678,55 @@ export default function Settings() {
                         <p className="text-[10px] text-zinc-500 mt-2">Enable this for better trending and discovery results on the discovery page.</p>
                     </div>
                     <div className="pt-4 border-t border-zinc-800 space-y-4">
-                    {/* Removed Network Speed Interval from here - moved to Dashboard Analytics card */}
+                        <h3 className="text-sm font-bold text-white mb-2">Scheduler Configuration</h3>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                            <div className="flex flex-col gap-1">
+                                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Interval (Min)</label>
+                                <input
+                                    type="number" min={1} max={10080} value={schedulerConfig.interval}
+                                    onChange={e => { const v = Math.max(1, Math.min(10080, Number(e.target.value))); const nc = { ...schedulerConfig, interval: v }; setSchedulerConfig(nc); fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(nc) }); }}
+                                    className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white outline-none"
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Batch Size</label>
+                                <CustomSelect options={[...Array(50)].map((_, i) => ({ id: i + 1, name: (i + 1).toString() }))} value={schedulerConfig.batchSize}
+                                    onChange={val => { const n = Number(String(val).match(/\d+/)?.[0] || 10); const nc = { ...schedulerConfig, batchSize: n }; setSchedulerConfig(nc); fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(nc) }); }} />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Rotation Mode</label>
+                                <CustomSelect options={[{ id: 'repeat', name: 'Repeat' }, { id: 'rotate', name: 'Rotate' }]} value={schedulerConfig.batchBehavior}
+                                    onChange={val => { const nc = { ...schedulerConfig, batchBehavior: val as string }; setSchedulerConfig(nc); fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(nc) }); }} />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">State</label>
+                                <button
+                                    onClick={() => { const nc = { ...schedulerConfig, enabled: !schedulerConfig.enabled }; setSchedulerConfig(nc); fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(nc) }); }}
+                                    className={`h-10 px-4 text-xs font-bold uppercase rounded-lg transition-all border ${
+                                        schedulerConfig.enabled
+                                            ? 'bg-emerald-500 hover:bg-emerald-400 text-zinc-950 border-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.3)]'
+                                            : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white'
+                                    }`}
+                                >
+                                    {schedulerConfig.enabled ? 'Enabled' : 'Paused'}
+                                </button>
+                            </div>
+                        </div>
+                        <div className="pt-2">
+                            <button
+                                onClick={async () => { setIsRunningBatch(true); try { await fetch('/api/scheduler/run', { method: 'POST' }); toast.success('Batch search triggered!'); } catch { toast.error('Failed to trigger search.'); } setIsRunningBatch(false); }}
+                                disabled={isRunningBatch || !schedulerConfig.enabled}
+                                className={`w-full h-11 text-xs font-bold uppercase tracking-wider rounded-xl transition-all border ${
+                                    isRunningBatch
+                                        ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                                        : !schedulerConfig.enabled
+                                            ? 'bg-zinc-900 text-zinc-600 border-zinc-800 cursor-not-allowed'
+                                            : 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500'
+                                }`}
+                            >
+                                {isRunningBatch ? 'Running...' : 'Run Batch Search Now'}
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -837,7 +895,7 @@ export default function Settings() {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-800">
                     <div>
                         <h2 className="text-xl font-black text-white flex items-center gap-2.5">
-                            💾 Storage Guard
+                            Storage Guard
                             <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
                                 diskAutocleanEnabled ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-[0_0_10px_rgba(16,185,129,0.2)]' : 'bg-zinc-800 text-zinc-500 border border-zinc-700'
                             }`}>
@@ -1346,7 +1404,7 @@ export default function Settings() {
                         {/* Auto-Update Toggle */}
                         <div className="px-6 pb-5 flex items-center justify-between gap-4 border-t border-zinc-800/50 pt-5">
                             <div className="space-y-0.5">
-                                <p className="text-sm font-bold text-white">🤖 Auto-Update</p>
+                                <p className="text-sm font-bold text-white">Auto-Update</p>
                                 <p className="text-xs text-zinc-500 leading-relaxed">Automatically pull &amp; apply new versions every 6 hours — no clicking needed. Requires the Docker socket to be mapped.</p>
                             </div>
                             <button
@@ -1354,7 +1412,7 @@ export default function Settings() {
                                     const newVal = !autoUpdateEnabled;
                                     setAutoUpdateEnabled(newVal);
                                     await updateSetting('auto_update_enabled', String(newVal));
-                                    toast.success(newVal ? '🤖 Auto-Update enabled!' : 'Auto-Update disabled');
+                                    toast.success(newVal ? 'Auto-Update enabled!' : 'Auto-Update disabled');
                                 }}
                                 className={`relative inline-flex h-7 w-14 shrink-0 cursor-pointer items-center rounded-full border-2 transition-all duration-300 focus:outline-none ${
                                     autoUpdateEnabled
@@ -1462,16 +1520,16 @@ export default function Settings() {
                                         </div>
                                         
                                         <h3 className="text-lg font-black text-white group-hover:text-yellow-400 transition-colors flex items-center gap-2">
-                                            ⚠️ Docker Socket Check
+                                            Docker Socket Check
                                         </h3>
                                         <p className="text-sm font-medium text-yellow-100/90 leading-relaxed">
-                                            Docker is NOT connected! Click this yellow box to fix it in 3 seconds.
+                                            Docker is NOT connected! Click this yellow box to view instructions.
                                         </p>
                                     </div>
                                     
                                     <div className="mt-6 pt-3 border-t border-yellow-500/20 text-center">
                                         <span className="text-xs text-yellow-400 font-black uppercase tracking-wider flex items-center justify-center gap-1.5 group-hover:text-yellow-300">
-                                            👉 CLICK HERE TO FIX IT NOW! 👈
+                                            Click to Troubleshoot
                                         </span>
                                     </div>
                                 </div>
@@ -1514,16 +1572,16 @@ export default function Settings() {
                                         </div>
                                         
                                         <h3 className="text-lg font-black text-white group-hover:text-yellow-400 transition-colors flex items-center gap-2">
-                                            ⚠️ Folder Permissions Check
+                                            Folder Permissions Check
                                         </h3>
                                         <p className="text-sm font-medium text-yellow-100/90 leading-relaxed">
-                                            Database is locked! Click this yellow box to fix it in 3 seconds.
+                                            Database is locked! Click this yellow box to view instructions.
                                         </p>
                                     </div>
                                     
                                     <div className="mt-6 pt-3 border-t border-yellow-500/20 text-center">
                                         <span className="text-xs text-yellow-400 font-black uppercase tracking-wider flex items-center justify-center gap-1.5 group-hover:text-yellow-300">
-                                            👉 CLICK HERE TO FIX IT NOW! 👈
+                                            Click to Troubleshoot
                                         </span>
                                     </div>
                                 </div>
@@ -1698,12 +1756,41 @@ export default function Settings() {
                                 )}
                             </div>
                         </div>
+                    </div>
+                )}
+            </div>
 
-                        {/* Automated Smart Auto-Clean when full */}
+            {/* QBit Auto Cleaner (Library Cleanup) */}
+            <div className={`bg-zinc-900 border ${isQbitCleanOpen ? 'border-violet-500/30' : 'border-zinc-800'} rounded-2xl transition-all overflow-hidden shadow-lg mt-6`}>
+                <button
+                    onClick={() => {
+                        setIsQbitCleanOpen(!isQbitCleanOpen);
+                        if (!isQbitCleanOpen) {
+                            fetchCandidates();
+                        }
+                    }}
+                    className="w-full flex items-center justify-between p-5 hover:bg-zinc-800/50 transition-colors"
+                >
+                    <div className="flex items-center gap-4">
+                        <div className={`p-2.5 rounded-xl ${isQbitCleanOpen ? 'bg-violet-500/10 text-violet-400' : 'bg-zinc-800 text-zinc-500'}`}>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+                        </div>
+                        <div className="text-left">
+                            <h2 className="text-base font-bold text-white tracking-tight">Auto-Cleaner</h2>
+                            <p className="text-xs text-zinc-500 font-medium">Automatically manage and delete older library media to free up space.</p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`text-zinc-500 transition-transform duration-300 ${isQbitCleanOpen ? 'rotate-180' : ''}`}><path d="m6 9 6 6 6-6" /></svg>
+                    </div>
+                </button>
+
+                {isQbitCleanOpen && (
+                    <div className="p-6 pt-0 border-t border-zinc-800/50 animate-in fade-in slide-in-from-top-4 duration-300 space-y-6 mt-0 pt-6">
                         <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-4">
                             <div className="flex items-center justify-between">
                                 <div>
-                                    <div className="text-sm font-bold text-zinc-200">Smart Auto-Clean Library Media When Full</div>
+                                    <div className="text-sm font-bold text-zinc-200">Enable Smart Auto-Clean</div>
                                     <p className="text-[10px] text-zinc-500 font-medium mt-0.5">
                                         Automatically delete library media files from Radarr/Sonarr to free up space when the threshold is reached.
                                     </p>
@@ -1805,7 +1892,7 @@ export default function Settings() {
 
                                 <div className="p-3 bg-emerald-500/5 border border-emerald-500/10 rounded-xl">
                                     <p className="text-[10px] text-emerald-400 font-medium leading-relaxed">
-                                        ⚠️ <strong>CRITICAL NOTE:</strong> Automated cleanup checks every 15 minutes and operates <strong>WHILE</strong> disk space is <strong>ABOVE</strong> the threshold ({diskPauseThreshold}%). It will delete items sequentially from Radarr/Sonarr until space is below the threshold.
+                                        <strong>CRITICAL NOTE:</strong> Automated cleanup checks every 15 minutes and operates <strong>WHILE</strong> disk space is <strong>ABOVE</strong> the threshold ({diskPauseThreshold}%). It will delete items sequentially from Radarr/Sonarr until space is below the threshold.
                                     </p>
                                 </div>
 
@@ -2077,7 +2164,7 @@ export default function Settings() {
                     />
                     <div>
                         <p className="font-medium text-zinc-300 text-base">Schedulearr is free and unlocked forever.</p>
-                        <p className="text-zinc-500 mt-1">If this app saved you time, <a href="https://ko-fi.com/flash4k" target="_blank" rel="noopener noreferrer" className="text-emerald-500 hover:text-emerald-400 font-semibold underline underline-offset-2 transition-colors">you can buy me a coffee here!</a> ☕</p>
+                        <p className="text-zinc-500 mt-1">If this app saved you time, <a href="https://ko-fi.com/flash4k" target="_blank" rel="noopener noreferrer" className="text-emerald-500 hover:text-emerald-400 font-semibold underline underline-offset-2 transition-colors">you can buy me a coffee here!</a></p>
                     </div>
                 </div>
                 <div className="text-zinc-600 text-xs text-center md:text-right">
@@ -2168,7 +2255,7 @@ export default function Settings() {
 
                         <div className="space-y-4">
                             <div className="bg-amber-950/20 border border-amber-500/10 p-4 rounded-xl text-xs text-zinc-300 leading-relaxed space-y-2">
-                                <p className="font-bold text-white">🍼 What's the problem?</p>
+                                <p className="font-bold text-white">What's the problem?</p>
                                 <p>Schedulearr cannot talk to Unraid's Docker service. This means Schedulearr cannot update itself automatically when a new version is released!</p>
                             </div>
 
@@ -2258,12 +2345,12 @@ export default function Settings() {
 
                         <div className="space-y-4">
                             <div className="bg-red-950/20 border border-red-500/10 p-4 rounded-xl text-xs text-zinc-300 leading-relaxed space-y-2">
-                                <p className="font-bold text-white">🍼 What's the problem?</p>
+                                <p className="font-bold text-white">What's the problem?</p>
                                 <p>Schedulearr is locked out of its database folder! Unraid's permissions are preventing the app from saving settings and syncing media.</p>
                             </div>
 
                             <div className="space-y-3">
-                                <p className="text-xs font-black text-white uppercase tracking-wider">👉 How to fix in 3 seconds:</p>
+                                <p className="text-xs font-black text-white uppercase tracking-wider">How to fix in 3 seconds:</p>
                                 <ol className="list-decimal list-inside text-xs text-zinc-400 space-y-2 pl-1 leading-relaxed">
                                     <li>Click the big <span className="text-red-400 font-bold">Copy Command</span> button below.</li>
                                     <li>Open your <span className="text-white font-bold">Unraid Terminal</span> (click the little <strong>&gt;_</strong> icon at the top right of your Unraid web page).</li>

@@ -10,9 +10,9 @@ export async function GET() {
     try {
         const radarrInstances = getInstances("radarr", true);
         const sonarrInstances = getInstances("sonarr", true);
-        const mode = getSetting("qbit_smart_clean_mode") || "largest";
-        const immunityEnabled = getSetting("qbit_smart_clean_immunity_enabled") === "true";
-        const immunityDays = parseInt(getSetting("qbit_smart_clean_immunity_days") || "7");
+        const mode = getSetting("media_smart_clean_mode") || "largest";
+        const immunityEnabled = getSetting("media_smart_clean_immunity_enabled") === "true";
+        const immunityDays = parseInt(getSetting("media_smart_clean_immunity_days") || "7");
         const seriesLevel = (getSetting("media_smart_clean_series_level") || "series");
 
         const ignoredKeysStr = getSetting("media_smart_clean_ignored_keys") || "[]";

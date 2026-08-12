@@ -239,12 +239,25 @@ export async function getDiskUsagePercent(): Promise<number> {
     const uniqueVolumes = new Map<string, typeof allFolders[0]>();
     for (const f of allFolders) {
         if (f.totalBytes <= 0) continue;
-        const totalMB = Math.round(f.totalBytes / (1024 * 1024 * 10));
-        const freeMB = Math.round(f.freeBytes / (1024 * 1024 * 10));
-        const volumeSig = `${totalMB}_${freeMB}`;
+        
+        let foundKey: string | null = null;
+        for (const [key, existing] of uniqueVolumes.entries()) {
+            if (existing.totalBytes === f.totalBytes) {
+                const diffBytes = Math.abs(existing.freeBytes - f.freeBytes);
+                if (diffBytes < 500 * 1024 * 1024) {
+                    foundKey = key;
+                    break;
+                }
+            }
+        }
 
-        if (!uniqueVolumes.has(volumeSig)) {
-            uniqueVolumes.set(volumeSig, f);
+        if (foundKey) {
+            const existing = uniqueVolumes.get(foundKey)!;
+            if (f.freeBytes < existing.freeBytes) {
+                uniqueVolumes.set(foundKey, f);
+            }
+        } else {
+            uniqueVolumes.set(`${f.path}_${f.totalBytes}_${f.freeBytes}`, f);
         }
     }
 
@@ -263,9 +276,9 @@ export async function runSmartCleanup() {
         return { success: false, message: 'No active Radarr or Sonarr instances.' };
     }
 
-    const mode = getSetting('qbit_smart_clean_mode') || 'largest';
-    const immunityEnabled = getSetting('qbit_smart_clean_immunity_enabled') === 'true';
-    const immunityDays = parseInt(getSetting('qbit_smart_clean_immunity_days') || '7');
+    const mode = getSetting('media_smart_clean_mode') || 'largest';
+    const immunityEnabled = getSetting('media_smart_clean_immunity_enabled') === 'true';
+    const immunityDays = parseInt(getSetting('media_smart_clean_immunity_days') || '7');
     const seriesLevel = (getSetting('media_smart_clean_series_level') || 'series') as 'series' | 'season' | 'episode';
 
     let cleanedCount = 0;

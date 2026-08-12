@@ -475,46 +475,15 @@ function UnifiedMediaCard({
 
                 <div className="absolute inset-0 bg-gradient-to-t from-[#090909] via-transparent to-transparent opacity-90" />
                 
-                {/* Float Action buttons on top of poster */}
-                <div className="absolute top-3 left-3 right-3 flex justify-between items-start opacity-0 group-hover:opacity-100 transition-all duration-300 z-30 translate-y-[-10px] group-hover:translate-y-0">
+                {/* Badges on top of poster */}
+                <div className="absolute top-3 left-3 right-3 flex justify-between items-start z-30">
                     <div className="flex flex-col gap-1.5">
                         {platform && <span className={`w-fit px-2.5 py-1 rounded-lg text-[9px] font-black border backdrop-blur-sm ${platform.color}`}>{platform.label}</span>}
                         {rating != null && <span className="w-fit flex items-center gap-1 px-2.5 py-1 rounded-lg bg-black/60 backdrop-blur-sm border border-white/10 text-[9px] font-black text-amber-400">★ {rating.toFixed(1)}</span>}
                     </div>
 
                     <div className="flex gap-1.5">
-                        {libStatus.exists ? (
-                            <>
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); onInteractiveSearch({ type: isSeries ? 'series' : 'movie', id: libId, instanceId, title: item.title, poster }); }}
-                                    className="p-2.5 rounded-xl bg-black/60 backdrop-blur-xl border border-white/10 text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all shadow-xl"
-                                    title="Interactive Search"
-                                >
-                                    <Search size={14} />
-                                </button>
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); onQuickSearch({ type: isSeries ? 'series' : 'movie', id: libId, instanceId }); }}
-                                    className="p-2.5 rounded-xl bg-black/60 backdrop-blur-xl border border-white/10 text-zinc-400 hover:text-emerald-400 hover:bg-zinc-800 transition-all shadow-xl"
-                                    title="Automatic Quick Search"
-                                >
-                                    <PlayCircle size={14} />
-                                </button>
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); onTransfer(transferPayload); }}
-                                    className="p-2.5 rounded-xl bg-black/60 backdrop-blur-xl border border-white/10 text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all shadow-xl"
-                                    title="Transfer / Copy Instance"
-                                >
-                                    <MoveHorizontal size={14} />
-                                </button>
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); onDelete(deletePayload); }}
-                                    className="p-2.5 rounded-xl bg-red-500/10 backdrop-blur-xl border border-red-500/20 text-red-500 hover:bg-red-500 hover:text-white transition-all shadow-xl"
-                                    title="Delete from Library"
-                                >
-                                    <Trash2 size={14} />
-                                </button>
-                            </>
-                        ) : (
+                        {!libStatus.exists && (
                             <div className="px-2 py-1 rounded bg-black/40 border border-white/5 text-[9px] font-black text-zinc-500 uppercase tracking-widest backdrop-blur-sm">
                                 Not in Library
                             </div>
@@ -985,50 +954,24 @@ export default function DiscoverPage() {
         const endpoint = mediaType === 'movie' ? '/api/radarr/lookup' : '/api/sonarr/lookup';
         
         try {
-            const isFilteringActive = filterGenre !== 'All' || filterPlatform !== 'All' || filterYear !== 'All' || filterRating > 0;
-            const pagesToFetchCount = isFilteringActive ? 15 : 5;
-            const startPage = (currentPage * pagesToFetchCount) + 1;
-            const pagesToFetch = Array.from({ length: pagesToFetchCount }, (_, i) => startPage + i);
-            
-            const responses = await Promise.all(
-                pagesToFetch.map(p => 
-                    fetch(`${endpoint}?instanceId=${targetId}&term=${encodeURIComponent(searchQuery)}&page=${p}`)
-                        .then(r => r.ok ? r.json() : null)
-                        .catch(() => null)
-                )
-            );
-
-            let pooledResults: any[] = [];
-            let tmdbTotalPages = 1;
-
-            responses.forEach(data => {
-                if (data && Array.isArray(data.results)) {
-                    pooledResults.push(...data.results);
-                    if (data.total_pages) tmdbTotalPages = data.total_pages;
-                }
-            });
-
-            // Deduplicate by tmdbId or title
-            const seen = new Set();
-            pooledResults = pooledResults.filter(item => {
-                const id = item.tmdbId || item.id || item.title;
-                if (!id || seen.has(id)) return false;
-                seen.add(id);
-                return true;
-            });
-
-            setResults(pooledResults);
-            setServerTotalPages(Math.max(1, Math.ceil(tmdbTotalPages / pagesToFetchCount)));
+            const res = await fetch(`${endpoint}?instanceId=${targetId}&term=${encodeURIComponent(searchQuery)}&page=1`);
+            if (res.ok) {
+                const data = await res.json();
+                const fetched = Array.isArray(data.results) ? data.results : (Array.isArray(data) ? data : []);
+                setResults(fetched);
+                setServerTotalPages(data.total_pages || 1);
+            } else {
+                toast.error('Search returned no results');
+            }
         } catch {
             toast.error('Search failed');
         } finally {
             setIsSearching(false);
         }
-    }, [searchQuery, selectedInstanceIds, availableInstances, mediaType, currentPage, filterGenre, filterPlatform, filterYear, filterRating]);
+    }, [searchQuery, selectedInstanceIds, availableInstances, mediaType]);
 
     const handleFinalAdd = useCallback(async (item: any, targetInstanceId: string, profileId: number, rootFolderPath: string, startSearch: boolean) => {
         setIsAddingInModal(true);
-        const idStr = item.tmdbId ? `tmdb-${item.tmdbId}` : `tvdb-${item.tvdbId}`;
         const endpoint = mediaType === 'movie' ? '/api/radarr/add' : '/api/sonarr/add';
         try {
             const res = await fetch(endpoint, {
@@ -1036,11 +979,13 @@ export default function DiscoverPage() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     instanceId: targetInstanceId,
-                    item,
-                    qualityProfileId: profileId,
-                    rootFolderPath: rootFolderPath,
+                    tmdbId: item.tmdbId,
+                    tvdbId: item.tvdbId,
+                    title: item.title,
+                    profileId,
+                    rootFolderPath,
                     startSearch,
-                }),
+                })
             });
             if (res.ok) {
                 const added = await res.json();
@@ -1089,10 +1034,6 @@ export default function DiscoverPage() {
 
     const filteredDiscovery = useMemo(() => {
         let items = [...results];
-        if (searchQuery && !isSearching) {
-            const q = searchQuery.toLowerCase().trim();
-            items = items.filter(i => i.title?.toLowerCase().includes(q) || i.overview?.toLowerCase().includes(q));
-        }
         if (filterGenre !== 'All') {
             const target = filterGenre.toLowerCase();
             items = items.filter(i => {

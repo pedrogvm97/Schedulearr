@@ -420,7 +420,7 @@ export function MediaDetailsPanel({
                                             className="flex-1 min-h-[44px] px-3 py-2.5 rounded-xl bg-zinc-900 border border-white/5 text-zinc-300 hover:text-white hover:border-white/10 active:scale-95 transition-all flex items-center justify-center gap-2 text-xs font-black uppercase tracking-wider touch-target"
                                             title="Interactive Search"
                                         >
-                                            <Search size={14} /> Interactive
+                                            <Search size={14} /> Search
                                         </button>
                                         <button
                                             onClick={() => onQuickSearch?.({
@@ -431,7 +431,7 @@ export function MediaDetailsPanel({
                                             className="flex-1 min-h-[44px] px-3 py-2.5 rounded-xl bg-zinc-900 border border-white/5 text-zinc-300 hover:text-emerald-400 hover:border-white/10 active:scale-95 transition-all flex items-center justify-center gap-2 text-xs font-black uppercase tracking-wider touch-target"
                                             title="Automatic Search"
                                         >
-                                            <PlayCircle size={14} /> Quick Search
+                                            <PlayCircle size={14} /> Auto Search
                                         </button>
                                         <button
                                             onClick={() => onTransfer?.({
@@ -445,7 +445,7 @@ export function MediaDetailsPanel({
                                             className="w-full min-h-[44px] px-3 py-2.5 rounded-xl bg-zinc-900 border border-white/5 text-zinc-300 hover:text-white hover:border-white/10 active:scale-95 transition-all flex items-center justify-center gap-2 text-xs font-black uppercase tracking-wider touch-target"
                                             title="Transfer / Copy Instance"
                                         >
-                                            <MoveHorizontal size={14} /> Transfer Instance
+                                            <MoveHorizontal size={14} /> Transfer
                                         </button>
                                         <button
                                             onClick={() => onDelete?.({
@@ -457,7 +457,7 @@ export function MediaDetailsPanel({
                                             className="w-full min-h-[44px] px-3 py-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white active:scale-95 transition-all flex items-center justify-center gap-2 text-xs font-black uppercase tracking-wider touch-target"
                                             title="Delete from Library"
                                         >
-                                            <Trash2 size={14} /> Delete Media
+                                            <Trash2 size={14} /> Delete
                                         </button>
                                     </div>
                                 </>

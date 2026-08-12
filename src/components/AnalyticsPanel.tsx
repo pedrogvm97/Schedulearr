@@ -176,9 +176,9 @@ export function AnalyticsPanel() {
     if (allSettings.disk_pause_enabled) setDiskPauseEnabled(allSettings.disk_pause_enabled === 'true');
     if (allSettings.disk_pause_threshold) setDiskPauseThreshold(parseInt(allSettings.disk_pause_threshold) || 90);
     if (allSettings.disk_autoclean_enabled) setDiskAutocleanEnabled(allSettings.disk_autoclean_enabled === 'true');
-    if (allSettings.qbit_smart_clean_mode) setDiskSmartCleanMode(allSettings.qbit_smart_clean_mode);
-    if (allSettings.qbit_smart_clean_immunity_enabled) setDiskSmartCleanImmunityEnabled(allSettings.qbit_smart_clean_immunity_enabled === 'true');
-    if (allSettings.qbit_smart_clean_immunity_days) setDiskSmartCleanImmunityDays(parseInt(allSettings.qbit_smart_clean_immunity_days) || 7);
+    if (allSettings.media_smart_clean_mode) setDiskSmartCleanMode(allSettings.media_smart_clean_mode);
+    if (allSettings.media_smart_clean_immunity_enabled) setDiskSmartCleanImmunityEnabled(allSettings.media_smart_clean_immunity_enabled === 'true');
+    if (allSettings.media_smart_clean_immunity_days) setDiskSmartCleanImmunityDays(parseInt(allSettings.media_smart_clean_immunity_days) || 7);
   }, [allSettings]);
 
   const updateSetting = async (key: string, value: any) => {
@@ -523,7 +523,7 @@ export function AnalyticsPanel() {
                       : 'text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
-                  📊 System Overview
+                  System Overview
                 </button>
                 <button
                   onClick={() => setDashboardSubtab('tautulli')}
@@ -533,37 +533,11 @@ export function AnalyticsPanel() {
                       : 'text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
-                  🍿 Users &amp; Telemetry (Tautulli)
+                  Users &amp; Telemetry (Tautulli)
                 </button>
               </div>
             </div>
 
-            <button
-              onClick={handleManualTrigger}
-              disabled={isTriggering}
-              className={`w-full sm:w-auto h-12 ${
-                isTriggering 
-                  ? 'bg-emerald-600/10 text-emerald-600 border-emerald-500/20' 
-                  : 'bg-emerald-500 hover:bg-emerald-400 text-zinc-950 shadow-[0_0_20px_rgba(16,185,129,0.3)] hover:shadow-[0_0_25px_rgba(16,185,129,0.5)]'
-              } border rounded-2xl px-6 font-extrabold text-xs sm:text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2 active:scale-95 touch-target flex-shrink-0`}
-            >
-              {isTriggering ? (
-                <>
-                  <svg className="animate-spin h-4 w-4 text-emerald-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  <span>Triggering Batch...</span>
-                </>
-              ) : (
-                <>
-                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
-                  </svg>
-                  <span>Trigger Search Now</span>
-                </>
-              )}
-            </button>
           </div>
 
           {/* Filter Bar Chips — Clean Wrapped Mobile Grid */}
@@ -1095,61 +1069,6 @@ export function AnalyticsPanel() {
       </>
     )}
 
-        {/* Manual Trigger Result Modal */}
-        {
-          triggerResult.show && (
-            <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 max-w-lg w-full">
-                <h3 className="text-xl font-bold text-white mb-2">
-                  {triggerResult.success ? 'Search Triggered' : 'Search Skipped'}
-                </h3>
-
-                {!triggerResult.success && (
-                  <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4 my-6">
-                    <p className="text-red-400 text-sm font-medium">{triggerResult.reason}</p>
-                  </div>
-                )}
-
-                {triggerResult.success && (
-                  <div className="my-6 space-y-4">
-                    <p className="text-zinc-400 text-sm">The engine has executed a batch search.</p>
-
-                    {(triggerResult.movies?.length ?? 0) > 0 && (
-                      <div>
-                        <h4 className="text-white text-sm font-medium mb-2 border-b border-zinc-800 pb-1">Movies Searched</h4>
-                        <ul className="text-zinc-400 text-xs space-y-1 list-disc list-inside h-24 overflow-y-auto">
-                          {triggerResult.movies?.map(m => <li key={m}>{m}</li>)}
-                        </ul>
-                      </div>
-                    )}
-
-                    {(triggerResult.episodes?.length ?? 0) > 0 && (
-                      <div>
-                        <h4 className="text-white text-sm font-medium mb-2 border-b border-zinc-800 pb-1">Episodes Searched</h4>
-                        <ul className="text-zinc-400 text-xs space-y-1 list-disc list-inside h-24 overflow-y-auto">
-                          {triggerResult.episodes?.map(e => <li key={e}>{e}</li>)}
-                        </ul>
-                      </div>
-                    )}
-
-                    {(triggerResult.movies?.length === 0 && triggerResult.episodes?.length === 0) && (
-                      <p className="text-zinc-500 text-sm italic">No missing media items matched the priority criteria stringently enough (or they are already fully downloaded).</p>
-                    )}
-                  </div>
-                )}
-
-                <div className="flex justify-end pt-4 border-t border-zinc-800">
-                  <button
-                    onClick={() => setTriggerResult({ show: false })}
-                    className="bg-zinc-800 hover:bg-zinc-700 text-white font-medium px-6 py-2 rounded-lg transition-colors"
-                  >
-                    Close
-                  </button>
-                </div>
-              </div>
-            </div>
-          )
-        }
 
         {/* First Time Welcome Splash Modal */}
         {

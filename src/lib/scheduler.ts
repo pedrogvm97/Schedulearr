@@ -175,25 +175,29 @@ export async function runBatchSearch(manualTrigger: boolean = false) {
 
     // Radarr Movies
     for (const r of radarrs) {
-        const [allMovies, queue] = await Promise.all([
-            getAllMovies(r.url, r.api_key),
-            getRadarrQueue(r.url, r.api_key)
-        ]);
-        const queuedMovieIds = new Set(queue.map(q => q.movieId));
+        try {
+            const [allMovies, queue] = await Promise.all([
+                getAllMovies(r.url, r.api_key),
+                getRadarrQueue(r.url, r.api_key)
+            ]);
+            const queuedMovieIds = new Set(queue.map(q => q.movieId));
 
-        // Only target missing, published, monitored movies, AND NOT in the downloading queue
-        const missing = allMovies.filter(m => !m.hasFile && m.monitored && m.isAvailable && !queuedMovieIds.has(m.id));
+            // Only target missing, published, monitored movies, AND NOT in the downloading queue
+            const missing = allMovies.filter(m => !m.hasFile && m.monitored && m.isAvailable && !queuedMovieIds.has(m.id));
 
-        for (const m of missing) {
-            const tracking = getSchedulerTracking(m.id.toString(), r.id!, 'movie');
-            allMovieTargets.push({
-                id: m.id,
-                apiUrl: r.url,
-                apiKey: r.api_key,
-                instanceId: r.id,
-                movie: m,
-                attempts: tracking?.attempts || 0
-            });
+            for (const m of missing) {
+                const tracking = getSchedulerTracking(m.id.toString(), r.id!, 'movie');
+                allMovieTargets.push({
+                    id: m.id,
+                    apiUrl: r.url,
+                    apiKey: r.api_key,
+                    instanceId: r.id,
+                    movie: m,
+                    attempts: tracking?.attempts || 0
+                });
+            }
+        } catch (err) {
+            console.error(`❌ [SCHEDULER] Error fetching from Radarr instance ${r.url}:`, err);
         }
     }
 
@@ -202,31 +206,35 @@ export async function runBatchSearch(manualTrigger: boolean = false) {
     // Sonarr Episodes
     // For episodes, getting missing directly is still efficient, but we need series data for priority sorting
     for (const s of sonarrs) {
-        const [allSeries, queue] = await Promise.all([
-            getAllSeries(s.url, s.api_key),
-            getSonarrQueue(s.url, s.api_key)
-        ]);
-        const queuedEpisodeIds = new Set(queue.map(q => q.episodeId));
-        const seriesMap = new Map(allSeries.map(series => [series.id, series]));
+        try {
+            const [allSeries, queue] = await Promise.all([
+                getAllSeries(s.url, s.api_key),
+                getSonarrQueue(s.url, s.api_key)
+            ]);
+            const queuedEpisodeIds = new Set(queue.map(q => q.episodeId));
+            const seriesMap = new Map(allSeries.map(series => [series.id, series]));
 
-        for (const series of allSeries) {
-            if (series.monitored && series.statistics && series.episodes) {
-                const missingEpisodes = series.episodes.filter(ep =>
-                    !ep.hasFile && ep.monitored && ep.episodeFileId === 0 && !queuedEpisodeIds.has(ep.id)
-                );
-                for (const ep of missingEpisodes) {
-                    const tracking = getSchedulerTracking(ep.id.toString(), s.id!, 'episode');
-                    allEpTargets.push({
-                        id: ep.id,
-                        apiUrl: s.url,
-                        apiKey: s.api_key,
-                        instanceId: s.id,
-                        seriesInfo: seriesMap.get(ep.seriesId),
-                        airDateUtc: ep.airDateUtc,
-                        attempts: tracking?.attempts || 0
-                    });
+            for (const series of allSeries) {
+                if (series.monitored && series.statistics && series.episodes) {
+                    const missingEpisodes = series.episodes.filter(ep =>
+                        !ep.hasFile && ep.monitored && ep.episodeFileId === 0 && !queuedEpisodeIds.has(ep.id)
+                    );
+                    for (const ep of missingEpisodes) {
+                        const tracking = getSchedulerTracking(ep.id.toString(), s.id!, 'episode');
+                        allEpTargets.push({
+                            id: ep.id,
+                            apiUrl: s.url,
+                            apiKey: s.api_key,
+                            instanceId: s.id,
+                            seriesInfo: seriesMap.get(ep.seriesId),
+                            airDateUtc: ep.airDateUtc,
+                            attempts: tracking?.attempts || 0
+                        });
+                    }
                 }
             }
+        } catch (err) {
+            console.error(`❌ [SCHEDULER] Error fetching from Sonarr instance ${s.url}:`, err);
         }
     }
 
@@ -363,13 +371,17 @@ export async function runBatchSearch(manualTrigger: boolean = false) {
     for (const [url, data] of Object.entries(radarrGroups) as [string, any][]) {
         if (data.ids.length > 0) {
             console.log(`🎬 Triggering search for ${data.ids.length} movies on Radarr at ${url} using ${profile} profile`);
-            await triggerMovieSearch(url, data.key, data.ids);
-            triggeredMovies.push(...data.ids);
+            try {
+                await triggerMovieSearch(url, data.key, data.ids);
+                triggeredMovies.push(...data.ids);
 
-            // Increment attempts for each movie in this batch
-            for (const id of data.ids) {
-                const target = movieBatch.find(m => m.id === id);
-                if (target) incrementSchedulerAttempt(id.toString(), target.instanceId, 'movie');
+                // Increment attempts for each movie in this batch
+                for (const id of data.ids) {
+                    const target = movieBatch.find(m => m.id === id);
+                    if (target) incrementSchedulerAttempt(id.toString(), target.instanceId, 'movie');
+                }
+            } catch (err) {
+                console.error(`❌ [SCHEDULER] Failed to trigger movie search on Radarr at ${url}:`, err);
             }
         }
     }
@@ -384,13 +396,17 @@ export async function runBatchSearch(manualTrigger: boolean = false) {
     for (const [url, data] of Object.entries(sonarrGroups) as [string, any][]) {
         if (data.ids.length > 0) {
             console.log(`📺 Triggering search for ${data.ids.length} episodes on Sonarr at ${url} using ${profile} profile`);
-            await triggerEpisodeSearch(url, data.key, data.ids);
-            triggeredEpisodes.push(...data.ids);
+            try {
+                await triggerEpisodeSearch(url, data.key, data.ids);
+                triggeredEpisodes.push(...data.ids);
 
-            // Increment attempts for each episode in this batch
-            for (const id of data.ids) {
-                const target = epBatch.find(e => e.id === id);
-                if (target) incrementSchedulerAttempt(id.toString(), target.instanceId, 'episode');
+                // Increment attempts for each episode in this batch
+                for (const id of data.ids) {
+                    const target = epBatch.find(e => e.id === id);
+                    if (target) incrementSchedulerAttempt(id.toString(), target.instanceId, 'episode');
+                }
+            } catch (err) {
+                console.error(`❌ [SCHEDULER] Failed to trigger episode search on Sonarr at ${url}:`, err);
             }
         }
     }

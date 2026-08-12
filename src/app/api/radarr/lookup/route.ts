@@ -29,31 +29,74 @@ export async function GET(request: Request) {
 
         const tmdbApiKey = getSetting('tmdb_api_key');
 
-        // Use TMDB for discovery or text search if API key is available
+        if (searchTerm) {
+            console.log(`[LOOKUP] Direct text search for movie: "${searchTerm}" on Radarr instance ${instance.name}`);
+            let results: any[] = [];
+
+            try {
+                const radarrResults = await searchMovies(instance.url, instance.api_key, searchTerm);
+                if (Array.isArray(radarrResults) && radarrResults.length > 0) {
+                    results = radarrResults.map(m => ({
+                        title: m.title,
+                        year: m.year,
+                        tmdbId: m.tmdbId,
+                        type: 'movie',
+                        overview: m.overview,
+                        remotePoster: m.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || m.remotePoster,
+                        ratings: m.ratings,
+                        popularity: m.popularity,
+                        genres: m.genres || [],
+                        productionCompanies: []
+                    }));
+                }
+            } catch (err) {
+                console.warn('Radarr native lookup failed:', err);
+            }
+
+            // Fallback to TMDB text search if Radarr lookup returned no results
+            if (results.length === 0 && tmdbApiKey) {
+                try {
+                    const response = await searchTMDB(tmdbApiKey, searchTerm, 'movie', page);
+                    if (response && Array.isArray(response.results)) {
+                        results = response.results.map(m => ({
+                            title: m.title,
+                            year: m.release_date ? new Date(m.release_date).getFullYear() : undefined,
+                            tmdbId: m.id,
+                            type: 'movie',
+                            overview: m.overview,
+                            remotePoster: m.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : undefined,
+                            ratings: { value: m.vote_average },
+                            popularity: m.popularity,
+                            genres: Array.from(new Set([...(m.genre_ids?.map((id: number) => TMDB_REVERSE_GENRES[id]).filter(Boolean) || []), ...(genre ? [genre] : [])])),
+                            productionCompanies: platform ? [platform] : []
+                        }));
+                    }
+                } catch (tmdbErr) {
+                    console.warn('TMDB search fallback failed:', tmdbErr);
+                }
+            }
+
+            return NextResponse.json({ results, total_pages: 1 });
+        }
+
+        // Discovery mode (no searchTerm)
         if (tmdbApiKey) {
-            console.log(`[LOOKUP] Using TMDB for ${searchTerm ? 'search' : 'discovery'} (Term: ${searchTerm}, Platform: ${platform || 'Any'}, Genre: ${genre || 'Any'}, MinRating: ${minRating})`);
+            console.log(`[LOOKUP] TMDB discovery (movie, Platform: ${platform || 'Any'}, Genre: ${genre || 'Any'}, MinRating: ${minRating})`);
 
             let tmdbResults: any[] = [];
             let totalPages = 1;
 
-            if (searchTerm) {
-                const response = await searchTMDB(tmdbApiKey, searchTerm, 'movie', page);
+            const yearVal = searchParams.get('year') || undefined;
+            const providerId = platform ? TMDB_PROVIDERS[platform] : undefined;
+
+            if (providerId || genre || minRating > 0 || minPopularity > 0 || (yearVal && yearVal !== 'All')) {
+                const response = await discoverTMDB(tmdbApiKey, 'movie', providerId, genre || undefined, minRating, yearVal, page, minPopularity);
                 tmdbResults = response.results;
                 totalPages = response.total_pages;
             } else {
-                const yearVal = searchParams.get('year') || undefined;
-                const providerId = platform ? TMDB_PROVIDERS[platform] : undefined;
-
-                // Call discover if ANY filter is present, otherwise get trending
-                if (providerId || genre || minRating > 0 || minPopularity > 0 || (yearVal && yearVal !== 'All')) {
-                    const response = await discoverTMDB(tmdbApiKey, 'movie', providerId, genre || undefined, minRating, yearVal, page, minPopularity);
-                    tmdbResults = response.results;
-                    totalPages = response.total_pages;
-                } else {
-                    const response = await getTrending(tmdbApiKey, 'movie', 'day', page);
-                    tmdbResults = response.results;
-                    totalPages = response.total_pages;
-                }
+                const response = await getTrending(tmdbApiKey, 'movie', 'day', page);
+                tmdbResults = response.results;
+                totalPages = response.total_pages;
             }
 
             const mappedResults = tmdbResults.map(m => ({

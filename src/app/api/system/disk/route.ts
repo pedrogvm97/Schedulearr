@@ -83,18 +83,30 @@ export async function GET() {
     const uniqueVolumes = new Map<string, typeof allFolders[0]>();
     for (const f of allFolders) {
         if (f.totalBytes <= 0) continue;
-        // Group by totalBytes only (stable across API calls) — freeBytes jitters between Radarr/Sonarr calls and creates false duplicates
-        const totalMB = Math.round(f.totalBytes / (1024 * 1024 * 10));
-        const volumeSig = `${totalMB}`;
-
-        if (!uniqueVolumes.has(volumeSig)) {
-            uniqueVolumes.set(volumeSig, f);
-        } else {
-            // Keep the entry with the most recent (smallest) freeBytes to be conservative
-            const existing = uniqueVolumes.get(volumeSig)!;
-            if (f.freeBytes < existing.freeBytes) {
-                uniqueVolumes.set(volumeSig, f);
+        
+        // Group by exact totalBytes and fuzzy freeBytes (within 500MB)
+        // This prevents distinct physical drives of the exact same size from being merged
+        // if they have different free space, while still properly deduplicating shared
+        // NAS network volumes that might have slight free space jitter between API calls.
+        let foundKey: string | null = null;
+        for (const [key, existing] of uniqueVolumes.entries()) {
+            if (existing.totalBytes === f.totalBytes) {
+                const diffBytes = Math.abs(existing.freeBytes - f.freeBytes);
+                if (diffBytes < 500 * 1024 * 1024) { // 500MB jitter allowance
+                    foundKey = key;
+                    break;
+                }
             }
+        }
+
+        if (foundKey) {
+            // Same volume, keep the most conservative (smallest) free space
+            const existing = uniqueVolumes.get(foundKey)!;
+            if (f.freeBytes < existing.freeBytes) {
+                uniqueVolumes.set(foundKey, f);
+            }
+        } else {
+            uniqueVolumes.set(`${f.path}_${f.totalBytes}_${f.freeBytes}`, f);
         }
     }
 

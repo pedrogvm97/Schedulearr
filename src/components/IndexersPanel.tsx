@@ -104,12 +104,12 @@ export function IndexersPanel() {
                 prowlarrInstanceId: indexer.prowlarr_instance_id
             });
             if (res.data.success) {
-                toast.success(`✅ ${indexer.name} tested successfully!`);
+                toast.success(`${indexer.name} tested successfully!`);
             } else {
-                toast.error(`❌ Test failed for ${indexer.name}: ${res.data.message || 'Unknown error'}`);
+                toast.error(`Test failed for ${indexer.name}: ${res.data.message || 'Unknown error'}`);
             }
         } catch (e: any) {
-            toast.error(`❌ Test failed: ${e.response?.data?.message || e.message}`);
+            toast.error(`Test failed: ${e.response?.data?.message || e.message}`);
         } finally {
             setTestingMap(prev => ({ ...prev, [key]: false }));
         }

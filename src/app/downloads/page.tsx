@@ -254,9 +254,9 @@ export default function Downloads() {
             if (data.qbit_cleanup_max_size_enabled === 'true') setQbitSizeCleanupEnabled(true);
             if (data.qbit_cleanup_max_size_gb) setQbitMaxSizeGb(parseInt(data.qbit_cleanup_max_size_gb));
             if (data.qbit_cleanup_exclusions) setQbitCleanupExclusions(data.qbit_cleanup_exclusions);
-            if (data.qbit_smart_clean_mode) setSmartCleanMode(data.qbit_smart_clean_mode as any);
-            if (data.qbit_smart_clean_immunity_enabled !== undefined) setSmartCleanImmunityEnabled(data.qbit_smart_clean_immunity_enabled === 'true');
-            if (data.qbit_smart_clean_immunity_days) setSmartCleanImmunityDays(parseInt(data.qbit_smart_clean_immunity_days));
+            if (data.media_smart_clean_mode) setSmartCleanMode(data.media_smart_clean_mode as any);
+            if (data.media_smart_clean_immunity_enabled !== undefined) setSmartCleanImmunityEnabled(data.media_smart_clean_immunity_enabled === 'true');
+            if (data.media_smart_clean_immunity_days) setSmartCleanImmunityDays(parseInt(data.media_smart_clean_immunity_days));
             if (data.tmdbApiKey) setTmdbApiKey(data.tmdbApiKey);
         } catch (e) {
             console.error(e);
@@ -585,7 +585,7 @@ export default function Downloads() {
                                     ] as const).map(opt => (
                                         <button
                                             key={opt.id}
-                                            onClick={() => { setSmartCleanMode(opt.id); updateSetting('qbit_smart_clean_mode', opt.id); }}
+                                            onClick={() => { setSmartCleanMode(opt.id); updateSetting('media_smart_clean_mode', opt.id); }}
                                             className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-wide border transition-all ${smartCleanMode === opt.id
                                                 ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
                                                 : 'bg-zinc-900 border-zinc-700 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
@@ -611,7 +611,7 @@ export default function Downloads() {
                                                 max="90"
                                                 disabled={!smartCleanImmunityEnabled}
                                                 value={smartCleanImmunityDays}
-                                                onChange={e => { const v = parseInt(e.target.value) || 7; setSmartCleanImmunityDays(v); updateSetting('qbit_smart_clean_immunity_days', v); }}
+                                                onChange={e => { const v = parseInt(e.target.value) || 7; setSmartCleanImmunityDays(v); updateSetting('media_smart_clean_immunity_days', v); }}
                                                 className="inline-block w-10 mx-1.5 bg-zinc-800 border border-zinc-700 rounded px-1 py-0.5 text-white text-[10px] text-center outline-none focus:border-amber-500/50 disabled:opacity-40 transition-all"
                                             />
                                             days.
@@ -620,7 +620,7 @@ export default function Downloads() {
                                 </div>
                                 <Toggle
                                     value={smartCleanImmunityEnabled}
-                                    onChange={v => { setSmartCleanImmunityEnabled(v); updateSetting('qbit_smart_clean_immunity_enabled', v); }}
+                                    onChange={v => { setSmartCleanImmunityEnabled(v); updateSetting('media_smart_clean_immunity_enabled', v); }}
                                 />
                             </div>
 
