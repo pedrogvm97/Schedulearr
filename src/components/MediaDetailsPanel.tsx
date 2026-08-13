@@ -99,13 +99,13 @@ function EpisodeList({
 
             {isExtended && (
                 <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
-                    <div className="flex flex-wrap items-center justify-between gap-3 bg-zinc-950/40 p-2.5 rounded-2xl border border-zinc-800">
-                        <div className="flex flex-wrap gap-1.5">
+                    <div className="flex items-center gap-2 bg-zinc-950/40 p-2 rounded-xl border border-zinc-800">
+                        <div className="flex flex-1 overflow-x-auto no-scrollbar gap-1.5">
                             {seasons.map(s => (
                                 <button
                                     key={s}
                                     onClick={() => setSelectedSeason(s)}
-                                    className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all border ${selectedSeason === s ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'border-zinc-800 text-zinc-600 hover:text-zinc-400'}`}
+                                    className={`flex-shrink-0 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all border ${selectedSeason === s ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'border-zinc-800 text-zinc-600 hover:text-zinc-400'}`}
                                 >
                                     {s === 0 ? 'Specials' : `S${s}`}
                                 </button>
@@ -114,39 +114,46 @@ function EpisodeList({
                         {selectedSeason !== null && (
                             <button
                                 onClick={() => onQuickSearch?.({ type: 'season', id: seriesId, instanceId, seasonNumber: selectedSeason })}
-                                className="px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-white transition-all text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5"
+                                className="flex-shrink-0 px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-white transition-all text-[9px] font-black uppercase tracking-wider flex items-center gap-1"
                             >
-                                <PlayCircle size={10} /> Search Season
+                                <PlayCircle size={10} /> Search
                             </button>
                         )}
                     </div>
 
-                    <div className="flex items-center gap-3 text-[10px] text-zinc-500 font-medium px-1">
-                        <span className="text-emerald-500 font-bold">{haveCount}/{seasonEps.length}</span> episodes available
+                    <div className="flex items-center justify-between text-[10px] text-zinc-500 font-medium px-1">
+                        <span><span className="text-emerald-500 font-bold">{haveCount}/{seasonEps.length}</span> eps available</span>
                     </div>
 
-                    <div className="space-y-1.5 max-h-64 overflow-y-auto custom-scrollbar pr-2">
+                    <div className="space-y-1.5 max-h-64 overflow-y-auto custom-scrollbar pr-1">
                         {seasonEps.map(ep => (
-                            <div key={ep.id} className={`group/ep flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all ${ep.hasFile ? 'border-zinc-800 bg-zinc-950/30' : 'border-zinc-900/50 hover:bg-zinc-900/20'}`}>
-                                <span className={`text-[10px] font-black w-8 flex-shrink-0 ${ep.hasFile ? 'text-emerald-500' : 'text-zinc-700'}`}>
+                            <div key={ep.id} className={`group/ep flex items-center gap-2.5 px-2.5 py-2 rounded-xl border transition-all ${ep.hasFile ? 'border-zinc-800 bg-zinc-950/30' : 'border-zinc-900/50 hover:bg-zinc-900/20'}`}>
+                                <span className={`text-[10px] font-black w-6 flex-shrink-0 text-center ${ep.hasFile ? 'text-emerald-500' : 'text-zinc-700'}`}>
                                     E{String(ep.episodeNumber).padStart(2, '0')}
                                 </span>
-                                <div className="flex-1 min-w-0 flex flex-col">
+                                <div className="flex-1 min-w-0 flex flex-col justify-center">
                                     <span className={`text-xs truncate ${ep.hasFile ? 'text-zinc-300 font-medium' : 'text-zinc-600'}`}>{ep.title}</span>
                                     {ep.hasFile && (ep.episodeFile?.quality?.quality?.name || ep.episodeFile?.size) && (
-                                        <span className="text-[9px] font-bold text-zinc-600 mt-0.5 uppercase tracking-tighter flex items-center gap-1.5">
-                                            {ep.episodeFile?.quality?.quality?.name && <span>{ep.episodeFile.quality.quality.name}</span>}
-                                            {ep.episodeFile?.quality?.quality?.name && ep.episodeFile?.size && <span className="text-zinc-800 font-black">•</span>}
-                                            {ep.episodeFile?.size && <span className="text-emerald-500/80 font-black">{formatEpisodeSize(ep.episodeFile.size)}</span>}
-                                        </span>
+                                        <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                                            {ep.episodeFile?.quality?.quality?.name && (
+                                                <span className="text-[8px] font-black uppercase text-zinc-400 bg-white/5 border border-white/10 px-1 rounded whitespace-nowrap">
+                                                    {ep.episodeFile.quality.quality.name}
+                                                </span>
+                                            )}
+                                            {ep.episodeFile?.size && (
+                                                <span className="text-[8px] font-black uppercase text-emerald-500/80 bg-emerald-500/10 border border-emerald-500/20 px-1 rounded whitespace-nowrap">
+                                                    {formatEpisodeSize(ep.episodeFile.size)}
+                                                </span>
+                                            )}
+                                        </div>
                                     )}
                                 </div>
 
-                                <div className="flex items-center gap-1.5 opacity-0 group-hover/ep:opacity-100 transition-opacity">
+                                <div className="flex items-center gap-1 opacity-0 group-hover/ep:opacity-100 transition-opacity">
                                     <button
                                         onClick={() => onInteractiveSearch?.(ep)}
                                         title="Interactive Search"
-                                        className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"
+                                        className="p-1.5 rounded-md bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"
                                     >
                                         <Search size={12} />
                                     </button>

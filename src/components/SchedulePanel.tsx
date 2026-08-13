@@ -8,6 +8,7 @@ interface CalendarEvent {
     id: string;
     instanceId: string;
     instanceName: string;
+    instanceColor: string;
     type: 'radarr' | 'sonarr';
     title: string;
     releaseDate: string;
@@ -28,10 +29,11 @@ export function SchedulePanel() {
         const fetchEvents = async () => {
             setLoading(true);
             try {
-                const now = new Date();
-                const start = now.toISOString().split('T')[0];
+                const startDate = new Date();
+                startDate.setDate(startDate.getDate() - 14); // 14 days into the past
+                const start = startDate.toISOString().split('T')[0];
                 const endDate = new Date();
-                endDate.setDate(now.getDate() + 30);
+                endDate.setDate(endDate.getDate() + 30);
                 const end = endDate.toISOString().split('T')[0];
 
                 const res = await fetch(`/api/calendar?start=${start}&end=${end}`);
@@ -50,10 +52,10 @@ export function SchedulePanel() {
 
     // Extract unique instances from events for the filter toggles
     const availableInstances = useMemo(() => {
-        const map = new Map<string, { id: string, name: string, type: 'radarr' | 'sonarr' }>();
+        const map = new Map<string, { id: string, name: string, color: string, type: 'radarr' | 'sonarr' }>();
         events.forEach(e => {
             if (!map.has(e.instanceId)) {
-                map.set(e.instanceId, { id: e.instanceId, name: e.instanceName, type: e.type });
+                map.set(e.instanceId, { id: e.instanceId, name: e.instanceName, color: e.instanceColor, type: e.type });
             }
         });
         return Array.from(map.values());
@@ -108,7 +110,7 @@ export function SchedulePanel() {
                                 onClick={() => toggleInstance(inst.id)}
                                 className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all border ${
                                     active
-                                        ? inst.type === 'radarr' ? 'bg-blue-500/10 border-blue-500/30 text-blue-400' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                        ? `${inst.color.replace('bg-', 'text-').replace('-500', '-400')} bg-opacity-10 border-current bg-current bg-clip-padding ${inst.color.replace('bg-', 'border-').replace('-500', '-500/30')} ${inst.color.replace('bg-', 'bg-').replace('-500', '-500/10')}`
                                         : 'bg-zinc-950 border-zinc-800/80 text-zinc-600 hover:text-zinc-400'
                                 }`}
                             >

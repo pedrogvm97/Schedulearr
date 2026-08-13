@@ -4,8 +4,6 @@ import { useState, useEffect, useMemo } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { Film, Pause, Play, Trash2, Info, ShieldCheck, Clock, HardDrive, Tv } from "lucide-react";
 import { MediaDetailsPanel } from "@/components/MediaDetailsPanel";
-import { IndexersPanel } from "@/components/IndexersPanel";
-import { ProfilesPanel } from "@/components/ProfilesPanel";
 import { toast } from "sonner";
 
 // --- Interfaces ---
@@ -430,139 +428,8 @@ export default function Downloads() {
         <div className="max-w-6xl mx-auto p-6 space-y-8 pb-24">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold text-white mb-1">Downloads & Indexers</h1>
+                    <h1 className="text-3xl font-bold text-white mb-1">Downloads</h1>
                 </div>
-
-                <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800 gap-1">
-                    <button
-                        onClick={() => setActiveTab('downloads')}
-                        className={`px-4 py-2 text-xs font-black rounded-xl transition-all ${activeTab === 'downloads' ? 'bg-zinc-800 text-white shadow-lg border border-zinc-700/60' : 'text-zinc-400 hover:text-zinc-200'}`}
-                    >
-                        📥 Downloads
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('indexers')}
-                        className={`px-4 py-2 text-xs font-black rounded-xl transition-all ${activeTab === 'indexers' ? 'bg-zinc-800 text-white shadow-lg border border-zinc-700/60' : 'text-zinc-400 hover:text-zinc-200'}`}
-                    >
-                        🔍 Indexers &amp; Rules
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('profiles')}
-                        className={`px-4 py-2 text-xs font-black rounded-xl transition-all ${activeTab === 'profiles' ? 'bg-zinc-800 text-white shadow-lg border border-zinc-700/60' : 'text-zinc-400 hover:text-zinc-200'}`}
-                    >
-                        ⚙️ Quality Profiles
-                    </button>
-                </div>
-            </div>
-
-            {activeTab === 'indexers' ? (
-                <IndexersPanel />
-            ) : activeTab === 'profiles' ? (
-                <ProfilesPanel />
-            ) : (
-                <>
-
-            {/* ── Auto-Cleanup Panel ─────────────────────────────────────────── */}
-            <div className={`bg-zinc-900 border ${isCleanupSettingsOpen ? 'border-emerald-500/30' : 'border-zinc-800'} rounded-2xl transition-all overflow-hidden`}>
-                <button
-                    onClick={() => setIsCleanupSettingsOpen(!isCleanupSettingsOpen)}
-                    className="w-full flex items-center justify-between p-5 hover:bg-zinc-800/50 transition-colors"
-                >
-                    <div className="flex items-center gap-4">
-                        <div className={`p-2.5 rounded-xl ${qbitCleanupEnabled ? 'bg-emerald-500/10 text-emerald-400' : 'bg-zinc-800 text-zinc-500'}`}>
-                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2v6h-6"></path><path d="M21 13a9 9 0 1 1-3-7.7L21 8"></path></svg>
-                        </div>
-                        <div className="text-left">
-                            <h2 className="text-base font-bold text-white tracking-tight">Auto-Cleanup Settings</h2>
-                            <p className="text-xs text-zinc-500 font-medium">Stagnation removal, size limits, and smart file selection.</p>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                        <div className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${qbitCleanupEnabled ? 'bg-emerald-500/20 text-emerald-400' : 'bg-zinc-800 text-zinc-500'}`}>
-                            {qbitCleanupEnabled ? 'Active' : 'Disabled'}
-                        </div>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`text-zinc-500 transition-transform duration-300 ${isCleanupSettingsOpen ? 'rotate-180' : ''}`}>
-                            <path d="m6 9 6 6 6-6" />
-                        </svg>
-                    </div>
-                </button>
-
-                {isCleanupSettingsOpen && (
-                    <div className="p-6 pt-4 border-t border-zinc-800/50 animate-in fade-in slide-in-from-top-4 duration-300 space-y-6">
-
-                        {/* Row 1: Basic toggles */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            {/* Enable Cleaner */}
-                            <div className="flex items-center justify-between p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 h-20">
-                                <div>
-                                    <div className="text-sm font-bold text-zinc-200">Enable Cleaner</div>
-                                    <p className="text-[10px] text-zinc-500 font-medium">Run background health checks</p>
-                                </div>
-                                <Toggle value={qbitCleanupEnabled} onChange={v => { setQbitCleanupEnabled(v); updateSetting('qbit_cleanup_enabled', v); }} />
-                            </div>
-
-                            {/* Delete Files toggle */}
-                            <div className="flex items-center justify-between p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 h-20">
-                                <div>
-                                    <div className="text-sm font-bold text-zinc-200">Delete Files</div>
-                                    <p className="text-[10px] text-zinc-500 font-medium">Remove data from disk</p>
-                                </div>
-                                <Toggle value={qbitDeleteFiles} onChange={v => { setQbitDeleteFiles(v); updateSetting('qbit_cleanup_delete_files', v); }} />
-                            </div>
-
-                            {/* Blacklist toggle */}
-                            <div className="flex items-center justify-between p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 h-20">
-                                <div>
-                                    <div className="text-sm font-bold text-zinc-200">Blacklist Failed</div>
-                                    <p className="text-[10px] text-zinc-500 font-medium">Prevent re-grabbing same release</p>
-                                </div>
-                                <Toggle value={qbitBlacklist} onChange={v => { setQbitBlacklist(v); updateSetting('qbit_cleanup_blacklist', v); }} />
-                            </div>
-                        </div>
-
-                        {/* Row 2: Numeric inputs */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            {/* Interval */}
-                            <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-3">
-                                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Interval (Minutes)</label>
-                                <input
-                                    type="number" min="1" value={qbitCleanupIntervalMin}
-                                    onChange={e => { const v = parseInt(e.target.value) || 15; setQbitCleanupIntervalMin(v); updateSetting('qbit_cleanup_interval_min', v); }}
-                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2 text-sm text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all"
-                                />
-                                <p className="text-[10px] text-zinc-500 font-medium leading-relaxed">How often the background process scans.</p>
-                            </div>
-
-                            {/* Stagnation */}
-                            <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-3">
-                                <div className="flex items-center justify-between">
-                                    <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Stagnation (Min)</label>
-                                    <Toggle value={qbitStagnationEnabled} onChange={v => { setQbitStagnationEnabled(v); updateSetting('qbit_cleanup_stagnation_enabled', v); }} />
-                                </div>
-                                <input
-                                    type="number" min="1" disabled={!qbitStagnationEnabled} value={qbitStagnationMin}
-                                    onChange={e => { const v = parseInt(e.target.value) || 60; setQbitStagnationMin(v); updateSetting('qbit_cleanup_stagnation_min', v); }}
-                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2 text-sm text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all disabled:opacity-30"
-                                />
-                                <p className="text-[10px] text-zinc-500 font-medium leading-relaxed">Purge items stuck for longer than this.</p>
-                            </div>
-
-                            {/* Max Size */}
-                            <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-3">
-                                <div className="flex items-center justify-between">
-                                    <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Max Size (GB)</label>
-                                    <Toggle value={qbitSizeCleanupEnabled} onChange={v => { setQbitSizeCleanupEnabled(v); updateSetting('qbit_cleanup_max_size_enabled', v); }} />
-                                </div>
-                                <input
-                                    type="number" min="1" disabled={!qbitSizeCleanupEnabled} value={qbitMaxSizeGb}
-                                    onChange={e => { const v = parseInt(e.target.value) || 15; setQbitMaxSizeGb(v); updateSetting('qbit_cleanup_max_size_gb', v); }}
-                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2 text-sm text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all disabled:opacity-30"
-                                />
-                                <p className="text-[10px] text-zinc-500 font-medium leading-relaxed">Releases larger than this will be rejected.</p>
-                            </div>
-                        </div>
-                    </div>
-                )}
             </div>
 
             {/* ── Error / Success ─────────────────────────────────────────────── */}
