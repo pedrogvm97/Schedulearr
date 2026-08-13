@@ -58,7 +58,7 @@ export async function GET(request: Request) {
                         instanceName: instance.name,
                         instanceColor: instance.color,
                         type: 'sonarr',
-                        title: `${ep.series?.title || 'Unknown Series'} - S${String(ep.seasonNumber).padStart(2, '0')}E${String(ep.episodeNumber).padStart(2, '0')} - ${ep.title}`,
+                        title: `${ep.seriesTitle || ep.series?.title || 'Unknown Series'} - S${String(ep.seasonNumber).padStart(2, '0')}E${String(ep.episodeNumber).padStart(2, '0')} - ${ep.title}`,
                         releaseDate: ep.airDateUtc,
                         releaseType: 'tv',
                         monitored: ep.monitored,

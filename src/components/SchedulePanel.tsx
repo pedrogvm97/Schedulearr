@@ -104,15 +104,31 @@ export function SchedulePanel() {
                     <Filter size={14} className="text-zinc-500 mr-2" />
                     {availableInstances.map(inst => {
                         const active = selectedInstanceIds.size === 0 || selectedInstanceIds.has(inst.id);
+                        const c = inst.color || (inst.type === 'radarr' ? 'bg-amber-500' : 'bg-sky-500');
+                        const isTw = c.startsWith('bg-');
+                        
+                        let twClasses = 'bg-zinc-950 border-zinc-800/80 text-zinc-600 hover:text-zinc-400';
+                        let inlineStyles = {};
+
+                        if (active) {
+                            if (isTw) {
+                                twClasses = `${c.replace('bg-', 'text-').replace('-500', '-400')} border-current bg-current bg-clip-padding ${c.replace('bg-', 'border-').replace('-500', '-500/30')} ${c.replace('bg-', 'bg-').replace('-500', '-500/10')}`;
+                            } else {
+                                twClasses = '';
+                                inlineStyles = { 
+                                    backgroundColor: `${c}1A`, // 10% opacity
+                                    borderColor: `${c}4D`, // 30% opacity
+                                    color: c
+                                };
+                            }
+                        }
+
                         return (
                             <button
                                 key={inst.id}
                                 onClick={() => toggleInstance(inst.id)}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all border ${
-                                    active
-                                        ? `${inst.color.replace('bg-', 'text-').replace('-500', '-400')} bg-opacity-10 border-current bg-current bg-clip-padding ${inst.color.replace('bg-', 'border-').replace('-500', '-500/30')} ${inst.color.replace('bg-', 'bg-').replace('-500', '-500/10')}`
-                                        : 'bg-zinc-950 border-zinc-800/80 text-zinc-600 hover:text-zinc-400'
-                                }`}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all border ${twClasses}`}
+                                style={inlineStyles}
                             >
                                 {inst.name}
                             </button>

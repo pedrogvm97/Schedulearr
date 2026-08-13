@@ -60,7 +60,7 @@ export async function GET(request: Request) {
                         durationMs: item.duration || 0,
                         viewOffsetMs: item.viewOffset || item.duration || 0, // Fallback if fully watched
                         user: {
-                            name: item.accountID === 1 ? 'Admin' : (item.User?.title || item.User?.name || 'Local User'),
+                            name: item.User?.title || item.User?.name || `User ${item.accountID}`,
                             thumb: item.User?.thumb || null
                         },
                         player: {

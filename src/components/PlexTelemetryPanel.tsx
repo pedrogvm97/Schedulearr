@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 import { Play, Pause, Monitor, Tv, Smartphone, Cpu, Activity, RefreshCw, Film, AlertCircle, Clock, History, BarChart2, CheckCircle2, User as UserIcon, Calendar as CalendarIcon, ChevronDown, Palette } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { MediaDetailsPanel } from "./MediaDetailsPanel";
+import { LibraryExplorerPanel } from "./LibraryExplorerPanel";
 
 export interface PlexSession {
     id: string;
@@ -58,6 +59,7 @@ export function PlexTelemetryPanel() {
     
     // For clickable media details
     const [selectedHistoryMedia, setSelectedHistoryMedia] = useState<PlexHistory | null>(null);
+    const [selectedLibraryExplorer, setSelectedLibraryExplorer] = useState<any | null>(null);
 
     useEffect(() => {
         // Load user colors from local storage
@@ -544,13 +546,17 @@ export function PlexTelemetryPanel() {
                             </h2>
                             <div className="grid grid-cols-1 gap-3">
                                 {stats.map(lib => (
-                                    <div key={lib.id} className="p-4 rounded-xl bg-zinc-950/40 border border-zinc-800/80 flex items-center justify-between">
+                                    <div 
+                                        key={lib.id} 
+                                        onClick={() => setSelectedLibraryExplorer(lib)}
+                                        className="p-4 rounded-xl bg-zinc-950/40 border border-zinc-800/80 flex items-center justify-between cursor-pointer hover:bg-zinc-900/60 hover:border-amber-500/30 transition-all group"
+                                    >
                                         <div className="flex items-center gap-3">
-                                            <div className="w-8 h-8 rounded-lg bg-zinc-900 flex items-center justify-center text-zinc-500">
+                                            <div className="w-8 h-8 rounded-lg bg-zinc-900 group-hover:bg-amber-500/10 group-hover:text-amber-500 flex items-center justify-center text-zinc-500 transition-colors">
                                                 {lib.type === 'movie' ? <Film size={16} /> : <Tv size={16} />}
                                             </div>
                                             <div>
-                                                <div className="text-sm font-bold text-zinc-300">{lib.title}</div>
+                                                <div className="text-sm font-bold text-zinc-300 group-hover:text-white transition-colors">{lib.title}</div>
                                                 <div className="text-[10px] font-black uppercase tracking-widest text-zinc-600 mt-0.5">{lib.type}</div>
                                             </div>
                                         </div>
@@ -577,6 +583,14 @@ export function PlexTelemetryPanel() {
                         (h.title === selectedHistoryMedia.title)
                     )}
                     onClose={() => setSelectedHistoryMedia(null)}
+                />
+            )}
+
+            {/* Library Explorer Overlay */}
+            {selectedLibraryExplorer && (
+                <LibraryExplorerPanel 
+                    library={selectedLibraryExplorer}
+                    onClose={() => setSelectedLibraryExplorer(null)}
                 />
             )}
         </div>
