@@ -284,6 +284,19 @@ export async function runSmartCleanup() {
     let cleanedCount = 0;
     const cleanedNames: string[] = [];
 
+    // Load the ignore list of instances
+    const ignoredInstStr = getSetting('media_smart_clean_ignored_instances') || '[]';
+    let ignoredInstances: string[] = [];
+    try { ignoredInstances = JSON.parse(ignoredInstStr); } catch { }
+    const ignoredInstanceSet = new Set(ignoredInstances);
+
+    const activeRadarr = radarrInstances.filter(i => !ignoredInstanceSet.has(i.id));
+    const activeSonarr = sonarrInstances.filter(i => !ignoredInstanceSet.has(i.id));
+
+    if (activeRadarr.length === 0 && activeSonarr.length === 0) {
+        return { success: false, message: 'All active instances are excluded from Smart Cleanup.' };
+    }
+
     // Load the ignore list of media keys
     const ignoredKeysStr = getSetting('media_smart_clean_ignored_keys') || '[]';
     let ignoredKeys: string[] = [];
@@ -326,7 +339,7 @@ export async function runSmartCleanup() {
     }[] = [];
 
     // Gather movies
-    for (const inst of radarrInstances) {
+    for (const inst of activeRadarr) {
         try {
             const movies = await getAllMovies(inst.url, inst.api_key);
             for (const m of movies) {
@@ -354,7 +367,7 @@ export async function runSmartCleanup() {
     }
 
     // Gather series — split by granularity level
-    for (const inst of sonarrInstances) {
+    for (const inst of activeSonarr) {
         try {
             const series = await getAllSeries(inst.url, inst.api_key);
             for (const s of series) {

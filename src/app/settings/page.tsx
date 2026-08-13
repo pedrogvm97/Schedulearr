@@ -212,6 +212,7 @@ export default function Settings() {
     const [diskSmartCleanImmunityEnabled, setDiskSmartCleanImmunityEnabled] = useState(false);
     const [diskSmartCleanImmunityDays, setDiskSmartCleanImmunityDays] = useState(7);
     const [diskSmartCleanSeriesLevel, setDiskSmartCleanSeriesLevel] = useState<'series' | 'season' | 'episode'>('series');
+    const [diskSmartCleanIgnoredInstances, setDiskSmartCleanIgnoredInstances] = useState<string[]>([]);
     const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(false);
     const [candidates, setCandidates] = useState<any[]>([]);
     const [loadingCandidates, setLoadingCandidates] = useState(false);
@@ -285,6 +286,9 @@ export default function Settings() {
         if (allSettings.qbit_smart_clean_immunity_enabled) setDiskSmartCleanImmunityEnabled(allSettings.qbit_smart_clean_immunity_enabled === 'true');
         if (allSettings.qbit_smart_clean_immunity_days) setDiskSmartCleanImmunityDays(parseInt(allSettings.qbit_smart_clean_immunity_days) || 7);
         if (allSettings.media_smart_clean_series_level) setDiskSmartCleanSeriesLevel(allSettings.media_smart_clean_series_level as any);
+        if (allSettings.media_smart_clean_ignored_instances) {
+            try { setDiskSmartCleanIgnoredInstances(JSON.parse(allSettings.media_smart_clean_ignored_instances)); } catch (e) { }
+        }
         if (allSettings.auto_update_enabled !== undefined) setAutoUpdateEnabled(allSettings.auto_update_enabled === 'true');
     }, [allSettings]);
 
@@ -1917,6 +1921,35 @@ export default function Settings() {
                                             >
                                                 {level === 'series' ? 'Entire Show' : level === 'season' ? 'By Season' : 'By Episode'}
                                             </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Excluded Libraries (Instances) */}
+                                <div className="border-t border-zinc-900 pt-3 space-y-2">
+                                    <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Excluded Libraries</label>
+                                    <p className="text-[10px] text-zinc-500">Select individual Radarr/Sonarr instances (libraries) to protect them from auto-deletion.</p>
+                                    <div className="flex flex-wrap gap-2 mt-2">
+                                        {instances.filter(i => i.type === 'radarr' || i.type === 'sonarr').map(inst => (
+                                            <label key={inst.id} className={`flex items-center gap-2 cursor-pointer p-2 rounded-xl border transition-all ${diskSmartCleanIgnoredInstances.includes(inst.id) ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'}`}>
+                                                <div className={`w-3 h-3 rounded flex items-center justify-center transition-colors ${diskSmartCleanIgnoredInstances.includes(inst.id) ? 'bg-emerald-500 text-black' : 'bg-zinc-800'}`}>
+                                                    {diskSmartCleanIgnoredInstances.includes(inst.id) && <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>}
+                                                </div>
+                                                <span className="text-xs font-bold">{inst.name}</span>
+                                                <input 
+                                                    type="checkbox" 
+                                                    className="hidden" 
+                                                    checked={diskSmartCleanIgnoredInstances.includes(inst.id)}
+                                                    onChange={() => {
+                                                        const next = [...diskSmartCleanIgnoredInstances];
+                                                        if (next.includes(inst.id)) next.splice(next.indexOf(inst.id), 1);
+                                                        else next.push(inst.id);
+                                                        setDiskSmartCleanIgnoredInstances(next);
+                                                        updateSetting('media_smart_clean_ignored_instances', JSON.stringify(next));
+                                                        setTimeout(fetchCandidates, 300);
+                                                    }}
+                                                />
+                                            </label>
                                         ))}
                                     </div>
                                 </div>
