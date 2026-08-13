@@ -539,8 +539,6 @@ export default function Downloads() {
                     onClose={() => { setSelectedMedia(null); setLibStatus(null); }}
                 />
             )}
-            </>
-            )}
         </div>
     );
 }
