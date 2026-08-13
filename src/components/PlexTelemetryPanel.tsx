@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Play, Pause, Monitor, Tv, Smartphone, Cpu, Activity, RefreshCw, Film, AlertCircle, Clock, History, BarChart2, CheckCircle2, User as UserIcon } from "lucide-react";
+import { useEffect, useState, useMemo } from "react";
+import { Play, Pause, Monitor, Tv, Smartphone, Cpu, Activity, RefreshCw, Film, AlertCircle, Clock, History, BarChart2, CheckCircle2, User as UserIcon, Calendar as CalendarIcon, ChevronDown, Palette } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { MediaDetailsPanel } from "./MediaDetailsPanel";
 
 export interface PlexSession {
     id: string;
@@ -11,31 +13,12 @@ export interface PlexSession {
     seasonNumber?: number;
     episodeNumber?: number;
     year?: number;
-    mediaType: 'movie' | 'series';
+    mediaType: 'movie' | 'series' | 'livetv';
     poster?: string;
-    user: {
-        name: string;
-        thumb?: string;
-    };
-    player: {
-        title: string;
-        platform: string;
-        state: 'playing' | 'paused' | string;
-        address?: string;
-    };
-    playback: {
-        progressPercent: number;
-        viewOffsetMs: number;
-        durationMs: number;
-        bandwidthMbps: string;
-    };
-    transcode: {
-        streamType: string;
-        videoDecision: string;
-        audioDecision: string;
-        videoCodec: string;
-        resolution: string;
-    };
+    user: { name: string; thumb?: string; };
+    player: { title: string; platform: string; state: string; };
+    playback: { progressPercent: number; viewOffsetMs: number; durationMs: number; bandwidthMbps: string; };
+    transcode: { streamType: string; videoDecision: string; audioDecision: string; videoCodec: string; resolution: string; };
 }
 
 export interface PlexHistory {
@@ -45,12 +28,18 @@ export interface PlexHistory {
     seriesTitle?: string;
     seasonNumber?: number;
     episodeNumber?: number;
-    mediaType: 'movie' | 'series';
+    mediaType: 'movie' | 'series' | 'livetv';
     poster?: string;
     viewedAt: number;
+    durationMs?: number;
+    viewOffsetMs?: number;
     user: { name: string; thumb?: string };
     player: { title: string; platform: string };
 }
+
+const DEFAULT_COLORS = [
+    '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#06b6d4', '#f43f5e'
+];
 
 export function PlexTelemetryPanel() {
     const [data, setData] = useState<{
@@ -58,18 +47,32 @@ export function PlexTelemetryPanel() {
         activeStreamsCount: number;
         totalBandwidthMbps: string;
         sessions: PlexSession[];
-        topUsers: { name: string; avatar?: string; activeStreams: number }[];
     } | null>(null);
 
     const [history, setHistory] = useState<PlexHistory[]>([]);
     const [stats, setStats] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [timeRange, setTimeRange] = useState<number>(7); // Days
+    
+    const [userColors, setUserColors] = useState<Record<string, string>>({});
+    
+    // For clickable media details
+    const [selectedHistoryMedia, setSelectedHistoryMedia] = useState<PlexHistory | null>(null);
+
+    useEffect(() => {
+        // Load user colors from local storage
+        const saved = localStorage.getItem('plexUserColors');
+        if (saved) {
+            try { setUserColors(JSON.parse(saved)); } catch (e) {}
+        }
+    }, []);
 
     const fetchTelemetry = async () => {
         try {
+            const limit = timeRange === 7 ? 500 : timeRange === 30 ? 2000 : 5000;
             const [sessionsRes, historyRes, statsRes] = await Promise.all([
                 fetch('/api/plex/sessions'),
-                fetch('/api/plex/history'),
+                fetch(`/api/plex/history?limit=${limit}`),
                 fetch('/api/plex/stats')
             ]);
             
@@ -85,16 +88,38 @@ export function PlexTelemetryPanel() {
     };
 
     useEffect(() => {
+        setLoading(true);
         fetchTelemetry();
-        const interval = setInterval(fetchTelemetry, 10000); // 10s polling
+    }, [timeRange]);
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            fetch('/api/plex/sessions').then(res => res.json()).then(setData).catch(() => {});
+        }, 10000); // 10s polling for live streams only to save history bandwidth
         return () => clearInterval(interval);
     }, []);
+
+    const handleColorChange = (userName: string, color: string) => {
+        const newColors = { ...userColors, [userName]: color };
+        setUserColors(newColors);
+        localStorage.setItem('plexUserColors', JSON.stringify(newColors));
+    };
+
+    const getUserColor = (userName: string, index: number) => {
+        if (userColors[userName]) return userColors[userName];
+        return DEFAULT_COLORS[index % DEFAULT_COLORS.length];
+    };
 
     const formatDuration = (ms: number) => {
         const totalSec = Math.floor(ms / 1000);
         const min = Math.floor(totalSec / 60);
         const sec = totalSec % 60;
         return `${min}:${sec < 10 ? '0' : ''}${sec}`;
+    };
+    
+    const formatHours = (ms: number) => {
+        const hours = ms / (1000 * 60 * 60);
+        return hours.toFixed(1) + 'h';
     };
 
     const getPlatformIcon = (platform: string) => {
@@ -105,27 +130,63 @@ export function PlexTelemetryPanel() {
         return <Cpu size={14} className="text-purple-400" />;
     };
 
-    const getStreamBadge = (transcode: PlexSession['transcode']) => {
-        if (transcode.streamType === 'Direct Play') {
-            return (
-                <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                    Direct Play ({transcode.resolution})
-                </span>
-            );
+    // Filter history by time range
+    const filteredHistory = useMemo(() => {
+        const cutoff = Date.now() - (timeRange * 24 * 60 * 60 * 1000);
+        return history.filter(h => h.viewedAt >= cutoff);
+    }, [history, timeRange]);
+
+    // Compute top users based on filtered history
+    const userHistoryCounts = useMemo(() => {
+        return filteredHistory.reduce((acc, curr) => {
+            const name = curr.user.name;
+            if (!acc[name]) acc[name] = { name, count: 0, duration: 0, thumb: curr.user.thumb };
+            acc[name].count++;
+            acc[name].duration += (curr.viewOffsetMs || curr.durationMs || 0);
+            return acc;
+        }, {} as Record<string, { name: string, count: number, duration: number, thumb?: string }>);
+    }, [filteredHistory]);
+
+    const topHistoricalUsers = Object.values(userHistoryCounts).sort((a, b) => b.duration - a.duration).slice(0, 8);
+
+    // Compute chart data (Watch time per user per day)
+    const chartData = useMemo(() => {
+        const daysMap: Record<string, any> = {};
+        
+        // Initialize days map for the time range
+        for (let i = timeRange - 1; i >= 0; i--) {
+            const d = new Date(Date.now() - (i * 24 * 60 * 60 * 1000));
+            const dateStr = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+            daysMap[dateStr] = { date: dateStr };
         }
-        if (transcode.streamType === 'Direct Stream') {
-            return (
-                <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-sky-500/15 text-sky-400 border border-sky-500/30">
-                    Direct Stream
-                </span>
-            );
-        }
-        return (
-            <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                Transcode ({transcode.videoCodec})
-            </span>
-        );
-    };
+
+        filteredHistory.forEach(h => {
+            const d = new Date(h.viewedAt);
+            const dateStr = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+            if (daysMap[dateStr]) {
+                const userName = h.user.name;
+                const hours = (h.viewOffsetMs || h.durationMs || 0) / (1000 * 60 * 60);
+                daysMap[dateStr][userName] = (daysMap[dateStr][userName] || 0) + hours;
+            }
+        });
+
+        return Object.values(daysMap);
+    }, [filteredHistory, timeRange]);
+
+    // Compute most watched media
+    const mostWatchedMedia = useMemo(() => {
+        const mediaMap: Record<string, { title: string, poster?: string, type: string, count: number, duration: number }> = {};
+        filteredHistory.forEach(h => {
+            const key = h.mediaType === 'series' && h.seriesTitle ? h.seriesTitle : h.title;
+            if (!mediaMap[key]) {
+                mediaMap[key] = { title: key, poster: h.poster, type: h.mediaType, count: 0, duration: 0 };
+            }
+            mediaMap[key].count++;
+            mediaMap[key].duration += (h.viewOffsetMs || h.durationMs || 0);
+        });
+        return Object.values(mediaMap).sort((a, b) => b.duration - a.duration).slice(0, 4);
+    }, [filteredHistory]);
+
 
     if (loading && !data) {
         return (
@@ -149,15 +210,6 @@ export function PlexTelemetryPanel() {
             </div>
         );
     }
-
-    // Compute top users based on history
-    const userHistoryCounts = history.reduce((acc, curr) => {
-        const name = curr.user.name;
-        if (!acc[name]) acc[name] = { name, count: 0, thumb: curr.user.thumb };
-        acc[name].count++;
-        return acc;
-    }, {} as Record<string, { name: string, count: number, thumb?: string }>);
-    const topHistoricalUsers = Object.values(userHistoryCounts).sort((a, b) => b.count - a.count).slice(0, 5);
 
     return (
         <div className="space-y-8 animate-in fade-in duration-300">
@@ -185,8 +237,8 @@ export function PlexTelemetryPanel() {
 
                 <div className="p-5 rounded-2xl bg-zinc-950/70 border border-zinc-800/80 flex items-center justify-between shadow-xl">
                     <div className="space-y-1">
-                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">History Records</span>
-                        <span className="text-3xl font-black text-purple-400">{history.length}+</span>
+                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">History Records (Selected Range)</span>
+                        <span className="text-3xl font-black text-purple-400">{filteredHistory.length}</span>
                     </div>
                     <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center">
                         <History size={20} />
@@ -195,18 +247,23 @@ export function PlexTelemetryPanel() {
 
                 <div className="p-5 rounded-2xl bg-zinc-950/70 border border-zinc-800/80 flex items-center justify-between shadow-xl">
                     <div className="space-y-1">
-                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">Libraries</span>
-                        <span className="text-3xl font-black text-amber-400">{stats.length}</span>
+                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">Total Watch Time</span>
+                        <span className="text-3xl font-black text-amber-400">
+                            {formatHours(filteredHistory.reduce((acc, h) => acc + (h.viewOffsetMs || h.durationMs || 0), 0))}
+                        </span>
                     </div>
                     <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center">
-                        <BarChart2 size={20} />
+                        <Clock size={20} />
                     </div>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Left Column: Live Streams & History */}
-                <div className="lg:col-span-2 space-y-8">
+            {/* Main Content Area */}
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+                
+                {/* Left Column: Live Streams, Chart, History */}
+                <div className="xl:col-span-2 space-y-8">
+                    
                     {/* Live Streams */}
                     <div className="space-y-4">
                         <h2 className="text-lg font-black text-white flex items-center gap-2">
@@ -250,7 +307,15 @@ export function PlexTelemetryPanel() {
                                                     </div>
                                                 </div>
                                                 <div className="flex flex-col items-end gap-1.5 shrink-0">
-                                                    {getStreamBadge(s.transcode)}
+                                                    {s.transcode.streamType === 'Direct Play' ? (
+                                                        <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                                                            Direct Play ({s.transcode.resolution})
+                                                        </span>
+                                                    ) : (
+                                                        <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                                                            Transcode ({s.transcode.videoCodec})
+                                                        </span>
+                                                    )}
                                                     <span className="text-[10px] font-black text-sky-400">{s.playback.bandwidthMbps} Mbps</span>
                                                 </div>
                                             </div>
@@ -273,7 +338,6 @@ export function PlexTelemetryPanel() {
                                                 </div>
                                             </div>
 
-                                            {/* Progress Bar */}
                                             <div className="space-y-1.5 mt-2">
                                                 <div className="flex justify-between text-[10px] font-bold text-zinc-500">
                                                     <span>{formatDuration(s.playback.viewOffsetMs)}</span>
@@ -293,21 +357,68 @@ export function PlexTelemetryPanel() {
                         )}
                     </div>
 
-                    {/* Recently Watched History */}
+                    {/* Chart Area */}
+                    <div className="space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <h2 className="text-lg font-black text-white flex items-center gap-2">
+                                <BarChart2 className="text-indigo-500" size={20} /> Watch Activity
+                            </h2>
+                            <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 p-1 rounded-xl">
+                                {[7, 30, 90, 365].map(days => (
+                                    <button
+                                        key={days}
+                                        onClick={() => setTimeRange(days)}
+                                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${timeRange === days ? 'bg-indigo-500/20 text-indigo-400' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                    >
+                                        {days === 365 ? '1 Year' : `${days} Days`}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                        
+                        <div className="bg-zinc-950/40 rounded-2xl border border-zinc-800/80 p-4 h-[300px]">
+                            {chartData.length > 0 ? (
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                                        <XAxis dataKey="date" stroke="#52525b" fontSize={10} tickLine={false} axisLine={false} />
+                                        <YAxis stroke="#52525b" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => `${val}h`} />
+                                        <Tooltip 
+                                            contentStyle={{ backgroundColor: '#09090b', borderColor: '#27272a', borderRadius: '12px', fontSize: '12px' }}
+                                            itemStyle={{ fontWeight: 'bold' }}
+                                            formatter={(value: number) => [`${value.toFixed(1)} hours`, undefined]}
+                                        />
+                                        <Legend wrapperStyle={{ fontSize: '10px' }} />
+                                        {topHistoricalUsers.map((u, idx) => (
+                                            <Bar key={u.name} dataKey={u.name} stackId="a" fill={getUserColor(u.name, idx)} radius={[2, 2, 0, 0]} />
+                                        ))}
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            ) : (
+                                <div className="w-full h-full flex items-center justify-center text-zinc-500 text-sm">No data available for this range.</div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Recently Watched History Feed */}
                     <div className="space-y-4">
                         <h2 className="text-lg font-black text-white flex items-center gap-2">
-                            <History className="text-sky-500" size={20} /> Watch History
+                            <History className="text-sky-500" size={20} /> Watch History Feed
                         </h2>
                         
                         <div className="bg-zinc-950/40 rounded-2xl border border-zinc-800/80 overflow-hidden">
-                            {history.length === 0 ? (
+                            {filteredHistory.length === 0 ? (
                                 <div className="p-8 text-center text-zinc-500 text-sm">No watch history found.</div>
                             ) : (
                                 <div className="divide-y divide-zinc-800/50">
-                                    {history.map(item => (
-                                        <div key={item.id} className="flex items-center gap-4 p-4 hover:bg-zinc-900/30 transition-colors">
+                                    {filteredHistory.slice(0, 50).map(item => (
+                                        <div 
+                                            key={item.id} 
+                                            onClick={() => setSelectedHistoryMedia(item)}
+                                            className="flex items-center gap-4 p-4 hover:bg-zinc-900/50 cursor-pointer transition-colors group"
+                                        >
                                             {item.poster ? (
-                                                <img src={item.poster} className="w-10 h-14 object-cover rounded-lg border border-white/5 shadow-sm" alt="" />
+                                                <img src={item.poster} className="w-10 h-14 object-cover rounded-lg border border-white/5 shadow-sm group-hover:border-white/20 transition-colors" alt="" />
                                             ) : (
                                                 <div className="w-10 h-14 rounded-lg bg-zinc-900 border border-white/5 flex items-center justify-center">
                                                     <Film className="text-zinc-700" size={16} />
@@ -316,7 +427,7 @@ export function PlexTelemetryPanel() {
                                             
                                             <div className="flex-1 min-w-0 flex flex-col">
                                                 <div className="flex items-start justify-between">
-                                                    <span className="text-sm font-bold text-zinc-200 truncate pr-4">
+                                                    <span className="text-sm font-bold text-zinc-200 group-hover:text-sky-400 truncate pr-4 transition-colors">
                                                         {item.mediaType === 'series' && item.seriesTitle ? `${item.seriesTitle} - ` : ''}
                                                         {item.title}
                                                     </span>
@@ -332,23 +443,30 @@ export function PlexTelemetryPanel() {
                                                         ) : (
                                                             <UserIcon size={12} className="text-zinc-500" />
                                                         )}
-                                                        <span className="font-medium text-zinc-400">{item.user.name}</span>
+                                                        <span className="font-medium text-zinc-400" style={{ color: getUserColor(item.user.name, Object.keys(userHistoryCounts).indexOf(item.user.name)) }}>{item.user.name}</span>
                                                     </div>
                                                     <div className="text-[10px] font-bold text-zinc-600 flex items-center gap-1">
-                                                        {item.player.platform}
+                                                        {item.player.platform} 
+                                                        {item.mediaType === 'livetv' && <span className="ml-2 text-rose-500 uppercase tracking-widest px-1.5 py-0.5 bg-rose-500/10 rounded">Live TV</span>}
                                                     </div>
                                                 </div>
                                             </div>
                                         </div>
                                     ))}
+                                    {filteredHistory.length > 50 && (
+                                        <div className="p-4 text-center text-xs font-bold text-zinc-500 bg-zinc-900/20">
+                                            Showing last 50 of {filteredHistory.length} items. Use the chart to see all activity.
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
                     </div>
                 </div>
 
-                {/* Right Column: Top Users & Library Stats */}
+                {/* Right Column: Top Users, Most Watched, Library Stats */}
                 <div className="space-y-8">
+                    
                     {/* Top Users */}
                     <div className="space-y-4">
                         <h2 className="text-lg font-black text-white flex items-center gap-2">
@@ -360,24 +478,61 @@ export function PlexTelemetryPanel() {
                                 <div className="p-6 text-center text-zinc-500 text-sm">No user data.</div>
                             ) : (
                                 topHistoricalUsers.map((u, i) => (
-                                    <div key={u.name} className="p-4 flex items-center justify-between hover:bg-zinc-900/30">
+                                    <div key={u.name} className="p-4 flex items-center justify-between hover:bg-zinc-900/30 group relative">
                                         <div className="flex items-center gap-3">
                                             <span className="text-sm font-black text-zinc-600 w-4">{i + 1}.</span>
-                                            {u.thumb ? (
-                                                <img src={u.thumb} className="w-8 h-8 rounded-full border border-zinc-700 shadow-sm" alt="" />
-                                            ) : (
-                                                <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-xs font-bold text-zinc-400">
-                                                    {u.name.charAt(0).toUpperCase()}
-                                                </div>
-                                            )}
-                                            <span className="text-sm font-bold text-zinc-300">{u.name}</span>
+                                            <div className="relative cursor-pointer" title="Click to change color">
+                                                {u.thumb ? (
+                                                    <img src={u.thumb} className="w-8 h-8 rounded-full border shadow-sm relative z-10" style={{ borderColor: getUserColor(u.name, i) }} alt="" />
+                                                ) : (
+                                                    <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white relative z-10" style={{ backgroundColor: getUserColor(u.name, i) }}>
+                                                        {u.name.charAt(0).toUpperCase()}
+                                                    </div>
+                                                )}
+                                                {/* Hidden Color Picker */}
+                                                <input 
+                                                    type="color" 
+                                                    value={getUserColor(u.name, i)}
+                                                    onChange={(e) => handleColorChange(u.name, e.target.value)}
+                                                    className="absolute inset-0 w-8 h-8 opacity-0 cursor-pointer z-20"
+                                                />
+                                            </div>
+                                            <div className="flex flex-col">
+                                                <span className="text-sm font-bold text-zinc-300" style={{ color: getUserColor(u.name, i) }}>{u.name}</span>
+                                                <span className="text-[10px] text-zinc-500 font-medium">Click avatar for color</span>
+                                            </div>
                                         </div>
-                                        <div className="flex items-center gap-1.5 text-xs font-bold text-zinc-500">
-                                            <span className="text-purple-400">{u.count}</span> plays
+                                        <div className="flex flex-col items-end gap-0.5">
+                                            <span className="text-sm font-black text-purple-400">{formatHours(u.duration)}</span>
+                                            <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">{u.count} plays</span>
                                         </div>
                                     </div>
                                 ))
                             )}
+                        </div>
+                    </div>
+
+                    {/* Most Watched Media */}
+                    <div className="space-y-4">
+                        <h2 className="text-lg font-black text-white flex items-center gap-2">
+                            <Film className="text-rose-500" size={20} /> Most Watched
+                        </h2>
+                        
+                        <div className="grid grid-cols-2 gap-3">
+                            {mostWatchedMedia.map((m, i) => (
+                                <div key={i} className="relative aspect-[2/3] rounded-xl overflow-hidden group border border-white/10">
+                                    {m.poster ? (
+                                        <img src={m.poster} className="w-full h-full object-cover opacity-80 group-hover:scale-105 group-hover:opacity-100 transition-all duration-500" alt="" />
+                                    ) : (
+                                        <div className="w-full h-full bg-zinc-900 flex items-center justify-center"><Film className="text-zinc-700" /></div>
+                                    )}
+                                    <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent p-3 flex flex-col justify-end">
+                                        <span className="text-[10px] font-black text-rose-500 uppercase tracking-widest mb-0.5">{m.type}</span>
+                                        <span className="text-xs font-bold text-white line-clamp-2 leading-tight">{m.title}</span>
+                                        <span className="text-[10px] text-zinc-400 font-medium mt-1">{formatHours(m.duration)}</span>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     </div>
 
@@ -406,6 +561,24 @@ export function PlexTelemetryPanel() {
                     )}
                 </div>
             </div>
+
+            {/* Media Details Overlay */}
+            {selectedHistoryMedia && (
+                <MediaDetailsPanel
+                    item={{ 
+                        title: selectedHistoryMedia.title, 
+                        posterPath: selectedHistoryMedia.poster, 
+                        mediaType: selectedHistoryMedia.mediaType === 'series' ? 'tv' : selectedHistoryMedia.mediaType,
+                        // Provide basic info so it renders nicely even without full DB details
+                        overview: `Viewed on ${new Date(selectedHistoryMedia.viewedAt).toLocaleDateString()} by ${selectedHistoryMedia.user.name}.`,
+                    }}
+                    watchHistory={history.filter(h => 
+                        (h.mediaType === 'series' && h.seriesTitle === selectedHistoryMedia.seriesTitle) || 
+                        (h.title === selectedHistoryMedia.title)
+                    )}
+                    onClose={() => setSelectedHistoryMedia(null)}
+                />
+            )}
         </div>
     );
 }

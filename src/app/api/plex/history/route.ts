@@ -4,8 +4,12 @@ import axios from 'axios';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(request: Request) {
     try {
+        const { searchParams } = new URL(request.url);
+        const limitStr = searchParams.get('limit') || '500';
+        const limit = parseInt(limitStr, 10);
+
         const instances = getInstances().filter(i => i.type === 'plex');
 
         if (instances.length === 0) {
@@ -16,16 +20,16 @@ export async function GET() {
 
         for (const plex of instances) {
             try {
-                // Fetch recent history
+                // Fetch history
                 const res = await axios.get(`${plex.url}/status/sessions/history/all`, {
                     headers: {
                         'X-Plex-Token': plex.api_key,
                         'Accept': 'application/json'
                     },
-                    timeout: 5000,
+                    timeout: 8000,
                     params: {
                         sort: 'viewedAt:desc',
-                        limit: 50
+                        limit: limit
                     }
                 });
 
@@ -37,6 +41,12 @@ export async function GET() {
                         poster = `${plex.url}${poster}?X-Plex-Token=${plex.api_key}`;
                     }
 
+                    // Determine media type
+                    let mediaType = item.type === 'episode' ? 'series' : 'movie';
+                    if (item.type === 'livetv' || item.type === 'channel') {
+                        mediaType = 'livetv';
+                    }
+
                     allHistory.push({
                         id: item.historyKey || item.ratingKey || Math.random().toString(),
                         instanceName: plex.name,
@@ -44,9 +54,11 @@ export async function GET() {
                         seriesTitle: item.grandparentTitle,
                         seasonNumber: item.parentIndex,
                         episodeNumber: item.index,
-                        mediaType: item.type === 'episode' ? 'series' : 'movie',
+                        mediaType,
                         poster,
                         viewedAt: item.viewedAt * 1000, // Convert to JS ms
+                        durationMs: item.duration || 0,
+                        viewOffsetMs: item.viewOffset || item.duration || 0, // Fallback if fully watched
                         user: {
                             name: item.accountID === 1 ? 'Admin' : (item.User?.title || item.User?.name || 'Local User'),
                             thumb: item.User?.thumb || null
@@ -65,7 +77,7 @@ export async function GET() {
         // Sort combined history across instances
         allHistory.sort((a, b) => b.viewedAt - a.viewedAt);
 
-        return NextResponse.json({ history: allHistory.slice(0, 50) });
+        return NextResponse.json({ history: allHistory.slice(0, limit) });
     } catch (error) {
         console.error('API /plex/history error:', error);
         return NextResponse.json({ error: 'Failed to fetch Plex history' }, { status: 500 });

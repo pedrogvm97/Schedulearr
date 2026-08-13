@@ -24,6 +24,7 @@ interface MediaDetailsPanelProps {
     onTransfer?: (payload: any) => void;
     onInteractiveSearch?: (payload: any) => void;
     onQuickSearch?: (payload: any) => void;
+    watchHistory?: any[];
 }
 
 function EpisodeList({ 
@@ -674,6 +675,43 @@ export function MediaDetailsPanel({
                                             <div className="min-w-0 flex flex-col justify-center">
                                                 <p className="text-xs font-bold text-zinc-300 group-hover:text-white truncate transition-colors">{media.title || media.name}</p>
                                                 <p className="text-[10px] text-zinc-600 font-black">{media.release_date?.split('-')[0] || media.first_air_date?.split('-')[0]}</p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Watch History */}
+                        {watchHistory && watchHistory.length > 0 && (
+                            <div className="space-y-6">
+                                <h3 className="text-[12px] font-black text-zinc-500 uppercase tracking-[0.3em] flex items-center gap-2">
+                                    <Clock size={14} className="text-sky-500" /> Chronological Replay Time
+                                </h3>
+                                <div className="space-y-3 relative before:absolute before:inset-0 before:ml-[11px] before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-zinc-800 before:to-transparent">
+                                    {watchHistory.map((entry, index) => (
+                                        <div key={index} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
+                                            {/* Icon */}
+                                            <div className="flex items-center justify-center w-6 h-6 rounded-full border-2 border-zinc-950 bg-zinc-800 text-zinc-500 group-hover:text-sky-400 group-hover:bg-zinc-900 transition-colors shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10">
+                                                {entry.user?.thumb ? (
+                                                    <img src={entry.user.thumb} className="w-full h-full rounded-full" alt="" />
+                                                ) : (
+                                                    <User size={10} />
+                                                )}
+                                            </div>
+                                            
+                                            {/* Card */}
+                                            <div className="w-[calc(100%-2rem)] md:w-[calc(50%-1.5rem)] p-4 rounded-2xl bg-zinc-950/50 border border-zinc-800/80 shadow-xl group-hover:border-zinc-700 transition-colors">
+                                                <div className="flex items-center justify-between mb-1">
+                                                    <span className="text-xs font-bold text-white">{entry.user?.name || 'Unknown User'}</span>
+                                                    <span className="text-[10px] font-black text-zinc-500">{new Date(entry.viewedAt).toLocaleDateString()}</span>
+                                                </div>
+                                                <div className="text-xs text-zinc-400 flex items-center justify-between">
+                                                    <span>{entry.player?.platform}</span>
+                                                    <span className="text-emerald-500 font-medium">
+                                                        {entry.mediaType === 'series' && entry.seasonNumber !== undefined ? `S${String(entry.seasonNumber).padStart(2, '0')}E${String(entry.episodeNumber).padStart(2, '0')}` : 'Movie'}
+                                                    </span>
+                                                </div>
                                             </div>
                                         </div>
                                     ))}
