@@ -73,13 +73,15 @@ export function LibraryExplorerPanel({ library, onClose }: LibraryExplorerPanelP
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    tmdbId: item.id,
-                    title: item.title || item.name,
-                    year: parseInt(item.release_date?.split('-')[0] || item.first_air_date?.split('-')[0]) || 0,
-                    qualityProfileId: 1, // Fallback, normally needs selection but we simplify here
-                    rootFolderPath: '', // API will fetch default
-                    monitored: true,
-                    instanceId: selectedInstance.id
+                    instanceId: selectedInstance.id,
+                    qualityProfileId: 1, // Fallback
+                    rootFolderPath: '',  // Fallback
+                    startSearch: true,
+                    item: {
+                        tmdbId: item.id,
+                        title: item.title || item.name,
+                        year: parseInt(item.release_date?.split('-')[0] || item.first_air_date?.split('-')[0]) || 0,
+                    }
                 })
             });
             if (res.ok) {
