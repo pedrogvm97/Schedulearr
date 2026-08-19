@@ -249,8 +249,8 @@ export function MediaDetailsPanel({
                     const searchType = isSeries ? 'tv' : 'movie';
                     // Strip episode info (e.g. "Breaking Bad S01E05" → "Breaking Bad")
                     // Also handle raw torrent names like "Movie.Title.2024.2160p..."
-                    const safeTitle = item.title || '';
-                    const cleanTitle = item.cleanTitle || safeTitle.replace(/\s+S\d{2}E\d{2}.*/i, '').trim();
+                    const safeTitle = String(item.title || '');
+                    const cleanTitle = item.cleanTitle ? String(item.cleanTitle) : safeTitle.replace(/\s+S\d{2}E\d{2}.*/i, '').trim();
                     const titlesToTry = Array.from(new Set([cleanTitle, safeTitle.replace(/\s+S\d{2}E\d{2}.*/i, '').trim()]));
                     
                     for (const titleAttempt of titlesToTry) {

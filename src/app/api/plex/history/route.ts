@@ -38,7 +38,8 @@ export async function GET(request: Request) {
                 metadata.forEach((item: any) => {
                     let poster = item.thumb || item.parentThumb || item.grandparentThumb || '';
                     if (poster && !poster.startsWith('http')) {
-                        poster = `${plex.url}${poster}?X-Plex-Token=${plex.api_key}`;
+                        const plexUrlBase = plex.url.endsWith('/') ? plex.url.slice(0, -1) : plex.url;
+                        poster = `/api/proxy?url=${encodeURIComponent(plexUrlBase + poster + '?X-Plex-Token=' + plex.api_key)}`;
                     }
 
                     // Determine media type

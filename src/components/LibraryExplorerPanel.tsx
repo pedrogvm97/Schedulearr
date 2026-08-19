@@ -106,7 +106,7 @@ export function LibraryExplorerPanel({ library, onClose }: LibraryExplorerPanelP
                 // Refresh library
                 fetch(`/api/${selectedInstance.type}/library?instanceId=${selectedInstance.id}`)
                     .then(r => r.json())
-                    .then(d => { if (Array.isArray(d)) setMedia(d.sort((a: b) => (b.year || 0) - (a.year || 0))); });
+                    .then(d => { if (Array.isArray(d)) setMedia(d.sort((a, b) => (b.year || 0) - (a.year || 0))); });
             } else {
                 toast.error('Failed to add media');
             }
