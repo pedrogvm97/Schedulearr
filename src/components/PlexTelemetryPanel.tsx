@@ -43,7 +43,23 @@ const DEFAULT_COLORS = [
     '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#06b6d4', '#f43f5e'
 ];
 
-export function PlexTelemetryPanel() {
+class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean, error: Error | null}> {
+    constructor(props: any) { super(props); this.state = { hasError: false, error: null }; }
+    static getDerivedStateFromError(error: Error) { return { hasError: true, error }; }
+    render() {
+        if (this.state.hasError) {
+            return (
+                <div className="p-10 bg-black/95 border border-red-500 rounded-3xl text-white font-mono text-sm overflow-auto w-full h-full">
+                    <h1 className="text-red-500 font-bold mb-4">PlexTelemetryPanel Error</h1>
+                    <pre>{this.state.error?.stack || this.state.error?.message}</pre>
+                </div>
+            );
+        }
+        return this.props.children;
+    }
+}
+
+function PlexTelemetryPanelInner() {
     const [data, setData] = useState<{
         hasPlex: boolean;
         activeStreamsCount: number;
@@ -423,13 +439,30 @@ export function PlexTelemetryPanel() {
                                             onClick={() => setSelectedHistoryMedia(item)}
                                             className="flex items-center gap-4 p-4 hover:bg-zinc-900/50 cursor-pointer transition-colors group"
                                         >
-                                            {item.poster ? (
-                                                <img src={item.poster} className="w-10 h-14 object-cover rounded-lg border border-white/5 shadow-sm group-hover:border-white/20 transition-colors" alt="" />
-                                            ) : (
-                                                <div className="w-10 h-14 rounded-lg bg-zinc-900 border border-white/5 flex items-center justify-center">
-                                                    <Film className="text-zinc-700" size={16} />
-                                                </div>
-                                            )}
+                                            <div className="relative w-10 h-14 shrink-0">
+                                                {item.poster ? (
+                                                    <>
+                                                        <img 
+                                                            src={item.poster} 
+                                                            className="w-full h-full object-cover rounded-lg border border-white/5 shadow-sm group-hover:border-white/20 transition-colors" 
+                                                            alt="" 
+                                                            onError={(e) => {
+                                                                e.currentTarget.style.display = 'none';
+                                                                if (e.currentTarget.nextElementSibling) {
+                                                                    (e.currentTarget.nextElementSibling as HTMLElement).style.display = 'flex';
+                                                                }
+                                                            }}
+                                                        />
+                                                        <div className="w-full h-full rounded-lg bg-zinc-900 border border-white/5 items-center justify-center hidden" style={{ display: 'none' }}>
+                                                            <Film className="text-zinc-700" size={16} />
+                                                        </div>
+                                                    </>
+                                                ) : (
+                                                    <div className="w-full h-full rounded-lg bg-zinc-900 border border-white/5 flex items-center justify-center">
+                                                        <Film className="text-zinc-700" size={16} />
+                                                    </div>
+                                                )}
+                                            </div>
                                             
                                             <div className="flex-1 min-w-0 flex flex-col">
                                                 <div className="flex items-start justify-between">
@@ -531,7 +564,22 @@ export function PlexTelemetryPanel() {
                             {mostWatchedMedia.map((m, i) => (
                                 <div key={i} className="relative aspect-[2/3] rounded-xl overflow-hidden group border border-white/10">
                                     {m.poster ? (
-                                        <img src={m.poster} className="w-full h-full object-cover opacity-80 group-hover:scale-105 group-hover:opacity-100 transition-all duration-500" alt="" />
+                                        <>
+                                            <img 
+                                                src={m.poster} 
+                                                className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" 
+                                                alt="" 
+                                                onError={(e) => {
+                                                    e.currentTarget.style.display = 'none';
+                                                    if (e.currentTarget.nextElementSibling) {
+                                                        (e.currentTarget.nextElementSibling as HTMLElement).style.display = 'flex';
+                                                    }
+                                                }}
+                                            />
+                                            <div className="w-full h-full bg-zinc-900 items-center justify-center text-zinc-700 hidden" style={{ display: 'none' }}>
+                                                {m.type === 'series' ? <Tv size={24} /> : <Film size={24} />}
+                                            </div>
+                                        </>
                                     ) : (
                                         <div className="w-full h-full bg-zinc-900 flex items-center justify-center"><Film className="text-zinc-700" /></div>
                                     )}
@@ -613,5 +661,13 @@ export function PlexTelemetryPanel() {
                 />
             )}
         </div>
+    );
+}
+
+export function PlexTelemetryPanel() {
+    return (
+        <ErrorBoundary>
+            <PlexTelemetryPanelInner />
+        </ErrorBoundary>
     );
 }

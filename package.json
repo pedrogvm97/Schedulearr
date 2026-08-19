@@ -1,6 +1,6 @@
 {
   "name": "schedulearr",
-  "version": "0.3.49",
+  "version": "0.3.50",
   "private": true,
   "license": "AGPL-3.0-or-later",
   "scripts": {
@@ -23,7 +23,8 @@
     "react-dom": "19.2.3",
     "react-hot-toast": "^2.6.0",
     "recharts": "^3.7.0",
-    "sonner": "^1.7.4"
+    "sonner": "^1.7.4",
+    "xml2js": "^0.6.2"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

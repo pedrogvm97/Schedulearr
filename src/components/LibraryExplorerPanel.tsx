@@ -10,7 +10,23 @@ interface LibraryExplorerPanelProps {
     onClose: () => void;
 }
 
-export function LibraryExplorerPanel({ library, onClose }: LibraryExplorerPanelProps) {
+class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean, error: Error | null}> {
+    constructor(props: any) { super(props); this.state = { hasError: false, error: null }; }
+    static getDerivedStateFromError(error: Error) { return { hasError: true, error }; }
+    render() {
+        if (this.state.hasError) {
+            return (
+                <div className="p-4 bg-red-900/50 border border-red-500 rounded-xl text-white font-mono text-xs overflow-auto">
+                    <h1 className="text-red-400 font-bold mb-2">LibraryExplorerPanel Error</h1>
+                    <pre>{this.state.error?.stack || this.state.error?.message}</pre>
+                </div>
+            );
+        }
+        return this.props.children;
+    }
+}
+
+function LibraryExplorerPanelInner({ library, onClose }: LibraryExplorerPanelProps) {
     const [instances, setInstances] = useState<any[]>([]);
     const [selectedInstance, setSelectedInstance] = useState<any | null>(null);
     const [media, setMedia] = useState<any[]>([]);
@@ -260,5 +276,13 @@ export function LibraryExplorerPanel({ library, onClose }: LibraryExplorerPanelP
                 />
             )}
         </div>
+    );
+}
+
+export function LibraryExplorerPanel(props: LibraryExplorerPanelProps) {
+    return (
+        <ErrorBoundary>
+            <LibraryExplorerPanelInner {...props} />
+        </ErrorBoundary>
     );
 }

@@ -17,8 +17,33 @@ export async function GET(request: Request) {
         }
 
         const allHistory: any[] = [];
+        let plexUsers: Record<string, {name: string, thumb: string | null}> = {};
 
         for (const plex of instances) {
+            // Fetch friendly names from plex.tv if we have a token
+            if (Object.keys(plexUsers).length === 0 && plex.api_key) {
+                try {
+                    const tvRes = await axios.get('https://plex.tv/api/users', {
+                        headers: { 'X-Plex-Token': plex.api_key },
+                        timeout: 5000,
+                        validateStatus: () => true
+                    });
+                    if (tvRes.status === 200 && typeof tvRes.data === 'string') {
+                        const users = tvRes.data.split('<User ').slice(1);
+                        for (const u of users) {
+                            const idMatch = u.match(/id="([^"]+)"/);
+                            const titleMatch = u.match(/title="([^"]+)"/) || u.match(/username="([^"]+)"/);
+                            const thumbMatch = u.match(/thumb="([^"]+)"/);
+                            if (idMatch && titleMatch) {
+                                plexUsers[idMatch[1]] = { name: titleMatch[1], thumb: thumbMatch ? thumbMatch[1] : null };
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error('Failed to map plex.tv users');
+                }
+            }
+
             try {
                 // Fetch history
                 const res = await axios.get(`${plex.url}/status/sessions/history/all`, {
@@ -58,21 +83,23 @@ export async function GET(request: Request) {
                     }
                     let viewOffsetMs = item.viewOffset || durationMs; // Assume fully watched if in history
 
+                    const knownUser = item.accountID ? plexUsers[String(item.accountID)] : null;
                     allHistory.push({
                         id: item.historyKey || item.ratingKey || Math.random().toString(),
                         instanceName: plex.name,
                         title: item.title,
+                        type: item.type,
+                        mediaType,
                         seriesTitle: item.grandparentTitle,
                         seasonNumber: item.parentIndex,
                         episodeNumber: item.index,
-                        mediaType,
                         poster,
-                        viewedAt: item.viewedAt * 1000, // Convert to JS ms
+                        viewedAt: item.viewedAt ? item.viewedAt * 1000 : Date.now(),
                         durationMs,
                         viewOffsetMs,
                         user: {
-                            name: item.User?.title || item.User?.name || `User ${item.accountID}`,
-                            thumb: item.User?.thumb || null
+                            name: knownUser?.name || item.User?.title || item.User?.name || `User ${item.accountID}`,
+                            thumb: knownUser?.thumb || item.User?.thumb || null
                         },
                         player: {
                             title: item.Player?.title || item.Player?.product || item.Player?.device || 'Plex Client',
