@@ -69,13 +69,29 @@ export function LibraryExplorerPanel({ library, onClose }: LibraryExplorerPanelP
         if (!selectedInstance) return;
         toast.info(`Adding ${item.title || item.name}...`);
         try {
+            // First fetch the profiles and root folders so we can provide a valid payload
+            const [profilesRes, foldersRes] = await Promise.all([
+                fetch(`/api/instances/profiles?instanceId=${selectedInstance.id}`),
+                fetch(`/api/instances/folders?instanceId=${selectedInstance.id}`)
+            ]);
+            
+            const profiles = profilesRes.ok ? await profilesRes.json() : [];
+            const folders = foldersRes.ok ? await foldersRes.json() : [];
+            
+            const qualityProfileId = profiles.length > 0 ? profiles[0].id : 1;
+            const rootFolderPath = folders.length > 0 ? folders[0].path : '';
+
+            if (!rootFolderPath) {
+                toast.error('Could not find a valid root folder for this instance.');
+                return;
+            }
             const res = await fetch(`/api/${selectedInstance.type}/add`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     instanceId: selectedInstance.id,
-                    qualityProfileId: 1, // Fallback
-                    rootFolderPath: '',  // Fallback
+                    qualityProfileId,
+                    rootFolderPath,
                     startSearch: true,
                     item: {
                         tmdbId: item.id,
@@ -205,8 +221,8 @@ export function LibraryExplorerPanel({ library, onClose }: LibraryExplorerPanelP
                                                 className="group relative aspect-[2/3] rounded-xl overflow-hidden bg-zinc-900 border border-zinc-800 cursor-pointer"
                                                 onClick={() => setSelectedMedia(item)}
                                             >
-                                                {item.images?.[0]?.url ? (
-                                                    <img src={`/api/proxy?url=${encodeURIComponent(item.images[0].url)}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt="" />
+                                                {item.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl ? (
+                                                    <img src={`/api/proxy?url=${encodeURIComponent(item.images.find((img: any) => img.coverType === 'poster').remoteUrl)}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt="" />
                                                 ) : (
                                                     <div className="w-full h-full flex items-center justify-center text-zinc-700">
                                                         {library.type === 'movie' ? <Film size={32} /> : <Tv size={32} />}
