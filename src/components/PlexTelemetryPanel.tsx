@@ -5,6 +5,7 @@ import { Play, Pause, Monitor, Tv, Smartphone, Cpu, Activity, RefreshCw, Film, A
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { MediaDetailsPanel } from "./MediaDetailsPanel";
 import { LibraryExplorerPanel } from "./LibraryExplorerPanel";
+import { UserActivityPanel } from "./UserActivityPanel";
 
 export interface PlexSession {
     id: string;
@@ -60,6 +61,7 @@ export function PlexTelemetryPanel() {
     // For clickable media details
     const [selectedHistoryMedia, setSelectedHistoryMedia] = useState<PlexHistory | null>(null);
     const [selectedLibraryExplorer, setSelectedLibraryExplorer] = useState<any | null>(null);
+    const [selectedUser, setSelectedUser] = useState<{name: string, thumb?: string} | null>(null);
 
     useEffect(() => {
         // Load user colors from local storage
@@ -501,9 +503,12 @@ export function PlexTelemetryPanel() {
                                                     className="absolute inset-0 w-8 h-8 opacity-0 cursor-pointer z-20"
                                                 />
                                             </div>
-                                            <div className="flex flex-col">
-                                                <span className="text-sm font-bold text-zinc-300" style={{ color: getUserColor(u.name, i) }}>{u.name}</span>
-                                                <span className="text-[10px] text-zinc-500 font-medium">Click avatar for color</span>
+                                            <div 
+                                                className="flex flex-col cursor-pointer group/user"
+                                                onClick={() => setSelectedUser({ name: u.name, thumb: u.thumb })}
+                                            >
+                                                <span className="text-sm font-bold text-zinc-300 group-hover/user:underline" style={{ color: getUserColor(u.name, i) }}>{u.name}</span>
+                                                <span className="text-[10px] text-zinc-500 font-medium">Click name for activity</span>
                                             </div>
                                         </div>
                                         <div className="flex flex-col items-end gap-0.5">
@@ -593,6 +598,18 @@ export function PlexTelemetryPanel() {
                 <LibraryExplorerPanel 
                     library={selectedLibraryExplorer}
                     onClose={() => setSelectedLibraryExplorer(null)}
+                />
+            )}
+
+            {/* User Activity Modal */}
+            {selectedUser && (
+                <UserActivityPanel
+                    userName={selectedUser.name}
+                    userThumb={selectedUser.thumb}
+                    userColor={getUserColor(selectedUser.name, Object.keys(userHistoryCounts).indexOf(selectedUser.name))}
+                    history={history} // pass unfiltered history so we can calculate their overall
+                    formatHours={formatHours}
+                    onClose={() => setSelectedUser(null)}
                 />
             )}
         </div>
