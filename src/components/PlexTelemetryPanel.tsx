@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { Play, Pause, Monitor, Tv, Smartphone, Cpu, Activity, RefreshCw, Film, AlertCircle, Clock, History, BarChart2, CheckCircle2, User as UserIcon, Calendar as CalendarIcon, ChevronDown, Palette } from "lucide-react";
+import { Play, Pause, Monitor, Tv, Smartphone, Cpu, Activity, RefreshCw, Film, AlertCircle, Clock, History, BarChart2, CheckCircle2, User as UserIcon, Calendar as CalendarIcon, ChevronDown, Palette, Music } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { MediaDetailsPanel } from "./MediaDetailsPanel";
 import { LibraryExplorerPanel } from "./LibraryExplorerPanel";
@@ -454,12 +454,12 @@ function PlexTelemetryPanelInner() {
                                                             }}
                                                         />
                                                         <div className="w-full h-full rounded-lg bg-zinc-900 border border-white/5 items-center justify-center hidden" style={{ display: 'none' }}>
-                                                            <Film className="text-zinc-700" size={16} />
+                                                            {item.mediaType === 'track' ? <Music className="text-zinc-700" size={16} /> : <Film className="text-zinc-700" size={16} />}
                                                         </div>
                                                     </>
                                                 ) : (
                                                     <div className="w-full h-full rounded-lg bg-zinc-900 border border-white/5 flex items-center justify-center">
-                                                        <Film className="text-zinc-700" size={16} />
+                                                        {item.mediaType === 'track' ? <Music className="text-zinc-700" size={16} /> : <Film className="text-zinc-700" size={16} />}
                                                     </div>
                                                 )}
                                             </div>
@@ -577,11 +577,13 @@ function PlexTelemetryPanelInner() {
                                                 }}
                                             />
                                             <div className="w-full h-full bg-zinc-900 items-center justify-center text-zinc-700 hidden" style={{ display: 'none' }}>
-                                                {m.type === 'series' ? <Tv size={24} /> : <Film size={24} />}
+                                                {m.mediaType === 'series' ? <Tv size={24} /> : m.mediaType === 'track' ? <Music size={24} /> : <Film size={24} />}
                                             </div>
                                         </>
                                     ) : (
-                                        <div className="w-full h-full bg-zinc-900 flex items-center justify-center"><Film className="text-zinc-700" /></div>
+                                        <div className="w-full h-full bg-zinc-900 flex items-center justify-center">
+                                            {m.mediaType === 'series' ? <Tv className="text-zinc-700" size={24} /> : m.mediaType === 'track' ? <Music className="text-zinc-700" size={24} /> : <Film className="text-zinc-700" size={24} />}
+                                        </div>
                                     )}
                                     <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent p-3 flex flex-col justify-end">
                                         <span className="text-[10px] font-black text-rose-500 uppercase tracking-widest mb-0.5">{m.type}</span>

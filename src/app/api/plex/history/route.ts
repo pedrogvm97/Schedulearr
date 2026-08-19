@@ -23,6 +23,25 @@ export async function GET(request: Request) {
             // Fetch friendly names from plex.tv if we have a token
             if (Object.keys(plexUsers).length === 0 && plex.api_key) {
                 try {
+                    // Fetch owner info
+                    const ownerRes = await axios.get('https://plex.tv/api/v2/user', {
+                        headers: { 'X-Plex-Token': plex.api_key, 'Accept': 'application/json' },
+                        timeout: 5000,
+                        validateStatus: () => true
+                    });
+                    if (ownerRes.status === 200 && ownerRes.data?.id) {
+                        plexUsers[String(ownerRes.data.id)] = { 
+                            name: ownerRes.data.title || ownerRes.data.username || 'Admin', 
+                            thumb: ownerRes.data.thumb || null 
+                        };
+                        // Also map local ID 1 to admin just in case Plex local history uses 1
+                        plexUsers['1'] = { 
+                            name: ownerRes.data.title || ownerRes.data.username || 'Admin', 
+                            thumb: ownerRes.data.thumb || null 
+                        };
+                    }
+
+                    // Fetch friends
                     const tvRes = await axios.get('https://plex.tv/api/users', {
                         headers: { 'X-Plex-Token': plex.api_key },
                         timeout: 5000,
@@ -71,6 +90,8 @@ export async function GET(request: Request) {
                     let mediaType = item.type === 'episode' ? 'series' : 'movie';
                     if (item.type === 'livetv' || item.type === 'channel') {
                         mediaType = 'livetv';
+                    } else if (item.type === 'track') {
+                        mediaType = 'track';
                     }
 
                     // Plex /history/all does not return duration/viewOffset natively.
@@ -79,6 +100,7 @@ export async function GET(request: Request) {
                     if (!durationMs) {
                         if (mediaType === 'movie') durationMs = 120 * 60 * 1000; // 2 hours
                         else if (mediaType === 'series') durationMs = 45 * 60 * 1000; // 45 mins
+                        else if (mediaType === 'track') durationMs = 3 * 60 * 1000; // 3 mins
                         else durationMs = 30 * 60 * 1000; // 30 mins
                     }
                     let viewOffsetMs = item.viewOffset || durationMs; // Assume fully watched if in history
