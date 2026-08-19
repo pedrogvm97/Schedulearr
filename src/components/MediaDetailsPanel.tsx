@@ -187,7 +187,23 @@ function EpisodeList({
     );
 }
 
-export function MediaDetailsPanel({ 
+class ErrorBoundary extends React.Component<{children: React.ReactNode, fallback?: (err: Error) => React.ReactNode}, {hasError: boolean, error: Error | null}> {
+    constructor(props: any) { super(props); this.state = { hasError: false, error: null }; }
+    static getDerivedStateFromError(error: Error) { return { hasError: true, error }; }
+    render() {
+        if (this.state.hasError) {
+            return this.props.fallback ? this.props.fallback(this.state.error!) : (
+                <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center p-10 bg-black/95 text-white font-mono text-sm overflow-auto">
+                    <h1 className="text-red-500 font-bold mb-4">React Error Details</h1>
+                    <pre className="text-zinc-400 whitespace-pre-wrap max-w-4xl bg-zinc-900 p-4 rounded-xl">{this.state.error?.stack || this.state.error?.message}</pre>
+                </div>
+            );
+        }
+        return this.props.children;
+    }
+}
+
+function MediaDetailsPanelInner({ 
     item, 
     tmdbApiKey, 
     libStatus, 
@@ -198,7 +214,8 @@ export function MediaDetailsPanel({
     onDelete,
     onTransfer,
     onInteractiveSearch,
-    onQuickSearch
+    onQuickSearch,
+    watchHistory
 }: MediaDetailsPanelProps) {
     const [details, setDetails] = useState<any>(null);
     const [loading, setLoading] = useState(true);
@@ -550,7 +567,7 @@ export function MediaDetailsPanel({
                                     {[
                                         ...(details?.networks || []),
                                         ...(details?.production_companies || []),
-                                        ...(item.productionCompanies || []).map((name: string) => ({ name })),
+                                        ...(Array.isArray(item.productionCompanies) ? item.productionCompanies : []).map((name: string) => ({ name })),
                                         ...(item.network ? [{ name: item.network }] : []),
                                         ...(item.studio ? [{ name: item.studio }] : [])
                                     ]
@@ -762,5 +779,13 @@ export function MediaDetailsPanel({
                 }
             `}</style>
         </div>
+    );
+}
+
+export function MediaDetailsPanel(props: MediaDetailsPanelProps) {
+    return (
+        <ErrorBoundary>
+            <MediaDetailsPanelInner {...props} />
+        </ErrorBoundary>
     );
 }

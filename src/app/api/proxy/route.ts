@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import axios from 'axios';
 
 export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
@@ -9,21 +10,18 @@ export async function GET(req: NextRequest) {
     }
 
     try {
-        const response = await fetch(url);
-        if (!response.ok) {
-            return new NextResponse('Failed to fetch image', { status: response.status });
-        }
+        const response = await axios.get(url, { responseType: 'arraybuffer' });
+        
+        const contentType = response.headers['content-type'] || 'image/jpeg';
 
-        const buffer = await response.arrayBuffer();
-        const contentType = response.headers.get('content-type') || 'image/jpeg';
-
-        return new NextResponse(buffer, {
+        return new NextResponse(response.data, {
             headers: {
                 'Content-Type': contentType,
                 'Cache-Control': 'public, max-age=31536000, immutable',
             },
         });
-    } catch (error) {
+    } catch (error: any) {
+        console.error('Proxy error for URL', url, ':', error.message);
         console.error('Proxy error:', error);
         return new NextResponse('Internal Server Error', { status: 500 });
     }
