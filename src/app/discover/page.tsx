@@ -979,12 +979,15 @@ export default function DiscoverPage() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     instanceId: targetInstanceId,
-                    tmdbId: item.tmdbId,
-                    tvdbId: item.tvdbId,
-                    title: item.title,
-                    profileId,
+                    qualityProfileId: profileId,
                     rootFolderPath,
                     startSearch,
+                    item: {
+                        tmdbId: item.tmdbId,
+                        tvdbId: item.tvdbId,
+                        title: item.title,
+                        year: item.year
+                    }
                 })
             });
             if (res.ok) {

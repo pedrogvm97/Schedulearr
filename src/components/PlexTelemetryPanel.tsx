@@ -247,9 +247,11 @@ export function PlexTelemetryPanel() {
                     </div>
                 </div>
 
-                <div className="p-5 rounded-2xl bg-zinc-950/70 border border-zinc-800/80 flex items-center justify-between shadow-xl">
+                <div className="p-5 rounded-2xl bg-zinc-950/70 border border-zinc-800/80 flex items-center justify-between shadow-xl relative group">
                     <div className="space-y-1">
-                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">Total Watch Time</span>
+                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block flex items-center gap-1 cursor-help" title="Plex natively does not store watch durations in its history log. This is an estimate based on average media lengths (Movies = 2h, Shows = 45m). For exact to-the-second tracking, a dedicated tracker like Tautulli is required.">
+                            Estimated Watch Time
+                        </span>
                         <span className="text-3xl font-black text-amber-400">
                             {formatHours(filteredHistory.reduce((acc, h) => acc + (h.viewOffsetMs || h.durationMs || 0), 0))}
                         </span>

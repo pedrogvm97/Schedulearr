@@ -47,6 +47,16 @@ export async function GET(request: Request) {
                         mediaType = 'livetv';
                     }
 
+                    // Plex /history/all does not return duration/viewOffset natively.
+                    // If missing, provide reasonable estimates so watch time charts function.
+                    let durationMs = item.duration || 0;
+                    if (!durationMs) {
+                        if (mediaType === 'movie') durationMs = 120 * 60 * 1000; // 2 hours
+                        else if (mediaType === 'series') durationMs = 45 * 60 * 1000; // 45 mins
+                        else durationMs = 30 * 60 * 1000; // 30 mins
+                    }
+                    let viewOffsetMs = item.viewOffset || durationMs; // Assume fully watched if in history
+
                     allHistory.push({
                         id: item.historyKey || item.ratingKey || Math.random().toString(),
                         instanceName: plex.name,
@@ -57,8 +67,8 @@ export async function GET(request: Request) {
                         mediaType,
                         poster,
                         viewedAt: item.viewedAt * 1000, // Convert to JS ms
-                        durationMs: item.duration || 0,
-                        viewOffsetMs: item.viewOffset || item.duration || 0, // Fallback if fully watched
+                        durationMs,
+                        viewOffsetMs,
                         user: {
                             name: item.User?.title || item.User?.name || `User ${item.accountID}`,
                             thumb: item.User?.thumb || null
