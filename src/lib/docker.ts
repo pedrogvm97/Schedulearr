@@ -1,18 +1,34 @@
 import fs from 'fs';
+import axios from 'axios';
+
+function getDockerClient() {
+  const socketPath = '/var/run/docker.sock';
+  return axios.create({ socketPath, baseURL: 'http://localhost/v1.41', timeout: 30000 });
+}
 
 /**
- * Sweeps and force-deletes all orphaned _old_ temporary containers created during updates.
+ * Sweeps and force-deletes all orphaned _old_ or _updater_ temporary containers created during updates.
  */
-export async function cleanupOrphanContainers(docker: any): Promise<number> {
+export async function cleanupOrphanContainers(docker?: any): Promise<number> {
   let count = 0;
   try {
-    const listRes = await docker.get('/containers/json?all=true');
+    const client = docker || getDockerClient();
+    const listRes = await client.get('/containers/json?all=true');
     const containers = listRes.data || [];
     for (const c of containers) {
       const names = c.Names || [];
-      if (names.some((n: string) => n.includes('_old_') || n.toLowerCase().includes('schedulearr_old'))) {
+      const isStale = names.some((n: string) => {
+        const lower = n.toLowerCase();
+        return lower.includes('_old_') ||
+               lower.includes('schedulearr_old') ||
+               lower.includes('schedulearr_updater') ||
+               lower.includes('_updater_') ||
+               lower.includes('_new_');
+      });
+
+      if (isStale) {
         try {
-          await docker.delete(`/containers/${c.Id}?v=true&force=true`);
+          await client.delete(`/containers/${c.Id}?v=true&force=true`);
           count++;
         } catch (e) {}
       }
@@ -86,7 +102,6 @@ export async function findSelfContainer(docker: any, hostname: string): Promise<
     const listRes = await docker.get('/containers/json?all=true');
     const containers = listRes.data || [];
 
-    // Check by name case-insensitively
     const hostnameLower = hostname.toLowerCase();
     const isGenericHost = hostnameLower === '0.0.0.0' || hostnameLower === 'localhost' || hostnameLower === '127.0.0.1';
     
@@ -107,13 +122,12 @@ export async function findSelfContainer(docker: any, hostname: string): Promise<
     // Check containers running the schedulearr image
     const schedulearrContainers = containers.filter((c: any) => {
       const image = (c.Image || '').toLowerCase();
-      return image.includes('schedulearr');
+      return image.includes('schedulearr') && !c.Names?.some((n: string) => n.includes('updater'));
     });
 
     for (const container of schedulearrContainers) {
       try {
         const res = await docker.get(`/containers/${container.Id}/json`);
-        // If it matches our hostname, or if it is the only container with schedulearr image
         if (res.data && (res.data.Config?.Hostname === hostname || schedulearrContainers.length === 1)) {
           return res.data;
         }
@@ -128,45 +142,39 @@ export async function findSelfContainer(docker: any, hostname: string): Promise<
 
 export async function performStartupContainerCleanup(): Promise<void> {
   try {
+    if (!fs.existsSync('/var/run/docker.sock')) return;
     const docker = getDockerClient();
     const listRes = await docker.get('/containers/json?all=true');
     const containers = listRes.data || [];
 
-    const hostname = process.env.HOSTNAME;
-    if (!hostname) return;
+    const hostname = process.env.HOSTNAME || '';
 
-    let currentContainer: any = null;
+    let currentContainerId = '';
     for (const c of containers) {
-      if (c.Id.startsWith(hostname) || hostname.startsWith(c.Id)) {
-        currentContainer = c;
+      if (hostname && (c.Id.startsWith(hostname) || hostname.startsWith(c.Id))) {
+        currentContainerId = c.Id;
         break;
       }
     }
 
-    if (!currentContainer) return;
-
-    const labels = currentContainer.Labels || {};
-    const cleanupTargetId = labels['schedulearr.cleanup_target'];
-    const originalName = labels['schedulearr.original_name'] || 'Schedulearr';
-
-    if (cleanupTargetId) {
-      // 1. Force stop and delete old container over Docker socket
-      await docker.post(`/containers/${cleanupTargetId}/stop?t=5`).catch(() => {});
-      await docker.delete(`/containers/${cleanupTargetId}?v=true&force=true`).catch(() => {});
-
-      // 2. Rename current container to original name
-      const currentNames = currentContainer.Names || [];
-      const isAlreadyOriginalName = currentNames.some((n: string) => n === `/${originalName}`);
-      if (!isAlreadyOriginalName) {
-        await docker.post(`/containers/${currentContainer.Id}/rename?name=${originalName}`).catch(() => {});
-      }
-    }
-
-    // Clean up any stale orphan containers from past runs
+    // Clean up all inactive updater and orphan containers from past runs
     for (const c of containers) {
+      if (c.Id === currentContainerId) continue;
       const names = c.Names || [];
-      if (c.Id !== currentContainer.Id && names.some((n: string) => n.includes('_new_') || n.includes('_old_'))) {
-        await docker.delete(`/containers/${c.Id}?v=true&force=true`).catch(() => {});
+      const isStale = names.some((n: string) => {
+        const lower = n.toLowerCase();
+        return lower.includes('schedulearr_updater') ||
+               lower.includes('_updater_') ||
+               lower.includes('_new_') ||
+               lower.includes('_old_') ||
+               lower.includes('schedulearr_old');
+      });
+
+      if (isStale) {
+        try {
+          await docker.delete(`/containers/${c.Id}?v=true&force=true`);
+          console.log(`[Docker Cleanup] Removed stale container: ${names.join(', ')} (${c.Id})`);
+        } catch (e) {}
       }
     }
   } catch (e) {
@@ -208,6 +216,7 @@ export async function recreateSelfContainer(docker: any, containerInfo: any, tar
 const http = require('http');
 const oldId = '${containerInfo.Id}';
 const baseName = '${baseName}';
+const helperName = '${helperName}';
 const newConfig = ${JSON.stringify(newContainerConfig)};
 
 function request(path, method, body, callback) {
@@ -233,7 +242,10 @@ setTimeout(() => {
         let createdId = baseName;
         try { createdId = JSON.parse(resData).Id || baseName; } catch(e) {}
         request('/containers/' + createdId + '/start', 'POST', null, () => {
-          process.exit(0);
+          // Delete updater helper container itself before exiting
+          request('/containers/' + helperName + '?v=true&force=true', 'DELETE', null, () => {
+            process.exit(0);
+          });
         });
       });
     });
@@ -245,6 +257,7 @@ setTimeout(() => {
     Image: targetImage,
     Cmd: ['node', '-e', nodeScript],
     HostConfig: {
+      AutoRemove: true,
       Binds: ['/var/run/docker.sock:/var/run/docker.sock']
     }
   };
