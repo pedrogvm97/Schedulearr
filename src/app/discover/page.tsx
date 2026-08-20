@@ -1310,123 +1310,126 @@ export default function DiscoverPage() {
             <Toaster position="top-right" theme="dark" richColors />
             <div className="space-y-6 pb-20">
                 {/* ── Main Top Bar ── */}
-                <div className="flex flex-wrap items-center justify-between gap-4 bg-[#09090b]/80 border border-zinc-800/80 backdrop-blur-2xl p-4 sm:p-5 rounded-[2.5rem] shadow-2xl">
-                    <div className="flex flex-wrap items-center gap-3">
-                        {/* Page Title */}
-                        <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight flex items-center gap-2 mr-2">
-                            Media
-                        </h1>
+                <div className="bg-[#09090b]/80 border border-zinc-800/80 backdrop-blur-2xl p-4 sm:p-5 rounded-[2.5rem] shadow-2xl space-y-4">
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                        <div className="flex flex-wrap items-center gap-3">
+                            {/* Page Title */}
+                            <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight flex items-center gap-2 mr-1">
+                                Media
+                            </h1>
 
-                        {/* Media Type Toggle: Movies | Series */}
-                        <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner">
-                            <button 
-                                onClick={() => setMediaType('movie')} 
-                                className={`flex items-center gap-2 px-4 py-2 text-xs font-black rounded-xl transition-all ${mediaType === 'movie' ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                            >
-                                <Film size={15} /> Movies
-                            </button>
-                            <button 
-                                onClick={() => setMediaType('series')} 
-                                className={`flex items-center gap-2 px-4 py-2 text-xs font-black rounded-xl transition-all ${mediaType === 'series' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                            >
-                                <Tv size={15} /> Series
-                            </button>
-                        </div>
-
-                        {/* Status Filter: All | In Library | Not in Library */}
-                        <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner">
-                            <button 
-                                onClick={() => setStatusFilter('all')} 
-                                className={`px-3.5 py-2 text-xs font-black rounded-xl transition-all ${statusFilter === 'all' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                            >
-                                All ({unifiedPool.length})
-                            </button>
-                            <button 
-                                onClick={() => setStatusFilter('in_library')} 
-                                className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-black rounded-xl transition-all ${statusFilter === 'in_library' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                            >
-                                <CheckCircle size={13} className="text-emerald-500" /> In Library ({libraryItems.length})
-                            </button>
-                            <button 
-                                onClick={() => setStatusFilter('not_in_library')} 
-                                className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-black rounded-xl transition-all ${statusFilter === 'not_in_library' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                            >
-                                <Sparkles size={13} className="text-amber-500" /> Not in Library
-                            </button>
-                        </div>
-
-                        {/* Instance Filter Pills */}
-                        {availableInstances.length > 1 && (
-                            <div className="flex flex-wrap bg-zinc-950 p-1 rounded-2xl border border-zinc-800/80 gap-1">
-                                {availableInstances.map(inst => {
-                                    const isSelected = selectedInstanceIds.includes(inst.id);
-                                    const hex = inst.colorHex || '#3b82f6';
-                                    return (
-                                        <button
-                                            key={inst.id}
-                                            onClick={() => {
-                                                setSelectedInstanceIds(prev =>
-                                                    prev.includes(inst.id)
-                                                        ? (prev.length > 1 ? prev.filter(id => id !== inst.id) : prev)
-                                                        : [...prev, inst.id]
-                                                );
-                                            }}
-                                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl border transition-all whitespace-nowrap"
-                                            style={isSelected ? { backgroundColor: `${hex}20`, borderColor: `${hex}50`, color: hex } : { borderColor: 'transparent', color: '#71717a' }}
-                                        >
-                                            <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: hex }} />
-                                            <span>{inst.name}</span>
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="flex items-center gap-3 w-full lg:w-auto">
-                        {/* Search Input */}
-                        <div className="relative flex-1 lg:w-72">
-                            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
-                            <input
-                                type="text"
-                                placeholder={`Search ${mediaType === 'movie' ? 'movies' : 'series'}...`}
-                                value={searchQuery}
-                                onChange={e => setSearchQuery(e.target.value)}
-                                className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl pl-10 pr-9 py-2.5 text-xs text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all placeholder-zinc-600 font-medium"
-                            />
-                            {searchQuery && (
-                                <button
-                                    type="button"
-                                    onClick={() => setSearchQuery('')}
-                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                            {/* Media Type Toggle: Movies | Series */}
+                            <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner">
+                                <button 
+                                    onClick={() => setMediaType('movie')} 
+                                    className={`flex items-center gap-2 px-4 py-2 text-xs font-black rounded-xl transition-all ${mediaType === 'movie' ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
                                 >
-                                    <X size={14} />
+                                    <Film size={15} /> Movies
                                 </button>
-                            )}
+                                <button 
+                                    onClick={() => setMediaType('series')} 
+                                    className={`flex items-center gap-2 px-4 py-2 text-xs font-black rounded-xl transition-all ${mediaType === 'series' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                >
+                                    <Tv size={15} /> Series
+                                </button>
+                            </div>
+
+                            {/* Status Filter: All | In Library | Not in Library */}
+                            <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner">
+                                <button 
+                                    onClick={() => setStatusFilter('all')} 
+                                    className={`px-3.5 py-2 text-xs font-black rounded-xl transition-all ${statusFilter === 'all' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                >
+                                    All ({unifiedPool.length})
+                                </button>
+                                <button 
+                                    onClick={() => setStatusFilter('in_library')} 
+                                    className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-black rounded-xl transition-all ${statusFilter === 'in_library' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                >
+                                    <CheckCircle size={13} className="text-emerald-500" /> In Library ({libraryItems.length})
+                                </button>
+                                <button 
+                                    onClick={() => setStatusFilter('not_in_library')} 
+                                    className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-black rounded-xl transition-all ${statusFilter === 'not_in_library' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                >
+                                    <Sparkles size={13} className="text-amber-500" /> Not in Library
+                                </button>
+                            </div>
                         </div>
 
-                        {/* Filters Toggle Button */}
-                        <button
-                            onClick={() => setShowFilters(!showFilters)}
-                            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-black rounded-2xl border transition-all ${
-                                showFilters
-                                    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-sm'
-                                    : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-zinc-200'
-                            }`}
-                        >
-                            <Filter size={14} />
-                            <span>Filters</span>
-                        </button>
+                        {/* Search + Action Buttons (Fixed Right Alignment) */}
+                        <div className="flex items-center gap-3">
+                            <div className="relative w-full sm:w-72 md:w-80">
+                                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
+                                <input
+                                    type="text"
+                                    placeholder={`Search ${mediaType === 'movie' ? 'movies' : 'series'}...`}
+                                    value={searchQuery}
+                                    onChange={e => setSearchQuery(e.target.value)}
+                                    className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl pl-10 pr-9 py-2.5 text-xs text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all placeholder-zinc-600 font-medium"
+                                />
+                                {searchQuery && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setSearchQuery('')}
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                                    >
+                                        <X size={14} />
+                                    </button>
+                                )}
+                            </div>
 
-                        {/* Refresh Cache */}
-                        <button
-                            onClick={() => loadLibrary()}
-                            title="Refresh Media Cache"
-                            className="p-2.5 rounded-2xl bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white transition-colors"
-                        >
-                            <RefreshCw size={16} className={libraryLoading ? 'animate-spin text-emerald-500' : ''} />
-                        </button>
+                            {/* Filters Toggle Button */}
+                            <button
+                                onClick={() => setShowFilters(!showFilters)}
+                                className={`flex items-center gap-2 px-4 py-2.5 text-xs font-black rounded-2xl border transition-all shrink-0 ${
+                                    showFilters
+                                        ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-sm'
+                                        : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-zinc-200'
+                                }`}
+                            >
+                                <Filter size={14} />
+                                <span>Filters</span>
+                            </button>
+
+                            {/* Refresh Cache */}
+                            <button
+                                onClick={() => loadLibrary()}
+                                title="Refresh Media Cache"
+                                className="p-2.5 rounded-2xl bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white transition-colors shrink-0"
+                            >
+                                <RefreshCw size={16} className={libraryLoading ? 'animate-spin text-emerald-500' : ''} />
+                            </button>
+                        </div>
                     </div>
+
+                    {/* Instance Filter Pills (Dedicated Row below, consistent across both tabs) */}
+                    {availableInstances.length > 1 && (
+                        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-zinc-900/60">
+                            <span className="text-[11px] font-black text-zinc-500 uppercase tracking-widest mr-1">Instances:</span>
+                            {availableInstances.map(inst => {
+                                const isSelected = selectedInstanceIds.includes(inst.id);
+                                const hex = inst.colorHex || '#3b82f6';
+                                return (
+                                    <button
+                                        key={inst.id}
+                                        onClick={() => {
+                                            setSelectedInstanceIds(prev =>
+                                                prev.includes(inst.id)
+                                                    ? (prev.length > 1 ? prev.filter(id => id !== inst.id) : prev)
+                                                    : [...prev, inst.id]
+                                            );
+                                        }}
+                                        className="flex items-center gap-2 px-3.5 py-1.5 text-xs font-bold rounded-xl border transition-all whitespace-nowrap"
+                                        style={isSelected ? { backgroundColor: `${hex}20`, borderColor: `${hex}50`, color: hex } : { borderColor: 'transparent', color: '#71717a' }}
+                                    >
+                                        <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: hex }} />
+                                        <span>{inst.name}</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    )}
                 </div>
 
                 {/* ── Collapsible Filters Bar ── */}
