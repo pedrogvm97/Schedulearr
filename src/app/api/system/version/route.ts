@@ -12,7 +12,7 @@ export async function GET() {
 
   try {
     // 1. Get current version from package.json or system fallback
-    let currentVersion = '0.3.36';
+    let currentVersion = '0.3.62';
     const possiblePaths = [
       path.join(process.cwd(), 'package.json'),
       path.join(process.cwd(), '..', 'package.json'),
@@ -76,6 +76,28 @@ export async function GET() {
         if (latestVersion !== currentVersion) {
           updateAvailable = true;
         }
+      }
+
+      // If changelog body is empty, automatically pull recent commit patch notes from the repository!
+      if (!changelog.trim()) {
+        try {
+          const commitsRes = await axios.get('https://api.github.com/repos/pedrogvm97/Schedulearr/commits?per_page=15', {
+            headers: {
+              'Accept': 'application/vnd.github.v3+json',
+              'User-Agent': 'Schedulearr-Update-Checker'
+            },
+            timeout: 5000
+          });
+          if (Array.isArray(commitsRes.data)) {
+            const notes = commitsRes.data
+              .map((c: any) => c.commit?.message?.split('\n')[0])
+              .filter((msg: string) => msg && !msg.startsWith('Merge branch') && !msg.includes('Merge pull request'))
+              .slice(0, 8);
+            if (notes.length > 0) {
+              changelog = notes.map((n: string) => `• ${n}`).join('\n');
+            }
+          }
+        } catch (commitErr) {}
       }
     } catch (githubError: any) {
       console.error('Failed to fetch latest version from GitHub:', githubError.message);

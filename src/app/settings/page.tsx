@@ -1467,11 +1467,23 @@ export default function Settings() {
                             </div>
                         )}
 
-                        {/* Changelog panel */}
-                        {versionInfo?.updateAvailable && versionInfo.changelog && (
-                            <div className="px-6 pb-6 pt-2 border-t border-zinc-800/50 bg-zinc-950/20">
-                                <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest block mb-2">Build Changelog</span>
-                                <div className="text-xs text-zinc-400 font-medium whitespace-pre-wrap max-h-32 overflow-y-auto leading-relaxed border border-zinc-800 p-4 rounded-xl bg-zinc-950/30 italic custom-scrollbar">
+                        {/* Changelog & Patch Notes panel */}
+                        {versionInfo?.changelog && (
+                            <div className="px-6 pb-6 pt-3 border-t border-zinc-800/60 bg-zinc-950/40 rounded-b-2xl">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-[11px] text-emerald-400 font-black uppercase tracking-wider flex items-center gap-1.5">
+                                        {versionInfo.updateAvailable ? 'New Update Patch Notes' : `What's New in v${versionInfo.currentVersion}`}
+                                    </span>
+                                    <a
+                                        href="https://github.com/pedrogvm97/Schedulearr/commits/main"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-[10px] text-zinc-500 hover:text-zinc-300 font-bold underline"
+                                    >
+                                        GitHub Commits
+                                    </a>
+                                </div>
+                                <div className="text-xs text-zinc-300 font-mono whitespace-pre-wrap max-h-44 overflow-y-auto leading-relaxed border border-zinc-800/80 p-4 rounded-xl bg-zinc-950/80 shadow-inner custom-scrollbar">
                                     {versionInfo.changelog}
                                 </div>
                             </div>
