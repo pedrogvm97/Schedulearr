@@ -169,6 +169,67 @@ export default function TheaterPage() {
     const audioRef = useRef<HTMLAudioElement>(null);
     const hlsInstanceRef = useRef<Hls | null>(null);
 
+    // Smart TV Pairing & Remote Casting States
+    const [isPairTvModalOpen, setIsPairTvModalOpen] = useState(false);
+    const [tvPairPin, setTvPairPin] = useState('');
+    const [isPairingTv, setIsPairingTv] = useState(false);
+    const [pairedTvCount, setPairedTvCount] = useState(0);
+
+    const checkPairedTvs = async () => {
+        try {
+            const res = await fetch('/api/theater/tv?listSessions=true');
+            if (res.ok) {
+                const data = await res.json();
+                setPairedTvCount(Array.isArray(data.sessions) ? data.sessions.length : 0);
+            }
+        } catch {}
+    };
+
+    useEffect(() => {
+        checkPairedTvs();
+    }, []);
+
+    const handleApproveTv = async () => {
+        if (!tvPairPin.trim()) return;
+        setIsPairingTv(true);
+        try {
+            const res = await fetch('/api/theater/tv', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'approve_code', code: tvPairPin.trim() })
+            });
+            if (res.ok) {
+                toast.success('Smart TV Paired and Unlocked Successfully!');
+                setIsPairTvModalOpen(false);
+                setTvPairPin('');
+                checkPairedTvs();
+            } else {
+                toast.error('Invalid or expired TV pairing code');
+            }
+        } catch {
+            toast.error('Failed to pair TV');
+        } finally {
+            setIsPairingTv(false);
+        }
+    };
+
+    const handleCastToTv = async (media: MediaItem | IptvChannel) => {
+        try {
+            const res = await fetch('/api/theater/tv', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'cast', media })
+            });
+            if (res.ok) {
+                toast.success(`Casting to Smart TV!`);
+            } else {
+                toast.error('Failed to cast. Open /tv on your Smart TV first.');
+            }
+        } catch {
+            toast.error('Error sending cast command to TV');
+        }
+    };
+
     // 1. Fetch Theater Libraries
     const fetchLibraries = async () => {
         setLoadingLibraries(true);
@@ -729,6 +790,14 @@ export default function TheaterPage() {
                             >
                                 <Plus size={14} /> Add Library
                             </button>
+
+                            <button
+                                onClick={() => setIsPairTvModalOpen(true)}
+                                className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-black rounded-xl text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 border border-dashed border-indigo-500/30 transition-all shadow-sm"
+                                title="Pair a Smart TV via /tv"
+                            >
+                                <Tv size={14} /> Pair Smart TV {pairedTvCount > 0 && <span className="w-2 h-2 rounded-full bg-emerald-400" />}
+                            </button>
                         </div>
                     </div>
 
@@ -1137,6 +1206,15 @@ export default function TheaterPage() {
                                     title="Subtitles & Timing Sync"
                                 >
                                     <Subtitles size={16} /> Subtitles
+                                </button>
+
+                                {/* Cast to Smart TV */}
+                                <button
+                                    onClick={() => handleCastToTv(playingVideo)}
+                                    className="p-2.5 rounded-xl bg-purple-500/15 hover:bg-purple-500 text-purple-400 hover:text-white border border-purple-500/30 text-xs font-bold flex items-center gap-1.5 transition-all"
+                                    title="Cast Stream directly to Smart TV (/tv)"
+                                >
+                                    <Cast size={15} /> Cast to TV
                                 </button>
 
                                 {/* Open in VLC / External Player */}
@@ -2070,6 +2148,51 @@ export default function TheaterPage() {
                                 </div>
                             </div>
                         )}
+                    </div>
+                </div>
+            )}
+
+            {/* ── Pair Smart TV Modal ── */}
+            {isPairTvModalOpen && (
+                <div className="fixed inset-0 z-[230] flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200">
+                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-md p-6 sm:p-8 space-y-6 shadow-2xl relative text-center">
+                        <button
+                            onClick={() => setIsPairTvModalOpen(false)}
+                            className="absolute top-6 right-6 p-2 rounded-xl text-zinc-400 hover:text-white"
+                        >
+                            <X size={20} />
+                        </button>
+
+                        <div className="w-16 h-16 rounded-3xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 mx-auto">
+                            <Tv size={32} />
+                        </div>
+
+                        <div className="space-y-1">
+                            <h3 className="text-xl font-black text-white">Pair Smart TV</h3>
+                            <p className="text-xs text-zinc-400">
+                                Open <span className="text-white font-mono font-bold">/tv</span> on your Smart TV browser and enter the 6-digit code shown on your TV screen.
+                            </p>
+                        </div>
+
+                        <div className="space-y-3">
+                            <input
+                                type="text"
+                                placeholder="e.g. 832-194"
+                                value={tvPairPin}
+                                onChange={e => setTvPairPin(e.target.value)}
+                                maxLength={8}
+                                className="w-full text-center text-3xl font-mono font-black tracking-widest bg-zinc-950 border border-zinc-800 focus:border-indigo-500 rounded-2xl py-4 text-white outline-none"
+                            />
+
+                            <button
+                                disabled={isPairingTv || !tvPairPin.trim()}
+                                onClick={handleApproveTv}
+                                className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-black uppercase text-xs tracking-widest rounded-2xl transition-all shadow-lg shadow-indigo-500/20 disabled:opacity-50 flex items-center justify-center gap-2"
+                            >
+                                {isPairingTv ? <RefreshCw size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+                                Authorize & Link TV
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
