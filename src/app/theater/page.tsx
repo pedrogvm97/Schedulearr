@@ -7,7 +7,8 @@ import {
     Search, Trash2, ArrowRight, ChevronRight, ChevronLeft,
     HardDrive, RefreshCw, LayoutGrid, List as Rows,
     FileVideo, FileAudio, FileImage, Sparkles, FolderPlus,
-    Calendar, Check, Settings2, FolderTree, ArrowUp
+    Calendar, Check, Settings2, FolderTree, ArrowUp,
+    DownloadCloud, Layers, Database, ShieldCheck, CheckCircle2
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 
@@ -32,12 +33,26 @@ interface MediaItem {
     streamUrl: string;
 }
 
-interface PathSuggestion {
-    path: string;
-    label: string;
-    source: string;
+interface PlexSourceLibrary {
+    instanceId: string;
+    instanceName: string;
+    sectionKey: string;
+    title: string;
+    plexType: string;
+    mediaType: 'movie' | 'show' | 'music' | 'photo' | 'other';
+    locations: string[];
+    count: number;
     exists: boolean;
-    mediaType?: 'movie' | 'show' | 'music' | 'photo' | 'other';
+}
+
+interface ArrSourceFolder {
+    instanceId: string;
+    instanceName: string;
+    title: string;
+    mediaType: 'movie' | 'show';
+    path: string;
+    freeSpace: number;
+    exists: boolean;
 }
 
 function formatBytes(bytes: number): string {
@@ -59,8 +74,16 @@ export default function TheaterPage() {
     const [sortBy, setSortBy] = useState<'title' | 'date' | 'size'>('title');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
-    // Modals & Creation
+    // Add Library Modal States
     const [isAddLibModalOpen, setIsAddLibModalOpen] = useState(false);
+    const [modalTab, setModalTab] = useState<'import' | 'custom'>('import');
+    const [plexSources, setPlexSources] = useState<PlexSourceLibrary[]>([]);
+    const [radarrSources, setRadarrSources] = useState<ArrSourceFolder[]>([]);
+    const [sonarrSources, setSonarrSources] = useState<ArrSourceFolder[]>([]);
+    const [commonMounts, setCommonMounts] = useState<string[]>([]);
+    const [loadingSources, setLoadingSources] = useState(false);
+
+    // Custom Form State
     const [newLibName, setNewLibName] = useState('');
     const [newLibType, setNewLibType] = useState<'movie' | 'show' | 'music' | 'photo' | 'other'>('movie');
     const [newLibFolders, setNewLibFolders] = useState<string[]>([]);
@@ -68,11 +91,9 @@ export default function TheaterPage() {
     const [browserCurrentPath, setBrowserCurrentPath] = useState('');
     const [browserParentPath, setBrowserParentPath] = useState<string | null>(null);
     const [browserFolders, setBrowserFolders] = useState<any[]>([]);
-    const [suggestedPaths, setSuggestedPaths] = useState<PathSuggestion[]>([]);
-    const [loadingSuggestions, setLoadingSuggestions] = useState(false);
     const [isCreatingLib, setIsCreatingLib] = useState(false);
 
-    // Active Players
+    // Active Media Players
     const [playingVideo, setPlayingVideo] = useState<MediaItem | null>(null);
     const [playingAudio, setPlayingAudio] = useState<MediaItem | null>(null);
     const [viewingPhotoIndex, setViewingPhotoIndex] = useState<number | null>(null);
@@ -80,7 +101,7 @@ export default function TheaterPage() {
     const videoRef = useRef<HTMLVideoElement>(null);
     const audioRef = useRef<HTMLAudioElement>(null);
 
-    // 1. Fetch Libraries
+    // 1. Fetch Theater Libraries
     const fetchLibraries = async () => {
         setLoadingLibraries(true);
         try {
@@ -104,7 +125,7 @@ export default function TheaterPage() {
         fetchLibraries();
     }, []);
 
-    // 2. Fetch Items for Active Library
+    // 2. Fetch Items for Selected Library
     const fetchLibraryItems = async (libId: string) => {
         setLoadingItems(true);
         try {
@@ -132,22 +153,29 @@ export default function TheaterPage() {
         }
     }, [activeLibraryId]);
 
-    // 3. Suggestions and Folder Browser for Add Library Modal
-    const loadSuggestions = async () => {
-        setLoadingSuggestions(true);
+    // 3. Fetch External Sources (Plex Libraries, Sonarr/Radarr Folders)
+    const fetchSources = async () => {
+        setLoadingSources(true);
         try {
-            const res = await fetch('/api/theater/items?suggest=true');
+            const res = await fetch('/api/theater/sources');
             if (res.ok) {
                 const data = await res.json();
-                setSuggestedPaths(Array.isArray(data.suggestions) ? data.suggestions : []);
+                setPlexSources(Array.isArray(data.plex) ? data.plex : []);
+                setRadarrSources(Array.isArray(data.radarr) ? data.radarr : []);
+                setSonarrSources(Array.isArray(data.sonarr) ? data.sonarr : []);
+                setCommonMounts(Array.isArray(data.commonMounts) ? data.commonMounts : []);
+                if ((!data.plex || data.plex.length === 0) && (!data.radarr || data.radarr.length === 0) && (!data.sonarr || data.sonarr.length === 0)) {
+                    setModalTab('custom');
+                }
             }
         } catch (e) {
-            console.error('Suggestions error:', e);
+            console.error('Failed to fetch sources:', e);
         } finally {
-            setLoadingSuggestions(false);
+            setLoadingSources(false);
         }
     };
 
+    // 4. Directory Browser Navigation
     const loadBrowserPath = async (targetPath = '') => {
         try {
             const res = await fetch(`/api/theater/items?browsePath=${encodeURIComponent(targetPath)}`);
@@ -164,28 +192,72 @@ export default function TheaterPage() {
 
     useEffect(() => {
         if (isAddLibModalOpen) {
-            loadSuggestions();
+            fetchSources();
             loadBrowserPath();
         }
     }, [isAddLibModalOpen]);
 
-    const handleSelectSuggestion = (sug: PathSuggestion) => {
-        setFolderInput(sug.path);
-        if (!newLibFolders.includes(sug.path)) {
-            setNewLibFolders(prev => [...prev, sug.path]);
+    // 5. 1-Click Import from Plex or Arr
+    const handleImportPlexLibrary = async (plexLib: PlexSourceLibrary) => {
+        setIsCreatingLib(true);
+        try {
+            const res = await fetch('/api/theater/libraries', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: plexLib.title,
+                    type: plexLib.mediaType,
+                    folders: plexLib.locations
+                })
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                toast.success(`Imported "${plexLib.title}" from ${plexLib.instanceName}!`);
+                setIsAddLibModalOpen(false);
+                await fetchLibraries();
+                if (data.id) setActiveLibraryId(data.id);
+            } else {
+                toast.error('Failed to import library');
+            }
+        } catch {
+            toast.error('Error importing library');
+        } finally {
+            setIsCreatingLib(false);
         }
-        if (sug.mediaType) {
-            setNewLibType(sug.mediaType);
-        }
-        if (!newLibName.trim()) {
-            const autoName = sug.label.split(':')[1]?.replace(/\(.*?\)/g, '').trim() || sug.label;
-            setNewLibName(autoName);
-        }
-        loadBrowserPath(sug.path);
-        toast.info(`Loaded path: ${sug.path}`);
     };
 
-    const handleCreateLibrary = async () => {
+    const handleImportArrFolder = async (arrFolder: ArrSourceFolder) => {
+        setIsCreatingLib(true);
+        try {
+            const res = await fetch('/api/theater/libraries', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: arrFolder.instanceName,
+                    type: arrFolder.mediaType,
+                    folders: [arrFolder.path]
+                })
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                toast.success(`Imported "${arrFolder.instanceName}"!`);
+                setIsAddLibModalOpen(false);
+                await fetchLibraries();
+                if (data.id) setActiveLibraryId(data.id);
+            } else {
+                toast.error('Failed to create library');
+            }
+        } catch {
+            toast.error('Error creating library');
+        } finally {
+            setIsCreatingLib(false);
+        }
+    };
+
+    // 6. Create Custom Library
+    const handleCreateCustomLibrary = async () => {
         if (!newLibName.trim()) {
             toast.error('Please enter a library name');
             return;
@@ -196,7 +268,7 @@ export default function TheaterPage() {
         }
 
         if (allFolders.length === 0) {
-            toast.error('Please select or specify at least one folder path');
+            toast.error('Please specify at least one folder path');
             return;
         }
 
@@ -337,9 +409,9 @@ export default function TheaterPage() {
 
                             <button
                                 onClick={() => setIsAddLibModalOpen(true)}
-                                className="flex items-center gap-1.5 px-3 py-2 text-xs font-black rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-900 border border-dashed border-zinc-800 transition-all"
+                                className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-black rounded-xl text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 border border-dashed border-emerald-500/30 transition-all shadow-sm"
                             >
-                                <Plus size={14} /> New Library
+                                <Plus size={14} /> Add Library
                             </button>
                         </div>
                     </div>
@@ -450,21 +522,21 @@ export default function TheaterPage() {
                         <span className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Loading Theater...</span>
                     </div>
                 ) : libraries.length === 0 ? (
-                    <div className="p-16 bg-zinc-950/40 rounded-[2.5rem] border border-zinc-900 text-center space-y-4 max-w-xl mx-auto my-12">
+                    <div className="p-16 bg-zinc-950/40 rounded-[2.5rem] border border-zinc-900 text-center space-y-4 max-w-xl mx-auto my-12 shadow-2xl">
                         <div className="w-16 h-16 rounded-3xl bg-emerald-500/10 flex items-center justify-center text-emerald-400 mx-auto">
                             <FolderPlus size={32} />
                         </div>
                         <div>
                             <h2 className="text-xl font-bold text-white">No Theater Libraries Configured</h2>
                             <p className="text-xs text-zinc-500 mt-1">
-                                Create your first library pointing to your movies, series, music, or photo folders.
+                                Import your existing Plex libraries or create custom libraries for your media folders.
                             </p>
                         </div>
                         <button
                             onClick={() => setIsAddLibModalOpen(true)}
-                            className="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black uppercase text-xs tracking-widest rounded-2xl transition-all shadow-lg shadow-emerald-500/20"
+                            className="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black uppercase text-xs tracking-widest rounded-2xl transition-all shadow-lg shadow-emerald-500/20 flex items-center gap-2 mx-auto"
                         >
-                            + Create Library
+                            <Plus size={16} /> Add / Import Library
                         </button>
                     </div>
                 ) : loadingItems ? (
@@ -547,26 +619,22 @@ export default function TheaterPage() {
                                     onClick={() => handlePlayItem(item)}
                                     className="group flex flex-col bg-[#09090b] border border-zinc-900 hover:border-zinc-800 rounded-3xl overflow-hidden transition-all duration-300 shadow-xl cursor-pointer hover:-translate-y-1"
                                 >
-                                    {/* Preview Banner */}
                                     <div className="relative aspect-video bg-zinc-900 overflow-hidden flex items-center justify-center border-b border-zinc-900">
                                         <div className="text-zinc-700 group-hover:scale-110 transition-transform duration-500">
                                             {item.category === 'video' ? <FileVideo size={48} /> : <FileAudio size={48} />}
                                         </div>
 
-                                        {/* Play Overlay Button */}
                                         <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 flex items-center justify-center transition-colors">
                                             <div className="w-12 h-12 rounded-2xl bg-white/10 backdrop-blur-md group-hover:bg-emerald-500 text-white group-hover:text-black flex items-center justify-center transition-all shadow-xl group-hover:scale-110">
                                                 <Play size={20} className="ml-0.5" />
                                             </div>
                                         </div>
 
-                                        {/* Top Format Badge */}
                                         <div className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-lg bg-black/60 backdrop-blur-sm border border-white/10 text-[9px] font-black uppercase text-zinc-300">
                                             {item.extension}
                                         </div>
                                     </div>
 
-                                    {/* Card Info */}
                                     <div className="p-4 space-y-1">
                                         <h3 className="font-bold text-white text-base leading-snug line-clamp-2 group-hover:text-emerald-400 transition-colors">
                                             {item.title}
@@ -684,202 +752,357 @@ export default function TheaterPage() {
                 </div>
             )}
 
-            {/* ── Add Library Modal ── */}
+            {/* ── Add / Import Library Big Spacious Modal ── */}
             {isAddLibModalOpen && (
-                <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-2xl p-7 sm:p-8 shadow-2xl relative space-y-6 max-h-[90vh] overflow-y-auto custom-scrollbar">
+                <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 sm:p-6 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200">
+                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-5xl p-6 sm:p-10 shadow-2xl relative space-y-6 max-h-[92vh] overflow-y-auto custom-scrollbar flex flex-col">
                         <button
                             onClick={() => setIsAddLibModalOpen(false)}
-                            className="absolute top-6 right-6 p-2 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"
+                            className="absolute top-6 right-6 p-2.5 rounded-2xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all"
                         >
-                            <X size={20} />
+                            <X size={22} />
                         </button>
 
-                        <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-400 shrink-0">
-                                <FolderPlus size={24} />
-                            </div>
+                        {/* Top Modal Header & Tabs */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-zinc-900">
                             <div>
-                                <h2 className="text-xl font-black text-white">Create Theater Library</h2>
-                                <p className="text-xs text-zinc-500 font-medium">Add a custom library for your movies, series, music, or photos.</p>
+                                <h2 className="text-2xl font-black text-white flex items-center gap-3">
+                                    <FolderPlus size={28} className="text-emerald-400" /> Add Theater Library
+                                </h2>
+                                <p className="text-xs text-zinc-500 font-medium mt-1">
+                                    Import directly from your existing Plex/Arr libraries or configure a custom storage path.
+                                </p>
+                            </div>
+
+                            <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800 self-start sm:self-auto gap-1">
+                                <button
+                                    onClick={() => setModalTab('import')}
+                                    className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black rounded-xl transition-all ${
+                                        modalTab === 'import'
+                                            ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 shadow-md'
+                                            : 'text-zinc-500 hover:text-zinc-300'
+                                    }`}
+                                >
+                                    <DownloadCloud size={16} /> 1-Click Import
+                                </button>
+                                <button
+                                    onClick={() => setModalTab('custom')}
+                                    className={`flex items-center gap-2 px-5 py-2.5 text-xs font-black rounded-xl transition-all ${
+                                        modalTab === 'custom'
+                                            ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 shadow-md'
+                                            : 'text-zinc-500 hover:text-zinc-300'
+                                    }`}
+                                >
+                                    <Folder size={16} /> Custom Folder
+                                </button>
                             </div>
                         </div>
 
-                        <div className="space-y-4">
-                            <div>
-                                <label className="text-xs font-black text-zinc-400 uppercase tracking-wider block mb-1.5">Library Name</label>
-                                <input
-                                    type="text"
-                                    placeholder="e.g. 4K Movies, Anime, FLAC Music, Family Photos"
-                                    value={newLibName}
-                                    onChange={e => setNewLibName(e.target.value)}
-                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-3 text-xs text-white placeholder-zinc-600 outline-none focus:border-emerald-500"
-                                />
-                            </div>
-
-                            {/* Media Type Selection */}
-                            <div>
-                                <label className="text-xs font-black text-zinc-400 uppercase tracking-wider block mb-1.5">Media Type</label>
-                                <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-                                    {[
-                                        { id: 'movie', label: 'Movies', icon: <Film size={14} /> },
-                                        { id: 'show', label: 'TV Shows', icon: <Tv size={14} /> },
-                                        { id: 'music', label: 'Music', icon: <Music size={14} /> },
-                                        { id: 'photo', label: 'Photos', icon: <ImageIcon size={14} /> },
-                                        { id: 'other', label: 'Other', icon: <Folder size={14} /> }
-                                    ].map(t => (
-                                        <button
-                                            key={t.id}
-                                            type="button"
-                                            onClick={() => setNewLibType(t.id as any)}
-                                            className={`p-3 rounded-2xl border text-xs font-bold flex flex-col items-center gap-1.5 transition-all ${
-                                                newLibType === t.id
-                                                    ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300 shadow-sm'
-                                                    : 'bg-zinc-900/60 border-zinc-800 text-zinc-500 hover:text-zinc-300'
-                                            }`}
-                                        >
-                                            {t.icon}
-                                            <span>{t.label}</span>
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* ── Suggested Media Paths from Plex & Arr Instances ── */}
-                            {suggestedPaths.length > 0 && (
-                                <div className="space-y-2 pt-1">
-                                    <div className="flex items-center justify-between">
-                                        <label className="text-xs font-black text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
-                                            <Sparkles size={13} /> Suggested Paths from Plex & Arr Instances:
-                                        </label>
-                                        <span className="text-[10px] text-zinc-500 font-semibold">1-click select</span>
+                        {/* ── Mode 1: 1-Click Import from Plex & Arr ── */}
+                        {modalTab === 'import' && (
+                            <div className="space-y-6">
+                                {loadingSources ? (
+                                    <div className="flex flex-col items-center justify-center py-24 gap-3">
+                                        <div className="w-10 h-10 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin" />
+                                        <span className="text-zinc-400 text-xs font-bold">Querying Plex, Radarr, and Sonarr libraries...</span>
                                     </div>
-                                    <div className="flex flex-wrap gap-2 max-h-36 overflow-y-auto custom-scrollbar p-1 bg-zinc-950/60 rounded-2xl border border-zinc-800/80">
-                                        {suggestedPaths.map((sug, i) => (
-                                            <button
-                                                key={i}
-                                                type="button"
-                                                onClick={() => handleSelectSuggestion(sug)}
-                                                className="px-3 py-2 rounded-xl bg-zinc-900 hover:bg-emerald-500/20 text-zinc-300 hover:text-emerald-300 border border-zinc-800 hover:border-emerald-500/40 transition-all text-xs font-medium flex items-center gap-2 text-left"
-                                            >
-                                                <Folder size={13} className="text-emerald-400 shrink-0" />
-                                                <div className="min-w-0">
-                                                    <p className="font-mono text-[11px] truncate font-bold text-white">{sug.path}</p>
-                                                    <p className="text-[10px] text-zinc-500 truncate">{sug.label}</p>
+                                ) : (
+                                    <>
+                                        {/* Plex Libraries Section */}
+                                        <div className="space-y-3">
+                                            <div className="flex items-center justify-between">
+                                                <h3 className="text-sm font-black text-amber-400 uppercase tracking-wider flex items-center gap-2">
+                                                    <Layers size={16} /> Plex Server Libraries ({plexSources.length})
+                                                </h3>
+                                                <span className="text-[11px] text-zinc-500 font-semibold">Click to import library instantly</span>
+                                            </div>
+
+                                            {plexSources.length === 0 ? (
+                                                <div className="p-6 rounded-2xl bg-zinc-950/60 border border-zinc-900 text-center text-xs text-zinc-500">
+                                                    No Plex libraries detected. Ensure Plex is connected in Settings.
                                                 </div>
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
+                                            ) : (
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                                                    {plexSources.map((plexLib, i) => (
+                                                        <div
+                                                            key={i}
+                                                            className="p-5 rounded-3xl bg-zinc-950 border border-zinc-800/80 hover:border-amber-500/50 transition-all flex flex-col justify-between space-y-4 group shadow-xl"
+                                                        >
+                                                            <div className="space-y-2">
+                                                                <div className="flex items-center justify-between">
+                                                                    <div className="flex items-center gap-2">
+                                                                        {getLibIcon(plexLib.mediaType, 18)}
+                                                                        <span className="text-base font-black text-white">{plexLib.title}</span>
+                                                                    </div>
+                                                                    <span className="px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                                                                        Plex {plexLib.plexType}
+                                                                    </span>
+                                                                </div>
 
-                            {/* Folder Path Input (Manual / Editable) */}
-                            <div>
-                                <label className="text-xs font-black text-zinc-400 uppercase tracking-wider block mb-1.5">
-                                    Folder Storage Path (Editable / Custom)
-                                </label>
-                                <div className="flex gap-2">
-                                    <input
-                                        type="text"
-                                        placeholder="e.g. /media/movies, /data/series, or D:\Media"
-                                        value={folderInput}
-                                        onChange={e => {
-                                            setFolderInput(e.target.value);
-                                            loadBrowserPath(e.target.value);
-                                        }}
-                                        className="flex-1 bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-3 text-xs text-white placeholder-zinc-600 outline-none focus:border-emerald-500 font-mono"
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            if (folderInput.trim() && !newLibFolders.includes(folderInput.trim())) {
-                                                setNewLibFolders(prev => [...prev, folderInput.trim()]);
-                                                setFolderInput('');
-                                            }
-                                        }}
-                                        className="px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs rounded-2xl transition-colors shrink-0"
-                                    >
-                                        Add Path
-                                    </button>
-                                </div>
+                                                                <p className="text-xs text-zinc-500 font-mono truncate">
+                                                                    {plexLib.locations.join(', ')}
+                                                                </p>
+                                                            </div>
 
-                                {/* Active Selected Folders */}
-                                {newLibFolders.length > 0 && (
-                                    <div className="flex flex-wrap gap-1.5 pt-2">
-                                        {newLibFolders.map((f, i) => (
-                                            <span key={i} className="px-3 py-1 bg-zinc-900 border border-emerald-500/30 text-emerald-300 rounded-xl text-xs font-mono flex items-center gap-2">
-                                                {f}
-                                                <button
-                                                    onClick={() => setNewLibFolders(prev => prev.filter((_, idx) => idx !== i))}
-                                                    className="text-zinc-500 hover:text-red-400"
-                                                >
-                                                    <X size={12} />
-                                                </button>
-                                            </span>
-                                        ))}
-                                    </div>
+                                                            <button
+                                                                disabled={isCreatingLib}
+                                                                onClick={() => handleImportPlexLibrary(plexLib)}
+                                                                className="w-full py-3 bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/30 font-black text-xs uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2 shadow-lg"
+                                                            >
+                                                                <Plus size={15} /> Import Library
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Radarr & Sonarr Root Folders Section */}
+                                        {(radarrSources.length > 0 || sonarrSources.length > 0) && (
+                                            <div className="space-y-3 pt-2">
+                                                <h3 className="text-sm font-black text-indigo-400 uppercase tracking-wider flex items-center gap-2">
+                                                    <Database size={16} /> Arr Root Folders ({radarrSources.length + sonarrSources.length})
+                                                </h3>
+
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                                                    {radarrSources.map((rf, i) => (
+                                                        <div
+                                                            key={`radarr-${i}`}
+                                                            className="p-5 rounded-3xl bg-zinc-950 border border-zinc-800/80 hover:border-indigo-500/50 transition-all flex flex-col justify-between space-y-4 shadow-xl"
+                                                        >
+                                                            <div className="space-y-1.5">
+                                                                <div className="flex items-center justify-between">
+                                                                    <span className="text-base font-black text-white flex items-center gap-2">
+                                                                        <Film size={16} className="text-indigo-400" /> {rf.instanceName}
+                                                                    </span>
+                                                                    <span className="px-2 py-0.5 rounded-lg text-[10px] font-black uppercase bg-indigo-500/10 text-indigo-400 border border-indigo-500/30">
+                                                                        Radarr
+                                                                    </span>
+                                                                </div>
+                                                                <p className="text-xs text-zinc-500 font-mono truncate">{rf.path}</p>
+                                                            </div>
+
+                                                            <button
+                                                                disabled={isCreatingLib}
+                                                                onClick={() => handleImportArrFolder(rf)}
+                                                                className="w-full py-3 bg-indigo-500/15 hover:bg-indigo-500 text-indigo-300 hover:text-white border border-indigo-500/30 font-black text-xs uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2"
+                                                            >
+                                                                <Plus size={15} /> Import Folder
+                                                            </button>
+                                                        </div>
+                                                    ))}
+
+                                                    {sonarrSources.map((sf, i) => (
+                                                        <div
+                                                            key={`sonarr-${i}`}
+                                                            className="p-5 rounded-3xl bg-zinc-950 border border-zinc-800/80 hover:border-emerald-500/50 transition-all flex flex-col justify-between space-y-4 shadow-xl"
+                                                        >
+                                                            <div className="space-y-1.5">
+                                                                <div className="flex items-center justify-between">
+                                                                    <span className="text-base font-black text-white flex items-center gap-2">
+                                                                        <Tv size={16} className="text-emerald-400" /> {sf.instanceName}
+                                                                    </span>
+                                                                    <span className="px-2 py-0.5 rounded-lg text-[10px] font-black uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                                                                        Sonarr
+                                                                    </span>
+                                                                </div>
+                                                                <p className="text-xs text-zinc-500 font-mono truncate">{sf.path}</p>
+                                                            </div>
+
+                                                            <button
+                                                                disabled={isCreatingLib}
+                                                                onClick={() => handleImportArrFolder(sf)}
+                                                                className="w-full py-3 bg-emerald-500/15 hover:bg-emerald-500 text-emerald-300 hover:text-black border border-emerald-500/30 font-black text-xs uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2"
+                                                            >
+                                                                <Plus size={15} /> Import Folder
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </>
                                 )}
                             </div>
+                        )}
 
-                            {/* Folder Explorer Quick Selector */}
-                            <div className="space-y-1.5">
-                                <div className="flex items-center justify-between">
-                                    <span className="text-[10px] font-black text-zinc-500 uppercase tracking-wider">Directory Browser:</span>
-                                    {browserParentPath && (
+                        {/* ── Mode 2: Custom Library & Path Configuration ── */}
+                        {modalTab === 'custom' && (
+                            <div className="space-y-6">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-black text-zinc-400 uppercase tracking-wider block">
+                                            Library Name
+                                        </label>
+                                        <input
+                                            type="text"
+                                            placeholder="e.g. 4K Movies, Anime, FLAC Music, Family Photos"
+                                            value={newLibName}
+                                            onChange={e => setNewLibName(e.target.value)}
+                                            className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl px-5 py-3.5 text-sm text-white placeholder-zinc-600 outline-none focus:border-emerald-500"
+                                        />
+                                    </div>
+
+                                    {/* Media Type Selection */}
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-black text-zinc-400 uppercase tracking-wider block">
+                                            Media Type
+                                        </label>
+                                        <div className="grid grid-cols-5 gap-2">
+                                            {[
+                                                { id: 'movie', label: 'Movies', icon: <Film size={15} /> },
+                                                { id: 'show', label: 'Series', icon: <Tv size={15} /> },
+                                                { id: 'music', label: 'Music', icon: <Music size={15} /> },
+                                                { id: 'photo', label: 'Photos', icon: <ImageIcon size={15} /> },
+                                                { id: 'other', label: 'Other', icon: <Folder size={15} /> }
+                                            ].map(t => (
+                                                <button
+                                                    key={t.id}
+                                                    type="button"
+                                                    onClick={() => setNewLibType(t.id as any)}
+                                                    className={`py-3 rounded-2xl border text-xs font-bold flex flex-col items-center gap-1.5 transition-all ${
+                                                        newLibType === t.id
+                                                            ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 shadow-md'
+                                                            : 'bg-zinc-950 border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                                                    }`}
+                                                >
+                                                    {t.icon}
+                                                    <span>{t.label}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Common Mount Point Shortcuts */}
+                                {commonMounts.length > 0 && (
+                                    <div className="space-y-2">
+                                        <span className="text-[11px] font-black text-emerald-400 uppercase tracking-wider block">
+                                            Mounted Storage Shortcuts:
+                                        </span>
+                                        <div className="flex flex-wrap gap-2">
+                                            {commonMounts.map((cp, idx) => (
+                                                <button
+                                                    key={idx}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setFolderInput(cp);
+                                                        loadBrowserPath(cp);
+                                                    }}
+                                                    className="px-3.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-xs font-mono text-zinc-300 border border-zinc-800 hover:border-emerald-500/50 transition-all flex items-center gap-1.5"
+                                                >
+                                                    <HardDrive size={13} className="text-emerald-400" />
+                                                    <span>{cp}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Folder Path Input */}
+                                <div className="space-y-2">
+                                    <label className="text-xs font-black text-zinc-400 uppercase tracking-wider block">
+                                        Folder Path (Enter any local or NAS path)
+                                    </label>
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            placeholder="e.g. /mnt/user/data/media/movies or /media/tv"
+                                            value={folderInput}
+                                            onChange={e => {
+                                                setFolderInput(e.target.value);
+                                                loadBrowserPath(e.target.value);
+                                            }}
+                                            className="flex-1 bg-zinc-950 border border-zinc-800 rounded-2xl px-5 py-3.5 text-sm text-white placeholder-zinc-600 outline-none focus:border-emerald-500 font-mono"
+                                        />
                                         <button
                                             type="button"
                                             onClick={() => {
-                                                setFolderInput(browserParentPath);
-                                                loadBrowserPath(browserParentPath);
+                                                if (folderInput.trim() && !newLibFolders.includes(folderInput.trim())) {
+                                                    setNewLibFolders(prev => [...prev, folderInput.trim()]);
+                                                    setFolderInput('');
+                                                }
                                             }}
-                                            className="text-[11px] text-zinc-400 hover:text-emerald-400 flex items-center gap-1 font-bold"
+                                            className="px-6 py-3.5 bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs uppercase tracking-wider rounded-2xl transition-colors shrink-0"
                                         >
-                                            <ArrowUp size={12} /> Up one folder
+                                            Add Path
                                         </button>
-                                    )}
-                                </div>
-                                <div className="p-3 bg-zinc-900/60 border border-zinc-800/80 rounded-2xl space-y-2 max-h-36 overflow-y-auto custom-scrollbar">
-                                    <p className="text-[10px] font-mono text-zinc-500 truncate">{browserCurrentPath}</p>
-                                    {browserFolders.length === 0 ? (
-                                        <p className="text-xs text-zinc-600 italic">No subdirectories found or permission restricted.</p>
-                                    ) : (
-                                        <div className="grid grid-cols-2 gap-1.5">
-                                            {browserFolders.slice(0, 16).map((bf, i) => (
-                                                <button
-                                                    key={i}
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setFolderInput(bf.path);
-                                                        loadBrowserPath(bf.path);
-                                                    }}
-                                                    className="p-2 rounded-xl bg-zinc-900 border border-zinc-800/60 text-left text-xs text-zinc-300 hover:text-emerald-400 hover:border-zinc-700 transition-colors flex items-center gap-1.5 truncate"
-                                                >
-                                                    <Folder size={12} className="shrink-0 text-zinc-500" />
-                                                    <span className="truncate">{bf.name}</span>
-                                                </button>
+                                    </div>
+
+                                    {/* Active Selected Folders */}
+                                    {newLibFolders.length > 0 && (
+                                        <div className="flex flex-wrap gap-2 pt-2">
+                                            {newLibFolders.map((f, i) => (
+                                                <span key={i} className="px-4 py-2 bg-zinc-900 border border-emerald-500/30 text-emerald-300 rounded-2xl text-xs font-mono flex items-center gap-2 shadow-sm">
+                                                    {f}
+                                                    <button
+                                                        onClick={() => setNewLibFolders(prev => prev.filter((_, idx) => idx !== i))}
+                                                        className="text-zinc-500 hover:text-red-400 p-0.5"
+                                                    >
+                                                        <X size={14} />
+                                                    </button>
+                                                </span>
                                             ))}
                                         </div>
                                     )}
                                 </div>
-                            </div>
-                        </div>
 
-                        <div className="flex gap-3 pt-2">
-                            <button
-                                onClick={() => setIsAddLibModalOpen(false)}
-                                className="flex-1 h-12 bg-zinc-900 border border-zinc-800 text-zinc-400 font-black uppercase text-xs tracking-widest rounded-2xl hover:text-white transition-all"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                disabled={isCreatingLib}
-                                onClick={handleCreateLibrary}
-                                className="flex-[2] h-12 bg-emerald-500 hover:bg-emerald-400 text-black font-black uppercase text-xs tracking-widest rounded-2xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 disabled:opacity-50"
-                            >
-                                {isCreatingLib ? <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" /> : <Plus size={16} />}
-                                {isCreatingLib ? 'Creating...' : 'Create Library'}
-                            </button>
-                        </div>
+                                {/* Interactive Directory Browser */}
+                                <div className="space-y-2 p-5 bg-zinc-950 rounded-3xl border border-zinc-900">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-xs font-black text-zinc-400 uppercase tracking-wider flex items-center gap-2">
+                                            <FolderTree size={15} /> Directory Browser: <span className="font-mono text-zinc-300">{browserCurrentPath || '/'}</span>
+                                        </span>
+                                        {browserParentPath && (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setFolderInput(browserParentPath);
+                                                    loadBrowserPath(browserParentPath);
+                                                }}
+                                                className="text-xs text-zinc-400 hover:text-emerald-400 flex items-center gap-1 font-bold transition-colors"
+                                            >
+                                                <ArrowUp size={14} /> Up One Level
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 pt-2 max-h-48 overflow-y-auto custom-scrollbar">
+                                        {browserFolders.map((bf, i) => (
+                                            <button
+                                                key={i}
+                                                type="button"
+                                                onClick={() => {
+                                                    setFolderInput(bf.path);
+                                                    loadBrowserPath(bf.path);
+                                                }}
+                                                className="p-3 rounded-2xl bg-zinc-900/80 border border-zinc-800 hover:border-emerald-500/50 hover:bg-zinc-900 text-left text-xs text-zinc-300 hover:text-emerald-400 transition-all flex items-center gap-2 truncate"
+                                            >
+                                                <Folder size={14} className="shrink-0 text-zinc-500" />
+                                                <span className="truncate font-medium">{bf.name}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="flex gap-3 pt-2">
+                                    <button
+                                        onClick={() => setIsAddLibModalOpen(false)}
+                                        className="flex-1 h-14 bg-zinc-900 border border-zinc-800 text-zinc-400 font-black uppercase text-xs tracking-widest rounded-2xl hover:text-white transition-all"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        disabled={isCreatingLib}
+                                        onClick={handleCreateCustomLibrary}
+                                        className="flex-[2] h-14 bg-emerald-500 hover:bg-emerald-400 text-black font-black uppercase text-xs tracking-widest rounded-2xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 disabled:opacity-50"
+                                    >
+                                        {isCreatingLib ? <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" /> : <Plus size={18} />}
+                                        {isCreatingLib ? 'Creating...' : 'Create Custom Library'}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
