@@ -129,6 +129,15 @@ function initializeSchema(d: any) {
         current_media TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS music_playlists (
+        id TEXT PRIMARY KEY,
+        library_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        items_json TEXT NOT NULL,
+        cover_url TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
     `);
 
     // Migrations
@@ -678,6 +687,51 @@ export const getPairedTvSessions = () => {
         }));
     } catch (e) {
         return [];
+    }
+};
+
+export const getMusicPlaylists = (libraryId?: string) => {
+    try {
+        let query = 'SELECT * FROM music_playlists ORDER BY created_at DESC';
+        let params: any[] = [];
+        if (libraryId) {
+            query = 'SELECT * FROM music_playlists WHERE library_id = ? ORDER BY created_at DESC';
+            params = [libraryId];
+        }
+        const rows = db.prepare(query).all(...params) as any[];
+        return (rows || []).map(r => ({
+            ...r,
+            items: r.items_json ? JSON.parse(r.items_json) : []
+        }));
+    } catch (e) {
+        console.error('Error fetching music playlists:', e);
+        return [];
+    }
+};
+
+export const saveMusicPlaylist = (id: string, libraryId: string, name: string, items: any[], coverUrl?: string) => {
+    try {
+        const stmt = db.prepare(`
+            INSERT INTO music_playlists (id, library_id, name, items_json, cover_url)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET name = excluded.name, items_json = excluded.items_json, cover_url = excluded.cover_url
+        `);
+        stmt.run(id, libraryId, name.trim(), JSON.stringify(items), coverUrl || null);
+        return true;
+    } catch (e) {
+        console.error('Error saving music playlist:', e);
+        return false;
+    }
+};
+
+export const deleteMusicPlaylist = (id: string) => {
+    try {
+        const stmt = db.prepare('DELETE FROM music_playlists WHERE id = ?');
+        stmt.run(id);
+        return true;
+    } catch (e) {
+        console.error('Error deleting music playlist:', e);
+        return false;
     }
 };
 

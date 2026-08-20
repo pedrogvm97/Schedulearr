@@ -39,17 +39,39 @@ function scanDirectory(dirPath: string, maxDepth = 4, currentDepth = 0): any[] {
                             .replace(/\b(1080p|720p|2160p|4k|hdr|bluray|web-dl|x264|x265|hevc|aac|flac)\b/gi, '')
                             .trim();
 
+                        let posterUrl: string | undefined = undefined;
+                        let artist: string | undefined = undefined;
+                        let album: string | undefined = undefined;
+
+                        if (mediaCategory === 'audio') {
+                            album = path.basename(dirPath);
+                            const parentDir = path.dirname(dirPath);
+                            artist = path.basename(parentDir);
+
+                            // Auto-detect local companion album cover
+                            for (const coverName of ['cover.jpg', 'cover.png', 'folder.jpg', 'folder.png', 'front.jpg', 'album.jpg', 'albumart.jpg']) {
+                                const coverPath = path.join(dirPath, coverName);
+                                if (fs.existsSync(coverPath)) {
+                                    posterUrl = `/api/theater/stream?path=${encodeURIComponent(coverPath)}`;
+                                    break;
+                                }
+                            }
+                        }
+
                         items.push({
                             id: Buffer.from(fullPath).toString('base64'),
                             name: entry.name,
                             title: cleanTitle || entry.name,
                             path: fullPath,
                             folder: path.basename(dirPath),
+                            artist,
+                            album,
                             category: mediaCategory,
                             extension: ext.replace('.', '').toUpperCase(),
                             sizeBytes: stat.size,
                             modifiedAt: stat.mtime.toISOString(),
                             addedAt: (stat.birthtime && stat.birthtime.getTime() > 0 ? stat.birthtime : (stat.ctime || stat.mtime)).toISOString(),
+                            posterUrl,
                             streamUrl: `/api/theater/stream?path=${encodeURIComponent(fullPath)}`
                         });
                     } catch {
@@ -153,7 +175,12 @@ export async function GET(req: Request) {
                     }
 
                     if (targetSectionId) {
-                        const itemsRes = await axios.get(`${plexUrl}/library/sections/${targetSectionId}/all`, {
+                        const isMusic = lib.type === 'music';
+                        const endpoint = isMusic 
+                            ? `${plexUrl}/library/sections/${targetSectionId}/all?type=10`
+                            : `${plexUrl}/library/sections/${targetSectionId}/all`;
+
+                        const itemsRes = await axios.get(endpoint, {
                             headers: { 'X-Plex-Token': plex.api_key, 'Accept': 'application/json' },
                             timeout: 15000
                         });
@@ -162,26 +189,33 @@ export async function GET(req: Request) {
                         for (const item of metadata) {
                             const part = item.Media?.[0]?.Part?.[0];
                             const partKey = part?.key || '';
-                            const thumb = item.thumb || item.parentThumb || item.grandparentThumb || '';
+                            const thumb = item.parentThumb || item.thumb || item.grandparentThumb || '';
                             const posterUrl = thumb ? `/api/proxy?url=${encodeURIComponent(`${plexUrl}${thumb}?X-Plex-Token=${plex.api_key}`)}` : undefined;
 
                             let mediaCategory: 'video' | 'audio' | 'photo' = 'video';
-                            if (lib.type === 'music' || item.type === 'artist' || item.type === 'track') mediaCategory = 'audio';
+                            if (lib.type === 'music' || item.type === 'artist' || item.type === 'track' || item.type === 'album') mediaCategory = 'audio';
                             else if (lib.type === 'photo' || item.type === 'photo') mediaCategory = 'photo';
 
                             let displayTitle = item.title;
-                            if (item.grandparentTitle && item.parentIndex !== undefined && item.index !== undefined) {
+                            if (item.grandparentTitle && item.parentIndex !== undefined && item.index !== undefined && mediaCategory === 'video') {
                                 displayTitle = `${item.grandparentTitle} - S${item.parentIndex}E${item.index} - ${item.title}`;
                             }
+
+                            const artist = item.grandparentTitle || item.originalTitle || item.parentTitle || 'Unknown Artist';
+                            const album = item.parentTitle || 'Unknown Album';
 
                             allItems.push({
                                 id: `plex-${item.ratingKey || item.key}`,
                                 name: item.title,
                                 title: displayTitle,
+                                artist: mediaCategory === 'audio' ? artist : undefined,
+                                album: mediaCategory === 'audio' ? album : undefined,
+                                trackNumber: item.index,
+                                durationMs: item.duration,
                                 path: part?.file || item.title,
                                 folder: item.grandparentTitle || item.parentTitle || lib.name,
                                 category: mediaCategory,
-                                extension: part?.container ? part.container.toUpperCase() : (part?.file ? path.extname(part.file).replace('.', '').toUpperCase() : 'MEDIA'),
+                                extension: part?.container ? part.container.toUpperCase() : (part?.file ? path.extname(part.file).replace('.', '').toUpperCase() : 'AUDIO'),
                                 sizeBytes: part?.size || 0,
                                 modifiedAt: item.updatedAt ? new Date(item.updatedAt * 1000).toISOString() : new Date().toISOString(),
                                 addedAt: item.addedAt ? new Date(item.addedAt * 1000).toISOString() : (item.updatedAt ? new Date(item.updatedAt * 1000).toISOString() : new Date().toISOString()),
