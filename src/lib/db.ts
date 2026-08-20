@@ -103,6 +103,14 @@ function initializeSchema(d: any) {
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY(instance_id, media_type)
       );
+
+      CREATE TABLE IF NOT EXISTS theater_libraries (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL,
+        folders TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
     `);
 
     // Migrations
@@ -505,6 +513,44 @@ export const getCombinedMediaCache = (mediaType: string): any[] | null => {
     } catch (e) {
         console.error('Error getting combined media cache:', e);
         return null;
+    }
+};
+
+export const getTheaterLibraries = (): any[] => {
+    try {
+        const rows = db.prepare('SELECT * FROM theater_libraries ORDER BY created_at ASC').all() as any[];
+        return (rows || []).map(r => ({
+            ...r,
+            folders: JSON.parse(r.folders || '[]')
+        }));
+    } catch (e) {
+        console.error('Error fetching theater libraries:', e);
+        return [];
+    }
+};
+
+export const createTheaterLibrary = (id: string, name: string, type: string, folders: string[]) => {
+    try {
+        const stmt = db.prepare(`
+            INSERT INTO theater_libraries (id, name, type, folders)
+            VALUES (?, ?, ?, ?)
+        `);
+        stmt.run(id, name, type, JSON.stringify(folders));
+        return true;
+    } catch (e) {
+        console.error('Error creating theater library:', e);
+        return false;
+    }
+};
+
+export const deleteTheaterLibrary = (id: string) => {
+    try {
+        const stmt = db.prepare('DELETE FROM theater_libraries WHERE id = ?');
+        stmt.run(id);
+        return true;
+    } catch (e) {
+        console.error('Error deleting theater library:', e);
+        return false;
     }
 };
 

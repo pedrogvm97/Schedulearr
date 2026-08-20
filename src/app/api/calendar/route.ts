@@ -25,8 +25,12 @@ export async function GET(request: Request) {
         await Promise.all([
             ...radarrInstances.map(async (instance) => {
                 const data = await getRadarrCalendar(instance.url, instance.api_key, start, end, unmonitored);
-                data.forEach((movie: any) => {
-                    const addEvent = (dateStr: string | undefined, type: string) => {
+                (Array.isArray(data) ? data : []).forEach((movie: any) => {
+                    const poster = movie.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || 
+                                   movie.images?.find((img: any) => img.coverType === 'poster')?.url || 
+                                   movie.remotePoster || '';
+
+                    const addEvent = (dateStr: string | undefined, type: 'cinemas' | 'physical' | 'digital') => {
                         if (dateStr) {
                             events.push({
                                 id: `${instance.id}-radarr-${movie.id}-${type}`,
@@ -34,13 +38,21 @@ export async function GET(request: Request) {
                                 instanceName: instance.name,
                                 instanceColor: instance.color,
                                 type: 'radarr',
+                                mediaType: 'movie',
                                 title: movie.title,
                                 releaseDate: dateStr,
                                 releaseType: type,
                                 monitored: movie.monitored,
                                 hasFile: movie.hasFile,
                                 overview: movie.overview,
-                                mediaItem: movie
+                                posterUrl: poster,
+                                year: movie.year,
+                                rating: movie.ratings?.value || movie.ratings?.tmdb?.value,
+                                genres: movie.genres || [],
+                                mediaItem: {
+                                    ...movie,
+                                    remotePoster: poster
+                                }
                             });
                         }
                     };
@@ -51,29 +63,47 @@ export async function GET(request: Request) {
             }),
             ...sonarrInstances.map(async (instance) => {
                 const data = await getSonarrCalendar(instance.url, instance.api_key, start, end, unmonitored);
-                data.forEach((ep: any) => {
+                (Array.isArray(data) ? data : []).forEach((ep: any) => {
+                    const seriesTitle = ep.series?.title || ep.seriesTitle || 'Unknown Series';
+                    const seriesPoster = ep.series?.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || 
+                                         ep.series?.images?.find((img: any) => img.coverType === 'poster')?.url || 
+                                         ep.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || '';
+
                     events.push({
                         id: `${instance.id}-sonarr-${ep.id}`,
                         instanceId: instance.id,
                         instanceName: instance.name,
                         instanceColor: instance.color,
                         type: 'sonarr',
-                        title: `${ep.seriesTitle || ep.series?.title || 'Unknown Series'} - S${String(ep.seasonNumber).padStart(2, '0')}E${String(ep.episodeNumber).padStart(2, '0')} - ${ep.title}`,
+                        mediaType: 'series',
+                        seriesTitle,
+                        episodeTitle: ep.title,
+                        seasonNumber: ep.seasonNumber,
+                        episodeNumber: ep.episodeNumber,
+                        title: `${seriesTitle} - S${String(ep.seasonNumber).padStart(2, '0')}E${String(ep.episodeNumber).padStart(2, '0')}`,
+                        fullTitle: `${seriesTitle} - S${String(ep.seasonNumber).padStart(2, '0')}E${String(ep.episodeNumber).padStart(2, '0')} - ${ep.title}`,
                         releaseDate: ep.airDateUtc,
                         releaseType: 'tv',
                         monitored: ep.monitored,
                         hasFile: ep.hasFile,
-                        overview: ep.overview,
-                        mediaItem: ep
+                        overview: ep.overview || ep.series?.overview,
+                        posterUrl: seriesPoster,
+                        rating: ep.series?.ratings?.value,
+                        genres: ep.series?.genres || [],
+                        mediaItem: {
+                            ...ep,
+                            title: seriesTitle,
+                            remotePoster: seriesPoster,
+                            images: ep.series?.images || []
+                        }
                     });
                 });
             })
         ]);
 
-        // Filter events strictly by the requested range to avoid leaking outside of [start, end]
+        // Filter events strictly by the requested range
         const startDate = new Date(start);
         const endDate = new Date(end);
-        // end date should include the whole day
         endDate.setUTCHours(23, 59, 59, 999);
 
         const filteredEvents = events.filter(e => {
