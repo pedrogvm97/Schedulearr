@@ -15,6 +15,7 @@ function getMimeType(filePath: string): string {
         case '.avi': return 'video/x-msvideo';
         case '.mov': return 'video/quicktime';
         case '.m4v': return 'video/x-m4v';
+        case '.ts': return 'video/mp2t';
         case '.mp3': return 'audio/mpeg';
         case '.flac': return 'audio/flac';
         case '.wav': return 'audio/wav';
@@ -39,6 +40,30 @@ export async function GET(req: NextRequest) {
         const filePath = searchParams.get('path');
         const plexPart = searchParams.get('plexPart');
         const instanceId = searchParams.get('instanceId');
+        const m3u = searchParams.get('m3u');
+        const title = searchParams.get('title') || 'media';
+
+        // 0. Generate .M3U playlist file for VLC / External Players
+        if (m3u === 'true') {
+            const host = req.headers.get('host') || 'localhost:3010';
+            const protocol = req.headers.get('x-forwarded-proto') || 'http';
+            let targetStream = '';
+
+            if (plexPart) {
+                targetStream = `${protocol}://${host}/api/theater/stream?plexPart=${encodeURIComponent(plexPart)}&instanceId=${encodeURIComponent(instanceId || '')}`;
+            } else if (filePath) {
+                targetStream = `${protocol}://${host}/api/theater/stream?path=${encodeURIComponent(filePath)}`;
+            }
+
+            const m3uContent = `#EXTM3U\n#EXTINF:-1,${title}\n${targetStream}\n`;
+            return new NextResponse(m3uContent, {
+                headers: {
+                    'Content-Type': 'application/x-mpegurl',
+                    'Content-Disposition': `attachment; filename="${title.replace(/[^a-zA-Z0-9_-]/g, '_')}.m3u"`,
+                    'Cache-Control': 'no-cache'
+                }
+            });
+        }
 
         // 1. Plex Direct Stream Proxy
         if (plexPart) {

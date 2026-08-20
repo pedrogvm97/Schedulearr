@@ -111,6 +111,14 @@ function initializeSchema(d: any) {
         folders TEXT NOT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS iptv_shortlists (
+        id TEXT PRIMARY KEY,
+        library_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        channel_ids TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
     `);
 
     // Migrations
@@ -552,6 +560,45 @@ export const deleteTheaterLibrary = (id: string) => {
         return true;
     } catch (e) {
         console.error('Error deleting theater library:', e);
+        return false;
+    }
+};
+
+export const getIptvShortlists = (libraryId: string): any[] => {
+    try {
+        const rows = db.prepare('SELECT * FROM iptv_shortlists WHERE library_id = ? ORDER BY created_at ASC').all(libraryId) as any[];
+        return (rows || []).map(r => ({
+            ...r,
+            channelIds: JSON.parse(r.channel_ids || '[]')
+        }));
+    } catch (e) {
+        console.error('Error fetching IPTV shortlists:', e);
+        return [];
+    }
+};
+
+export const saveIptvShortlist = (id: string, libraryId: string, name: string, channelIds: string[]) => {
+    try {
+        const stmt = db.prepare(`
+            INSERT INTO iptv_shortlists (id, library_id, name, channel_ids)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET name = excluded.name, channel_ids = excluded.channel_ids
+        `);
+        stmt.run(id, libraryId, name.trim(), JSON.stringify(channelIds));
+        return true;
+    } catch (e) {
+        console.error('Error saving IPTV shortlist:', e);
+        return false;
+    }
+};
+
+export const deleteIptvShortlist = (id: string) => {
+    try {
+        const stmt = db.prepare('DELETE FROM iptv_shortlists WHERE id = ?');
+        stmt.run(id);
+        return true;
+    } catch (e) {
+        console.error('Error deleting IPTV shortlist:', e);
         return false;
     }
 };

@@ -1,6 +1,6 @@
 {
   "name": "schedulearr",
-  "version": "0.3.63",
+  "version": "0.3.64",
   "private": true,
   "license": "AGPL-3.0-or-later",
   "scripts": {
@@ -17,6 +17,7 @@
     "axios": "^1.13.6",
     "better-sqlite3": "^12.6.2",
     "date-fns": "^4.1.0",
+    "hls.js": "^1.7.1",
     "lucide-react": "^0.575.0",
     "next": "16.1.6",
     "react": "19.2.3",
