@@ -2167,10 +2167,16 @@ export default function TheaterPage() {
                             <Tv size={32} />
                         </div>
 
-                        <div className="space-y-1">
+                        <div className="space-y-1.5">
                             <h3 className="text-xl font-black text-white">Pair Smart TV</h3>
                             <p className="text-xs text-zinc-400">
-                                Open <span className="text-white font-mono font-bold">/tv</span> on your Smart TV browser and enter the 6-digit code shown on your TV screen.
+                                Open this link in any browser on your TV (at home or abroad):
+                            </p>
+                            <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-mono font-bold text-emerald-400 select-all truncate">
+                                {typeof window !== 'undefined' ? `${window.location.origin}/tv` : 'http://<your-domain-or-ip>/tv'}
+                            </div>
+                            <p className="text-[11px] text-zinc-500">
+                                No VPN or Tailscale needed on the TV. Enter the 6-digit code shown on the screen below:
                             </p>
                         </div>
 
