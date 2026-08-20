@@ -17,14 +17,14 @@ export async function GET() {
 export async function POST(req: Request) {
     try {
         const body = await req.json();
-        const { name, type, folders } = body;
+        const { name, type, folders, plexSectionId, instanceId } = body;
 
         if (!name || !type || !Array.isArray(folders) || folders.length === 0) {
             return NextResponse.json({ error: 'name, type, and at least one folder path are required' }, { status: 400 });
         }
 
         const id = `theater-${crypto.randomUUID()}`;
-        const success = createTheaterLibrary(id, name.trim(), type, folders);
+        const success = createTheaterLibrary(id, name.trim(), type, folders, plexSectionId, instanceId);
 
         if (success) {
             return NextResponse.json({ success: true, id });

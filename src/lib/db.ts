@@ -124,6 +124,8 @@ function initializeSchema(d: any) {
     try { d.exec("ALTER TABLE network_speed ADD COLUMN total_dl REAL DEFAULT 0;"); } catch (e) { }
     try { d.exec("ALTER TABLE network_speed ADD COLUMN total_up REAL DEFAULT 0;"); } catch (e) { }
     try { d.exec("ALTER TABLE search_history ADD COLUMN category TEXT DEFAULT 'search';"); } catch (e) { }
+    try { d.exec("ALTER TABLE theater_libraries ADD COLUMN plex_section_id TEXT;"); } catch (e) { }
+    try { d.exec("ALTER TABLE theater_libraries ADD COLUMN instance_id TEXT;"); } catch (e) { }
 }
 
 export interface Setting {
@@ -529,13 +531,13 @@ export const getTheaterLibraries = (): any[] => {
     }
 };
 
-export const createTheaterLibrary = (id: string, name: string, type: string, folders: string[]) => {
+export const createTheaterLibrary = (id: string, name: string, type: string, folders: string[], plexSectionId?: string, instanceId?: string) => {
     try {
         const stmt = db.prepare(`
-            INSERT INTO theater_libraries (id, name, type, folders)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO theater_libraries (id, name, type, folders, plex_section_id, instance_id)
+            VALUES (?, ?, ?, ?, ?, ?)
         `);
-        stmt.run(id, name, type, JSON.stringify(folders));
+        stmt.run(id, name, type, JSON.stringify(folders), plexSectionId || null, instanceId || null);
         return true;
     } catch (e) {
         console.error('Error creating theater library:', e);

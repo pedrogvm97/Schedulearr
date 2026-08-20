@@ -68,123 +68,11 @@ export async function GET(req: Request) {
         const { searchParams } = new URL(req.url);
         const libraryId = searchParams.get('libraryId');
         const browsePath = searchParams.get('browsePath');
-        const suggest = searchParams.get('suggest');
 
-        // ── 1. Suggest Folder Paths from Plex & Arr Instances ──
-        if (suggest === 'true') {
-            const suggestions: Array<{ path: string; label: string; source: string; exists: boolean; mediaType?: string }> = [];
-            const seenPaths = new Set<string>();
-
-            const instances = getInstances().filter(i => i.enabled);
-
-            // A. Fetch Plex Library Locations
-            const plexInstances = instances.filter(i => i.type === 'plex');
-            for (const plex of plexInstances) {
-                try {
-                    const res = await axios.get(`${plex.url}/library/sections`, {
-                        headers: { 'X-Plex-Token': plex.api_key, 'Accept': 'application/json' },
-                        timeout: 5000
-                    });
-                    const dirs = res.data?.MediaContainer?.Directory || [];
-                    for (const d of (Array.isArray(dirs) ? dirs : [dirs])) {
-                        const locs = (d.Location || []).map((l: any) => l.path).filter(Boolean);
-                        for (const p of locs) {
-                            if (!seenPaths.has(p)) {
-                                seenPaths.add(p);
-                                suggestions.push({
-                                    path: p,
-                                    label: `${plex.name}: ${d.title} (${d.type})`,
-                                    source: 'plex',
-                                    mediaType: d.type === 'movie' ? 'movie' : d.type === 'show' ? 'show' : d.type === 'artist' ? 'music' : d.type === 'photo' ? 'photo' : 'other',
-                                    exists: fs.existsSync(p)
-                                });
-                            }
-                        }
-                    }
-                } catch (e) {
-                    // Ignore Plex fetch errors
-                }
-            }
-
-            // B. Fetch Radarr Root Folders
-            const radarrInstances = instances.filter(i => i.type === 'radarr');
-            for (const radarr of radarrInstances) {
-                try {
-                    const res = await axios.get(`${radarr.url}/api/v3/rootfolder`, {
-                        headers: { 'X-Api-Key': radarr.api_key },
-                        timeout: 5000
-                    });
-                    if (Array.isArray(res.data)) {
-                        for (const rf of res.data) {
-                            if (rf.path && !seenPaths.has(rf.path)) {
-                                seenPaths.add(rf.path);
-                                suggestions.push({
-                                    path: rf.path,
-                                    label: `${radarr.name}: Root Folder`,
-                                    source: 'radarr',
-                                    mediaType: 'movie',
-                                    exists: fs.existsSync(rf.path)
-                                });
-                            }
-                        }
-                    }
-                } catch {
-                    // Ignore Radarr errors
-                }
-            }
-
-            // C. Fetch Sonarr Root Folders
-            const sonarrInstances = instances.filter(i => i.type === 'sonarr');
-            for (const sonarr of sonarrInstances) {
-                try {
-                    const res = await axios.get(`${sonarr.url}/api/v3/rootfolder`, {
-                        headers: { 'X-Api-Key': sonarr.api_key },
-                        timeout: 5000
-                    });
-                    if (Array.isArray(res.data)) {
-                        for (const rf of res.data) {
-                            if (rf.path && !seenPaths.has(rf.path)) {
-                                seenPaths.add(rf.path);
-                                suggestions.push({
-                                    path: rf.path,
-                                    label: `${sonarr.name}: Root Folder`,
-                                    source: 'sonarr',
-                                    mediaType: 'show',
-                                    exists: fs.existsSync(rf.path)
-                                });
-                            }
-                        }
-                    }
-                } catch {
-                    // Ignore Sonarr errors
-                }
-            }
-
-            // D. Common Standard Media Mount Points
-            const commonCheckPaths = [
-                '/media', '/movies', '/tv', '/shows', '/music', '/photos', '/data', '/data/media',
-                'D:\\Movies', 'D:\\TV', 'D:\\Media', 'E:\\Movies', 'E:\\TV', 'E:\\Media'
-            ];
-            for (const cp of commonCheckPaths) {
-                if (fs.existsSync(cp) && !seenPaths.has(cp)) {
-                    seenPaths.add(cp);
-                    suggestions.push({
-                        path: cp,
-                        label: `Mounted Path: ${cp}`,
-                        source: 'common',
-                        exists: true
-                    });
-                }
-            }
-
-            return NextResponse.json({ suggestions });
-        }
-
-        // ── 2. Directory Browser ──
+        // ── 1. Directory Browser ──
         if (browsePath !== null) {
             let targetDir = browsePath;
             if (!targetDir) {
-                // If on Linux/Docker, default to / or /media if exists
                 if (fs.existsSync('/media')) targetDir = '/media';
                 else if (fs.existsSync('/data')) targetDir = '/data';
                 else targetDir = process.platform === 'win32' ? 'C:\\' : '/';
@@ -215,7 +103,7 @@ export async function GET(req: Request) {
             }
         }
 
-        // ── 3. Scan Items in Library ──
+        // ── 2. Scan Items in Library ──
         if (!libraryId) {
             return NextResponse.json({ error: 'libraryId is required' }, { status: 400 });
         }
@@ -228,8 +116,82 @@ export async function GET(req: Request) {
         }
 
         let allItems: any[] = [];
-        for (const folder of lib.folders) {
-            allItems.push(...scanDirectory(folder));
+
+        // A. Attempt local filesystem scan
+        for (const folder of lib.folders || []) {
+            if (fs.existsSync(folder)) {
+                allItems.push(...scanDirectory(folder));
+            }
+        }
+
+        // B. If local scan returned 0 items (e.g. Docker container volume isolation) or linked to Plex:
+        if (allItems.length === 0) {
+            const plexInstances = getInstances().filter(i => i.type === 'plex' && i.enabled);
+            
+            for (const plex of plexInstances) {
+                try {
+                    const plexUrl = plex.url.replace(/\/$/, '');
+                    let targetSectionId = lib.plex_section_id;
+
+                    // If no explicit section ID, search Plex sections by name or folder match
+                    if (!targetSectionId) {
+                        const secRes = await axios.get(`${plexUrl}/library/sections`, {
+                            headers: { 'X-Plex-Token': plex.api_key, 'Accept': 'application/json' },
+                            timeout: 5000
+                        });
+                        const dirs = secRes.data?.MediaContainer?.Directory || [];
+                        const match = dirs.find((d: any) => {
+                            const nameMatch = d.title.toLowerCase() === lib.name.toLowerCase();
+                            const locs = (d.Location || []).map((l: any) => l.path);
+                            const locMatch = (lib.folders || []).some((f: string) => locs.includes(f));
+                            return nameMatch || locMatch;
+                        });
+                        if (match) {
+                            targetSectionId = String(match.key);
+                        }
+                    }
+
+                    if (targetSectionId) {
+                        const itemsRes = await axios.get(`${plexUrl}/library/sections/${targetSectionId}/all`, {
+                            headers: { 'X-Plex-Token': plex.api_key, 'Accept': 'application/json' },
+                            timeout: 15000
+                        });
+
+                        const metadata = itemsRes.data?.MediaContainer?.Metadata || [];
+                        for (const item of metadata) {
+                            const part = item.Media?.[0]?.Part?.[0];
+                            const partKey = part?.key || '';
+                            const thumb = item.thumb || item.parentThumb || item.grandparentThumb || '';
+                            const posterUrl = thumb ? `/api/proxy?url=${encodeURIComponent(`${plexUrl}${thumb}?X-Plex-Token=${plex.api_key}`)}` : undefined;
+
+                            let mediaCategory: 'video' | 'audio' | 'photo' = 'video';
+                            if (lib.type === 'music' || item.type === 'artist' || item.type === 'track') mediaCategory = 'audio';
+                            else if (lib.type === 'photo' || item.type === 'photo') mediaCategory = 'photo';
+
+                            let displayTitle = item.title;
+                            if (item.grandparentTitle && item.parentIndex !== undefined && item.index !== undefined) {
+                                displayTitle = `${item.grandparentTitle} - S${item.parentIndex}E${item.index} - ${item.title}`;
+                            }
+
+                            allItems.push({
+                                id: `plex-${item.ratingKey || item.key}`,
+                                name: item.title,
+                                title: displayTitle,
+                                path: part?.file || item.title,
+                                folder: item.grandparentTitle || item.parentTitle || lib.name,
+                                category: mediaCategory,
+                                extension: part?.container ? part.container.toUpperCase() : (part?.file ? path.extname(part.file).replace('.', '').toUpperCase() : 'MEDIA'),
+                                sizeBytes: part?.size || 0,
+                                modifiedAt: item.updatedAt ? new Date(item.updatedAt * 1000).toISOString() : new Date().toISOString(),
+                                posterUrl,
+                                streamUrl: partKey ? `/api/theater/stream?plexPart=${encodeURIComponent(partKey)}&instanceId=${plex.id}` : ''
+                            });
+                        }
+                    }
+                } catch (e: any) {
+                    console.error('Failed to load Plex items fallback:', e.message);
+                }
+            }
         }
 
         allItems.sort((a, b) => a.title.localeCompare(b.title));

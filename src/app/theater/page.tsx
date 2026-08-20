@@ -207,7 +207,9 @@ export default function TheaterPage() {
                 body: JSON.stringify({
                     name: plexLib.title,
                     type: plexLib.mediaType,
-                    folders: plexLib.locations
+                    folders: plexLib.locations,
+                    plexSectionId: plexLib.sectionKey,
+                    instanceId: plexLib.instanceId
                 })
             });
 
@@ -620,9 +622,18 @@ export default function TheaterPage() {
                                     className="group flex flex-col bg-[#09090b] border border-zinc-900 hover:border-zinc-800 rounded-3xl overflow-hidden transition-all duration-300 shadow-xl cursor-pointer hover:-translate-y-1"
                                 >
                                     <div className="relative aspect-video bg-zinc-900 overflow-hidden flex items-center justify-center border-b border-zinc-900">
-                                        <div className="text-zinc-700 group-hover:scale-110 transition-transform duration-500">
-                                            {item.category === 'video' ? <FileVideo size={48} /> : <FileAudio size={48} />}
-                                        </div>
+                                        {item.posterUrl ? (
+                                            <img
+                                                src={item.posterUrl}
+                                                alt={item.title}
+                                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                                loading="lazy"
+                                            />
+                                        ) : (
+                                            <div className="text-zinc-700 group-hover:scale-110 transition-transform duration-500">
+                                                {item.category === 'video' ? <FileVideo size={48} /> : <FileAudio size={48} />}
+                                            </div>
+                                        )}
 
                                         <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 flex items-center justify-center transition-colors">
                                             <div className="w-12 h-12 rounded-2xl bg-white/10 backdrop-blur-md group-hover:bg-emerald-500 text-white group-hover:text-black flex items-center justify-center transition-all shadow-xl group-hover:scale-110">
