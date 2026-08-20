@@ -7,7 +7,7 @@ import {
     Search, Trash2, ArrowRight, ChevronRight, ChevronLeft,
     HardDrive, RefreshCw, LayoutGrid, List as Rows,
     FileVideo, FileAudio, FileImage, Sparkles, FolderPlus,
-    Calendar, Check, Settings2
+    Calendar, Check, Settings2, FolderTree, ArrowUp
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 
@@ -32,6 +32,14 @@ interface MediaItem {
     streamUrl: string;
 }
 
+interface PathSuggestion {
+    path: string;
+    label: string;
+    source: string;
+    exists: boolean;
+    mediaType?: 'movie' | 'show' | 'music' | 'photo' | 'other';
+}
+
 function formatBytes(bytes: number): string {
     if (!bytes || bytes === 0) return '0 B';
     const k = 1024;
@@ -51,14 +59,17 @@ export default function TheaterPage() {
     const [sortBy, setSortBy] = useState<'title' | 'date' | 'size'>('title');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
-    // Modals
+    // Modals & Creation
     const [isAddLibModalOpen, setIsAddLibModalOpen] = useState(false);
     const [newLibName, setNewLibName] = useState('');
     const [newLibType, setNewLibType] = useState<'movie' | 'show' | 'music' | 'photo' | 'other'>('movie');
     const [newLibFolders, setNewLibFolders] = useState<string[]>([]);
     const [folderInput, setFolderInput] = useState('');
     const [browserCurrentPath, setBrowserCurrentPath] = useState('');
+    const [browserParentPath, setBrowserParentPath] = useState<string | null>(null);
     const [browserFolders, setBrowserFolders] = useState<any[]>([]);
+    const [suggestedPaths, setSuggestedPaths] = useState<PathSuggestion[]>([]);
+    const [loadingSuggestions, setLoadingSuggestions] = useState(false);
     const [isCreatingLib, setIsCreatingLib] = useState(false);
 
     // Active Players
@@ -121,14 +132,30 @@ export default function TheaterPage() {
         }
     }, [activeLibraryId]);
 
-    // 3. Folder Browser for Add Library Modal
+    // 3. Suggestions and Folder Browser for Add Library Modal
+    const loadSuggestions = async () => {
+        setLoadingSuggestions(true);
+        try {
+            const res = await fetch('/api/theater/items?suggest=true');
+            if (res.ok) {
+                const data = await res.json();
+                setSuggestedPaths(Array.isArray(data.suggestions) ? data.suggestions : []);
+            }
+        } catch (e) {
+            console.error('Suggestions error:', e);
+        } finally {
+            setLoadingSuggestions(false);
+        }
+    };
+
     const loadBrowserPath = async (targetPath = '') => {
         try {
             const res = await fetch(`/api/theater/items?browsePath=${encodeURIComponent(targetPath)}`);
             if (res.ok) {
                 const data = await res.json();
                 setBrowserFolders(Array.isArray(data.folders) ? data.folders : []);
-                setBrowserCurrentPath(data.currentPath || '');
+                setBrowserCurrentPath(data.currentPath || targetPath);
+                setBrowserParentPath(data.parentPath || null);
             }
         } catch (e) {
             console.error('Folder browser error:', e);
@@ -137,9 +164,26 @@ export default function TheaterPage() {
 
     useEffect(() => {
         if (isAddLibModalOpen) {
+            loadSuggestions();
             loadBrowserPath();
         }
     }, [isAddLibModalOpen]);
+
+    const handleSelectSuggestion = (sug: PathSuggestion) => {
+        setFolderInput(sug.path);
+        if (!newLibFolders.includes(sug.path)) {
+            setNewLibFolders(prev => [...prev, sug.path]);
+        }
+        if (sug.mediaType) {
+            setNewLibType(sug.mediaType);
+        }
+        if (!newLibName.trim()) {
+            const autoName = sug.label.split(':')[1]?.replace(/\(.*?\)/g, '').trim() || sug.label;
+            setNewLibName(autoName);
+        }
+        loadBrowserPath(sug.path);
+        toast.info(`Loaded path: ${sug.path}`);
+    };
 
     const handleCreateLibrary = async () => {
         if (!newLibName.trim()) {
@@ -543,7 +587,6 @@ export default function TheaterPage() {
             {playingVideo && (
                 <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/95 backdrop-blur-xl animate-in fade-in duration-200">
                     <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-5xl overflow-hidden shadow-2xl relative flex flex-col">
-                        {/* Header */}
                         <div className="p-5 px-6 border-b border-zinc-900 flex items-center justify-between">
                             <div>
                                 <h2 className="text-lg font-black text-white truncate max-w-xl">{playingVideo.title}</h2>
@@ -557,7 +600,6 @@ export default function TheaterPage() {
                             </button>
                         </div>
 
-                        {/* Player */}
                         <div className="relative aspect-video bg-black flex items-center justify-center">
                             <video
                                 ref={videoRef}
@@ -613,7 +655,6 @@ export default function TheaterPage() {
                         <X size={20} />
                     </button>
 
-                    {/* Nav Prev */}
                     {viewingPhotoIndex > 0 && (
                         <button
                             onClick={() => setViewingPhotoIndex(viewingPhotoIndex - 1)}
@@ -623,7 +664,6 @@ export default function TheaterPage() {
                         </button>
                     )}
 
-                    {/* Nav Next */}
                     {viewingPhotoIndex < photoItems.length - 1 && (
                         <button
                             onClick={() => setViewingPhotoIndex(viewingPhotoIndex + 1)}
@@ -647,7 +687,7 @@ export default function TheaterPage() {
             {/* ── Add Library Modal ── */}
             {isAddLibModalOpen && (
                 <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-xl p-8 shadow-2xl relative space-y-6">
+                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-2xl p-7 sm:p-8 shadow-2xl relative space-y-6 max-h-[90vh] overflow-y-auto custom-scrollbar">
                         <button
                             onClick={() => setIsAddLibModalOpen(false)}
                             className="absolute top-6 right-6 p-2 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"
@@ -656,7 +696,7 @@ export default function TheaterPage() {
                         </button>
 
                         <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-400">
+                            <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-400 shrink-0">
                                 <FolderPlus size={24} />
                             </div>
                             <div>
@@ -705,15 +745,48 @@ export default function TheaterPage() {
                                 </div>
                             </div>
 
-                            {/* Folder Path Input & Browser */}
+                            {/* ── Suggested Media Paths from Plex & Arr Instances ── */}
+                            {suggestedPaths.length > 0 && (
+                                <div className="space-y-2 pt-1">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-xs font-black text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                                            <Sparkles size={13} /> Suggested Paths from Plex & Arr Instances:
+                                        </label>
+                                        <span className="text-[10px] text-zinc-500 font-semibold">1-click select</span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2 max-h-36 overflow-y-auto custom-scrollbar p-1 bg-zinc-950/60 rounded-2xl border border-zinc-800/80">
+                                        {suggestedPaths.map((sug, i) => (
+                                            <button
+                                                key={i}
+                                                type="button"
+                                                onClick={() => handleSelectSuggestion(sug)}
+                                                className="px-3 py-2 rounded-xl bg-zinc-900 hover:bg-emerald-500/20 text-zinc-300 hover:text-emerald-300 border border-zinc-800 hover:border-emerald-500/40 transition-all text-xs font-medium flex items-center gap-2 text-left"
+                                            >
+                                                <Folder size={13} className="text-emerald-400 shrink-0" />
+                                                <div className="min-w-0">
+                                                    <p className="font-mono text-[11px] truncate font-bold text-white">{sug.path}</p>
+                                                    <p className="text-[10px] text-zinc-500 truncate">{sug.label}</p>
+                                                </div>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Folder Path Input (Manual / Editable) */}
                             <div>
-                                <label className="text-xs font-black text-zinc-400 uppercase tracking-wider block mb-1.5">Folder Storage Path</label>
+                                <label className="text-xs font-black text-zinc-400 uppercase tracking-wider block mb-1.5">
+                                    Folder Storage Path (Editable / Custom)
+                                </label>
                                 <div className="flex gap-2">
                                     <input
                                         type="text"
-                                        placeholder="e.g. /media/movies or C:\Media\Movies"
+                                        placeholder="e.g. /media/movies, /data/series, or D:\Media"
                                         value={folderInput}
-                                        onChange={e => setFolderInput(e.target.value)}
+                                        onChange={e => {
+                                            setFolderInput(e.target.value);
+                                            loadBrowserPath(e.target.value);
+                                        }}
                                         className="flex-1 bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-3 text-xs text-white placeholder-zinc-600 outline-none focus:border-emerald-500 font-mono"
                                     />
                                     <button
@@ -724,7 +797,7 @@ export default function TheaterPage() {
                                                 setFolderInput('');
                                             }
                                         }}
-                                        className="px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs rounded-2xl transition-colors"
+                                        className="px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs rounded-2xl transition-colors shrink-0"
                                     >
                                         Add Path
                                     </button>
@@ -734,7 +807,7 @@ export default function TheaterPage() {
                                 {newLibFolders.length > 0 && (
                                     <div className="flex flex-wrap gap-1.5 pt-2">
                                         {newLibFolders.map((f, i) => (
-                                            <span key={i} className="px-3 py-1 bg-zinc-900 border border-zinc-800 rounded-xl text-xs text-zinc-300 font-mono flex items-center gap-2">
+                                            <span key={i} className="px-3 py-1 bg-zinc-900 border border-emerald-500/30 text-emerald-300 rounded-xl text-xs font-mono flex items-center gap-2">
                                                 {f}
                                                 <button
                                                     onClick={() => setNewLibFolders(prev => prev.filter((_, idx) => idx !== i))}
@@ -750,25 +823,43 @@ export default function TheaterPage() {
 
                             {/* Folder Explorer Quick Selector */}
                             <div className="space-y-1.5">
-                                <span className="text-[10px] font-black text-zinc-500 uppercase tracking-wider">Quick Directory Browser:</span>
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[10px] font-black text-zinc-500 uppercase tracking-wider">Directory Browser:</span>
+                                    {browserParentPath && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setFolderInput(browserParentPath);
+                                                loadBrowserPath(browserParentPath);
+                                            }}
+                                            className="text-[11px] text-zinc-400 hover:text-emerald-400 flex items-center gap-1 font-bold"
+                                        >
+                                            <ArrowUp size={12} /> Up one folder
+                                        </button>
+                                    )}
+                                </div>
                                 <div className="p-3 bg-zinc-900/60 border border-zinc-800/80 rounded-2xl space-y-2 max-h-36 overflow-y-auto custom-scrollbar">
                                     <p className="text-[10px] font-mono text-zinc-500 truncate">{browserCurrentPath}</p>
-                                    <div className="grid grid-cols-2 gap-1.5">
-                                        {browserFolders.slice(0, 12).map((bf, i) => (
-                                            <button
-                                                key={i}
-                                                type="button"
-                                                onClick={() => {
-                                                    setFolderInput(bf.path);
-                                                    loadBrowserPath(bf.path);
-                                                }}
-                                                className="p-2 rounded-xl bg-zinc-900 border border-zinc-800/60 text-left text-xs text-zinc-300 hover:text-emerald-400 hover:border-zinc-700 transition-colors flex items-center gap-1.5 truncate"
-                                            >
-                                                <Folder size={12} className="shrink-0 text-zinc-500" />
-                                                <span className="truncate">{bf.name}</span>
-                                            </button>
-                                        ))}
-                                    </div>
+                                    {browserFolders.length === 0 ? (
+                                        <p className="text-xs text-zinc-600 italic">No subdirectories found or permission restricted.</p>
+                                    ) : (
+                                        <div className="grid grid-cols-2 gap-1.5">
+                                            {browserFolders.slice(0, 16).map((bf, i) => (
+                                                <button
+                                                    key={i}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setFolderInput(bf.path);
+                                                        loadBrowserPath(bf.path);
+                                                    }}
+                                                    className="p-2 rounded-xl bg-zinc-900 border border-zinc-800/60 text-left text-xs text-zinc-300 hover:text-emerald-400 hover:border-zinc-700 transition-colors flex items-center gap-1.5 truncate"
+                                                >
+                                                    <Folder size={12} className="shrink-0 text-zinc-500" />
+                                                    <span className="truncate">{bf.name}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
