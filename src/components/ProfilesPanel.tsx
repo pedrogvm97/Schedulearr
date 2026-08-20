@@ -61,23 +61,30 @@ export function ProfilesPanel() {
         try {
             const instRes = await fetch('/api/instances');
             const instData = await instRes.json();
-            setInstances(instData);
+            const validInstances = Array.isArray(instData) ? instData : [];
+            setInstances(validInstances);
 
-            let allProfiles: Profile[] = [];
-            for (const inst of instData) {
-                const res = await fetch(`/api/instances/profiles?instanceId=${inst.id}`);
-                if (res.ok) {
-                    const data = await res.json();
-                    const mapped = data.map((p: any) => ({
-                        ...p,
-                        instanceId: inst.id,
-                        instanceName: inst.name,
-                        instanceType: inst.type
-                    }));
-                    allProfiles = [...allProfiles, ...mapped];
-                }
-            }
-            setProfiles(allProfiles);
+            const profileResults = await Promise.all(
+                validInstances.map(async (inst: any) => {
+                    try {
+                        const res = await fetch(`/api/instances/profiles?instanceId=${inst.id}`);
+                        if (res.ok) {
+                            const data = await res.json();
+                            return (Array.isArray(data) ? data : []).map((p: any) => ({
+                                ...p,
+                                instanceId: inst.id,
+                                instanceName: inst.name,
+                                instanceType: inst.type
+                            }));
+                        }
+                    } catch {
+                        // ignore single failure
+                    }
+                    return [];
+                })
+            );
+
+            setProfiles(profileResults.flat());
         } catch (e) {
             toast.error('Failed to load profiles');
         } finally {
