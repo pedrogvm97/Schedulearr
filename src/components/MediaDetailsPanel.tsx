@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { X, Star, Calendar, User, Film, CheckCircle, Plus, ChevronDown, Search, PlayCircle, MoveHorizontal, Trash2, ChevronUp, ListOrdered } from 'lucide-react';
+import { X, Star, Calendar, User, Film, CheckCircle, Plus, ChevronDown, Search, PlayCircle, MoveHorizontal, Trash2, ChevronUp, ListOrdered, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface MediaDetailsPanelProps {
