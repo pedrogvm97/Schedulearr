@@ -361,7 +361,7 @@ export default function TvLeanbackPage() {
                                 <h3 className="text-2xl font-bold text-zinc-400">No media items in this library</h3>
                             </div>
                         ) : (
-                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6 p-2">
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6 p-2">
                                 {items.map((item, idx) => {
                                     const isFocused = focusedSection === 'grid' && idx === focusedItemIndex;
                                     return (
@@ -374,11 +374,11 @@ export default function TvLeanbackPage() {
                                                     : 'border-zinc-900 hover:border-zinc-700'
                                             }`}
                                         >
-                                            <div className="relative aspect-video bg-zinc-900 overflow-hidden flex items-center justify-center">
+                                            <div className="relative aspect-[2/3] bg-zinc-900 overflow-hidden flex items-center justify-center">
                                                 {item.posterUrl ? (
                                                     <img src={item.posterUrl} alt="" className="w-full h-full object-cover" />
                                                 ) : (
-                                                    <Film size={48} className="text-zinc-700" />
+                                                    <Film size={56} className="text-zinc-700" />
                                                 )}
 
                                                 <div className={`absolute inset-0 bg-black/40 flex items-center justify-center transition-opacity ${isFocused ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>

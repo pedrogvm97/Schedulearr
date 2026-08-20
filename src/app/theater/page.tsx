@@ -7,7 +7,7 @@ import {
     Search, Trash2, ArrowRight, ChevronRight, ChevronLeft,
     HardDrive, RefreshCw, LayoutGrid, List as Rows,
     FileVideo, FileAudio, FileImage, Sparkles, FolderPlus,
-    Calendar, Check, Settings2, FolderTree, ArrowUp,
+    Calendar, Check, Settings2, FolderTree, ArrowUp, ArrowDown, ArrowUpDown, Cast,
     DownloadCloud, Layers, Database, ShieldCheck, CheckCircle2,
     Tv2, Radio, Sliders, MessageSquare, Activity, ExternalLink,
     Clock, FastForward, Rewind, Subtitles, ListFilter, Bookmark,
@@ -36,6 +36,7 @@ interface MediaItem {
     extension: string;
     sizeBytes: number;
     modifiedAt: string;
+    addedAt?: string;
     posterUrl?: string;
     streamUrl: string;
 }
@@ -101,8 +102,8 @@ export default function TheaterPage() {
     const [loadingItems, setLoadingItems] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-    const [sortBy, setSortBy] = useState<'title' | 'date' | 'size'>('title');
-    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+    const [sortBy, setSortBy] = useState<'added' | 'title' | 'date' | 'size'>('added');
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
     // Add Library Modal States
     const [isAddLibModalOpen, setIsAddLibModalOpen] = useState(false);
@@ -679,10 +680,16 @@ export default function TheaterPage() {
 
         list.sort((a, b) => {
             let comparison = 0;
-            if (sortBy === 'title') {
+            if (sortBy === 'added') {
+                const timeA = new Date(a.addedAt || a.modifiedAt).getTime();
+                const timeB = new Date(b.addedAt || b.modifiedAt).getTime();
+                comparison = timeA - timeB;
+            } else if (sortBy === 'title') {
                 comparison = a.title.localeCompare(b.title);
             } else if (sortBy === 'date') {
-                comparison = new Date(a.modifiedAt).getTime() - new Date(b.modifiedAt).getTime();
+                const timeA = new Date(a.modifiedAt).getTime();
+                const timeB = new Date(b.modifiedAt).getTime();
+                comparison = timeA - timeB;
             } else if (sortBy === 'size') {
                 comparison = a.sizeBytes - b.sizeBytes;
             }
@@ -944,24 +951,56 @@ export default function TheaterPage() {
 
                         <div className="flex items-center gap-3">
                             {/* Sort Bar */}
-                            <div className="flex bg-zinc-950 p-1 rounded-2xl border border-zinc-800/80">
+                            <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-2xl border border-zinc-800/80">
                                 {[
-                                    { id: 'title', label: 'Name' },
-                                    { id: 'date', label: 'Date' },
-                                    { id: 'size', label: 'Size' }
-                                ].map(s => (
-                                    <button
-                                        key={s.id}
-                                        onClick={() => setSortBy(s.id as any)}
-                                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                                            sortBy === s.id
-                                                ? 'bg-zinc-800 text-white shadow-sm'
-                                                : 'text-zinc-500 hover:text-zinc-300'
-                                        }`}
-                                    >
-                                        {s.label}
-                                    </button>
-                                ))}
+                                    { id: 'added', label: 'Date Added' },
+                                    { id: 'title', label: 'Title' },
+                                    { id: 'size', label: 'Size' },
+                                    { id: 'date', label: 'Modified' }
+                                ].map(s => {
+                                    const isActive = sortBy === s.id;
+                                    return (
+                                        <button
+                                            key={s.id}
+                                            onClick={() => {
+                                                if (isActive) {
+                                                    setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+                                                } else {
+                                                    setSortBy(s.id as any);
+                                                    setSortOrder(s.id === 'title' ? 'asc' : 'desc');
+                                                }
+                                            }}
+                                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                                isActive
+                                                    ? 'bg-zinc-800 text-white shadow-sm'
+                                                    : 'text-zinc-500 hover:text-zinc-300'
+                                            }`}
+                                        >
+                                            <span>{s.label}</span>
+                                            {isActive && (
+                                                <span className="text-[10px] text-emerald-400">
+                                                    {sortOrder === 'asc' ? '▲' : '▼'}
+                                                </span>
+                                            )}
+                                        </button>
+                                    );
+                                })}
+
+                                <div className="w-[1px] h-4 bg-zinc-800 my-auto mx-0.5" />
+
+                                {/* Dedicated Sort Up/Down Toggle Button */}
+                                <button
+                                    onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+                                    className="p-1.5 px-2.5 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all text-xs font-bold flex items-center gap-1.5"
+                                    title={sortOrder === 'asc' ? 'Sorting Ascending (Click to sort Descending)' : 'Sorting Descending (Click to sort Ascending)'}
+                                >
+                                    {sortOrder === 'asc' ? (
+                                        <ArrowUp size={14} className="text-emerald-400" />
+                                    ) : (
+                                        <ArrowDown size={14} className="text-emerald-400" />
+                                    )}
+                                    <span className="text-[10px] uppercase font-black">{sortOrder}</span>
+                                </button>
                             </div>
 
                             {/* View Mode Toggle */}
@@ -1071,7 +1110,7 @@ export default function TheaterPage() {
                         viewMode === 'grid'
                             ? activeLibrary?.type === 'photo'
                                 ? 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4'
-                                : 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5'
+                                : 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5'
                             : 'space-y-3'
                     }>
                         {filteredItems.map(item => {
@@ -1080,40 +1119,64 @@ export default function TheaterPage() {
                                     <div
                                         key={item.id}
                                         onClick={() => handlePlayItem(item)}
-                                        className="flex items-center justify-between p-4 bg-zinc-950/60 border border-zinc-900 hover:border-zinc-800 rounded-2xl hover:bg-zinc-900/50 transition-all cursor-pointer group shadow-lg"
+                                        className="flex items-center justify-between p-3.5 sm:p-4 bg-zinc-950/60 border border-zinc-900 hover:border-zinc-800 rounded-3xl hover:bg-zinc-900/50 transition-all cursor-pointer group shadow-lg gap-4"
                                     >
                                         <div className="flex items-center gap-4 min-w-0">
-                                            <div className="w-12 h-12 rounded-xl bg-zinc-900 flex items-center justify-center text-zinc-400 group-hover:text-emerald-400 group-hover:bg-emerald-500/10 transition-colors shrink-0">
-                                                {item.category === 'video' ? <FileVideo size={22} /> : item.category === 'audio' ? <FileAudio size={22} /> : <FileImage size={22} />}
+                                            {/* Tall Poster Art in List View */}
+                                            <div className="w-14 sm:w-16 h-20 sm:h-24 rounded-2xl bg-zinc-900 border border-zinc-800/80 overflow-hidden flex items-center justify-center text-zinc-500 group-hover:border-emerald-500/40 transition-all shrink-0 relative shadow-md">
+                                                {item.posterUrl ? (
+                                                    <img src={item.posterUrl} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" loading="lazy" />
+                                                ) : (
+                                                    <div className="text-zinc-600 flex flex-col items-center gap-1">
+                                                        {item.category === 'video' ? <FileVideo size={24} /> : item.category === 'audio' ? <FileAudio size={24} /> : <FileImage size={24} />}
+                                                    </div>
+                                                )}
+                                                <div className="absolute top-1 right-1 px-1.5 py-0.5 rounded-md bg-black/70 backdrop-blur-sm text-[8px] font-black uppercase text-zinc-300">
+                                                    {item.extension}
+                                                </div>
                                             </div>
-                                            <div className="min-w-0">
-                                                <h3 className="font-bold text-white text-base truncate group-hover:text-emerald-400 transition-colors">
+
+                                            <div className="min-w-0 space-y-1">
+                                                <h3 className="font-bold text-white text-base sm:text-lg truncate group-hover:text-emerald-400 transition-colors">
                                                     {item.title}
                                                 </h3>
-                                                <div className="flex items-center gap-2 text-xs text-zinc-500 font-medium mt-0.5">
+                                                <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500 font-medium">
                                                     <span>{item.folder}</span>
                                                     <span>•</span>
-                                                    <span className="font-mono uppercase">{item.extension}</span>
-                                                    <span>•</span>
                                                     <span>{formatBytes(item.sizeBytes)}</span>
+                                                    {item.addedAt && (
+                                                        <>
+                                                            <span>•</span>
+                                                            <span className="text-zinc-400">Added {new Date(item.addedAt).toLocaleDateString()}</span>
+                                                        </>
+                                                    )}
                                                 </div>
                                             </div>
                                         </div>
 
-                                        <button className="w-10 h-10 rounded-xl bg-zinc-900 group-hover:bg-emerald-500 text-zinc-400 group-hover:text-black flex items-center justify-center transition-all shrink-0">
-                                            <Play size={16} />
-                                        </button>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); handleCastToTv(item); }}
+                                                className="p-3 rounded-2xl bg-zinc-900/60 hover:bg-purple-500/20 text-zinc-500 hover:text-purple-400 border border-zinc-800 transition-all shrink-0"
+                                                title="Cast to Smart TV"
+                                            >
+                                                <Cast size={16} />
+                                            </button>
+                                            <button className="w-12 h-12 rounded-2xl bg-zinc-900 group-hover:bg-emerald-500 text-zinc-400 group-hover:text-black flex items-center justify-center transition-all shrink-0 shadow-lg">
+                                                <Play size={18} className="ml-0.5" />
+                                            </button>
+                                        </div>
                                     </div>
                                 );
                             }
 
-                            // Grid View
+                            // Photo Grid View
                             if (item.category === 'photo') {
                                 return (
                                     <div
                                         key={item.id}
                                         onClick={() => handlePlayItem(item)}
-                                        className="group relative aspect-square rounded-2xl overflow-hidden bg-zinc-900 border border-zinc-800/80 hover:border-pink-500/50 transition-all cursor-pointer shadow-lg hover:-translate-y-1"
+                                        className="group relative aspect-square rounded-3xl overflow-hidden bg-zinc-900 border border-zinc-800/80 hover:border-pink-500/50 transition-all cursor-pointer shadow-lg hover:-translate-y-1"
                                     >
                                         <img
                                             src={item.streamUrl}
@@ -1128,14 +1191,14 @@ export default function TheaterPage() {
                                 );
                             }
 
-                            // Video / Audio Grid Card
+                            // Video / Audio Grid Card with TALL 2:3 Movie/Series Poster Aspect Ratio
                             return (
                                 <div
                                     key={item.id}
                                     onClick={() => handlePlayItem(item)}
-                                    className="group flex flex-col bg-[#09090b] border border-zinc-900 hover:border-zinc-800 rounded-3xl overflow-hidden transition-all duration-300 shadow-xl cursor-pointer hover:-translate-y-1"
+                                    className="group flex flex-col bg-[#09090b] border border-zinc-900 hover:border-zinc-800 rounded-3xl overflow-hidden transition-all duration-300 shadow-xl cursor-pointer hover:-translate-y-1.5"
                                 >
-                                    <div className="relative aspect-video bg-zinc-900 overflow-hidden flex items-center justify-center border-b border-zinc-900">
+                                    <div className="relative aspect-[2/3] bg-zinc-900 overflow-hidden flex items-center justify-center border-b border-zinc-900">
                                         {item.posterUrl ? (
                                             <img
                                                 src={item.posterUrl}
@@ -1144,27 +1207,34 @@ export default function TheaterPage() {
                                                 loading="lazy"
                                             />
                                         ) : (
-                                            <div className="text-zinc-700 group-hover:scale-110 transition-transform duration-500">
-                                                {item.category === 'video' ? <FileVideo size={48} /> : <FileAudio size={48} />}
+                                            <div className="text-zinc-700 group-hover:scale-110 transition-transform duration-500 flex flex-col items-center gap-2 p-4 text-center">
+                                                {item.category === 'video' ? <FileVideo size={56} /> : <FileAudio size={56} />}
+                                                <span className="text-xs font-bold text-zinc-500 line-clamp-2">{item.title}</span>
                                             </div>
                                         )}
 
-                                        <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 flex items-center justify-center transition-colors">
-                                            <div className="w-12 h-12 rounded-2xl bg-white/10 backdrop-blur-md group-hover:bg-emerald-500 text-white group-hover:text-black flex items-center justify-center transition-all shadow-xl group-hover:scale-110">
-                                                <Play size={20} className="ml-0.5" />
+                                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all duration-300">
+                                            <div className="w-14 h-14 rounded-3xl bg-emerald-500 text-black flex items-center justify-center shadow-2xl scale-90 group-hover:scale-100 transition-transform">
+                                                <Play size={24} className="ml-0.5" />
                                             </div>
                                         </div>
 
-                                        <div className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-lg bg-black/60 backdrop-blur-sm border border-white/10 text-[9px] font-black uppercase text-zinc-300">
+                                        <div className="absolute top-3 right-3 px-2.5 py-1 rounded-xl bg-black/70 backdrop-blur-sm border border-white/10 text-[9px] font-black uppercase text-zinc-300 shadow">
                                             {item.extension}
                                         </div>
+
+                                        {item.addedAt && (
+                                            <div className="absolute bottom-2.5 left-2.5 px-2.5 py-1 rounded-xl bg-black/70 backdrop-blur-sm text-[9px] font-bold text-zinc-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                {new Date(item.addedAt).toLocaleDateString()}
+                                            </div>
+                                        )}
                                     </div>
 
                                     <div className="p-4 space-y-1">
-                                        <h3 className="font-bold text-white text-base leading-snug line-clamp-2 group-hover:text-emerald-400 transition-colors">
+                                        <h3 className="font-bold text-white text-base leading-snug line-clamp-1 group-hover:text-emerald-400 transition-colors">
                                             {item.title}
                                         </h3>
-                                        <div className="flex items-center justify-between text-xs text-zinc-500 font-semibold pt-1">
+                                        <div className="flex items-center justify-between text-xs text-zinc-500 font-semibold pt-0.5">
                                             <span className="truncate max-w-[120px]">{item.folder}</span>
                                             <span>{formatBytes(item.sizeBytes)}</span>
                                         </div>

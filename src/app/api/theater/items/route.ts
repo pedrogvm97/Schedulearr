@@ -49,6 +49,7 @@ function scanDirectory(dirPath: string, maxDepth = 4, currentDepth = 0): any[] {
                             extension: ext.replace('.', '').toUpperCase(),
                             sizeBytes: stat.size,
                             modifiedAt: stat.mtime.toISOString(),
+                            addedAt: (stat.birthtime && stat.birthtime.getTime() > 0 ? stat.birthtime : (stat.ctime || stat.mtime)).toISOString(),
                             streamUrl: `/api/theater/stream?path=${encodeURIComponent(fullPath)}`
                         });
                     } catch {
@@ -183,6 +184,7 @@ export async function GET(req: Request) {
                                 extension: part?.container ? part.container.toUpperCase() : (part?.file ? path.extname(part.file).replace('.', '').toUpperCase() : 'MEDIA'),
                                 sizeBytes: part?.size || 0,
                                 modifiedAt: item.updatedAt ? new Date(item.updatedAt * 1000).toISOString() : new Date().toISOString(),
+                                addedAt: item.addedAt ? new Date(item.addedAt * 1000).toISOString() : (item.updatedAt ? new Date(item.updatedAt * 1000).toISOString() : new Date().toISOString()),
                                 posterUrl,
                                 streamUrl: partKey ? `/api/theater/stream?plexPart=${encodeURIComponent(partKey)}&instanceId=${plex.id}` : ''
                             });
