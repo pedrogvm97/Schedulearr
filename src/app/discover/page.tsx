@@ -812,8 +812,26 @@ export default function DiscoverPage() {
         setDeleteModalOpen(true);
     }, []);
 
-    const handleQuickSearch = async (payload: { type: 'movie' | 'series' | 'season' | 'episode'; id: number; instanceId: string; seasonNumber?: number }) => {
-        const { type, id, instanceId, seasonNumber } = payload;
+    const handleQuickSearch = async (payload: { type: 'movie' | 'series' | 'season' | 'episode'; id: number; instanceId?: string; seasonNumber?: number }) => {
+        let { type, id, instanceId, seasonNumber } = payload;
+
+        if (!instanceId) {
+            const arrType = type === 'movie' ? 'radarr' : 'sonarr';
+            const matched = instances.find(inst => inst.type === arrType && inst.enabled);
+            if (matched) instanceId = matched.id;
+        }
+
+        if (!instanceId) {
+            toast.error(`No active ${type === 'movie' ? 'Radarr' : 'Sonarr'} instance found to trigger search.`);
+            return;
+        }
+
+        if (!id || isNaN(Number(id))) {
+            toast.error('Invalid media ID. Cannot trigger search.');
+            return;
+        }
+
+        const numericId = Number(id);
         toast.info(`Triggering automatic search...`);
         try {
             let res;
@@ -824,7 +842,7 @@ export default function DiscoverPage() {
                     body: JSON.stringify({
                         instanceId,
                         name: 'MoviesSearch',
-                        movieIds: [id]
+                        movieIds: [numericId]
                     })
                 });
             } else if (type === 'series') {
@@ -834,7 +852,7 @@ export default function DiscoverPage() {
                     body: JSON.stringify({
                         instanceId,
                         name: 'SeriesSearch',
-                        seriesId: id
+                        seriesId: numericId
                     })
                 });
             } else if (type === 'season') {
@@ -844,8 +862,8 @@ export default function DiscoverPage() {
                     body: JSON.stringify({
                         instanceId,
                         name: 'SeasonSearch',
-                        seriesId: id,
-                        seasonNumber
+                        seriesId: numericId,
+                        seasonNumber: Number(seasonNumber)
                     })
                 });
             } else if (type === 'episode') {
@@ -855,7 +873,7 @@ export default function DiscoverPage() {
                     body: JSON.stringify({
                         instanceId,
                         name: 'EpisodeSearch',
-                        episodeIds: [id]
+                        episodeIds: [numericId]
                     })
                 });
             }
@@ -863,10 +881,11 @@ export default function DiscoverPage() {
             if (res && res.ok) {
                 toast.success('Search command triggered successfully');
             } else {
-                toast.error('Failed to trigger search command');
+                const errData = await res?.json().catch(() => ({}));
+                toast.error(errData?.error || 'Failed to trigger search command');
             }
-        } catch {
-            toast.error('Error triggering search command');
+        } catch (err: any) {
+            toast.error(err?.message || 'Error triggering search command');
         }
     };
 
@@ -1220,10 +1239,17 @@ export default function DiscoverPage() {
         });
     }, []);
 
-    // Auto-select first instance for browsing ONLY if none selected
+    // Auto-select and validate instances for current media type (movie vs series)
     useEffect(() => {
-        if (availableInstances.length > 0 && selectedInstanceIds.length === 0) {
-            setSelectedInstanceIds([availableInstances[0].id]);
+        if (availableInstances.length > 0) {
+            const valid = selectedInstanceIds.filter(id => availableInstances.some(inst => inst.id === id));
+            if (valid.length === 0) {
+                setSelectedInstanceIds([availableInstances[0].id]);
+            } else if (valid.length !== selectedInstanceIds.length) {
+                setSelectedInstanceIds(valid);
+            }
+        } else if (selectedInstanceIds.length > 0) {
+            setSelectedInstanceIds([]);
         }
     }, [availableInstances, selectedInstanceIds]);
 

@@ -27,12 +27,16 @@ export async function GET() {
                 const directories = res.data?.MediaContainer?.Directory || [];
                 
                 for (const dir of directories) {
+                    const locations: string[] = (dir.Location || []).map((l: any) => l.path).filter(Boolean);
                     libraryStats.push({
                         instanceName: plex.name,
+                        instanceId: plex.id,
                         id: dir.key,
                         title: dir.title,
-                        type: dir.type,
+                        type: dir.type, // 'movie', 'show', 'artist', etc.
                         language: dir.language,
+                        locations,
+                        count: dir.count || 0,
                         createdAt: dir.createdAt,
                         updatedAt: dir.updatedAt
                     });

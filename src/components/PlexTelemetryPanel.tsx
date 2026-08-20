@@ -608,15 +608,24 @@ function PlexTelemetryPanelInner() {
                                         onClick={() => setSelectedLibraryExplorer(lib)}
                                         className="p-4 rounded-xl bg-zinc-950/40 border border-zinc-800/80 flex items-center justify-between cursor-pointer hover:bg-zinc-900/60 hover:border-amber-500/30 transition-all group"
                                     >
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-8 h-8 rounded-lg bg-zinc-900 group-hover:bg-amber-500/10 group-hover:text-amber-500 flex items-center justify-center text-zinc-500 transition-colors">
-                                                {lib.type === 'movie' ? <Film size={16} /> : <Tv size={16} />}
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <div className="w-10 h-10 rounded-xl bg-zinc-900 group-hover:bg-amber-500/10 group-hover:text-amber-500 flex items-center justify-center text-zinc-500 transition-colors shrink-0">
+                                                {lib.type === 'movie' ? <Film size={18} /> : <Tv size={18} />}
                                             </div>
-                                            <div>
-                                                <div className="text-sm font-bold text-zinc-300 group-hover:text-white transition-colors">{lib.title}</div>
-                                                <div className="text-[10px] font-black uppercase tracking-widest text-zinc-600 mt-0.5">{lib.type}</div>
+                                            <div className="min-w-0">
+                                                <div className="text-base font-bold text-zinc-200 group-hover:text-white transition-colors truncate">{lib.title}</div>
+                                                <div className="text-[11px] font-bold text-zinc-500 flex items-center gap-2 mt-0.5 truncate">
+                                                    <span className="uppercase text-amber-500/80 font-black">{lib.type}</span>
+                                                    {lib.locations && lib.locations.length > 0 && (
+                                                        <>
+                                                            <span className="text-zinc-700">•</span>
+                                                            <span className="truncate text-zinc-400">{lib.locations[0]}</span>
+                                                        </>
+                                                    )}
+                                                </div>
                                             </div>
                                         </div>
+                                        <ChevronRight size={16} className="text-zinc-600 group-hover:text-amber-400 group-hover:translate-x-0.5 transition-all shrink-0 ml-2" />
                                     </div>
                                 ))}
                             </div>
