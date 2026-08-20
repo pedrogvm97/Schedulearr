@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 
 interface PlexUser {
     id: string;
+    sharedServerId?: string;
     username: string;
     title: string;
     email?: string;
@@ -90,6 +91,7 @@ export function PlexUserManagerPanel() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     userId: user.id,
+                    sharedServerId: user.sharedServerId,
                     instanceId: user.instanceId,
                     librarySectionIds: newShared
                 })
