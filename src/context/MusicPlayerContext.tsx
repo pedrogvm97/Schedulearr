@@ -1249,6 +1249,19 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 </button>
                             )}
 
+                            {/* Chords & Musical Jam Stage */}
+                            <button
+                                onClick={() => {
+                                    setIsExpandedPlayerOpen(true);
+                                    setShowExpandedSidePanel(true);
+                                    setExpandedSidePanel('chords');
+                                }}
+                                className="p-2 sm:p-2.5 rounded-xl bg-amber-500/15 hover:bg-amber-500 text-amber-400 hover:text-black border border-amber-500/30 text-xs font-bold transition-all"
+                                title="Open Guitar & Ukulele Chords Jam Stage"
+                            >
+                                <Guitar size={16} />
+                            </button>
+
                             {/* Karaoke / Live Lyrics */}
                             <button
                                 onClick={() => setShowLyricsModal(true)}
@@ -1404,6 +1417,23 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                         </div>
 
                         <div className="flex items-center gap-2">
+                            {/* Chords / Musical Jam Stage Quick Switch */}
+                            <button
+                                onClick={() => {
+                                    setShowExpandedSidePanel(true);
+                                    setExpandedSidePanel('chords');
+                                }}
+                                className={`px-3 py-2 rounded-2xl border text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all ${
+                                    showExpandedSidePanel && expandedSidePanel === 'chords'
+                                        ? 'bg-amber-500 text-black border-amber-400 shadow-md'
+                                        : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
+                                }`}
+                                title="Open Guitar & Ukulele Chords Jam Stage"
+                            >
+                                <Guitar size={14} className={showExpandedSidePanel && expandedSidePanel === 'chords' ? 'text-black' : 'text-amber-400'} />
+                                <span className="hidden md:inline">Chords 🎸</span>
+                            </button>
+
                             {/* Force Server Transcode Button */}
                             <button
                                 onClick={handleForceAudioTranscode}
@@ -2197,7 +2227,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                KARAOKE LIVE LYRICS & STUDIO MODAL (STANDALONE)
                ══════════════════════════════════════════════════════════════ */}
             {showLyricsModal && playingAudio && (
-                <div className="fixed inset-0 z-[260] flex items-center justify-center p-4 sm:p-6 bg-black/90 backdrop-blur-2xl animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 sm:p-6 bg-black/90 backdrop-blur-2xl animate-in fade-in duration-200">
                     <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-4xl p-6 sm:p-10 shadow-2xl relative max-h-[90vh] flex flex-col space-y-6 overflow-hidden">
                         <button
                             onClick={() => setShowLyricsModal(false)}
@@ -2356,36 +2386,36 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                         </div>
 
                         <div className="pt-4 border-t border-zinc-900 flex items-center justify-between gap-4">
-                            <div className="flex items-center gap-3">
-                                <button
-                                    onClick={togglePlayPause}
-                                    className="w-10 h-10 rounded-xl bg-amber-500 hover:bg-amber-400 text-black flex items-center justify-center transition-all"
-                                >
-                                    {isAudioPlaying ? <Pause size={18} /> : <Play size={18} className="ml-0.5" />}
-                                </button>
-                                <div className="text-xs font-mono text-zinc-400">
-                                    <span>{formatTime(audioCurrentTime)}</span> / <span>{formatTime(audioDuration)}</span>
+                                    <div className="flex items-center gap-3">
+                                        <button
+                                            onClick={togglePlayPause}
+                                            className="w-10 h-10 rounded-xl bg-amber-500 hover:bg-amber-400 text-black flex items-center justify-center transition-all"
+                                        >
+                                            {isAudioPlaying ? <Pause size={18} /> : <Play size={18} className="ml-0.5" />}
+                                        </button>
+                                        <div className="text-xs font-mono text-zinc-400">
+                                            <span>{formatTime(audioCurrentTime)}</span> / <span>{formatTime(audioDuration)}</span>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            onClick={() => handleDownloadTrack(playingAudio)}
+                                            className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-emerald-400 border border-zinc-800 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all"
+                                        >
+                                            <Download size={14} /> Download Audio
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
-
-                            <div className="flex items-center gap-2">
-                                <button
-                                    onClick={() => handleDownloadTrack(playingAudio)}
-                                    className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-emerald-400 border border-zinc-800 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all"
-                                >
-                                    <Download size={14} /> Download Audio
-                                </button>
-                            </div>
                         </div>
-                    </div>
-                </div>
-            )}
+                    )}
 
             {/* ══════════════════════════════════════════════════════════════
                LYRICS MATCH EDITOR & SEARCH MODAL
                ══════════════════════════════════════════════════════════════ */}
             {isLyricsEditorOpen && (
-                <div className="fixed inset-0 z-[280] flex items-center justify-center p-4 sm:p-6 bg-black/90 backdrop-blur-2xl animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[310] flex items-center justify-center p-4 sm:p-6 bg-black/90 backdrop-blur-2xl animate-in fade-in duration-200">
                     <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-2xl p-6 sm:p-8 space-y-6 shadow-2xl relative max-h-[85vh] flex flex-col overflow-hidden">
                         <button
                             onClick={() => setIsLyricsEditorOpen(false)}
@@ -2399,6 +2429,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             <p className="text-xs text-zinc-500 font-medium">Search LRCLib for matching synced lyrics or paste custom LRC timestamps.</p>
                         </div>
 
+                        {/* Search & Custom Tabs */}
                         <div className="flex bg-zinc-950 p-1 rounded-2xl border border-zinc-800">
                             <button
                                 onClick={() => setEditorTab('search')}
@@ -2406,7 +2437,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                     editorTab === 'search' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
                                 }`}
                             >
-                                Search LRCLib
+                                Search LRCLib Database
                             </button>
                             <button
                                 onClick={() => setEditorTab('custom')}
@@ -2414,7 +2445,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                     editorTab === 'custom' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
                                 }`}
                             >
-                                Paste Custom LRC / Text
+                                Custom LRC Text
                             </button>
                         </div>
 
@@ -2423,51 +2454,50 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 <div className="flex items-center gap-2">
                                     <input
                                         type="text"
-                                        placeholder="e.g. Queen Bohemian Rhapsody"
                                         value={lyricsSearchQuery}
                                         onChange={e => setLyricsSearchQuery(e.target.value)}
                                         onKeyDown={e => e.key === 'Enter' && handleSearchLyrics(lyricsSearchQuery)}
-                                        className="flex-1 bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-2.5 text-xs text-white outline-none focus:border-amber-500 font-medium"
+                                        placeholder="Artist and title..."
+                                        className="flex-1 bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-2.5 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-amber-500"
                                     />
                                     <button
                                         onClick={() => handleSearchLyrics(lyricsSearchQuery)}
                                         disabled={lyricsSearchLoading}
-                                        className="px-5 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider shrink-0 transition-all flex items-center gap-1.5 disabled:opacity-60"
+                                        className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider rounded-2xl transition-all shadow-md shadow-amber-500/20 disabled:opacity-50 flex items-center gap-1.5 shrink-0"
                                     >
-                                        {lyricsSearchLoading ? <RefreshCw size={14} className="animate-spin" /> : <Search size={14} />}
-                                        Search
+                                        <Search size={14} />
+                                        {lyricsSearchLoading ? 'Searching...' : 'Search'}
                                     </button>
                                 </div>
 
-                                <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1 min-h-[220px] max-h-[300px]">
-                                    {lyricsSearchLoading ? (
-                                        <div className="flex items-center justify-center py-12 gap-2 text-xs text-zinc-500 font-bold">
-                                            <RefreshCw size={16} className="animate-spin text-amber-400" /> Searching LRCLib...
-                                        </div>
-                                    ) : lyricsSearchResults.length === 0 ? (
-                                        <div className="text-center py-12 text-xs text-zinc-600">
-                                            Enter artist and title above to search for lyrics matches.
+                                <div className="flex-1 overflow-y-auto space-y-2 custom-scrollbar min-h-0">
+                                    {lyricsSearchResults.length === 0 ? (
+                                        <div className="text-center py-10 text-zinc-600 text-sm">
+                                            Search for lyrics matches above
                                         </div>
                                     ) : (
-                                        lyricsSearchResults.map((cand) => (
+                                        lyricsSearchResults.map((res: any) => (
                                             <div
-                                                key={cand.id}
-                                                className="p-3.5 bg-zinc-950 border border-zinc-900 hover:border-amber-500/40 rounded-2xl transition-all flex items-center justify-between gap-3 text-xs"
+                                                key={res.id}
+                                                className="p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800/80 hover:border-amber-500/50 transition-all flex items-center justify-between group"
                                             >
-                                                <div className="min-w-0">
+                                                <div className="min-w-0 pr-3">
                                                     <div className="flex items-center gap-2">
-                                                        <span className="font-bold text-white truncate">{cand.trackName}</span>
-                                                        {cand.hasSyncedLyrics && (
-                                                            <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 text-[9px] font-black uppercase">Synced</span>
+                                                        <h4 className="font-bold text-white text-sm truncate">{res.trackName}</h4>
+                                                        {res.syncedLyrics && (
+                                                            <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[9px] font-black uppercase">
+                                                                Synced
+                                                            </span>
                                                         )}
                                                     </div>
-                                                    <p className="text-zinc-500 text-[11px] truncate">{cand.artistName} • {cand.albumName || 'Album'}</p>
+                                                    <p className="text-xs text-zinc-400 truncate">{res.artistName} • {res.albumName || 'Unknown Album'}</p>
                                                 </div>
                                                 <button
-                                                    onClick={() => handleApplyLyricsMatch(cand)}
-                                                    className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider shrink-0 transition-all flex items-center gap-1"
+                                                    onClick={() => handleApplyLyricsMatch(res)}
+                                                    disabled={isSavingLyrics}
+                                                    className="px-3.5 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500 text-amber-400 hover:text-black font-black text-xs uppercase tracking-wider border border-amber-500/30 transition-all shrink-0"
                                                 >
-                                                    <Check size={13} /> Apply Match
+                                                    Apply
                                                 </button>
                                             </div>
                                         ))
@@ -2479,17 +2509,15 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 <textarea
                                     value={customLrcText}
                                     onChange={e => setCustomLrcText(e.target.value)}
-                                    placeholder="Paste [00:12.34] Synced LRC timestamps or plain text lyrics here..."
-                                    rows={10}
-                                    className="w-full flex-1 bg-zinc-950 border border-zinc-800 rounded-2xl p-4 text-xs font-mono text-zinc-200 outline-none focus:border-amber-500 resize-none custom-scrollbar"
+                                    placeholder="[00:12.34] Paste your LRC timestamped lyrics here..."
+                                    className="flex-1 w-full bg-zinc-950 border border-zinc-800 rounded-2xl p-4 text-xs font-mono text-zinc-300 placeholder:text-zinc-600 focus:outline-none focus:border-amber-500 resize-none min-h-[220px]"
                                 />
                                 <button
                                     onClick={handleSaveCustomLyrics}
                                     disabled={isSavingLyrics || !customLrcText.trim()}
-                                    className="w-full py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 disabled:opacity-60"
+                                    className="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider rounded-2xl transition-all shadow-md shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2"
                                 >
-                                    {isSavingLyrics ? <RefreshCw size={15} className="animate-spin" /> : <Check size={15} />}
-                                    Save &amp; Apply Lyrics
+                                    <Check size={16} /> Save &amp; Apply Custom Lyrics
                                 </button>
                             </div>
                         )}
@@ -2501,7 +2529,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                AUDIO SPECS & DIAGNOSTICS MODAL (STATS FOR AUDIOPHILES)
                ══════════════════════════════════════════════════════════════ */}
             {isAudioSpecsOpen && audioSpecsItem && (
-                <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200">
                     <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-lg p-6 sm:p-8 space-y-6 shadow-2xl relative">
                         <button
                             onClick={() => setIsAudioSpecsOpen(false)}
@@ -2562,7 +2590,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                CAST PICKER MODAL (SMART TVS)
                ══════════════════════════════════════════════════════════════ */}
             {isCastPickerModalOpen && (
-                <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200">
                     <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-lg p-6 sm:p-8 space-y-6 shadow-2xl relative">
                         <button
                             onClick={() => setIsCastPickerModalOpen(false)}
@@ -2642,7 +2670,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                AUDIO STATS FOR NERDS & PLAYBACK TELEMETRY MODAL
                ══════════════════════════════════════════════════════════════ */}
             {showAudioNerdModal && (
-                <div className="fixed inset-0 z-[290] bg-black/85 backdrop-blur-xl flex items-center justify-center p-4 animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[300] bg-black/85 backdrop-blur-xl flex items-center justify-center p-4 animate-in fade-in duration-200">
                     <div className="bg-zinc-950 border border-zinc-800 w-full max-w-2xl max-h-[85vh] rounded-3xl p-6 shadow-2xl flex flex-col space-y-4">
                         {/* Modal Header */}
                         <div className="flex items-center justify-between border-b border-zinc-900 pb-3">
