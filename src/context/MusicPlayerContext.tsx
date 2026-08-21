@@ -1,0 +1,1560 @@
+'use client';
+
+import React, { createContext, useContext, useState, useEffect, useRef, useMemo } from 'react';
+import {
+    Play, Pause, Volume2, VolumeX, Maximize, X,
+    Shuffle, Repeat, SkipForward, SkipBack,
+    Disc, Music, ListMusic, Download, ArrowDownToLine,
+    Info, Mic2, Edit3, Search, Sparkles, Check,
+    RefreshCw, ChevronDown, Sliders, Cast, Tv, Trash2, Plus
+} from 'lucide-react';
+import { toast } from 'sonner';
+
+export interface MediaItem {
+    id: string;
+    name: string;
+    title: string;
+    path: string;
+    folder: string;
+    artist?: string;
+    album?: string;
+    trackNumber?: number;
+    durationMs?: number;
+    duration?: string;
+    category: 'video' | 'audio' | 'photo';
+    extension: string;
+    sizeBytes: number;
+    modifiedAt: string;
+    addedAt?: string;
+    posterUrl?: string;
+    streamUrl: string;
+    source?: string;
+    youtubeId?: string;
+}
+
+interface LyricsData {
+    trackKey?: string;
+    artist?: string;
+    title?: string;
+    syncedLyrics: string | null;
+    plainLyrics: string | null;
+    lines: Array<{ time: number; text: string }>;
+    isSynced: boolean;
+    source?: string;
+}
+
+interface MusicPlayerContextType {
+    playingAudio: MediaItem | null;
+    isAudioPlaying: boolean;
+    audioCurrentTime: number;
+    audioDuration: number;
+    audioQueue: MediaItem[];
+    queueIndex: number;
+    isShuffle: boolean;
+    isRepeat: boolean;
+    audioVolume: number;
+    isAudioMuted: boolean;
+    isExpandedPlayerOpen: boolean;
+    playTrack: (track: MediaItem, queue?: MediaItem[], index?: number) => void;
+    playAlbum: (tracks: MediaItem[]) => void;
+    togglePlayPause: () => void;
+    nextTrack: () => void;
+    prevTrack: () => void;
+    seekTo: (time: number) => void;
+    setVolume: (vol: number) => void;
+    toggleMute: () => void;
+    toggleShuffle: () => void;
+    toggleRepeat: () => void;
+    closePlayer: () => void;
+    openExpandedPlayer: () => void;
+    closeExpandedPlayer: () => void;
+    handleDownloadTrack: (track: MediaItem | null) => void;
+    handleDownloadAlbum: (tracks: MediaItem[], albumName?: string) => void;
+}
+
+const MusicPlayerContext = createContext<MusicPlayerContextType | null>(null);
+
+function formatBytes(bytes: number): string {
+    if (!bytes || bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function formatTime(seconds: number): string {
+    if (isNaN(seconds) || seconds < 0) return '0:00';
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
+}
+
+export function MusicPlayerProvider({ children }: { children: React.ReactNode }) {
+    const audioRef = useRef<HTMLAudioElement | null>(null);
+
+    // Core Playback States
+    const [playingAudio, setPlayingAudio] = useState<MediaItem | null>(null);
+    const [isAudioPlaying, setIsAudioPlaying] = useState(false);
+    const [audioCurrentTime, setAudioCurrentTime] = useState(0);
+    const [audioDuration, setAudioDuration] = useState(0);
+    const [audioQueue, setAudioQueue] = useState<MediaItem[]>([]);
+    const [queueIndex, setQueueIndex] = useState(0);
+    const [isShuffle, setIsShuffle] = useState(false);
+    const [isRepeat, setIsRepeat] = useState(false);
+    const [audioVolume, setAudioVolume] = useState(1);
+    const [isAudioMuted, setIsAudioMuted] = useState(false);
+
+    // UI Drawer & Modal States
+    const [showQueueDrawer, setShowQueueDrawer] = useState(false);
+    const [isExpandedPlayerOpen, setIsExpandedPlayerOpen] = useState(false);
+    const [expandedSidePanel, setExpandedSidePanel] = useState<'lyrics' | 'queue' | 'specs'>('lyrics');
+    const [showExpandedSidePanel, setShowExpandedSidePanel] = useState(true);
+
+    // Lyrics & Karaoke States
+    const [showLyricsModal, setShowLyricsModal] = useState(false);
+    const [lyricsData, setLyricsData] = useState<LyricsData | null>(null);
+    const [lyricsLoading, setLyricsLoading] = useState(false);
+    const [lyricsViewMode, setLyricsViewMode] = useState<'karaoke' | 'full'>('karaoke');
+    const [isLyricsEditorOpen, setIsLyricsEditorOpen] = useState(false);
+    const [lyricsSearchQuery, setLyricsSearchQuery] = useState('');
+    const [lyricsSearchResults, setLyricsSearchResults] = useState<any[]>([]);
+    const [lyricsSearchLoading, setLyricsSearchLoading] = useState(false);
+    const [customLrcText, setCustomLrcText] = useState('');
+    const [editorTab, setEditorTab] = useState<'search' | 'custom'>('search');
+    const [isSavingLyrics, setIsSavingLyrics] = useState(false);
+    const activeLyricRef = useRef<HTMLDivElement>(null);
+    const expandedActiveLyricRef = useRef<HTMLDivElement>(null);
+
+    // Specs & Diagnostics Modal States
+    const [isAudioSpecsOpen, setIsAudioSpecsOpen] = useState(false);
+    const [audioSpecsItem, setAudioSpecsItem] = useState<MediaItem | null>(null);
+    const [audioSpecsData, setAudioSpecsData] = useState<any>(null);
+    const [audioSpecsLoading, setAudioSpecsLoading] = useState(false);
+
+    // Smart TV Pairing & Casting States
+    const [isCastPickerModalOpen, setIsCastPickerModalOpen] = useState(false);
+    const [pairedTvSessions, setPairedTvSessions] = useState<any[]>([]);
+    const [loadingPairedTvs, setLoadingPairedTvs] = useState(false);
+    const [isGrabbingTrack, setIsGrabbingTrack] = useState(false);
+
+    // Synchronize Audio Current Line
+    const currentLyricIndex = useMemo(() => {
+        if (!lyricsData || !lyricsData.lines || lyricsData.lines.length === 0) return -1;
+        for (let i = lyricsData.lines.length - 1; i >= 0; i--) {
+            if (audioCurrentTime >= lyricsData.lines[i].time) {
+                return i;
+            }
+        }
+        return -1;
+    }, [lyricsData, audioCurrentTime]);
+
+    useEffect(() => {
+        if (showLyricsModal && activeLyricRef.current) {
+            activeLyricRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }, [currentLyricIndex, showLyricsModal]);
+
+    useEffect(() => {
+        if (isExpandedPlayerOpen && expandedActiveLyricRef.current) {
+            expandedActiveLyricRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }, [currentLyricIndex, isExpandedPlayerOpen, expandedSidePanel]);
+
+    // Handle Fetching Lyrics
+    const fetchLyrics = async (item: MediaItem) => {
+        setLyricsLoading(true);
+        try {
+            const params = new URLSearchParams({
+                path: item.path || '',
+                artist: item.artist || '',
+                title: item.title || item.name || '',
+                album: item.album || '',
+                duration: item.durationMs ? String(Math.round(item.durationMs / 1000)) : ''
+            });
+            const res = await fetch(`/api/theater/music/lyrics?${params.toString()}`);
+            if (res.ok) {
+                const data = await res.json();
+                setLyricsData(data);
+            } else {
+                setLyricsData(null);
+            }
+        } catch {
+            setLyricsData(null);
+        } finally {
+            setLyricsLoading(false);
+        }
+    };
+
+    const handleSearchLyrics = async (query: string) => {
+        if (!query.trim()) return;
+        setLyricsSearchLoading(true);
+        try {
+            const res = await fetch(`/api/theater/music/lyrics?q=${encodeURIComponent(query.trim())}`);
+            if (res.ok) {
+                const data = await res.json();
+                setLyricsSearchResults(data.results || []);
+            }
+        } catch {
+            toast.error('Failed to search lyrics provider');
+        } finally {
+            setLyricsSearchLoading(false);
+        }
+    };
+
+    const handleApplyLyricsMatch = async (candidate: any) => {
+        if (!playingAudio) return;
+        try {
+            const res = await fetch('/api/theater/music/lyrics', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    path: playingAudio.path || '',
+                    artist: playingAudio.artist || candidate.artistName,
+                    title: playingAudio.title || candidate.trackName,
+                    syncedLyrics: candidate.syncedLyrics || null,
+                    plainLyrics: candidate.plainLyrics || null,
+                    source: `lrclib_match_${candidate.id}`
+                })
+            });
+            if (res.ok) {
+                const updated = await res.json();
+                setLyricsData(updated.lyrics);
+                setIsLyricsEditorOpen(false);
+                toast.success('Lyrics match updated and saved!');
+            }
+        } catch {
+            toast.error('Failed to apply lyrics match');
+        }
+    };
+
+    const handleSaveCustomLyrics = async () => {
+        if (!playingAudio || !customLrcText.trim()) return;
+        setIsSavingLyrics(true);
+        try {
+            const isSynced = /\[\d{2}:\d{2}/.test(customLrcText);
+            const res = await fetch('/api/theater/music/lyrics', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    path: playingAudio.path || '',
+                    artist: playingAudio.artist || 'Unknown',
+                    title: playingAudio.title || 'Track',
+                    syncedLyrics: isSynced ? customLrcText : null,
+                    plainLyrics: !isSynced ? customLrcText : null,
+                    source: 'custom_user_input'
+                })
+            });
+            if (res.ok) {
+                const updated = await res.json();
+                setLyricsData(updated.lyrics);
+                setIsLyricsEditorOpen(false);
+                toast.success('Custom lyrics saved successfully!');
+            }
+        } catch {
+            toast.error('Failed to save custom lyrics');
+        } finally {
+            setIsSavingLyrics(false);
+        }
+    };
+
+    // Download Helpers
+    const handleDownloadTrack = (track: MediaItem | null) => {
+        const t = track || playingAudio;
+        if (!t) return;
+        const downloadUrl = `/api/theater/music/download?path=${encodeURIComponent(t.path || '')}&title=${encodeURIComponent(t.title || t.name)}&artist=${encodeURIComponent(t.artist || '')}`;
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.download = `${t.artist ? `${t.artist} - ` : ''}${t.title || t.name}.${t.extension || 'mp3'}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        toast.success(`Downloading "${t.title}" to your computer...`);
+    };
+
+    const handleDownloadAlbum = (tracks: MediaItem[], albumName?: string) => {
+        if (!tracks.length) return;
+        toast.success(`Starting download of ${tracks.length} tracks for album "${albumName || 'Album'}"...`);
+        tracks.forEach((track, i) => {
+            setTimeout(() => {
+                handleDownloadTrack(track);
+            }, i * 600);
+        });
+    };
+
+    // Grab Online Track to Local Music Library
+    const handleGrabTrackToLibrary = async (item: MediaItem) => {
+        if (!item.youtubeId) return;
+        setIsGrabbingTrack(true);
+        toast.info(`Starting download for "${item.title}" into Music Library...`);
+        try {
+            const res = await fetch('/api/theater/music/grab', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    youtubeId: item.youtubeId,
+                    title: item.title,
+                    artist: item.artist,
+                    album: item.album
+                })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                toast.success(`Saved "${item.title}" into your Music folder!`);
+            } else {
+                toast.error(data.error || 'Failed to grab audio to library');
+            }
+        } catch (err: any) {
+            toast.error(err.message || 'Network error grabbing track');
+        } finally {
+            setIsGrabbingTrack(false);
+        }
+    };
+
+    // Diagnostics / Audiophile Specs
+    const fetchAudioSpecs = async (item: MediaItem) => {
+        setAudioSpecsItem(item);
+        setIsAudioSpecsOpen(true);
+        setAudioSpecsLoading(true);
+        try {
+            const res = await fetch(`/api/theater/diagnostics?path=${encodeURIComponent(item.path)}`);
+            if (res.ok) {
+                const data = await res.json();
+                setAudioSpecsData(data);
+            } else {
+                setAudioSpecsData(null);
+            }
+        } catch {
+            setAudioSpecsData(null);
+        } finally {
+            setAudioSpecsLoading(false);
+        }
+    };
+
+    // Cast to Smart TV
+    const fetchPairedTvSessions = async () => {
+        setLoadingPairedTvs(true);
+        try {
+            const res = await fetch('/api/theater/tv');
+            if (res.ok) {
+                const data = await res.json();
+                setPairedTvSessions(data.sessions || []);
+            }
+        } catch {
+            // ignore
+        } finally {
+            setLoadingPairedTvs(false);
+        }
+    };
+
+    const openCastPicker = (target: MediaItem) => {
+        fetchPairedTvSessions();
+        setIsCastPickerModalOpen(true);
+    };
+
+    const handleCastToDevice = async (sessionId: string, deviceName: string) => {
+        if (!playingAudio) return;
+        try {
+            const res = await fetch('/api/theater/tv', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    sessionId,
+                    action: 'cast_media',
+                    media: {
+                        id: playingAudio.id,
+                        title: playingAudio.title,
+                        posterUrl: playingAudio.posterUrl,
+                        streamUrl: playingAudio.streamUrl,
+                        category: 'audio',
+                        artist: playingAudio.artist,
+                        album: playingAudio.album
+                    }
+                })
+            });
+            if (res.ok) {
+                toast.success(`Casting "${playingAudio.title}" to ${deviceName}!`);
+                setIsCastPickerModalOpen(false);
+            } else {
+                toast.error('Failed to cast to TV');
+            }
+        } catch {
+            toast.error('Error connecting to Smart TV');
+        }
+    };
+
+    const handleUnpairDevice = async (id: string, name: string) => {
+        try {
+            const res = await fetch(`/api/theater/tv?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+            if (res.ok) {
+                setPairedTvSessions(prev => prev.filter(s => s.id !== id));
+                toast.success(`Unpaired ${name}`);
+            }
+        } catch {
+            toast.error('Failed to unpair device');
+        }
+    };
+
+    // Track Selection & Audio Playback Handlers
+    const playTrack = (track: MediaItem, queue?: MediaItem[], index?: number) => {
+        setPlayingAudio(track);
+        setIsAudioPlaying(true);
+        if (queue && queue.length > 0) {
+            setAudioQueue(queue);
+            setQueueIndex(index !== undefined ? index : 0);
+        } else {
+            setAudioQueue([track]);
+            setQueueIndex(0);
+        }
+    };
+
+    const playAlbum = (tracks: MediaItem[]) => {
+        if (!tracks.length) return;
+        setAudioQueue(tracks);
+        setQueueIndex(0);
+        setPlayingAudio(tracks[0]);
+        setIsAudioPlaying(true);
+    };
+
+    const togglePlayPause = () => {
+        if (!audioRef.current) return;
+        if (isAudioPlaying) {
+            audioRef.current.pause();
+            setIsAudioPlaying(false);
+        } else {
+            audioRef.current.play();
+            setIsAudioPlaying(true);
+        }
+    };
+
+    const nextTrack = () => {
+        if (audioQueue.length === 0) return;
+        let nextIdx = queueIndex + 1;
+        if (isShuffle) {
+            nextIdx = Math.floor(Math.random() * audioQueue.length);
+        } else if (nextIdx >= audioQueue.length) {
+            if (isRepeat) {
+                nextIdx = 0;
+            } else {
+                return;
+            }
+        }
+        setQueueIndex(nextIdx);
+        setPlayingAudio(audioQueue[nextIdx]);
+        setIsAudioPlaying(true);
+    };
+
+    const prevTrack = () => {
+        if (audioQueue.length === 0) return;
+        let prevIdx = queueIndex - 1;
+        if (prevIdx < 0) {
+            prevIdx = audioQueue.length - 1;
+        }
+        setQueueIndex(prevIdx);
+        setPlayingAudio(audioQueue[prevIdx]);
+        setIsAudioPlaying(true);
+    };
+
+    const seekTo = (time: number) => {
+        setAudioCurrentTime(time);
+        if (audioRef.current) {
+            audioRef.current.currentTime = time;
+        }
+    };
+
+    const handleVolumeChange = (v: number) => {
+        setAudioVolume(v);
+        setIsAudioMuted(v === 0);
+        if (audioRef.current) {
+            audioRef.current.volume = v;
+            audioRef.current.muted = v === 0;
+        }
+    };
+
+    const toggleMute = () => {
+        if (!audioRef.current) return;
+        if (isAudioMuted) {
+            const nextVol = audioVolume > 0 ? audioVolume : 0.8;
+            audioRef.current.muted = false;
+            audioRef.current.volume = nextVol;
+            setIsAudioMuted(false);
+            setAudioVolume(nextVol);
+        } else {
+            audioRef.current.muted = true;
+            setIsAudioMuted(true);
+        }
+    };
+
+    const closePlayer = () => {
+        if (audioRef.current) audioRef.current.pause();
+        setPlayingAudio(null);
+        setIsAudioPlaying(false);
+        setIsExpandedPlayerOpen(false);
+        setShowLyricsModal(false);
+        setShowQueueDrawer(false);
+    };
+
+    // When playingAudio changes, load source and fetch lyrics
+    useEffect(() => {
+        if (playingAudio && audioRef.current) {
+            audioRef.current.src = playingAudio.streamUrl;
+            audioRef.current.play().catch(() => {});
+            fetchLyrics(playingAudio);
+        }
+    }, [playingAudio]);
+
+    return (
+        <MusicPlayerContext.Provider
+            value={{
+                playingAudio,
+                isAudioPlaying,
+                audioCurrentTime,
+                audioDuration,
+                audioQueue,
+                queueIndex,
+                isShuffle,
+                isRepeat,
+                audioVolume,
+                isAudioMuted,
+                isExpandedPlayerOpen,
+                playTrack,
+                playAlbum,
+                togglePlayPause,
+                nextTrack,
+                prevTrack,
+                seekTo,
+                setVolume: handleVolumeChange,
+                toggleMute,
+                toggleShuffle: () => setIsShuffle(!isShuffle),
+                toggleRepeat: () => setIsRepeat(!isRepeat),
+                closePlayer,
+                openExpandedPlayer: () => setIsExpandedPlayerOpen(true),
+                closeExpandedPlayer: () => setIsExpandedPlayerOpen(false),
+                handleDownloadTrack,
+                handleDownloadAlbum
+            }}
+        >
+            {/* Global Persistent Audio Element */}
+            <audio
+                ref={audioRef}
+                onTimeUpdate={() => {
+                    if (audioRef.current) setAudioCurrentTime(audioRef.current.currentTime);
+                }}
+                onLoadedMetadata={() => {
+                    if (audioRef.current) setAudioDuration(audioRef.current.duration);
+                }}
+                onEnded={nextTrack}
+                onPlay={() => setIsAudioPlaying(true)}
+                onPause={() => setIsAudioPlaying(false)}
+            />
+
+            {children}
+
+            {/* ══════════════════════════════════════════════════════════════
+               GLOBAL PERSISTENT MUSIC STUDIO BOTTOM BAR (ACROSS ALL PAGES)
+               ══════════════════════════════════════════════════════════════ */}
+            {playingAudio && (
+                <div className="fixed bottom-20 sm:bottom-4 left-3 right-3 sm:left-4 sm:right-4 max-w-4xl mx-auto z-[180] bg-zinc-950/95 border border-zinc-800/90 backdrop-blur-2xl p-3 sm:p-4 px-4 sm:px-6 rounded-[2rem] sm:rounded-[2.5rem] shadow-2xl space-y-2 animate-in slide-in-from-bottom duration-300 select-none">
+                    <div className="flex items-center justify-between gap-2 sm:gap-4">
+                        {/* Track Artwork & Info (Click to Expand Studio Screen) */}
+                        <div
+                            onClick={() => setIsExpandedPlayerOpen(true)}
+                            className="flex items-center gap-3 min-w-0 flex-1 sm:flex-initial sm:w-64 cursor-pointer group/art"
+                            title="Click to open Expanded Player with Big Art & Synced Lyrics"
+                        >
+                            <div className="w-14 h-14 rounded-2xl bg-zinc-900 border border-zinc-800 overflow-hidden flex items-center justify-center text-amber-400 shrink-0 relative shadow-md group-hover/art:scale-105 group-hover/art:border-amber-500/50 transition-all">
+                                {playingAudio.posterUrl ? (
+                                    <img src={playingAudio.posterUrl} alt="" className="w-full h-full object-cover" />
+                                ) : (
+                                    <Music size={24} />
+                                )}
+                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/art:opacity-100 flex items-center justify-center transition-opacity">
+                                    <Maximize size={16} className="text-white" />
+                                </div>
+                            </div>
+                            <div className="min-w-0">
+                                <h4 className="font-bold text-white text-sm sm:text-base truncate leading-snug group-hover/art:text-amber-400 transition-colors">{playingAudio.title}</h4>
+                                <p className="text-xs text-zinc-400 truncate">{playingAudio.artist || playingAudio.folder || 'Artist'}</p>
+                            </div>
+                        </div>
+
+                        {/* Center Playback Controls & Seekbar */}
+                        <div className="flex-1 flex flex-col items-center space-y-1 max-w-lg">
+                            <div className="flex items-center gap-4">
+                                <button
+                                    onClick={() => setIsShuffle(!isShuffle)}
+                                    className={`p-2 rounded-xl transition-colors ${isShuffle ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-500 hover:text-white'}`}
+                                    title="Shuffle Queue"
+                                >
+                                    <Shuffle size={16} />
+                                </button>
+
+                                <button
+                                    onClick={prevTrack}
+                                    className="p-2 text-zinc-400 hover:text-white transition-colors"
+                                    title="Previous Track"
+                                >
+                                    <SkipBack size={18} />
+                                </button>
+
+                                <button
+                                    onClick={togglePlayPause}
+                                    className="w-11 h-11 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black flex items-center justify-center shadow-lg shadow-amber-500/20 transition-all scale-100 active:scale-95"
+                                >
+                                    {isAudioPlaying ? <Pause size={20} /> : <Play size={20} className="ml-0.5" />}
+                                </button>
+
+                                <button
+                                    onClick={nextTrack}
+                                    className="p-2 text-zinc-400 hover:text-white transition-colors"
+                                    title="Next Track"
+                                >
+                                    <SkipForward size={18} />
+                                </button>
+
+                                <button
+                                    onClick={() => setIsRepeat(!isRepeat)}
+                                    className={`p-2 rounded-xl transition-colors ${isRepeat ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-500 hover:text-white'}`}
+                                    title="Repeat Queue"
+                                >
+                                    <Repeat size={16} />
+                                </button>
+                            </div>
+
+                            {/* Seekbar */}
+                            <div className="w-full flex items-center gap-2 text-[11px] font-mono text-zinc-500">
+                                <span>{formatTime(audioCurrentTime)}</span>
+                                <input
+                                    type="range"
+                                    min={0}
+                                    max={audioDuration || 100}
+                                    value={audioCurrentTime}
+                                    onChange={e => seekTo(Number(e.target.value))}
+                                    className="flex-1 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                                />
+                                <span>{formatTime(audioDuration)}</span>
+                            </div>
+                        </div>
+
+                        {/* Right Quick Actions: Grab, Lyrics, Download, Specs, Queue, Cast, Close */}
+                        <div className="flex items-center gap-1 sm:gap-2 w-auto sm:w-72 justify-end shrink-0">
+                            {playingAudio.youtubeId && (
+                                <button
+                                    onClick={() => handleGrabTrackToLibrary(playingAudio)}
+                                    disabled={isGrabbingTrack}
+                                    className="p-2 sm:p-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 text-xs font-bold transition-all"
+                                    title="Grab Track to Local Music Library Folder"
+                                >
+                                    <ArrowDownToLine size={15} />
+                                </button>
+                            )}
+
+                            {/* Karaoke / Live Lyrics */}
+                            <button
+                                onClick={() => setShowLyricsModal(true)}
+                                className={`p-2 sm:p-2.5 rounded-xl border text-xs font-bold transition-all ${
+                                    showLyricsModal ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-amber-400 hover:border-amber-500/40'
+                                }`}
+                                title="Karaoke Live Lyrics & Match Editor"
+                            >
+                                <Mic2 size={16} />
+                            </button>
+
+                            {/* Download Track to Local Machine */}
+                            <button
+                                onClick={() => handleDownloadTrack(playingAudio)}
+                                className="p-2 sm:p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-emerald-400 hover:border-emerald-500/40 text-xs font-bold transition-all"
+                                title="Download Audio File to Local Machine"
+                            >
+                                <Download size={16} />
+                            </button>
+
+                            <button
+                                onClick={() => fetchAudioSpecs(playingAudio)}
+                                className="p-2 sm:p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-amber-400 hover:border-amber-500/40 text-xs font-bold transition-all"
+                                title="Audio Specs & Metadata (Stats for Audiophiles)"
+                            >
+                                <Info size={16} />
+                            </button>
+
+                            <button
+                                onClick={() => setShowQueueDrawer(!showQueueDrawer)}
+                                className={`p-2 sm:p-2.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
+                                    showQueueDrawer ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+                                }`}
+                                title="Toggle Playback Queue"
+                            >
+                                <ListMusic size={16} />
+                                <span className="hidden md:inline">Queue ({audioQueue.length})</span>
+                            </button>
+
+                            <button
+                                onClick={() => openCastPicker(playingAudio)}
+                                className="p-2 sm:p-2.5 rounded-xl bg-purple-500/15 hover:bg-purple-500 text-purple-400 hover:text-white border border-purple-500/30 text-xs font-bold"
+                                title="Cast Audio to Smart TV"
+                            >
+                                <Cast size={15} />
+                            </button>
+
+                            <button
+                                onClick={closePlayer}
+                                className="p-1.5 sm:p-2 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"
+                                title="Dismiss Player"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ══════════════════════════════════════════════════════════════
+               AUDIO PLAYBACK QUEUE DRAWER
+               ══════════════════════════════════════════════════════════════ */}
+            {showQueueDrawer && playingAudio && (
+                <div className="fixed bottom-36 sm:bottom-24 right-3 sm:right-6 w-full max-w-sm z-[185] bg-zinc-950/95 border border-zinc-800 rounded-3xl p-4 shadow-2xl space-y-3 animate-in slide-in-from-bottom-5 duration-200">
+                    <div className="flex items-center justify-between pb-2 border-b border-zinc-900">
+                        <span className="text-xs font-black uppercase text-amber-400 tracking-wider flex items-center gap-1.5">
+                            <ListMusic size={14} /> Queue ({audioQueue.length})
+                        </span>
+                        <div className="flex items-center gap-1">
+                            <button
+                                onClick={() => setAudioQueue([playingAudio])}
+                                className="text-[10px] text-zinc-500 hover:text-red-400 font-bold px-2 py-1"
+                            >
+                                Clear
+                            </button>
+                            <button
+                                onClick={() => setShowQueueDrawer(false)}
+                                className="p-1 text-zinc-500 hover:text-white"
+                            >
+                                <X size={14} />
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="space-y-1 max-h-60 overflow-y-auto custom-scrollbar pr-1">
+                        {audioQueue.map((track, i) => {
+                            const isCurrent = i === queueIndex;
+                            return (
+                                <div
+                                    key={`${track.id}-${i}`}
+                                    onClick={() => {
+                                        setQueueIndex(i);
+                                        setPlayingAudio(track);
+                                        setIsAudioPlaying(true);
+                                    }}
+                                    className={`p-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-between cursor-pointer ${
+                                        isCurrent ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-zinc-900/50 text-zinc-400 hover:text-white'
+                                    }`}
+                                >
+                                    <div className="truncate mr-2">
+                                        <p className="truncate">{track.title}</p>
+                                        <span className="text-[9px] text-zinc-500">{track.artist || 'Artist'}</span>
+                                    </div>
+                                    {isCurrent && <Volume2 size={14} className="text-amber-400 shrink-0" />}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+
+            {/* ══════════════════════════════════════════════════════════════
+               EXPANDED NOW PLAYING SCREEN WITH BIG ARTWORK & RIGHT PANEL
+               ══════════════════════════════════════════════════════════════ */}
+            {isExpandedPlayerOpen && playingAudio && (
+                <div className="fixed inset-0 z-[275] bg-black/95 backdrop-blur-3xl flex flex-col p-4 sm:p-8 animate-in fade-in duration-200 overflow-hidden select-none">
+                    {/* Ambient Blurred Background Art */}
+                    {playingAudio.posterUrl && (
+                        <div
+                            className="absolute inset-0 bg-cover bg-center blur-3xl opacity-15 pointer-events-none scale-125"
+                            style={{ backgroundImage: `url(${playingAudio.posterUrl})` }}
+                        />
+                    )}
+
+                    {/* Top Bar: Minimize, Title, Header Actions */}
+                    <div className="relative z-10 flex items-center justify-between gap-4 pb-4 border-b border-zinc-900/80 shrink-0">
+                        <button
+                            onClick={() => setIsExpandedPlayerOpen(false)}
+                            className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs font-black uppercase tracking-wider transition-all"
+                        >
+                            <ChevronDown size={18} /> Minimize
+                        </button>
+
+                        <div className="text-center">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-amber-400">
+                                Now Playing Studio
+                            </span>
+                            <h3 className="text-sm font-bold text-white max-w-xs sm:max-w-md truncate">
+                                {playingAudio.album || playingAudio.folder || 'Theater Audio'}
+                            </h3>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            {/* Toggle Right Side Panel Button */}
+                            <button
+                                onClick={() => setShowExpandedSidePanel(!showExpandedSidePanel)}
+                                className={`px-3.5 py-2 rounded-2xl border text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all ${
+                                    showExpandedSidePanel
+                                        ? 'bg-amber-500 text-black border-amber-400 shadow-md'
+                                        : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
+                                }`}
+                                title={showExpandedSidePanel ? 'Hide side panel to focus on artwork' : 'Show lyrics, queue & specs side panel'}
+                            >
+                                <Sliders size={14} />
+                                <span className="hidden sm:inline">{showExpandedSidePanel ? 'Hide Panel' : 'Show Panel'}</span>
+                            </button>
+
+                            <button
+                                onClick={() => setIsExpandedPlayerOpen(false)}
+                                className="p-2 rounded-2xl text-zinc-400 hover:text-white hover:bg-zinc-900 transition-colors"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Main Stage */}
+                    <div className="relative z-10 flex-1 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center min-h-0 py-4 overflow-y-auto custom-scrollbar">
+                        {/* Left / Center: Big Artwork & Full Controls */}
+                        <div className={`${showExpandedSidePanel ? 'lg:col-span-6 xl:col-span-5' : 'lg:col-span-8 lg:col-start-3'} flex flex-col items-center justify-center space-y-6 mx-auto w-full max-w-lg transition-all`}>
+                            {/* Big Album / Vinyl Art Frame */}
+                            <div className="relative w-64 h-64 sm:w-80 sm:h-80 md:w-96 md:h-96 group/disc shrink-0">
+                                {/* Rotating Vinyl Disc coming out behind art */}
+                                <div className={`absolute top-0 right-0 w-64 h-64 sm:w-80 sm:h-80 md:w-96 md:h-96 rounded-full bg-gradient-to-tr from-zinc-950 via-zinc-900 to-black border-4 border-zinc-800 shadow-2xl flex items-center justify-center translate-x-8 sm:translate-x-12 ${isAudioPlaying ? 'animate-spin-slow' : ''} transition-transform duration-500`}>
+                                    <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-amber-500/20 border-2 border-amber-500/40 flex items-center justify-center shadow-inner">
+                                        <div className="w-6 h-6 rounded-full bg-zinc-950 border border-zinc-800" />
+                                    </div>
+                                </div>
+
+                                {/* Front High-Res Cover Artwork */}
+                                <div className="relative w-64 h-64 sm:w-80 sm:h-80 md:w-96 md:h-96 rounded-[2.5rem] bg-zinc-900 border-2 border-zinc-800/80 overflow-hidden shadow-2xl flex items-center justify-center z-10">
+                                    {playingAudio.posterUrl ? (
+                                        <img src={playingAudio.posterUrl} alt="" className="w-full h-full object-cover" />
+                                    ) : (
+                                        <Disc size={96} className="text-amber-400" />
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Track Info & Audiophile Badges */}
+                            <div className="text-center space-y-2 w-full px-4">
+                                <div className="flex items-center justify-center gap-2">
+                                    <span className="px-2.5 py-0.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-black uppercase tracking-wider">
+                                        {playingAudio.extension?.toUpperCase() === 'FLAC' ? 'FLAC 24-bit Lossless' : `${playingAudio.extension?.toUpperCase() || 'Audio'} • High-Res`}
+                                    </span>
+                                    {playingAudio.album && (
+                                        <span className="px-2.5 py-0.5 rounded-lg bg-zinc-900 text-zinc-400 border border-zinc-800 text-[10px] font-black uppercase">
+                                            {playingAudio.album}
+                                        </span>
+                                    )}
+                                </div>
+
+                                <h2 className="text-2xl sm:text-3xl font-black text-white leading-tight truncate">
+                                    {playingAudio.title}
+                                </h2>
+                                <p className="text-base font-bold text-amber-300 truncate">
+                                    {playingAudio.artist || playingAudio.folder || 'Artist'}
+                                </p>
+                            </div>
+
+                            {/* Seekbar with Live Timestamps */}
+                            <div className="w-full space-y-2 px-2">
+                                <input
+                                    type="range"
+                                    min={0}
+                                    max={audioDuration || 100}
+                                    value={audioCurrentTime}
+                                    onChange={e => seekTo(Number(e.target.value))}
+                                    className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                                />
+                                <div className="flex justify-between text-xs font-mono text-zinc-500 font-bold">
+                                    <span>{formatTime(audioCurrentTime)}</span>
+                                    <span>{formatTime(audioDuration)}</span>
+                                </div>
+                            </div>
+
+                            {/* Master Playback Controls */}
+                            <div className="flex items-center justify-center gap-5 sm:gap-7 w-full">
+                                <button
+                                    onClick={() => setIsShuffle(!isShuffle)}
+                                    className={`p-3 rounded-2xl transition-all ${isShuffle ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-500 hover:text-white'}`}
+                                    title="Shuffle"
+                                >
+                                    <Shuffle size={20} />
+                                </button>
+
+                                <button
+                                    onClick={prevTrack}
+                                    className="p-3 rounded-2xl text-zinc-300 hover:text-white hover:bg-zinc-900 transition-all"
+                                    title="Previous Track"
+                                >
+                                    <SkipBack size={24} />
+                                </button>
+
+                                <button
+                                    onClick={togglePlayPause}
+                                    className="w-16 h-16 rounded-3xl bg-amber-500 hover:bg-amber-400 text-black flex items-center justify-center shadow-xl shadow-amber-500/30 transition-all scale-100 active:scale-95"
+                                >
+                                    {isAudioPlaying ? <Pause size={28} /> : <Play size={28} className="ml-1" />}
+                                </button>
+
+                                <button
+                                    onClick={nextTrack}
+                                    className="p-3 rounded-2xl text-zinc-300 hover:text-white hover:bg-zinc-900 transition-all"
+                                    title="Next Track"
+                                >
+                                    <SkipForward size={24} />
+                                </button>
+
+                                <button
+                                    onClick={() => setIsRepeat(!isRepeat)}
+                                    className={`p-3 rounded-2xl transition-all ${isRepeat ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-500 hover:text-white'}`}
+                                    title="Repeat"
+                                >
+                                    <Repeat size={20} />
+                                </button>
+                            </div>
+
+                            {/* Volume Slider & Quick Bottom Action Buttons */}
+                            <div className="flex flex-wrap items-center justify-between gap-4 w-full pt-2 border-t border-zinc-900/90 px-2">
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={toggleMute}
+                                        className="text-zinc-500 hover:text-white transition-colors"
+                                        title={isAudioMuted ? 'Unmute' : 'Mute'}
+                                    >
+                                        {isAudioMuted || audioVolume === 0 ? <VolumeX size={18} className="text-red-400" /> : <Volume2 size={18} />}
+                                    </button>
+                                    <input
+                                        type="range"
+                                        min={0}
+                                        max={1}
+                                        step={0.01}
+                                        value={isAudioMuted ? 0 : audioVolume}
+                                        onChange={e => handleVolumeChange(Number(e.target.value))}
+                                        className="w-24 sm:w-28 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                                    />
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={() => handleDownloadTrack(playingAudio)}
+                                        className="px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-emerald-400 border border-zinc-800 text-xs font-bold transition-all flex items-center gap-1.5"
+                                        title="Download Track to Local Machine"
+                                    >
+                                        <Download size={14} /> Download
+                                    </button>
+                                    <button
+                                        onClick={() => fetchAudioSpecs(playingAudio)}
+                                        className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-amber-400 border border-zinc-800 text-xs font-bold transition-all"
+                                        title="Stats for Audiophiles"
+                                    >
+                                        <Info size={16} />
+                                    </button>
+                                    <button
+                                        onClick={() => openCastPicker(playingAudio)}
+                                        className="p-2 rounded-xl bg-purple-500/15 hover:bg-purple-500 text-purple-400 hover:text-white border border-purple-500/30 text-xs font-bold transition-all"
+                                        title="Cast to Smart TV"
+                                    >
+                                        <Cast size={16} />
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Right Side: Toggleable Panel (Lyrics / Queue / Specs) */}
+                        {showExpandedSidePanel && (
+                            <div className="lg:col-span-6 xl:col-span-7 h-full flex flex-col bg-zinc-950/80 border border-zinc-900 rounded-[2.5rem] p-6 shadow-2xl space-y-4 min-h-[420px] max-h-[75vh] overflow-hidden">
+                                {/* Panel Tab Selectors: Lyrics | Queue | Specs */}
+                                <div className="flex items-center justify-between pb-3 border-b border-zinc-900 shrink-0">
+                                    <div className="flex bg-zinc-900/90 p-1 rounded-2xl border border-zinc-800">
+                                        <button
+                                            onClick={() => setExpandedSidePanel('lyrics')}
+                                            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                                                expandedSidePanel === 'lyrics' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                            }`}
+                                        >
+                                            <Mic2 size={13} /> Lyrics
+                                        </button>
+                                        <button
+                                            onClick={() => setExpandedSidePanel('queue')}
+                                            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                                                expandedSidePanel === 'queue' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                            }`}
+                                        >
+                                            <ListMusic size={13} /> Queue ({audioQueue.length})
+                                        </button>
+                                        <button
+                                            onClick={() => setExpandedSidePanel('specs')}
+                                            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                                                expandedSidePanel === 'specs' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                            }`}
+                                        >
+                                            <Info size={13} /> Specs
+                                        </button>
+                                    </div>
+
+                                    {expandedSidePanel === 'lyrics' && (
+                                        <div className="flex items-center gap-2">
+                                            {lyricsData?.isSynced && (
+                                                <span className="px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[9px] font-black uppercase flex items-center gap-1">
+                                                    <Sparkles size={10} /> Synced
+                                                </span>
+                                            )}
+                                            <button
+                                                onClick={() => {
+                                                    setLyricsSearchQuery(`${playingAudio.artist || ''} ${playingAudio.title || ''}`.trim());
+                                                    setCustomLrcText(lyricsData?.syncedLyrics || lyricsData?.plainLyrics || '');
+                                                    setIsLyricsEditorOpen(true);
+                                                }}
+                                                className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-[11px] font-bold flex items-center gap-1 transition-all"
+                                                title="Edit lyrics match"
+                                            >
+                                                <Edit3 size={11} /> Edit Match
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* 1. Lyrics Tab Content */}
+                                {expandedSidePanel === 'lyrics' && (
+                                    <div className="flex-1 overflow-y-auto custom-scrollbar p-2 flex flex-col">
+                                        {lyricsLoading ? (
+                                            <div className="flex flex-col items-center justify-center py-20 gap-3 m-auto">
+                                                <div className="w-10 h-10 border-4 border-amber-500/20 border-t-amber-500 rounded-full animate-spin" />
+                                                <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">Fetching Lyrics...</p>
+                                            </div>
+                                        ) : !lyricsData || (!lyricsData.lines?.length && !lyricsData.plainLyrics) ? (
+                                            <div className="flex flex-col items-center justify-center py-16 text-center space-y-4 m-auto">
+                                                <div className="p-4 bg-zinc-900/60 rounded-full text-zinc-600"><Mic2 size={32} /></div>
+                                                <div>
+                                                    <p className="text-sm font-bold text-white">No lyrics available for this song</p>
+                                                    <p className="text-xs text-zinc-500 mt-1">Search LRCLib or paste custom LRC timestamps.</p>
+                                                </div>
+                                                <button
+                                                    onClick={() => {
+                                                        setLyricsSearchQuery(`${playingAudio.artist || ''} ${playingAudio.title || ''}`.trim());
+                                                        setIsLyricsEditorOpen(true);
+                                                    }}
+                                                    className="px-5 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2"
+                                                >
+                                                    <Search size={14} /> Search / Add Lyrics
+                                                </button>
+                                            </div>
+                                        ) : lyricsData.isSynced ? (
+                                            <div className="space-y-6 py-20 text-center">
+                                                {lyricsData.lines.map((line, idx) => {
+                                                    const isActive = idx === currentLyricIndex;
+                                                    const isPast = currentLyricIndex !== -1 && idx < currentLyricIndex;
+                                                    return (
+                                                        <div
+                                                            key={idx}
+                                                            ref={isActive ? expandedActiveLyricRef : null}
+                                                            onClick={() => seekTo(line.time)}
+                                                            className={`cursor-pointer transition-all duration-300 py-1 px-4 rounded-2xl inline-block max-w-xl ${
+                                                                isActive
+                                                                    ? 'text-2xl sm:text-3xl font-black text-amber-300 drop-shadow-[0_0_30px_rgba(251,191,36,0.6)] scale-105'
+                                                                    : isPast
+                                                                    ? 'text-base font-bold text-zinc-600 hover:text-zinc-400'
+                                                                    : 'text-base font-bold text-zinc-400 hover:text-zinc-200'
+                                                            }`}
+                                                        >
+                                                            {line.text}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        ) : (
+                                            <div className="p-4 text-center whitespace-pre-line text-base font-semibold text-zinc-300 leading-relaxed max-w-lg mx-auto">
+                                                {lyricsData.plainLyrics || lyricsData.lines.map(l => l.text).join('\n')}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* 2. Queue Tab Content */}
+                                {expandedSidePanel === 'queue' && (
+                                    <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1">
+                                        {audioQueue.map((track, i) => {
+                                            const isCurrent = i === queueIndex;
+                                            return (
+                                                <div
+                                                    key={`${track.id}-${i}`}
+                                                    onClick={() => {
+                                                        setQueueIndex(i);
+                                                        setPlayingAudio(track);
+                                                        setIsAudioPlaying(true);
+                                                    }}
+                                                    className={`p-3.5 rounded-2xl text-xs font-bold transition-all flex items-center justify-between cursor-pointer border ${
+                                                        isCurrent
+                                                            ? 'bg-amber-500/15 text-amber-300 border-amber-500/40 shadow-sm'
+                                                            : 'bg-zinc-900/40 border-zinc-900 text-zinc-300 hover:bg-zinc-900/80 hover:text-white'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center gap-3 min-w-0">
+                                                        <span className="w-6 text-zinc-600 font-mono font-bold">{i + 1}</span>
+                                                        <div className="truncate">
+                                                            <p className="truncate font-bold text-white">{track.title}</p>
+                                                            <span className="text-[11px] text-zinc-500">{track.artist || 'Artist'}</span>
+                                                        </div>
+                                                    </div>
+                                                    {isCurrent && <Volume2 size={16} className="text-amber-400 shrink-0 animate-pulse" />}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+
+                                {/* 3. Specs Tab Content */}
+                                {expandedSidePanel === 'specs' && (
+                                    <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-3">
+                                        <div className="grid grid-cols-2 gap-3 text-xs">
+                                            <div className="p-4 bg-zinc-900/60 rounded-2xl border border-zinc-800 space-y-1">
+                                                <span className="text-[10px] font-black uppercase text-zinc-500 block">Codec &amp; Format</span>
+                                                <span className="font-bold text-white">{playingAudio.extension?.toUpperCase() || 'Audio'}</span>
+                                            </div>
+                                            <div className="p-4 bg-zinc-900/60 rounded-2xl border border-zinc-800 space-y-1">
+                                                <span className="text-[10px] font-black uppercase text-zinc-500 block">Quality Type</span>
+                                                <span className="font-bold text-amber-400">{playingAudio.extension?.toLowerCase() === 'flac' ? '24-bit Lossless' : 'High-Res Audio'}</span>
+                                            </div>
+                                            <div className="p-4 bg-zinc-900/60 rounded-2xl border border-zinc-800 space-y-1">
+                                                <span className="text-[10px] font-black uppercase text-zinc-500 block">File Size</span>
+                                                <span className="font-bold text-white">{formatBytes(playingAudio.sizeBytes)}</span>
+                                            </div>
+                                            <div className="p-4 bg-zinc-900/60 rounded-2xl border border-zinc-800 space-y-1">
+                                                <span className="text-[10px] font-black uppercase text-zinc-500 block">Channels</span>
+                                                <span className="font-bold text-white">Stereo (2.0)</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="p-4 bg-zinc-900/40 rounded-2xl border border-zinc-800 text-xs space-y-1">
+                                            <span className="text-[10px] font-black uppercase text-zinc-500 block">Path / Source</span>
+                                            <p className="font-mono text-[11px] text-zinc-400 break-all">{playingAudio.path || playingAudio.streamUrl}</p>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* ══════════════════════════════════════════════════════════════
+               KARAOKE LIVE LYRICS & STUDIO MODAL (STANDALONE)
+               ══════════════════════════════════════════════════════════════ */}
+            {showLyricsModal && playingAudio && (
+                <div className="fixed inset-0 z-[260] flex items-center justify-center p-4 sm:p-6 bg-black/90 backdrop-blur-2xl animate-in fade-in duration-200">
+                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-4xl p-6 sm:p-10 shadow-2xl relative max-h-[90vh] flex flex-col space-y-6 overflow-hidden">
+                        <button
+                            onClick={() => setShowLyricsModal(false)}
+                            className="absolute top-6 right-6 p-2.5 rounded-2xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all z-20"
+                        >
+                            <X size={22} />
+                        </button>
+
+                        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pb-4 border-b border-zinc-900">
+                            <div className="flex items-center gap-4 min-w-0">
+                                <div className="w-16 h-16 rounded-2xl bg-zinc-900 border border-zinc-800 overflow-hidden flex items-center justify-center text-amber-400 shrink-0 shadow-lg">
+                                    {playingAudio.posterUrl ? (
+                                        <img src={playingAudio.posterUrl} alt="" className="w-full h-full object-cover" />
+                                    ) : (
+                                        <Disc size={32} />
+                                    )}
+                                </div>
+                                <div className="min-w-0 text-center sm:text-left">
+                                    <div className="flex items-center justify-center sm:justify-start gap-2">
+                                        <span className="px-2.5 py-0.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-black uppercase flex items-center gap-1">
+                                            <Mic2 size={11} /> Karaoke Studio
+                                        </span>
+                                        {lyricsData?.isSynced && (
+                                            <span className="px-2.5 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-black uppercase flex items-center gap-1">
+                                                <Sparkles size={11} /> Time-Synced
+                                            </span>
+                                        )}
+                                    </div>
+                                    <h2 className="text-xl sm:text-2xl font-black text-white truncate mt-1">{playingAudio.title}</h2>
+                                    <p className="text-xs text-zinc-400 font-semibold truncate">{playingAudio.artist || 'Unknown Artist'} • {playingAudio.album || 'Single'}</p>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                                <div className="flex bg-zinc-950 p-1 rounded-2xl border border-zinc-800">
+                                    <button
+                                        onClick={() => setLyricsViewMode('karaoke')}
+                                        className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                                            lyricsViewMode === 'karaoke' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                        }`}
+                                    >
+                                        Karaoke
+                                    </button>
+                                    <button
+                                        onClick={() => setLyricsViewMode('full')}
+                                        className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                                            lyricsViewMode === 'full' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                        }`}
+                                    >
+                                        Full Text
+                                    </button>
+                                </div>
+
+                                <button
+                                    onClick={() => {
+                                        setLyricsSearchQuery(`${playingAudio.artist || ''} ${playingAudio.title || ''}`.trim());
+                                        setCustomLrcText(lyricsData?.syncedLyrics || lyricsData?.plainLyrics || '');
+                                        setIsLyricsEditorOpen(true);
+                                    }}
+                                    className="px-3.5 py-2 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 active:scale-95"
+                                    title="Edit lyrics match or search alternative versions"
+                                >
+                                    <Edit3 size={13} /> Edit Match
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="flex-1 min-h-[350px] max-h-[55vh] overflow-y-auto custom-scrollbar p-2 relative flex flex-col">
+                            {lyricsLoading ? (
+                                <div className="flex flex-col items-center justify-center py-20 gap-3 m-auto">
+                                    <div className="w-10 h-10 border-4 border-amber-500/20 border-t-amber-500 rounded-full animate-spin" />
+                                    <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">Fetching Lyrics from Database &amp; LRCLib...</p>
+                                </div>
+                            ) : !lyricsData || (!lyricsData.lines?.length && !lyricsData.plainLyrics) ? (
+                                <div className="flex flex-col items-center justify-center py-20 text-center space-y-4 m-auto">
+                                    <div className="p-5 bg-zinc-900/60 rounded-full text-zinc-600"><Mic2 size={36} /></div>
+                                    <div>
+                                        <p className="text-base font-bold text-white">No lyrics found for this song</p>
+                                        <p className="text-xs text-zinc-500 mt-1">You can search LRCLib or paste lyrics manually.</p>
+                                    </div>
+                                    <button
+                                        onClick={() => {
+                                            setLyricsSearchQuery(`${playingAudio.artist || ''} ${playingAudio.title || ''}`.trim());
+                                            setIsLyricsEditorOpen(true);
+                                        }}
+                                        className="px-6 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2"
+                                    >
+                                        <Search size={14} /> Search / Add Lyrics
+                                    </button>
+                                </div>
+                            ) : lyricsViewMode === 'karaoke' && lyricsData.isSynced ? (
+                                <div className="space-y-6 py-24 text-center">
+                                    {lyricsData.lines.map((line, idx) => {
+                                        const isActive = idx === currentLyricIndex;
+                                        const isPast = currentLyricIndex !== -1 && idx < currentLyricIndex;
+                                        return (
+                                            <div
+                                                key={idx}
+                                                ref={isActive ? activeLyricRef : null}
+                                                onClick={() => seekTo(line.time)}
+                                                className={`cursor-pointer transition-all duration-300 py-1.5 px-4 rounded-2xl inline-block max-w-2xl ${
+                                                    isActive
+                                                        ? 'text-2xl sm:text-3xl md:text-4xl font-black text-amber-300 drop-shadow-[0_0_35px_rgba(251,191,36,0.6)] scale-105'
+                                                        : isPast
+                                                        ? 'text-base sm:text-lg font-bold text-zinc-600 hover:text-zinc-400'
+                                                        : 'text-base sm:text-lg font-bold text-zinc-400 hover:text-zinc-200'
+                                                }`}
+                                            >
+                                                {line.text}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <div className="p-4 sm:p-6 text-center whitespace-pre-line text-base sm:text-lg font-semibold text-zinc-300 leading-relaxed max-w-xl mx-auto">
+                                    {lyricsData.plainLyrics || lyricsData.lines.map(l => l.text).join('\n')}
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="pt-4 border-t border-zinc-900 flex items-center justify-between gap-4">
+                            <div className="flex items-center gap-3">
+                                <button
+                                    onClick={togglePlayPause}
+                                    className="w-10 h-10 rounded-xl bg-amber-500 hover:bg-amber-400 text-black flex items-center justify-center transition-all"
+                                >
+                                    {isAudioPlaying ? <Pause size={18} /> : <Play size={18} className="ml-0.5" />}
+                                </button>
+                                <div className="text-xs font-mono text-zinc-400">
+                                    <span>{formatTime(audioCurrentTime)}</span> / <span>{formatTime(audioDuration)}</span>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => handleDownloadTrack(playingAudio)}
+                                    className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-emerald-400 border border-zinc-800 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all"
+                                >
+                                    <Download size={14} /> Download Audio
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ══════════════════════════════════════════════════════════════
+               LYRICS MATCH EDITOR & SEARCH MODAL
+               ══════════════════════════════════════════════════════════════ */}
+            {isLyricsEditorOpen && (
+                <div className="fixed inset-0 z-[280] flex items-center justify-center p-4 sm:p-6 bg-black/90 backdrop-blur-2xl animate-in fade-in duration-200">
+                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-2xl p-6 sm:p-8 space-y-6 shadow-2xl relative max-h-[85vh] flex flex-col overflow-hidden">
+                        <button
+                            onClick={() => setIsLyricsEditorOpen(false)}
+                            className="absolute top-6 right-6 p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all"
+                        >
+                            <X size={20} />
+                        </button>
+
+                        <div className="space-y-1">
+                            <h3 className="text-xl font-black text-white">Edit Lyrics Match &amp; Source</h3>
+                            <p className="text-xs text-zinc-500 font-medium">Search LRCLib for matching synced lyrics or paste custom LRC timestamps.</p>
+                        </div>
+
+                        <div className="flex bg-zinc-950 p-1 rounded-2xl border border-zinc-800">
+                            <button
+                                onClick={() => setEditorTab('search')}
+                                className={`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                                    editorTab === 'search' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                }`}
+                            >
+                                Search LRCLib
+                            </button>
+                            <button
+                                onClick={() => setEditorTab('custom')}
+                                className={`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                                    editorTab === 'custom' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                }`}
+                            >
+                                Paste Custom LRC / Text
+                            </button>
+                        </div>
+
+                        {editorTab === 'search' ? (
+                            <div className="space-y-4 flex-1 flex flex-col min-h-0">
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. Queen Bohemian Rhapsody"
+                                        value={lyricsSearchQuery}
+                                        onChange={e => setLyricsSearchQuery(e.target.value)}
+                                        onKeyDown={e => e.key === 'Enter' && handleSearchLyrics(lyricsSearchQuery)}
+                                        className="flex-1 bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-2.5 text-xs text-white outline-none focus:border-amber-500 font-medium"
+                                    />
+                                    <button
+                                        onClick={() => handleSearchLyrics(lyricsSearchQuery)}
+                                        disabled={lyricsSearchLoading}
+                                        className="px-5 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider shrink-0 transition-all flex items-center gap-1.5 disabled:opacity-60"
+                                    >
+                                        {lyricsSearchLoading ? <RefreshCw size={14} className="animate-spin" /> : <Search size={14} />}
+                                        Search
+                                    </button>
+                                </div>
+
+                                <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1 min-h-[220px] max-h-[300px]">
+                                    {lyricsSearchLoading ? (
+                                        <div className="flex items-center justify-center py-12 gap-2 text-xs text-zinc-500 font-bold">
+                                            <RefreshCw size={16} className="animate-spin text-amber-400" /> Searching LRCLib...
+                                        </div>
+                                    ) : lyricsSearchResults.length === 0 ? (
+                                        <div className="text-center py-12 text-xs text-zinc-600">
+                                            Enter artist and title above to search for lyrics matches.
+                                        </div>
+                                    ) : (
+                                        lyricsSearchResults.map((cand) => (
+                                            <div
+                                                key={cand.id}
+                                                className="p-3.5 bg-zinc-950 border border-zinc-900 hover:border-amber-500/40 rounded-2xl transition-all flex items-center justify-between gap-3 text-xs"
+                                            >
+                                                <div className="min-w-0">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-bold text-white truncate">{cand.trackName}</span>
+                                                        {cand.hasSyncedLyrics && (
+                                                            <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 text-[9px] font-black uppercase">Synced</span>
+                                                        )}
+                                                    </div>
+                                                    <p className="text-zinc-500 text-[11px] truncate">{cand.artistName} • {cand.albumName || 'Album'}</p>
+                                                </div>
+                                                <button
+                                                    onClick={() => handleApplyLyricsMatch(cand)}
+                                                    className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider shrink-0 transition-all flex items-center gap-1"
+                                                >
+                                                    <Check size={13} /> Apply Match
+                                                </button>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="space-y-4 flex-1 flex flex-col min-h-0">
+                                <textarea
+                                    value={customLrcText}
+                                    onChange={e => setCustomLrcText(e.target.value)}
+                                    placeholder="Paste [00:12.34] Synced LRC timestamps or plain text lyrics here..."
+                                    rows={10}
+                                    className="w-full flex-1 bg-zinc-950 border border-zinc-800 rounded-2xl p-4 text-xs font-mono text-zinc-200 outline-none focus:border-amber-500 resize-none custom-scrollbar"
+                                />
+                                <button
+                                    onClick={handleSaveCustomLyrics}
+                                    disabled={isSavingLyrics || !customLrcText.trim()}
+                                    className="w-full py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 disabled:opacity-60"
+                                >
+                                    {isSavingLyrics ? <RefreshCw size={15} className="animate-spin" /> : <Check size={15} />}
+                                    Save &amp; Apply Lyrics
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* ══════════════════════════════════════════════════════════════
+               AUDIO SPECS & DIAGNOSTICS MODAL (STATS FOR AUDIOPHILES)
+               ══════════════════════════════════════════════════════════════ */}
+            {isAudioSpecsOpen && audioSpecsItem && (
+                <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200">
+                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-lg p-6 sm:p-8 space-y-6 shadow-2xl relative">
+                        <button
+                            onClick={() => setIsAudioSpecsOpen(false)}
+                            className="absolute top-6 right-6 p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all"
+                        >
+                            <X size={20} />
+                        </button>
+
+                        <div className="flex items-center gap-3">
+                            <div className="p-3 bg-amber-500/10 text-amber-400 rounded-2xl border border-amber-500/20">
+                                <Info size={24} />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-black text-white">Audio Specs &amp; Metadata</h3>
+                                <p className="text-xs text-zinc-500 truncate max-w-xs">{audioSpecsItem.title || audioSpecsItem.name}</p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-3 text-xs">
+                            <div className="grid grid-cols-2 gap-2">
+                                <div className="p-3 bg-zinc-950 rounded-xl border border-zinc-800/80">
+                                    <span className="text-[10px] text-zinc-500 uppercase font-black block">Format / Codec</span>
+                                    <span className="text-white font-bold">{audioSpecsItem.extension.toUpperCase()}</span>
+                                </div>
+                                <div className="p-3 bg-zinc-950 rounded-xl border border-zinc-800/80">
+                                    <span className="text-[10px] text-zinc-500 uppercase font-black block">File Size</span>
+                                    <span className="text-white font-bold">{formatBytes(audioSpecsItem.sizeBytes)}</span>
+                                </div>
+                            </div>
+
+                            <div className="p-4 bg-zinc-950 rounded-2xl border border-zinc-800/80 space-y-1">
+                                <span className="text-[10px] text-zinc-500 uppercase font-black block">Path / Source</span>
+                                <span className="text-zinc-400 font-mono text-[11px] break-all block">{audioSpecsItem.path || audioSpecsItem.streamUrl}</span>
+                            </div>
+
+                            {audioSpecsLoading ? (
+                                <div className="flex items-center justify-center py-6 gap-2 text-zinc-500 font-bold">
+                                    <div className="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+                                    Analyzing Audio Stream...
+                                </div>
+                            ) : audioSpecsData?.streams && (
+                                <div className="p-4 bg-zinc-950 rounded-2xl border border-zinc-800/80 space-y-2">
+                                    <span className="text-[10px] text-zinc-500 uppercase font-black block">Stream Telemetry</span>
+                                    <div className="grid grid-cols-2 gap-2 text-zinc-300 font-mono text-[11px]">
+                                        <div>Codec: <span className="text-amber-400 font-bold">{audioSpecsData.streams[0]?.codec_name?.toUpperCase()}</span></div>
+                                        <div>Sample Rate: <span className="text-white font-bold">{audioSpecsData.streams[0]?.sample_rate || '44100'} Hz</span></div>
+                                        <div>Channels: <span className="text-white font-bold">{audioSpecsData.streams[0]?.channels || 2} ({audioSpecsData.streams[0]?.channel_layout || 'stereo'})</span></div>
+                                        <div>Bit Depth: <span className="text-emerald-400 font-bold">{audioSpecsData.streams[0]?.bits_per_sample ? `${audioSpecsData.streams[0]?.bits_per_sample}-bit` : '16/24-bit'}</span></div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ══════════════════════════════════════════════════════════════
+               CAST PICKER MODAL (SMART TVS)
+               ══════════════════════════════════════════════════════════════ */}
+            {isCastPickerModalOpen && (
+                <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200">
+                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-lg p-6 sm:p-8 space-y-6 shadow-2xl relative">
+                        <button
+                            onClick={() => setIsCastPickerModalOpen(false)}
+                            className="absolute top-6 right-6 p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all"
+                        >
+                            <X size={20} />
+                        </button>
+
+                        <div className="flex items-center gap-3">
+                            <div className="p-3.5 bg-purple-500/10 border border-purple-500/20 text-purple-400 rounded-2xl">
+                                <Cast size={24} />
+                            </div>
+                            <div>
+                                <h3 className="text-xl font-black text-white">Cast to Smart TV</h3>
+                                <p className="text-xs text-zinc-500 font-medium">Select a paired screen to play audio</p>
+                            </div>
+                        </div>
+
+                        {loadingPairedTvs ? (
+                            <div className="flex items-center justify-center py-12 gap-2 text-xs text-zinc-500 font-bold">
+                                <RefreshCw size={16} className="animate-spin text-purple-400" /> Scanning for TVs...
+                            </div>
+                        ) : pairedTvSessions.length === 0 ? (
+                            <div className="text-center py-8 space-y-4">
+                                <Tv size={36} className="mx-auto text-zinc-700" />
+                                <div>
+                                    <p className="text-sm font-bold text-white">No paired Smart TVs found</p>
+                                    <p className="text-xs text-zinc-500 mt-1 max-w-xs mx-auto">
+                                        Open Schedulearr TV App on your Smart TV or browser and enter pairing code.
+                                    </p>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
+                                {pairedTvSessions.map(session => (
+                                    <div
+                                        key={session.id}
+                                        className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 hover:border-purple-500/50 transition-all flex items-center justify-between group shadow-sm"
+                                    >
+                                        <div className="flex items-center gap-3.5 min-w-0">
+                                            <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 shrink-0">
+                                                <Tv size={20} />
+                                            </div>
+                                            <div className="min-w-0">
+                                                <h4 className="font-bold text-white text-sm truncate">{session.device_name || 'Smart TV'}</h4>
+                                                <p className="text-[10px] text-zinc-500 font-medium">
+                                                    Linked {new Date(session.paired_at || session.created_at).toLocaleDateString()} • <span className="text-emerald-400 font-bold">Ready</span>
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={() => handleUnpairDevice(session.id, session.device_name || 'Smart TV')}
+                                                className="p-2 rounded-xl text-zinc-600 hover:text-red-400 transition-colors"
+                                                title="Unpair Device"
+                                            >
+                                                <Trash2 size={14} />
+                                            </button>
+
+                                            <button
+                                                onClick={() => handleCastToDevice(session.id, session.device_name || 'Smart TV')}
+                                                className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-purple-500/20 flex items-center gap-1.5"
+                                            >
+                                                <Cast size={13} /> Cast
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+        </MusicPlayerContext.Provider>
+    );
+}
+
+export function useMusicPlayer() {
+    const context = useContext(MusicPlayerContext);
+    if (!context) {
+        throw new Error('useMusicPlayer must be used within a MusicPlayerProvider');
+    }
+    return context;
+}
