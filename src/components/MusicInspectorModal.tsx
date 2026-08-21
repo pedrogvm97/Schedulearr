@@ -1,12 +1,14 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
-    X, Disc, Music, Play, Plus, Check, RefreshCw,
+    X, Disc, Music, Play, Pause, Plus, Check, RefreshCw,
     ExternalLink, Calendar, HardDrive, User, Tag,
-    Building2, Layers, CheckCircle2, ArrowDownToLine, Sparkles
+    Building2, Layers, CheckCircle2, ArrowDownToLine, Sparkles,
+    Search, PlayCircle, Radio, Volume2
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useRouter } from 'next/navigation';
 
 interface MusicInspectorModalProps {
     album: any;
@@ -14,6 +16,7 @@ interface MusicInspectorModalProps {
     onSelectArtist?: (artistName: string) => void;
     onSelectLabel?: (labelName: string) => void;
     onPlayTrack?: (track: any) => void;
+    onInteractiveSearch?: (target: any) => void;
 }
 
 export function MusicInspectorModal({
@@ -21,8 +24,10 @@ export function MusicInspectorModal({
     onClose,
     onSelectArtist,
     onSelectLabel,
-    onPlayTrack
+    onPlayTrack,
+    onInteractiveSearch
 }: MusicInspectorModalProps) {
+    const router = useRouter();
     const [lidarrInstances, setLidarrInstances] = useState<any[]>([]);
     const [selectedInstanceId, setSelectedInstanceId] = useState<string>('');
     const [qualityProfiles, setQualityProfiles] = useState<any[]>([]);
@@ -36,6 +41,11 @@ export function MusicInspectorModal({
     // Tracklist and extended details
     const [tracks, setTracks] = useState<any[]>([]);
     const [loadingTracks, setLoadingTracks] = useState(false);
+
+    // In-Modal Audio Preview
+    const [playingPreviewUrl, setPlayingPreviewUrl] = useState<string | null>(null);
+    const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
 
     // 1. Fetch Lidarr Instances & Profiles
     useEffect(() => {
@@ -90,7 +100,8 @@ export function MusicInspectorModal({
                                 trackName: t.title,
                                 trackNumber: t.trackNumber,
                                 trackTimeMillis: t.durationMs,
-                                albumTitle: alb.title
+                                albumTitle: alb.title,
+                                id: t.id
                             });
                         });
                     });
@@ -104,6 +115,22 @@ export function MusicInspectorModal({
         };
         fetchTracks();
     }, [album]);
+
+    // Handle in-modal track audio preview
+    const handleTogglePreview = (previewUrl: string) => {
+        if (!previewUrl) return;
+        if (playingPreviewUrl === previewUrl && isPreviewPlaying) {
+            if (audioRef.current) audioRef.current.pause();
+            setIsPreviewPlaying(false);
+        } else {
+            setPlayingPreviewUrl(previewUrl);
+            setIsPreviewPlaying(true);
+            if (audioRef.current) {
+                audioRef.current.src = previewUrl;
+                audioRef.current.play().catch(() => setIsPreviewPlaying(false));
+            }
+        }
+    };
 
     const handleAddToLidarr = async () => {
         if (lidarrInstances.length === 0) {
@@ -143,6 +170,33 @@ export function MusicInspectorModal({
         }
     };
 
+    const handleTriggerLidarrSearch = async () => {
+        if (lidarrInstances.length === 0) {
+            toast.error('No enabled Lidarr instance found.');
+            return;
+        }
+        const instId = selectedInstanceId || lidarrInstances[0]?.id;
+        toast.info('Triggering automatic Lidarr search...');
+        try {
+            const res = await fetch('/api/lidarr/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    instanceId: instId,
+                    name: 'AlbumSearch',
+                    albumIds: album.id ? [Number(album.id)] : []
+                })
+            });
+            if (res.ok) {
+                toast.success('Lidarr search started in background!');
+            } else {
+                toast.error('Failed to trigger Lidarr search command.');
+            }
+        } catch {
+            toast.error('Error contacting Lidarr API');
+        }
+    };
+
     if (!album) return null;
 
     const artistName = album.artistName || album.title || 'Unknown Artist';
@@ -152,8 +206,19 @@ export function MusicInspectorModal({
     const recordLabel = album.recordLabel || album.copyright || album.disambiguation || 'Independent';
     const genres = album.genres || [];
 
+    const youtubeSearchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(artistName + ' ' + albumName)}`;
+    const spotifySearchUrl = `https://open.spotify.com/search/${encodeURIComponent(artistName + ' ' + albumName)}`;
+
     return (
         <div className="fixed inset-0 z-[280] flex items-center justify-center p-4 sm:p-6 bg-black/90 backdrop-blur-2xl animate-in fade-in duration-200">
+            {/* Hidden audio tag for instant 30-second previews */}
+            <audio
+                ref={audioRef}
+                onEnded={() => setIsPreviewPlaying(false)}
+                onPause={() => setIsPreviewPlaying(false)}
+                onPlay={() => setIsPreviewPlaying(true)}
+            />
+
             <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-4xl p-6 sm:p-10 shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar flex flex-col space-y-6">
                 <button
                     onClick={onClose}
@@ -236,16 +301,62 @@ export function MusicInspectorModal({
                             </button>
                         </div>
 
-                        {/* Genre Tags */}
-                        {genres.length > 0 && (
-                            <div className="flex flex-wrap items-center justify-center md:justify-start gap-1.5 pt-1">
-                                {genres.map((g: string, i: number) => (
-                                    <span key={i} className="px-2.5 py-1 rounded-xl bg-zinc-950 border border-zinc-800 text-[11px] font-semibold text-zinc-400">
-                                        {g}
-                                    </span>
-                                ))}
-                            </div>
-                        )}
+                        {/* Multi-Provider Streaming & Search Action Buttons */}
+                        <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 pt-2">
+                            <button
+                                onClick={() => {
+                                    router.push(`/theater?play=${encodeURIComponent(albumName)}&artist=${encodeURIComponent(artistName)}`);
+                                    onClose();
+                                }}
+                                className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-md shadow-amber-500/20 active:scale-95 transition-all"
+                            >
+                                <Play size={13} className="fill-current" /> Play in Theater
+                            </button>
+
+                            <a
+                                href={youtubeSearchUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="px-3.5 py-2 rounded-xl bg-red-600/15 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/30 font-black text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all active:scale-95"
+                            >
+                                <PlayCircle size={14} /> YouTube
+                            </a>
+
+                            <a
+                                href={spotifySearchUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="px-3.5 py-2 rounded-xl bg-emerald-600/15 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/30 font-black text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all active:scale-95"
+                            >
+                                <Radio size={14} /> Spotify
+                            </a>
+
+                            <button
+                                onClick={handleTriggerLidarrSearch}
+                                className="px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 font-black text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all active:scale-95"
+                                title="Trigger automated search in Lidarr"
+                            >
+                                <RefreshCw size={13} /> Auto Search
+                            </button>
+
+                            {onInteractiveSearch && (
+                                <button
+                                    onClick={() => {
+                                        onInteractiveSearch({
+                                            type: 'album',
+                                            id: album.id,
+                                            title: `${artistName} - ${albumName}`,
+                                            poster
+                                        });
+                                        onClose();
+                                    }}
+                                    className="px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 font-black text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all active:scale-95"
+                                    title="Interactive Manual Release Search"
+                                >
+                                    <Search size={13} /> Manual Releases
+                                </button>
+                            )}
+                        </div>
                     </div>
                 </div>
 
@@ -254,7 +365,7 @@ export function MusicInspectorModal({
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                             <Disc size={20} className="text-amber-400" />
-                            <h3 className="text-sm font-black uppercase tracking-wider text-white">Add Artist to Lidarr</h3>
+                            <h3 className="text-sm font-black uppercase tracking-wider text-white">Add Artist &amp; Album to Lidarr</h3>
                         </div>
                         {lidarrInstances.length > 0 && (
                             <span className="text-[11px] text-emerald-400 font-bold flex items-center gap-1">
@@ -351,19 +462,16 @@ export function MusicInspectorModal({
                     </div>
                 </div>
 
-                {/* ── Bottom Section: Complete Tracklist with Play Buttons ── */}
+                {/* ── Bottom Section: Complete Tracklist with In-App Preview & Provider Links ── */}
                 <div className="space-y-3">
                     <div className="flex items-center justify-between">
                         <h4 className="text-xs font-black uppercase text-zinc-400 tracking-wider flex items-center gap-2">
                             <Music size={15} className="text-amber-400" /> Album Tracklist ({tracks.length})
                         </h4>
-                        {tracks.length > 0 && onPlayTrack && (
-                            <button
-                                onClick={() => onPlayTrack(tracks[0])}
-                                className="text-xs font-bold text-amber-400 hover:underline flex items-center gap-1"
-                            >
-                                <Play size={12} /> Play All in Theater
-                            </button>
+                        {tracks.length > 0 && (
+                            <span className="text-[11px] text-zinc-500 font-semibold">
+                                Click ▶ for direct 30s audio preview
+                            </span>
                         )}
                     </div>
 
@@ -377,37 +485,95 @@ export function MusicInspectorModal({
                             Tracklist details not provided for this release.
                         </div>
                     ) : (
-                        <div className="space-y-1.5 max-h-60 overflow-y-auto custom-scrollbar p-1">
+                        <div className="space-y-2 max-h-72 overflow-y-auto custom-scrollbar p-1">
                             {tracks.map((track, idx) => {
                                 const durationMs = track.trackTimeMillis || track.durationMs;
                                 const sec = durationMs ? Math.round(durationMs / 1000) : 0;
                                 const timeStr = sec > 0 ? `${Math.floor(sec / 60)}:${sec % 60 < 10 ? '0' : ''}${sec % 60}` : '--:--';
+                                const trackTitle = track.trackName || track.title || 'Track';
+                                const previewUrl = track.previewUrl;
+                                const isCurrentPreview = playingPreviewUrl === previewUrl && isPreviewPlaying;
+
+                                const songYtUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(artistName + ' ' + trackTitle)}`;
+                                const songSpotifyUrl = `https://open.spotify.com/search/${encodeURIComponent(artistName + ' ' + trackTitle)}`;
 
                                 return (
                                     <div
                                         key={idx}
-                                        className="flex items-center justify-between p-3 rounded-2xl bg-zinc-950/70 border border-zinc-900/80 hover:border-amber-500/40 hover:bg-zinc-900/60 transition-all text-xs font-bold group"
+                                        className={`flex items-center justify-between p-3 rounded-2xl border transition-all text-xs font-bold group ${
+                                            isCurrentPreview 
+                                                ? 'bg-amber-500/10 border-amber-500/40 shadow-md' 
+                                                : 'bg-zinc-950/70 border-zinc-900/80 hover:border-amber-500/40 hover:bg-zinc-900/60'
+                                        }`}
                                     >
                                         <div className="flex items-center gap-3 min-w-0">
-                                            <span className="w-6 text-zinc-600 font-mono group-hover:text-amber-400">
-                                                {track.trackNumber || idx + 1}
-                                            </span>
-                                            <span className="text-white group-hover:text-amber-400 transition-colors truncate">
-                                                {track.trackName || track.title}
-                                            </span>
+                                            {/* Preview Button */}
+                                            {previewUrl ? (
+                                                <button
+                                                    onClick={() => handleTogglePreview(previewUrl)}
+                                                    className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all shadow ${
+                                                        isCurrentPreview 
+                                                            ? 'bg-amber-500 text-black scale-105' 
+                                                            : 'bg-zinc-900 group-hover:bg-amber-500/20 text-zinc-400 group-hover:text-amber-400'
+                                                    }`}
+                                                    title={isCurrentPreview ? 'Pause Audio Preview' : 'Play 30s Audio Preview'}
+                                                >
+                                                    {isCurrentPreview ? <Pause size={13} /> : <Play size={13} className="ml-0.5" />}
+                                                </button>
+                                            ) : (
+                                                <span className="w-6 text-center text-zinc-600 font-mono group-hover:text-amber-400">
+                                                    {track.trackNumber || idx + 1}
+                                                </span>
+                                            )}
+
+                                            <div className="min-w-0">
+                                                <span className="text-white group-hover:text-amber-400 transition-colors truncate block">
+                                                    {trackTitle}
+                                                </span>
+                                                {isCurrentPreview && (
+                                                    <span className="text-[10px] text-amber-400 font-mono flex items-center gap-1">
+                                                        <Volume2 size={10} className="animate-pulse" /> Playing Preview
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
 
-                                        <div className="flex items-center gap-3">
-                                            <span className="text-[11px] font-mono text-zinc-500">{timeStr}</span>
-                                            {onPlayTrack && (
-                                                <button
-                                                    onClick={() => onPlayTrack(track)}
-                                                    className="w-8 h-8 rounded-lg bg-zinc-900 group-hover:bg-amber-500 text-zinc-400 group-hover:text-black flex items-center justify-center transition-all shadow"
-                                                    title="Stream Track in Theater"
-                                                >
-                                                    <Play size={13} className="ml-0.5" />
-                                                </button>
-                                            )}
+                                        <div className="flex items-center gap-2 shrink-0">
+                                            <span className="text-[11px] font-mono text-zinc-500 mr-1">{timeStr}</span>
+
+                                            {/* Play in Theater */}
+                                            <button
+                                                onClick={() => {
+                                                    router.push(`/theater?play=${encodeURIComponent(trackTitle)}&artist=${encodeURIComponent(artistName)}`);
+                                                    onClose();
+                                                }}
+                                                className="p-2 rounded-xl bg-zinc-900 hover:bg-amber-500 text-zinc-400 hover:text-black transition-all"
+                                                title="Play Track in Theater Studio"
+                                            >
+                                                <Play size={13} className="ml-0.5" />
+                                            </button>
+
+                                            {/* YouTube Link */}
+                                            <a
+                                                href={songYtUrl}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="p-2 rounded-xl bg-zinc-900 hover:bg-red-600 text-zinc-400 hover:text-white transition-all"
+                                                title="Play / Search on YouTube"
+                                            >
+                                                <PlayCircle size={13} />
+                                            </a>
+
+                                            {/* Spotify Link */}
+                                            <a
+                                                href={songSpotifyUrl}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="p-2 rounded-xl bg-zinc-900 hover:bg-emerald-600 text-zinc-400 hover:text-white transition-all"
+                                                title="Play / Search on Spotify"
+                                            >
+                                                <Radio size={13} />
+                                            </a>
                                         </div>
                                     </div>
                                 );

@@ -1085,29 +1085,8 @@ export default function DiscoverPage() {
 
     // ── Add Item Handlers ──
     const handleAdd = (item: any) => {
-        if (availableInstances.length === 1) {
-            const singleInst = availableInstances[0];
-            fetch(`/api/instances/profiles?instanceId=${singleInst.id}`)
-                .then(r => r.json())
-                .then(p => {
-                    const profs = Array.isArray(p) ? p : [];
-                    fetch(`/api/${singleInst.type}/rootfolder?instanceId=${singleInst.id}`)
-                        .then(r => r.json())
-                        .then(f => {
-                            const folds = Array.isArray(f) ? f : [];
-                            handleFinalAdd({
-                                item,
-                                targetInstanceId: singleInst.id,
-                                qualityProfileId: profs[0]?.id || 1,
-                                rootFolderPath: folds[0]?.path || '',
-                                startSearch: true
-                            });
-                        });
-                });
-        } else {
-            setSelectedItemForAdd(item);
-            setIsAddModalOpen(true);
-        }
+        setSelectedItemForAdd(item);
+        setIsAddModalOpen(true);
     };
 
     const handleFinalAdd = async (payload: { item: any; targetInstanceId: string; qualityProfileId: number; rootFolderPath: string; startSearch: boolean }) => {
@@ -1134,6 +1113,37 @@ export default function DiscoverPage() {
                 toast.success(`"${item.title || item.name}" added to library!`);
                 setIsAddModalOpen(false);
                 setSelectedItemForAdd(null);
+
+                // Instantly register in local library map so UI updates to Added immediately
+                const isSeries = mediaType === 'series';
+                const type = isSeries ? 'series' : 'movie';
+                const inst = instances.find(i => i.id === targetInstanceId);
+                const newStatus = {
+                    exists: true,
+                    hasFile: false,
+                    isDownloading: shouldSearch,
+                    instances: [{ id: targetInstanceId, name: inst?.name || 'Instance', colorHex: inst?.colorHex || '#10b981' }],
+                    percentage: 0,
+                    sizeOnDisk: 0,
+                    qualityProfileId
+                };
+
+                const keys: string[] = [];
+                if (item.tmdbId) keys.push(`${type}-tmdb-${item.tmdbId}`);
+                if (item.tvdbId) keys.push(`${type}-tvdb-${item.tvdbId}`);
+                if (item.id) {
+                    keys.push(`${type}-tmdb-${item.id}`);
+                    keys.push(`${type}-${item.id}`);
+                }
+
+                setLibraryMap(prev => {
+                    const next = new Map(prev);
+                    keys.forEach(k => next.set(k, newStatus));
+                    return next;
+                });
+
+                setLibraryItems(prev => [{ ...item, instanceId: targetInstanceId, hasFile: false }, ...prev]);
+
                 loadLibrary();
             } else {
                 const errData = await res.json().catch(() => ({}));
@@ -1500,95 +1510,152 @@ export default function DiscoverPage() {
                 {/* ── Collapsible Filters Bar ── */}
                 {showFilters && (
                     <div className="p-6 bg-zinc-950/60 border border-zinc-900 rounded-[2rem] space-y-5 animate-in fade-in duration-200">
-                        {/* Quick Studios */}
-                        <div className="flex flex-wrap items-center gap-2 border-b border-zinc-900 pb-4">
-                            <span className="text-xs font-black text-zinc-500 uppercase tracking-widest mr-2">Networks:</span>
-                            {QUICK_STUDIOS.map(s => (
-                                <button
-                                    key={s.name}
-                                    onClick={() => setFilterPlatform(filterPlatform === s.name ? 'All' : s.name)}
-                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
-                                        filterPlatform === s.name
-                                            ? 'bg-white text-black border-white shadow-md'
-                                            : 'bg-zinc-900/60 text-zinc-400 border-zinc-800 hover:border-zinc-700'
-                                    }`}
-                                >
-                                    {s.name}
-                                </button>
-                            ))}
-                        </div>
+                        {mediaType === 'music' ? (
+                            <>
+                                {/* Music Quick Genres */}
+                                <div className="flex flex-wrap items-center gap-2 border-b border-zinc-900 pb-4">
+                                    <span className="text-xs font-black text-amber-500 uppercase tracking-widest mr-2">Music Genres:</span>
+                                    {['Pop', 'Rock', 'Electronic', 'Hip-Hop', 'Soundtrack', 'Classical', 'Jazz', 'Metal', 'Indie', 'Country', 'R&B', 'Reggae'].map(g => (
+                                        <button
+                                            key={g}
+                                            onClick={() => {
+                                                setSearchQuery(g);
+                                                handleMusicSearch(g);
+                                            }}
+                                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                                                searchQuery.toLowerCase() === g.toLowerCase()
+                                                    ? 'bg-amber-500 text-black border-amber-400 shadow-md'
+                                                    : 'bg-zinc-900/60 text-zinc-400 border-zinc-800 hover:border-zinc-700 hover:text-white'
+                                            }`}
+                                        >
+                                            {g}
+                                        </button>
+                                    ))}
+                                </div>
 
-                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-                            <CustomSelect
-                                label="Genre"
-                                value={filterGenre}
-                                onChange={setFilterGenre}
-                                options={allAvailableGenres.map(g => ({ id: g, name: g }))}
-                            />
-                            <CustomSelect
-                                label="Network / Studio"
-                                value={filterPlatform}
-                                onChange={setFilterPlatform}
-                                options={['All', ...QUICK_STUDIOS.map(s => s.name)].map(p => ({ id: p, name: p }))}
-                            />
-                            <CustomSelect
-                                label="Release Year"
-                                value={filterYear}
-                                onChange={setFilterYear}
-                                options={['All', '2026', '2025', '2024', '2023', '2022', '2021', '2020', '2019', '2018', '2015', '2010', '2000'].map(y => ({ id: y, name: y }))}
-                            />
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                    <CustomSelect
+                                        label="Release Year"
+                                        value={filterYear}
+                                        onChange={setFilterYear}
+                                        options={['All', '2026', '2025', '2024', '2023', '2022', '2021', '2020', '2015', '2010', '2000', '1990', '1980', '1970'].map(y => ({ id: y, name: y }))}
+                                    />
+                                    <div className="space-y-1.5 sm:col-span-2">
+                                        <label className="text-xs font-black text-zinc-400 uppercase tracking-wider block">
+                                            Search by Artist, Album or Record Label
+                                        </label>
+                                        <div className="flex items-center gap-2">
+                                            <input
+                                                type="text"
+                                                placeholder="Filter by artist, record label, or album..."
+                                                value={searchQuery}
+                                                onChange={e => setSearchQuery(e.target.value)}
+                                                onKeyDown={e => e.key === 'Enter' && handleMusicSearch(searchQuery)}
+                                                className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-2.5 text-xs text-white outline-none focus:border-amber-500 font-medium"
+                                            />
+                                            <button
+                                                onClick={() => handleMusicSearch(searchQuery)}
+                                                className="px-5 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider shrink-0 transition-all active:scale-95"
+                                            >
+                                                Search
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                {/* Quick Studios */}
+                                <div className="flex flex-wrap items-center gap-2 border-b border-zinc-900 pb-4">
+                                    <span className="text-xs font-black text-zinc-500 uppercase tracking-widest mr-2">Networks:</span>
+                                    {QUICK_STUDIOS.map(s => (
+                                        <button
+                                            key={s.name}
+                                            onClick={() => setFilterPlatform(filterPlatform === s.name ? 'All' : s.name)}
+                                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                                                filterPlatform === s.name
+                                                    ? 'bg-white text-black border-white shadow-md'
+                                                    : 'bg-zinc-900/60 text-zinc-400 border-zinc-800 hover:border-zinc-700'
+                                            }`}
+                                        >
+                                            {s.name}
+                                        </button>
+                                    ))}
+                                </div>
 
-                            {/* Min Rating */}
-                            <div className="space-y-1.5">
-                                <label className="text-xs font-black text-zinc-400 uppercase tracking-wider flex justify-between">
-                                    <span>Min Rating</span>
-                                    <span className="text-amber-400 font-bold">{localRating === 0 ? 'Any' : `★ ${localRating}`}</span>
-                                </label>
-                                <input
-                                    type="range"
-                                    min="0"
-                                    max="9"
-                                    step="1"
-                                    value={localRating}
-                                    onChange={e => setLocalRating(Number(e.target.value))}
-                                    className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
-                                />
-                            </div>
+                                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+                                    <CustomSelect
+                                        label="Genre"
+                                        value={filterGenre}
+                                        onChange={setFilterGenre}
+                                        options={allAvailableGenres.map(g => ({ id: g, name: g }))}
+                                    />
+                                    <CustomSelect
+                                        label="Network / Studio"
+                                        value={filterPlatform}
+                                        onChange={setFilterPlatform}
+                                        options={['All', ...QUICK_STUDIOS.map(s => s.name)].map(p => ({ id: p, name: p }))}
+                                    />
+                                    <CustomSelect
+                                        label="Release Year"
+                                        value={filterYear}
+                                        onChange={setFilterYear}
+                                        options={['All', '2026', '2025', '2024', '2023', '2022', '2021', '2020', '2019', '2018', '2015', '2010', '2000'].map(y => ({ id: y, name: y }))}
+                                    />
 
-                            {/* Min Popularity */}
-                            <div className="space-y-1.5">
-                                <label className="text-xs font-black text-zinc-400 uppercase tracking-wider flex justify-between">
-                                    <span>Popularity</span>
-                                    <span className="text-emerald-400 font-bold">{localPopularity === 0 ? 'Any' : `${localPopularity}+`}</span>
-                                </label>
-                                <input
-                                    type="range"
-                                    min="0"
-                                    max="500"
-                                    step="25"
-                                    value={localPopularity}
-                                    onChange={e => setLocalPopularity(Number(e.target.value))}
-                                    className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
-                                />
-                            </div>
+                                    {/* Min Rating */}
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-black text-zinc-400 uppercase tracking-wider flex justify-between">
+                                            <span>Min Rating</span>
+                                            <span className="text-amber-400 font-bold">{localRating === 0 ? 'Any' : `★ ${localRating}`}</span>
+                                        </label>
+                                        <input
+                                            type="range"
+                                            min="0"
+                                            max="9"
+                                            step="1"
+                                            value={localRating}
+                                            onChange={e => setLocalRating(Number(e.target.value))}
+                                            className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                                        />
+                                    </div>
 
-                            {/* Min Size */}
-                            <div className="space-y-1.5">
-                                <label className="text-xs font-black text-zinc-400 uppercase tracking-wider flex justify-between">
-                                    <span>Min Size (GB)</span>
-                                    <span className="text-sky-400 font-bold">{localSize === 0 ? 'Any' : `${localSize} GB+`}</span>
-                                </label>
-                                <input
-                                    type="range"
-                                    min="0"
-                                    max="50"
-                                    step="2"
-                                    value={localSize}
-                                    onChange={e => setLocalSize(Number(e.target.value))}
-                                    className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-sky-500"
-                                />
-                            </div>
-                        </div>
+                                    {/* Min Popularity */}
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-black text-zinc-400 uppercase tracking-wider flex justify-between">
+                                            <span>Popularity</span>
+                                            <span className="text-emerald-400 font-bold">{localPopularity === 0 ? 'Any' : `${localPopularity}+`}</span>
+                                        </label>
+                                        <input
+                                            type="range"
+                                            min="0"
+                                            max="500"
+                                            step="25"
+                                            value={localPopularity}
+                                            onChange={e => setLocalPopularity(Number(e.target.value))}
+                                            className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                                        />
+                                    </div>
+
+                                    {/* Min Size */}
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-black text-zinc-400 uppercase tracking-wider flex justify-between">
+                                            <span>Min Size (GB)</span>
+                                            <span className="text-sky-400 font-bold">{localSize === 0 ? 'Any' : `${localSize} GB+`}</span>
+                                        </label>
+                                        <input
+                                            type="range"
+                                            min="0"
+                                            max="50"
+                                            step="2"
+                                            value={localSize}
+                                            onChange={e => setLocalSize(Number(e.target.value))}
+                                            className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-sky-500"
+                                        />
+                                    </div>
+                                </div>
+                            </>
+                        )}
                     </div>
                 )}
 
@@ -1596,7 +1663,9 @@ export default function DiscoverPage() {
                 <div className="flex flex-wrap items-center justify-between gap-4 px-2">
                     <div className="flex items-center gap-2">
                         <span className="text-base font-bold text-white">
-                            Showing <span className="text-emerald-400 font-black">{filteredItems.length}</span> {mediaType === 'movie' ? 'movies' : 'series'}
+                            Showing <span className={`${mediaType === 'music' ? 'text-amber-400' : 'text-emerald-400'} font-black`}>
+                                {mediaType === 'music' ? (statusFilter === 'in_library' ? libraryItems.length : musicResults.length) : filteredItems.length}
+                            </span> {mediaType === 'music' ? 'albums & releases' : mediaType === 'movie' ? 'movies' : 'series'}
                         </span>
                     </div>
 
@@ -1657,19 +1726,19 @@ export default function DiscoverPage() {
 
                 {/* ── Content Grid / List ── */}
                 {mediaType === 'music' ? (
-                    musicLoading ? (
+                    musicLoading || libraryLoading ? (
                         <div className="flex flex-col items-center justify-center py-40 gap-3">
                             <div className="w-12 h-12 border-4 border-amber-500/20 border-t-amber-500 rounded-full animate-spin" />
-                            <p className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Searching Music Catalog...</p>
+                            <p className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Loading Music Releases...</p>
                         </div>
-                    ) : musicResults.length > 0 ? (
+                    ) : (statusFilter === 'in_library' ? libraryItems : musicResults).length > 0 ? (
                         <div className={viewMode === 'grid' ? 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6' : 'space-y-4'}>
-                            {musicResults.map((album, idx) => {
-                                const poster = album.posterUrl || album.remotePoster;
-                                const artist = album.artistName || album.title;
-                                const albumName = album.albumTitle || album.title;
+                            {(statusFilter === 'in_library' ? libraryItems : musicResults).map((album, idx) => {
+                                const poster = album.posterUrl || album.remotePoster || album.images?.find((i: any) => i.coverType === 'cover')?.url || album.images?.[0]?.url;
+                                const artist = album.artistName || album.artist?.artistName || album.title;
+                                const albumName = album.albumTitle || album.title || album.artistName;
                                 const year = album.year || (album.releaseDate ? new Date(album.releaseDate).getFullYear() : '');
-                                const recordLabel = album.recordLabel || album.copyright || 'Independent';
+                                const recordLabel = album.recordLabel || album.copyright || album.disambiguation || 'Independent';
 
                                 if (viewMode === 'list') {
                                     return (
@@ -1694,7 +1763,7 @@ export default function DiscoverPage() {
                                                             {albumName}
                                                         </h3>
                                                         <span className="px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[9px] font-black uppercase tracking-wider shrink-0">
-                                                            Album
+                                                            {statusFilter === 'in_library' ? 'In Lidarr' : 'Release'}
                                                         </span>
                                                     </div>
                                                     <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400 font-medium">
@@ -1762,8 +1831,14 @@ export default function DiscoverPage() {
                     ) : (
                         <div className="flex flex-col items-center justify-center py-40 bg-zinc-950/20 rounded-[3rem] border border-zinc-900/50 gap-4">
                             <div className="p-6 bg-zinc-900/50 rounded-full text-amber-400/40"><Disc size={48} /></div>
-                            <p className="text-xl font-bold text-white">No music found</p>
-                            <p className="text-xs text-zinc-500 font-medium">Search for an artist (e.g. Daft Punk, Queen, Hans Zimmer) or album above.</p>
+                            <p className="text-xl font-bold text-white">
+                                {statusFilter === 'in_library' ? 'No Music In Lidarr Library Yet' : 'No music found'}
+                            </p>
+                            <p className="text-xs text-zinc-500 font-medium">
+                                {statusFilter === 'in_library' 
+                                    ? 'Switch to "All" or search an artist above to add albums to Lidarr.'
+                                    : 'Search for an artist (e.g. Daft Punk, Queen, Hans Zimmer) or album above.'}
+                            </p>
                         </div>
                     )
                 ) : libraryLoading && libraryItems.length === 0 ? (
@@ -1923,6 +1998,7 @@ export default function DiscoverPage() {
                         setSearchQuery(label);
                         handleMusicSearch(label);
                     }}
+                    onInteractiveSearch={handleOpenInteractiveSearch}
                 />
             )}
         </>
