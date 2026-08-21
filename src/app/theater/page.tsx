@@ -1670,7 +1670,33 @@ export default function TheaterPage() {
                                                         {track.title}
                                                     </h4>
                                                     <p className="text-xs text-zinc-500 truncate">
-                                                        {track.artist || 'Unknown Artist'} • {track.album || 'Single'}
+                                                        <span
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                const artName = track.artist || 'Unknown Artist';
+                                                                const artistTracks = items.filter(i => (i.artist || 'Unknown Artist') === artName);
+                                                                const artistAlbums = musicAlbums.filter(a => a.artist === artName);
+                                                                setSelectedArtist({ name: artName, posterUrl: track.posterUrl, albums: artistAlbums, tracks: artistTracks });
+                                                            }}
+                                                            className="hover:text-amber-400 hover:underline cursor-pointer transition-colors"
+                                                            title="View Artist"
+                                                        >
+                                                            {track.artist || 'Unknown Artist'}
+                                                        </span>
+                                                        {' • '}
+                                                        <span
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                if (track.album) {
+                                                                    const alb = musicAlbums.find(a => a.name === track.album);
+                                                                    if (alb) setSelectedAlbum(alb);
+                                                                }
+                                                            }}
+                                                            className="hover:text-amber-400 hover:underline cursor-pointer transition-colors"
+                                                            title="View Album"
+                                                        >
+                                                            {track.album || 'Single'}
+                                                        </span>
                                                     </p>
                                                 </div>
                                             </div>
@@ -2078,7 +2104,19 @@ export default function TheaterPage() {
                                     Album
                                 </span>
                                 <h2 className="text-2xl sm:text-3xl font-black text-white">{selectedAlbum.name}</h2>
-                                <p className="text-sm font-semibold text-zinc-400">{selectedAlbum.artist}</p>
+                                <p
+                                    onClick={() => {
+                                        const artName = selectedAlbum.artist;
+                                        const artistTracks = items.filter(i => (i.artist || 'Various Artists') === artName);
+                                        const artistAlbums = musicAlbums.filter(a => a.artist === artName);
+                                        setSelectedArtist({ name: artName, posterUrl: selectedAlbum.posterUrl, albums: artistAlbums, tracks: artistTracks });
+                                        setSelectedAlbum(null);
+                                    }}
+                                    className="text-sm font-semibold text-zinc-400 hover:text-amber-400 cursor-pointer transition-colors"
+                                    title="View Artist Discography"
+                                >
+                                    {selectedAlbum.artist}
+                                </p>
                                 <span className="text-xs text-zinc-600 font-bold block">{selectedAlbum.tracks.length} Songs</span>
 
                                 <div className="pt-2 flex flex-wrap items-center gap-3">
@@ -2132,6 +2170,159 @@ export default function TheaterPage() {
                                     </div>
                                 </div>
                             ))}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Artist & Composer Showcase Detail Modal ── */}
+            {selectedArtist && (
+                <div className="fixed inset-0 z-[225] flex items-center justify-center p-4 sm:p-6 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200">
+                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-4xl p-6 sm:p-8 space-y-6 shadow-2xl relative max-h-[88vh] overflow-y-auto custom-scrollbar flex flex-col">
+                        <button
+                            onClick={() => setSelectedArtist(null)}
+                            className="absolute top-6 right-6 p-2.5 rounded-2xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all z-20"
+                            title="Close Artist Detail"
+                        >
+                            <X size={22} />
+                        </button>
+
+                        {/* Artist Header */}
+                        <div className="flex flex-col sm:flex-row items-center gap-6 pb-6 border-b border-zinc-900">
+                            <div className="w-36 h-36 sm:w-44 sm:h-44 rounded-full bg-zinc-900 border-2 border-zinc-800 overflow-hidden flex items-center justify-center text-amber-400 shrink-0 shadow-2xl relative">
+                                {selectedArtist.posterUrl ? (
+                                    <img src={selectedArtist.posterUrl} alt="" className="w-full h-full object-cover" />
+                                ) : (
+                                    <User size={64} className="text-zinc-600" />
+                                )}
+                            </div>
+
+                            <div className="space-y-2 text-center sm:text-left flex-1 min-w-0">
+                                <span className="px-3 py-1 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20 text-xs font-black uppercase tracking-wider">
+                                    Artist &amp; Composer
+                                </span>
+                                <h2 className="text-2xl sm:text-4xl font-black text-white truncate">{selectedArtist.name}</h2>
+                                <div className="flex items-center justify-center sm:justify-start gap-3 text-sm text-zinc-400 font-semibold">
+                                    <span>{selectedArtist.albums.length} {selectedArtist.albums.length === 1 ? 'Album' : 'Albums'}</span>
+                                    <span>•</span>
+                                    <span>{selectedArtist.tracks.length} {selectedArtist.tracks.length === 1 ? 'Track' : 'Tracks'}</span>
+                                </div>
+
+                                <div className="pt-3 flex flex-wrap items-center justify-center sm:justify-start gap-3">
+                                    <button
+                                        onClick={() => {
+                                            handlePlayAlbum(selectedArtist.tracks);
+                                            setSelectedArtist(null);
+                                        }}
+                                        className="px-6 py-3.5 bg-amber-500 hover:bg-amber-400 text-black font-black uppercase text-xs tracking-widest rounded-2xl transition-all shadow-lg shadow-amber-500/20 flex items-center gap-2"
+                                    >
+                                        <Play size={16} className="fill-current" /> Play Discography
+                                    </button>
+
+                                    <button
+                                        onClick={() => {
+                                            const shuffled = [...selectedArtist.tracks].sort(() => Math.random() - 0.5);
+                                            handlePlayAlbum(shuffled);
+                                            setSelectedArtist(null);
+                                        }}
+                                        className="px-5 py-3.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 hover:text-white font-black uppercase text-xs tracking-widest rounded-2xl border border-zinc-800 transition-all flex items-center gap-2"
+                                        title="Shuffle all songs by this artist"
+                                    >
+                                        <Shuffle size={15} /> Shuffle
+                                    </button>
+
+                                    <button
+                                        onClick={() => handleDownloadAlbum(selectedArtist.tracks, selectedArtist.name)}
+                                        className="px-5 py-3.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 hover:text-emerald-400 font-black uppercase text-xs tracking-widest rounded-2xl border border-zinc-800 transition-all flex items-center gap-2"
+                                        title="Download All Tracks by this Artist"
+                                    >
+                                        <Download size={15} /> Download All
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Albums Section (if available) */}
+                        {selectedArtist.albums && selectedArtist.albums.length > 0 && (
+                            <div className="space-y-3">
+                                <h3 className="text-base font-black text-white uppercase tracking-wider flex items-center gap-2">
+                                    <Disc size={18} className="text-amber-400" /> Albums ({selectedArtist.albums.length})
+                                </h3>
+                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                                    {selectedArtist.albums.map((alb, i) => (
+                                        <div
+                                            key={i}
+                                            onClick={() => {
+                                                setSelectedAlbum(alb);
+                                                setSelectedArtist(null);
+                                            }}
+                                            className="p-3.5 rounded-2xl bg-zinc-950/80 border border-zinc-900 hover:border-amber-500/50 transition-all cursor-pointer group space-y-2 shadow-sm hover:-translate-y-1"
+                                        >
+                                            <div className="w-full aspect-square rounded-xl bg-zinc-900 overflow-hidden flex items-center justify-center relative shadow-md">
+                                                {alb.posterUrl ? (
+                                                    <img src={alb.posterUrl} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                                                ) : (
+                                                    <Disc size={36} className="text-zinc-700 group-hover:text-amber-400" />
+                                                )}
+                                            </div>
+                                            <div>
+                                                <h4 className="font-bold text-white text-sm truncate group-hover:text-amber-400 transition-colors">{alb.name}</h4>
+                                                <span className="text-[11px] text-zinc-500 font-medium">{alb.tracks.length} tracks</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Tracks Section */}
+                        <div className="space-y-3">
+                            <h3 className="text-base font-black text-white uppercase tracking-wider flex items-center gap-2">
+                                <Music size={18} className="text-amber-400" /> Tracks ({selectedArtist.tracks.length})
+                            </h3>
+                            <div className="space-y-1.5">
+                                {selectedArtist.tracks.map((track, i) => (
+                                    <div
+                                        key={track.id}
+                                        onClick={() => handlePlayTrack(track, selectedArtist.tracks, i)}
+                                        className="flex items-center justify-between p-3.5 rounded-2xl hover:bg-zinc-900/60 bg-zinc-950/40 border border-zinc-900/60 hover:border-zinc-800 transition-all cursor-pointer group text-sm"
+                                    >
+                                        <div className="flex items-center gap-3.5 min-w-0">
+                                            <span className="w-6 text-zinc-600 font-mono font-bold group-hover:text-amber-400 text-xs">{i + 1}</span>
+                                            <div className="min-w-0">
+                                                <h4 className="font-bold text-white group-hover:text-amber-400 transition-colors truncate">{track.title}</h4>
+                                                <p className="text-xs text-zinc-500 truncate">{track.album || 'Single'}</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleDownloadTrack(track);
+                                                }}
+                                                className="w-8 h-8 rounded-xl bg-zinc-900 hover:bg-emerald-500 text-zinc-400 hover:text-black flex items-center justify-center transition-all"
+                                                title="Download Track"
+                                            >
+                                                <Download size={14} />
+                                            </button>
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setAddToPlaylistTrack(track);
+                                                    setIsCreatePlaylistModalOpen(true);
+                                                }}
+                                                className="w-8 h-8 rounded-xl bg-zinc-900 hover:bg-amber-500 text-zinc-400 hover:text-black flex items-center justify-center transition-all"
+                                                title="Add to Playlist"
+                                            >
+                                                <ListPlus size={14} />
+                                            </button>
+                                            <button className="w-8 h-8 rounded-xl bg-zinc-900 group-hover:bg-amber-500 text-zinc-400 group-hover:text-black flex items-center justify-center transition-all">
+                                                <Play size={14} className="ml-0.5 fill-current" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     </div>
                 </div>
