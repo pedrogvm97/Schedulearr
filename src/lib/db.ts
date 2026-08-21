@@ -664,15 +664,36 @@ export const approveTvSession = (code: string) => {
 
 export const castToTvSession = (sessionId: string, mediaPayload: any) => {
     try {
-        const stmt = db.prepare(`
-            UPDATE tv_sessions
-            SET current_media = ?
-            WHERE id = ? OR is_paired = 1
-        `);
-        stmt.run(JSON.stringify(mediaPayload), sessionId);
-        return true;
+        let stmt;
+        let result;
+        if (sessionId === 'all') {
+            stmt = db.prepare(`
+                UPDATE tv_sessions
+                SET current_media = ?
+                WHERE is_paired = 1
+            `);
+            result = stmt.run(JSON.stringify(mediaPayload));
+        } else {
+            stmt = db.prepare(`
+                UPDATE tv_sessions
+                SET current_media = ?
+                WHERE id = ? AND is_paired = 1
+            `);
+            result = stmt.run(JSON.stringify(mediaPayload), sessionId);
+        }
+        return result.changes > 0;
     } catch (e) {
         console.error('Error casting to TV session:', e);
+        return false;
+    }
+};
+
+export const deleteTvSession = (sessionId: string) => {
+    try {
+        const stmt = db.prepare('DELETE FROM tv_sessions WHERE id = ?');
+        stmt.run(sessionId);
+        return true;
+    } catch (e) {
         return false;
     }
 };

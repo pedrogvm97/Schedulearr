@@ -12,7 +12,8 @@ import {
     Tv2, Radio, Sliders, MessageSquare, Activity, ExternalLink,
     Clock, FastForward, Rewind, Subtitles, ListFilter, Bookmark,
     ListPlus, Copy, Download, Shuffle, Repeat, SkipForward, SkipBack,
-    Disc, User, ListMusic, Youtube, Globe, Heart, PlaySquare, ArrowDownToLine
+    Disc, User, ListMusic, Youtube, Globe, Heart, PlaySquare, ArrowDownToLine,
+    Headphones, RadioTower
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import Hls from 'hls.js';
@@ -197,6 +198,7 @@ export default function TheaterPage() {
 
     // Active Media Players & Music Studio Player
     const [playingVideo, setPlayingVideo] = useState<MediaItem | null>(null);
+    const [videoAudioMode, setVideoAudioMode] = useState<'direct' | 'transcode'>('transcode');
     const [playingAudio, setPlayingAudio] = useState<MediaItem | null>(null);
     const [audioQueue, setAudioQueue] = useState<MediaItem[]>([]);
     const [queueIndex, setQueueIndex] = useState<number>(0);
@@ -237,6 +239,10 @@ export default function TheaterPage() {
 
     // Smart TV Pairing & Remote Casting States
     const [isPairTvModalOpen, setIsPairTvModalOpen] = useState(false);
+    const [isCastPickerModalOpen, setIsCastPickerModalOpen] = useState(false);
+    const [castingTargetMedia, setCastingTargetMedia] = useState<MediaItem | IptvChannel | null>(null);
+    const [pairedTvSessions, setPairedTvSessions] = useState<any[]>([]);
+    const [loadingPairedTvs, setLoadingPairedTvs] = useState(false);
     const [tvPairPin, setTvPairPin] = useState('');
     const [isPairingTv, setIsPairingTv] = useState(false);
     const [pairedTvCount, setPairedTvCount] = useState(0);
@@ -246,7 +252,9 @@ export default function TheaterPage() {
             const res = await fetch('/api/theater/tv?listSessions=true');
             if (res.ok) {
                 const data = await res.json();
-                setPairedTvCount(Array.isArray(data.sessions) ? data.sessions.length : 0);
+                const list = Array.isArray(data.sessions) ? data.sessions : [];
+                setPairedTvSessions(list);
+                setPairedTvCount(list.length);
             }
         } catch {}
     };
@@ -279,20 +287,61 @@ export default function TheaterPage() {
         }
     };
 
-    const handleCastToTv = async (media: MediaItem | IptvChannel) => {
+    const openCastPicker = async (media: MediaItem | IptvChannel) => {
+        setCastingTargetMedia(media);
+        setIsCastPickerModalOpen(true);
+        setLoadingPairedTvs(true);
+        try {
+            const res = await fetch('/api/theater/tv?listSessions=true');
+            if (res.ok) {
+                const data = await res.json();
+                const sessions = Array.isArray(data.sessions) ? data.sessions : [];
+                setPairedTvSessions(sessions);
+                setPairedTvCount(sessions.length);
+            }
+        } catch {
+            toast.error('Failed to load paired devices');
+        } finally {
+            setLoadingPairedTvs(false);
+        }
+    };
+
+    const handleCastToDevice = async (sessionId: string, deviceName: string) => {
+        if (!castingTargetMedia) return;
         try {
             const res = await fetch('/api/theater/tv', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'cast', media })
+                body: JSON.stringify({ action: 'cast', sessionId, media: castingTargetMedia })
             });
             if (res.ok) {
-                toast.success(`Casting to Smart TV!`);
+                const mediaTitle = castingTargetMedia.name || (castingTargetMedia as any).title;
+                toast.success(`Casting "${mediaTitle}" to ${deviceName}!`);
+                setIsCastPickerModalOpen(false);
             } else {
-                toast.error('Failed to cast. Open /tv on your Smart TV first.');
+                const err = await res.json().catch(() => ({}));
+                toast.error(err.error || 'Failed to cast to device');
             }
         } catch {
             toast.error('Error sending cast command to TV');
+        }
+    };
+
+    const handleUnpairDevice = async (sessionId: string, deviceName: string) => {
+        if (!confirm(`Are you sure you want to unpair "${deviceName}"?`)) return;
+        try {
+            const res = await fetch('/api/theater/tv', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'unpair', sessionId })
+            });
+            if (res.ok) {
+                toast.success(`Unpaired "${deviceName}"`);
+                setPairedTvSessions(prev => prev.filter(s => s.id !== sessionId));
+                setPairedTvCount(prev => Math.max(0, prev - 1));
+            }
+        } catch {
+            toast.error('Failed to unpair device');
         }
     };
 
@@ -791,11 +840,17 @@ export default function TheaterPage() {
         }
     }, [playingAudio]);
 
-    // Video Player & HLS Handler for .ts and live streams + Diagnostics Fetch
+    // Video Player & HLS Handler for .ts and live streams + Audio Transcoding + Diagnostics Fetch
     useEffect(() => {
         if (playingVideo && videoRef.current) {
             const video = videoRef.current;
-            const streamUrl = playingVideo.streamUrl;
+            let streamUrl = playingVideo.streamUrl;
+
+            // If audio mode is set to transcode (AAC Compatible), append transcode=audio
+            if (videoAudioMode === 'transcode' && !streamUrl.includes('transcode=')) {
+                streamUrl = `${streamUrl}${streamUrl.includes('?') ? '&' : '?'}transcode=audio`;
+            }
+
             const isTsOrHls = playingVideo.extension === 'TS' || streamUrl.includes('.m3u8') || streamUrl.includes('.ts');
 
             if (isTsOrHls && Hls.isSupported()) {
@@ -831,7 +886,7 @@ export default function TheaterPage() {
                 hlsInstanceRef.current = null;
             }
         };
-    }, [playingVideo]);
+    }, [playingVideo, videoAudioMode]);
 
     // Live Video HLS Handler
     useEffect(() => {
@@ -877,13 +932,13 @@ export default function TheaterPage() {
                     currentTime: formatTime(video.currentTime),
                     duration: formatTime(video.duration),
                     droppedFrames: dropped,
-                    sourceMode: playingVideo?.posterUrl ? 'Plex Direct Stream' : (playingChannel ? 'HLS Live TV' : 'Direct Play (Local)')
+                    sourceMode: playingVideo?.posterUrl ? 'Plex Direct Stream' : (playingChannel ? 'HLS Live TV' : (videoAudioMode === 'transcode' ? 'Direct Video + AAC Transcode' : 'Direct Play (Local)'))
                 });
             }
         }, 1000);
 
         return () => clearInterval(interval);
-    }, [playingVideo, playingChannel]);
+    }, [playingVideo, playingChannel, videoAudioMode]);
 
     // Save Curated Shortlist
     const handleSaveShortlist = async () => {
@@ -1108,7 +1163,7 @@ export default function TheaterPage() {
                                 className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-black rounded-xl text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 border border-dashed border-indigo-500/30 transition-all shadow-sm"
                                 title="Pair a Smart TV via /tv"
                             >
-                                <Tv size={14} /> Pair Smart TV {pairedTvCount > 0 && <span className="w-2 h-2 rounded-full bg-emerald-400" />}
+                                <Tv size={14} /> Pair Smart TV {pairedTvCount > 0 && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />}
                             </button>
                         </div>
                     </div>
@@ -1810,7 +1865,7 @@ export default function TheaterPage() {
 
                                         <div className="flex items-center gap-2">
                                             <button
-                                                onClick={(e) => { e.stopPropagation(); handleCastToTv(item); }}
+                                                onClick={(e) => { e.stopPropagation(); openCastPicker(item); }}
                                                 className="p-3 rounded-2xl bg-zinc-900/60 hover:bg-purple-500/20 text-zinc-500 hover:text-purple-400 border border-zinc-800 transition-all shrink-0"
                                                 title="Cast to Smart TV"
                                             >
@@ -2017,7 +2072,7 @@ export default function TheaterPage() {
                             </button>
 
                             <button
-                                onClick={() => handleCastToTv(playingAudio)}
+                                onClick={() => openCastPicker(playingAudio)}
                                 className="p-2.5 rounded-xl bg-purple-500/15 hover:bg-purple-500 text-purple-400 hover:text-white border border-purple-500/30 text-xs font-bold"
                                 title="Cast Audio to Smart TV"
                             >
@@ -2231,6 +2286,22 @@ export default function TheaterPage() {
                             </div>
 
                             <div className="flex items-center gap-2">
+                                {/* Audio Compatibility Toggle (Fixes No Sound on DTS/TrueHD) */}
+                                <button
+                                    onClick={() => {
+                                        const nextMode = videoAudioMode === 'direct' ? 'transcode' : 'direct';
+                                        setVideoAudioMode(nextMode);
+                                        toast.info(nextMode === 'transcode' ? 'Audio Mode: AAC Stereo Compatible (Transcoding audio on-the-fly)' : 'Audio Mode: Direct Play');
+                                    }}
+                                    className={`p-2.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
+                                        videoAudioMode === 'transcode' ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+                                    }`}
+                                    title={videoAudioMode === 'transcode' ? "Audio: AAC Stereo Compatible (Transcoded for browser support)" : "Audio: Direct Play (Raw File Stream)"}
+                                >
+                                    <Headphones size={15} />
+                                    <span>{videoAudioMode === 'transcode' ? 'Audio: AAC' : 'Audio: Direct'}</span>
+                                </button>
+
                                 <button
                                     onClick={() => setShowStatsHud(!showStatsHud)}
                                     className={`p-2.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
@@ -2252,7 +2323,7 @@ export default function TheaterPage() {
                                 </button>
 
                                 <button
-                                    onClick={() => handleCastToTv(playingVideo)}
+                                    onClick={() => openCastPicker(playingVideo)}
                                     className="p-2.5 rounded-xl bg-purple-500/15 hover:bg-purple-500 text-purple-400 hover:text-white border border-purple-500/30 text-xs font-bold flex items-center gap-1.5 transition-all"
                                     title="Cast Stream directly to Smart TV (/tv)"
                                 >
@@ -2353,7 +2424,7 @@ export default function TheaterPage() {
                                             </div>
                                             <div className="flex justify-between">
                                                 <span className="text-zinc-400">Output Audio:</span>
-                                                <span className="font-bold text-amber-400">{diagnosticsData?.playing?.audioCodec || 'AAC Stereo (Transcoded 256k)'}</span>
+                                                <span className="font-bold text-amber-400">{videoAudioMode === 'transcode' ? 'AAC Stereo 256k (Transcoded)' : 'Direct Play (Raw)'}</span>
                                             </div>
                                         </div>
 
@@ -2552,6 +2623,14 @@ export default function TheaterPage() {
                             </div>
 
                             <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => openCastPicker(playingChannel)}
+                                    className="p-2.5 rounded-xl bg-purple-500/15 hover:bg-purple-500 text-purple-400 hover:text-white border border-purple-500/30 text-xs font-bold flex items-center gap-1.5 transition-all"
+                                    title="Cast Channel directly to Smart TV"
+                                >
+                                    <Cast size={14} /> Cast to TV
+                                </button>
+
                                 <button
                                     onClick={() => {
                                         navigator.clipboard.writeText(playingChannel.url);
@@ -3210,6 +3289,123 @@ export default function TheaterPage() {
                                 Authorize & Link TV
                             </button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Smart TV Cast Device Picker Modal ── */}
+            {isCastPickerModalOpen && (
+                <div className="fixed inset-0 z-[260] flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200">
+                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-lg p-6 sm:p-8 space-y-6 shadow-2xl relative">
+                        <button
+                            onClick={() => setIsCastPickerModalOpen(false)}
+                            className="absolute top-6 right-6 p-2 rounded-xl text-zinc-400 hover:text-white"
+                        >
+                            <X size={20} />
+                        </button>
+
+                        <div className="flex items-center gap-3.5 pb-2 border-b border-zinc-900">
+                            <div className="w-12 h-12 rounded-2xl bg-purple-500/15 border border-purple-500/30 flex items-center justify-center text-purple-400">
+                                <Cast size={24} />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-black text-white">Cast to Smart TV</h3>
+                                <p className="text-xs text-zinc-400 truncate max-w-xs">
+                                    {castingTargetMedia ? (castingTargetMedia.name || (castingTargetMedia as any).title) : 'Select a device to stream to'}
+                                </p>
+                            </div>
+                        </div>
+
+                        {loadingPairedTvs ? (
+                            <div className="flex flex-col items-center justify-center py-12 gap-2">
+                                <RefreshCw size={24} className="animate-spin text-purple-400" />
+                                <span className="text-xs text-zinc-500 font-bold">Scanning paired Smart TVs...</span>
+                            </div>
+                        ) : pairedTvSessions.length === 0 ? (
+                            <div className="p-6 rounded-3xl bg-zinc-950 border border-zinc-900 text-center space-y-4">
+                                <div className="w-14 h-14 rounded-2xl bg-zinc-900 flex items-center justify-center text-zinc-600 mx-auto">
+                                    <Tv size={28} />
+                                </div>
+                                <div className="space-y-1">
+                                    <h4 className="text-sm font-bold text-white">No Smart TVs Paired Yet</h4>
+                                    <p className="text-xs text-zinc-500 max-w-xs mx-auto">
+                                        Open <span className="text-purple-400 font-mono font-bold">/tv</span> on any TV browser (at home or abroad) and link with a 6-digit code.
+                                    </p>
+                                </div>
+
+                                <button
+                                    onClick={() => {
+                                        setIsCastPickerModalOpen(false);
+                                        setIsPairTvModalOpen(true);
+                                    }}
+                                    className="px-6 py-3 bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs uppercase tracking-wider rounded-2xl transition-all shadow-lg shadow-purple-500/20"
+                                >
+                                    Pair New TV
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-[10px] font-black uppercase text-zinc-500 tracking-wider">
+                                        Paired Devices ({pairedTvSessions.length})
+                                    </label>
+                                    <button
+                                        onClick={() => {
+                                            setIsCastPickerModalOpen(false);
+                                            setIsPairTvModalOpen(true);
+                                        }}
+                                        className="text-[10px] font-bold text-purple-400 hover:underline flex items-center gap-1"
+                                    >
+                                        <Plus size={11} /> Pair Another TV
+                                    </button>
+                                </div>
+
+                                <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
+                                    {pairedTvSessions.map(session => (
+                                        <div
+                                            key={session.id}
+                                            className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 hover:border-purple-500/50 transition-all flex items-center justify-between group shadow-sm"
+                                        >
+                                            <div className="flex items-center gap-3.5 min-w-0">
+                                                <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 shrink-0">
+                                                    <Tv size={20} />
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <h4 className="font-bold text-white text-sm truncate">{session.device_name || 'Smart TV'}</h4>
+                                                    <p className="text-[10px] text-zinc-500 font-medium">
+                                                        Linked {new Date(session.paired_at || session.created_at).toLocaleDateString()} • <span className="text-emerald-400 font-bold">Ready</span>
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    onClick={() => handleUnpairDevice(session.id, session.device_name || 'Smart TV')}
+                                                    className="p-2 rounded-xl text-zinc-600 hover:text-red-400 transition-colors"
+                                                    title="Unpair Device"
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
+
+                                                <button
+                                                    onClick={() => handleCastToDevice(session.id, session.device_name || 'Smart TV')}
+                                                    className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-purple-500/20 flex items-center gap-1.5"
+                                                >
+                                                    <Cast size={13} /> Cast
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <button
+                                    onClick={() => handleCastToDevice('all', 'All Paired TVs')}
+                                    className="w-full py-3.5 bg-zinc-900 hover:bg-zinc-800 text-white border border-zinc-800 font-bold text-xs uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2"
+                                >
+                                    <Cast size={15} className="text-purple-400" /> Cast to All Devices ({pairedTvSessions.length})
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
