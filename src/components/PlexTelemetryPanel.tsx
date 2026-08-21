@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useMemo } from "react";
-import { Play, Pause, Monitor, Tv, Smartphone, Cpu, Activity, RefreshCw, Film, AlertCircle, Clock, History, BarChart2, CheckCircle2, User as UserIcon, Calendar as CalendarIcon, ChevronDown, Palette, Music } from "lucide-react";
+import { Play, Pause, Monitor, Tv, Smartphone, Cpu, Activity, RefreshCw, Film, AlertCircle, Clock, History, BarChart2, CheckCircle2, User as UserIcon, Calendar as CalendarIcon, ChevronDown, ChevronRight, Palette, Music } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { MediaDetailsPanel } from "./MediaDetailsPanel";
 import { LibraryExplorerPanel } from "./LibraryExplorerPanel";

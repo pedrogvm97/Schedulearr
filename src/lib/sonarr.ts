@@ -240,9 +240,6 @@ export const getEpisodeQueueStatus = async (url: string, apiKey: string, episode
     }
 };
 
-
-
-
 // Function to delete an item from the Sonarr queue (and optionally blocklist/remove from client)
 export const deleteFromQueue = async (url: string, apiKey: string, queueId: number, removeFromClient: boolean = true, blocklist: boolean = true): Promise<boolean> => {
     try {
@@ -256,6 +253,7 @@ export const deleteFromQueue = async (url: string, apiKey: string, queueId: numb
         return false;
     }
 };
+
 // Function to delete an episode file
 export const deleteEpisodeFile = async (url: string, apiKey: string, episodeFileId: number): Promise<boolean> => {
     try {
@@ -340,6 +338,7 @@ export const deleteSeries = async (url: string, apiKey: string, seriesId: number
         return false;
     }
 };
+
 export async function createQualityProfile(url: string, apiKey: string, profile: any) {
     const res = await axios.post(`${url}/api/v3/qualityprofile`, profile, {
         headers: { 'X-Api-Key': apiKey }
@@ -427,10 +426,44 @@ export const triggerRescanSeries = async (url: string, apiKey: string, seriesId:
 export const getCalendar = async (url: string, apiKey: string, start: string, end: string, unmonitored: boolean = true) => {
     try {
         const res = await axios.get(`${url}/api/v3/calendar`, {
-            params: { start, end, unmonitored },
+            params: { 
+                start, 
+                end, 
+                unmonitored,
+                includeSeries: true,
+                includeEpisodeFile: true,
+                includeImages: true 
+            },
             headers: { 'X-Api-Key': apiKey }
         });
-        return res.data;
+        const episodes = Array.isArray(res.data) ? res.data : [];
+        // Check if any episode lacks series data or title
+        const missingSeries = episodes.some((ep: any) => !ep.series || !ep.series.title);
+        if (missingSeries && episodes.length > 0) {
+            try {
+                const seriesRes = await axios.get(`${url}/api/v3/series`, {
+                    headers: { 'X-Api-Key': apiKey }
+                });
+                const seriesList = Array.isArray(seriesRes.data) ? seriesRes.data : [];
+                const seriesMap = new Map<number, any>();
+                seriesList.forEach((s: any) => seriesMap.set(s.id, s));
+                return episodes.map((ep: any) => {
+                    if ((!ep.series || !ep.series.title) && ep.seriesId) {
+                        const resolvedSeries = seriesMap.get(ep.seriesId);
+                        if (resolvedSeries) {
+                            return {
+                                ...ep,
+                                series: resolvedSeries
+                            };
+                        }
+                    }
+                    return ep;
+                });
+            } catch {
+                return episodes;
+            }
+        }
+        return episodes;
     } catch (e) {
         console.error(`Error fetching calendar from Sonarr (${url}):`, e);
         return [];

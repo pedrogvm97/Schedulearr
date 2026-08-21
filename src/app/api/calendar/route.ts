@@ -67,7 +67,9 @@ export async function GET(request: Request) {
                     const seriesTitle = ep.series?.title || ep.seriesTitle || 'Unknown Series';
                     const seriesPoster = ep.series?.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || 
                                          ep.series?.images?.find((img: any) => img.coverType === 'poster')?.url || 
-                                         ep.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || '';
+                                         ep.series?.remotePoster ||
+                                         ep.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || 
+                                         ep.images?.find((img: any) => img.coverType === 'poster')?.url || '';
 
                     events.push({
                         id: `${instance.id}-sonarr-${ep.id}`,

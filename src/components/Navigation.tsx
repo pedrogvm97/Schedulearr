@@ -11,14 +11,14 @@ import {
 
 const primaryNavItems = [
     {
-        href: '/discover',
-        label: 'Media',
-        icon: (active: boolean) => <Film size={active ? 20 : 18} className={active ? 'text-emerald-400' : 'text-zinc-400'} />
-    },
-    {
         href: '/theater',
         label: 'Theater',
         icon: (active: boolean) => <Play size={active ? 20 : 18} className={active ? 'text-purple-400' : 'text-zinc-400'} />
+    },
+    {
+        href: '/discover',
+        label: 'Media',
+        icon: (active: boolean) => <Film size={active ? 20 : 18} className={active ? 'text-emerald-400' : 'text-zinc-400'} />
     }
 ];
 
@@ -53,14 +53,14 @@ const secondaryNavItems = [
 // Clean 4-tab mobile core navigation
 const mobileCoreNavItems = [
     {
-        href: '/discover',
-        label: 'Media',
-        icon: (active: boolean) => <Film size={20} className={active ? 'text-emerald-400' : 'text-zinc-400'} />
-    },
-    {
         href: '/theater',
         label: 'Theater',
         icon: (active: boolean) => <Play size={20} className={active ? 'text-purple-400' : 'text-zinc-400'} />
+    },
+    {
+        href: '/discover',
+        label: 'Media',
+        icon: (active: boolean) => <Film size={20} className={active ? 'text-emerald-400' : 'text-zinc-400'} />
     },
     {
         href: '/downloads',
