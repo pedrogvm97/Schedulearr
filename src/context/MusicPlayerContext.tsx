@@ -7,9 +7,19 @@ import {
     Disc, Music, ListMusic, Download, ArrowDownToLine,
     Info, Mic2, Edit3, Search, Sparkles, Check,
     RefreshCw, ChevronDown, Sliders, Cast, Tv, Trash2, Plus,
-    Image as ImageIcon
+    Image as ImageIcon, Guitar, Activity, Zap, Layers, Music2
 } from 'lucide-react';
 import { toast } from 'sonner';
+import {
+    DifficultyLevel,
+    InstrumentType,
+    ChordEvent,
+    transposeChord,
+    simplifyChordForDifficulty,
+    getChordDiagram,
+    computeChromagramFromFrequencies,
+    matchChordFromChromagram
+} from '@/lib/chordAnalyzer';
 
 export interface MediaItem {
     id: string;
@@ -42,6 +52,17 @@ interface LyricsData {
     lines: Array<{ time: number; text: string }>;
     isSynced: boolean;
     source?: string;
+}
+
+interface ChordsData {
+    found: boolean;
+    artist?: string;
+    title?: string;
+    key?: string;
+    tempo?: number;
+    source?: string;
+    cifraText?: string;
+    chords: ChordEvent[];
 }
 
 interface MusicPlayerContextType {
@@ -90,6 +111,115 @@ function formatTime(seconds: number): string {
     return `${m}:${s < 10 ? '0' : ''}${s}`;
 }
 
+// ── Interactive Fretboard Diagram for Guitar & Ukulele ──
+function FretboardDiagram({ chordName, instrument = 'guitar' }: { chordName: string; instrument?: InstrumentType }) {
+    const diagram = getChordDiagram(chordName, instrument);
+    const isUkulele = instrument === 'ukulele';
+    const numStrings = isUkulele ? 4 : 6;
+    const stringLabels = isUkulele ? ['G', 'C', 'E', 'A'] : ['E', 'A', 'D', 'G', 'B', 'e'];
+
+    return (
+        <div className="flex flex-col items-center justify-center bg-zinc-900/90 border border-zinc-800 p-3 rounded-2xl shadow-xl space-y-1 select-none">
+            <div className="flex items-center justify-between w-full px-2">
+                <span className="text-[11px] font-black uppercase text-zinc-400 tracking-wider flex items-center gap-1">
+                    {isUkulele ? '🪕 Ukulele' : '🎸 Guitar'}
+                </span>
+                {diagram.baseFret && diagram.baseFret > 1 && (
+                    <span className="text-[9px] font-bold bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded border border-amber-500/30">
+                        Fret {diagram.baseFret}
+                    </span>
+                )}
+            </div>
+            <svg viewBox="0 0 160 140" className="w-32 h-28">
+                {/* Nut */}
+                <rect x="25" y="20" width="110" height="4" fill="#f59e0b" rx="2" />
+                {/* Frets */}
+                {[0, 1, 2, 3, 4].map(fret => (
+                    <line key={fret} x1="25" y1={24 + fret * 24} x2="135" y2={24 + fret * 24} stroke="#3f3f46" strokeWidth="2" />
+                ))}
+                {/* Strings */}
+                {Array.from({ length: numStrings }).map((_, s) => {
+                    const x = 30 + s * (100 / (numStrings - 1));
+                    return (
+                        <line key={s} x1={x} y1="24" x2={x} y2="120" stroke="#71717a" strokeWidth={isUkulele ? 2 : (s < 3 ? 2.5 : 1.5)} />
+                    );
+                })}
+                {/* String open/mute markers & finger dots */}
+                {diagram.frets.map((fret, s) => {
+                    const x = 30 + s * (100 / (numStrings - 1));
+                    if (fret === 'x' || fret === -1) {
+                        return (
+                            <text key={s} x={x} y="15" textAnchor="middle" fill="#ef4444" fontSize="11" fontWeight="bold">✕</text>
+                        );
+                    }
+                    if (fret === 0) {
+                        return (
+                            <circle key={s} cx={x} cy="13" r="3.5" fill="none" stroke="#10b981" strokeWidth="2" />
+                        );
+                    }
+                    if (typeof fret === 'number' && fret > 0) {
+                        const y = 24 + (fret - 0.5) * 24;
+                        return (
+                            <g key={s}>
+                                <circle cx={x} cy={y} r="6.5" fill="#f59e0b" className="drop-shadow-[0_0_8px_rgba(245,158,11,0.8)]" />
+                                {diagram.fingers && diagram.fingers[s] ? (
+                                    <text x={x} y={y + 3} textAnchor="middle" fill="#000" fontSize="8" fontWeight="black">{diagram.fingers[s]}</text>
+                                ) : null}
+                            </g>
+                        );
+                    }
+                    return null;
+                })}
+            </svg>
+            <div className="flex justify-between w-28 px-1 text-[9px] font-mono font-bold text-zinc-500">
+                {stringLabels.map((note, i) => (
+                    <span key={i}>{note}</span>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+// ── 12-Bin Harmonic Chromagram Visualizer ──
+function ChromagramVisualizer({ chroma }: { chroma: number[] }) {
+    const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+    return (
+        <div className="p-3 bg-zinc-900/60 border border-zinc-800/80 rounded-2xl space-y-1.5 select-none">
+            <div className="flex items-center justify-between text-[11px] font-black uppercase text-zinc-400 tracking-wider">
+                <span className="flex items-center gap-1 text-amber-400">
+                    <Sparkles size={12} /> 12-Bin Harmonic Chromagram
+                </span>
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 font-mono">
+                    DSP Live
+                </span>
+            </div>
+            <div className="grid grid-cols-12 gap-1 h-10 items-end pt-1">
+                {noteNames.map((name, i) => {
+                    const energy = chroma && chroma[i] ? Math.min(Math.max(chroma[i], 0.05), 1) : 0.05;
+                    const isSharp = name.includes('#');
+                    return (
+                        <div key={name} className="flex flex-col items-center gap-0.5 h-full justify-end">
+                            <div
+                                className={`w-full rounded-t transition-all duration-100 ${
+                                    energy > 0.35
+                                        ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.6)]'
+                                        : isSharp
+                                        ? 'bg-zinc-700'
+                                        : 'bg-zinc-800'
+                                }`}
+                                style={{ height: `${energy * 100}%` }}
+                            />
+                            <span className={`text-[8px] font-mono font-bold ${energy > 0.35 ? 'text-amber-300' : 'text-zinc-500'}`}>
+                                {name}
+                            </span>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
+
 export function MusicPlayerProvider({ children }: { children: React.ReactNode }) {
     const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -108,9 +238,22 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     // UI Drawer & Modal States
     const [showQueueDrawer, setShowQueueDrawer] = useState(false);
     const [isExpandedPlayerOpen, setIsExpandedPlayerOpen] = useState(false);
-    const [expandedSidePanel, setExpandedSidePanel] = useState<'lyrics' | 'queue' | 'specs'>('lyrics');
+    const [expandedSidePanel, setExpandedSidePanel] = useState<'lyrics' | 'chords' | 'queue' | 'specs'>('lyrics');
     const [showExpandedSidePanel, setShowExpandedSidePanel] = useState(true);
     const [isVinylView, setIsVinylView] = useState(true);
+
+    // Musical Jam & Chords States
+    const [chordsData, setChordsData] = useState<ChordsData | null>(null);
+    const [chordsLoading, setChordsLoading] = useState(false);
+    const [jamDifficulty, setJamDifficulty] = useState<DifficultyLevel>('beginner');
+    const [jamInstrument, setJamInstrument] = useState<InstrumentType>('guitar');
+    const [jamTranspose, setJamTranspose] = useState(0);
+    const [showChordsOverlay, setShowChordsOverlay] = useState(true);
+    const [liveChromaEnergy, setLiveChromaEnergy] = useState<number[]>(new Array(12).fill(0));
+    const [liveDetectedChord, setLiveDetectedChord] = useState<{ chord: string; confidence: number } | null>(null);
+    const audioContextRef = useRef<AudioContext | null>(null);
+    const analyserRef = useRef<AnalyserNode | null>(null);
+    const animFrameRef = useRef<number | null>(null);
 
     // Lyrics & Karaoke States
     const [showLyricsModal, setShowLyricsModal] = useState(false);
@@ -186,6 +329,160 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             setLyricsLoading(false);
         }
     };
+
+    // Handle Fetching Chords
+    const fetchChords = async (item: MediaItem) => {
+        setChordsLoading(true);
+        try {
+            const params = new URLSearchParams({
+                artist: item.artist || '',
+                title: item.title || item.name || '',
+                album: item.album || '',
+                duration: item.durationMs ? String(Math.round(item.durationMs / 1000)) : ''
+            });
+            const res = await fetch(`/api/theater/music/chords?${params.toString()}`);
+            if (res.ok) {
+                const data = await res.json();
+                setChordsData(data);
+            } else {
+                setChordsData(null);
+            }
+        } catch {
+            setChordsData(null);
+        } finally {
+            setChordsLoading(false);
+        }
+    };
+
+    // Active & Next Chord Event with Transposition & Difficulty Simplification
+    const activeChordEvent = useMemo(() => {
+        if (!chordsData || !chordsData.chords || chordsData.chords.length === 0) {
+            if (liveDetectedChord && liveDetectedChord.confidence > 0.35) {
+                const transposed = transposeChord(liveDetectedChord.chord, jamTranspose);
+                const simplified = simplifyChordForDifficulty(transposed, jamDifficulty);
+                return {
+                    rawChord: liveDetectedChord.chord,
+                    displayChord: simplified,
+                    nextChord: null,
+                    nextInSeconds: 0,
+                    index: -1,
+                    isLiveDsp: true
+                };
+            }
+            return null;
+        }
+
+        for (let i = chordsData.chords.length - 1; i >= 0; i--) {
+            if (audioCurrentTime >= chordsData.chords[i].time) {
+                const current = chordsData.chords[i];
+                const next = i + 1 < chordsData.chords.length ? chordsData.chords[i + 1] : null;
+                const rawChord = current.chord;
+                const transposed = transposeChord(rawChord, jamTranspose);
+                const simplified = simplifyChordForDifficulty(transposed, jamDifficulty);
+
+                let nextSimplified = null;
+                let nextInSeconds = 0;
+                if (next) {
+                    const nextTransposed = transposeChord(next.chord, jamTranspose);
+                    nextSimplified = simplifyChordForDifficulty(nextTransposed, jamDifficulty);
+                    nextInSeconds = Math.max(0, Math.round((next.time - audioCurrentTime) * 10) / 10);
+                }
+
+                return {
+                    rawChord,
+                    displayChord: simplified,
+                    nextChord: nextSimplified,
+                    nextInSeconds,
+                    index: i,
+                    isLiveDsp: false
+                };
+            }
+        }
+
+        const first = chordsData.chords[0];
+        const transposed = transposeChord(first.chord, jamTranspose);
+        const simplified = simplifyChordForDifficulty(transposed, jamDifficulty);
+        return {
+            rawChord: first.chord,
+            displayChord: simplified,
+            nextChord: null,
+            nextInSeconds: Math.max(0, Math.round((first.time - audioCurrentTime) * 10) / 10),
+            index: 0,
+            isLiveDsp: false
+        };
+    }, [chordsData, audioCurrentTime, jamTranspose, jamDifficulty, liveDetectedChord]);
+
+    const getChordsForLyricLine = (lineTime: number, nextLineTime?: number) => {
+        if (!chordsData || !chordsData.chords || chordsData.chords.length === 0) {
+            if (liveDetectedChord && liveDetectedChord.confidence > 0.4) {
+                const transposed = transposeChord(liveDetectedChord.chord, jamTranspose);
+                return [simplifyChordForDifficulty(transposed, jamDifficulty)];
+            }
+            return [];
+        }
+        const endTime = nextLineTime !== undefined ? nextLineTime : lineTime + 5;
+        const matched = chordsData.chords
+            .filter(c => c.time >= lineTime - 0.5 && c.time < endTime)
+            .map(c => {
+                const transposed = transposeChord(c.chord, jamTranspose);
+                return simplifyChordForDifficulty(transposed, jamDifficulty);
+            });
+        return matched.length > 0 ? matched : [simplifyChordForDifficulty(transposeChord(chordsData.chords[0].chord, jamTranspose), jamDifficulty)];
+    };
+
+    // Web Audio Real-Time Frequency & Chromagram Deconvolution Analyzer Loop
+    const initWebAudio = () => {
+        if (!audioRef.current || audioContextRef.current) return;
+        try {
+            const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+            if (!AudioCtx) return;
+            const ctx = new AudioCtx();
+            const analyser = ctx.createAnalyser();
+            analyser.fftSize = 2048;
+            analyser.smoothingTimeConstant = 0.85;
+
+            const source = ctx.createMediaElementSource(audioRef.current);
+            source.connect(analyser);
+            analyser.connect(ctx.destination);
+
+            audioContextRef.current = ctx;
+            analyserRef.current = analyser;
+        } catch (e: any) {
+            console.log('Web Audio init note:', e.message);
+        }
+    };
+
+    useEffect(() => {
+        if (!isAudioPlaying) return;
+        initWebAudio();
+
+        if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+            audioContextRef.current.resume().catch(() => {});
+        }
+
+        const runDspAnalysis = () => {
+            if (analyserRef.current && isAudioPlaying) {
+                const buffer = new Uint8Array(analyserRef.current.frequencyBinCount);
+                analyserRef.current.getByteFrequencyData(buffer);
+
+                const sampleRate = audioContextRef.current?.sampleRate || 44100;
+                const chroma = computeChromagramFromFrequencies(buffer, sampleRate, 2048);
+                setLiveChromaEnergy(chroma);
+
+                const matched = matchChordFromChromagram(chroma);
+                if (matched.confidence > 0.35) {
+                    setLiveDetectedChord(matched);
+                }
+            }
+            animFrameRef.current = requestAnimationFrame(runDspAnalysis);
+        };
+
+        animFrameRef.current = requestAnimationFrame(runDspAnalysis);
+
+        return () => {
+            if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+        };
+    }, [isAudioPlaying]);
 
     const handleSearchLyrics = async (query: string) => {
         if (!query.trim()) return;
@@ -513,12 +810,13 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         setShowQueueDrawer(false);
     };
 
-    // When playingAudio changes, load source and fetch lyrics
+    // When playingAudio changes, load source, fetch lyrics and fetch chords
     useEffect(() => {
         if (playingAudio && audioRef.current) {
             audioRef.current.src = playingAudio.streamUrl;
             audioRef.current.play().catch(() => {});
             fetchLyrics(playingAudio);
+            fetchChords(playingAudio);
         }
     }, [playingAudio]);
 
@@ -1133,20 +1431,28 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                         {/* Right Side: Toggleable Panel (Lyrics / Queue / Specs) */}
                         {showExpandedSidePanel && (
                             <div className="lg:col-span-6 xl:col-span-7 h-full flex flex-col bg-zinc-950/80 border border-zinc-900 rounded-[2.5rem] p-6 shadow-2xl space-y-4 min-h-[420px] max-h-[75vh] overflow-hidden">
-                                {/* Panel Tab Selectors: Lyrics | Queue | Specs */}
+                                {/* Panel Tab Selectors: Lyrics | Jam Stage | Queue | Specs */}
                                 <div className="flex items-center justify-between pb-3 border-b border-zinc-900 shrink-0">
-                                    <div className="flex bg-zinc-900/90 p-1 rounded-2xl border border-zinc-800">
+                                    <div className="flex bg-zinc-900/90 p-1 rounded-2xl border border-zinc-800 flex-wrap gap-1">
                                         <button
                                             onClick={() => setExpandedSidePanel('lyrics')}
-                                            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
                                                 expandedSidePanel === 'lyrics' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
                                             }`}
                                         >
                                             <Mic2 size={13} /> Lyrics
                                         </button>
                                         <button
+                                            onClick={() => setExpandedSidePanel('chords')}
+                                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                                                expandedSidePanel === 'chords' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                            }`}
+                                        >
+                                            <Guitar size={13} /> Jam Stage <span className="text-[9px] px-1 py-0.2 rounded bg-black/30 font-mono">🧪</span>
+                                        </button>
+                                        <button
                                             onClick={() => setExpandedSidePanel('queue')}
-                                            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
                                                 expandedSidePanel === 'queue' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
                                             }`}
                                         >
@@ -1154,7 +1460,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         </button>
                                         <button
                                             onClick={() => setExpandedSidePanel('specs')}
-                                            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
                                                 expandedSidePanel === 'specs' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
                                             }`}
                                         >
@@ -1240,7 +1546,212 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                     </div>
                                 )}
 
-                                {/* 2. Queue Tab Content */}
+                                {/* 2. Musical Jam Stage Tab Content */}
+                                {expandedSidePanel === 'chords' && (
+                                    <div className="flex-1 overflow-y-auto custom-scrollbar p-1 space-y-4 flex flex-col">
+                                        {/* Top Musician Controls Bar */}
+                                        <div className="p-3 bg-zinc-900/60 rounded-2xl border border-zinc-800 flex flex-wrap items-center justify-between gap-2.5 shrink-0">
+                                            {/* Instrument Switcher */}
+                                            <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-xl border border-zinc-800">
+                                                <button
+                                                    onClick={() => setJamInstrument('guitar')}
+                                                    className={`px-2.5 py-1 rounded-lg text-[11px] font-black uppercase transition-all flex items-center gap-1 ${
+                                                        jamInstrument === 'guitar' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-white'
+                                                    }`}
+                                                >
+                                                    <Guitar size={12} /> Guitar
+                                                </button>
+                                                <button
+                                                    onClick={() => setJamInstrument('ukulele')}
+                                                    className={`px-2.5 py-1 rounded-lg text-[11px] font-black uppercase transition-all flex items-center gap-1 ${
+                                                        jamInstrument === 'ukulele' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-white'
+                                                    }`}
+                                                >
+                                                    <Music2 size={12} /> Ukulele
+                                                </button>
+                                            </div>
+
+                                            {/* Difficulty Selector */}
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="text-[10px] font-black uppercase text-zinc-500">Mode:</span>
+                                                <div className="flex bg-zinc-950 p-0.5 rounded-xl border border-zinc-800 text-[10px] font-black uppercase">
+                                                    <button
+                                                        onClick={() => setJamDifficulty('beginner')}
+                                                        className={`px-2 py-1 rounded-lg transition-all ${
+                                                            jamDifficulty === 'beginner' ? 'bg-emerald-500 text-black font-black' : 'text-zinc-500 hover:text-zinc-300'
+                                                        }`}
+                                                        title="Simple open chords (triads)"
+                                                    >
+                                                        Beginner
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setJamDifficulty('intermediate')}
+                                                        className={`px-2 py-1 rounded-lg transition-all ${
+                                                            jamDifficulty === 'intermediate' ? 'bg-amber-500 text-black font-black' : 'text-zinc-500 hover:text-zinc-300'
+                                                        }`}
+                                                        title="7ths & suspended chords"
+                                                    >
+                                                        Medium
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setJamDifficulty('advanced')}
+                                                        className={`px-2 py-1 rounded-lg transition-all ${
+                                                            jamDifficulty === 'advanced' ? 'bg-purple-500 text-white font-black' : 'text-zinc-500 hover:text-zinc-300'
+                                                        }`}
+                                                        title="Full jazz voicings & alterations"
+                                                    >
+                                                        Pro
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            {/* Transpose Controls */}
+                                            <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-xl border border-zinc-800">
+                                                <button
+                                                    onClick={() => setJamTranspose(prev => prev - 1)}
+                                                    className="w-5 h-5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-black text-xs flex items-center justify-center transition-all"
+                                                    title="Transpose Down (-1 semitone)"
+                                                >
+                                                    -
+                                                </button>
+                                                <span className="text-[11px] font-mono font-bold text-amber-300 px-1">
+                                                    {jamTranspose > 0 ? `+${jamTranspose}` : jamTranspose}st
+                                                </span>
+                                                <button
+                                                    onClick={() => setJamTranspose(prev => prev + 1)}
+                                                    className="w-5 h-5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-black text-xs flex items-center justify-center transition-all"
+                                                    title="Transpose Up (+1 semitone)"
+                                                >
+                                                    +
+                                                </button>
+                                                {jamTranspose !== 0 && (
+                                                    <button
+                                                        onClick={() => setJamTranspose(0)}
+                                                        className="text-[9px] text-zinc-500 hover:text-amber-400 font-bold px-1"
+                                                        title="Reset Transpose"
+                                                    >
+                                                        0
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* Center Stage Hero: Big Active Chord + Fretboard */}
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-stretch">
+                                            {/* Active Chord Big Card */}
+                                            <div className="p-4 bg-gradient-to-br from-zinc-900/90 to-zinc-950 border border-zinc-800 rounded-3xl flex flex-col justify-between space-y-3 relative overflow-hidden shadow-xl">
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-[11px] font-black uppercase text-zinc-500 tracking-wider flex items-center gap-1">
+                                                        <Activity size={13} className="text-amber-400 animate-pulse" /> Active Chord
+                                                    </span>
+                                                    {activeChordEvent?.isLiveDsp ? (
+                                                        <span className="text-[9px] px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/30 font-bold uppercase">
+                                                            🧪 DSP AI Live
+                                                        </span>
+                                                    ) : chordsData?.source ? (
+                                                        <span className="text-[9px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold">
+                                                            {chordsData.source}
+                                                        </span>
+                                                    ) : null}
+                                                </div>
+
+                                                <div className="text-center py-2">
+                                                    <h2 className="text-5xl sm:text-6xl font-black text-amber-300 tracking-tight drop-shadow-[0_0_25px_rgba(251,191,36,0.6)]">
+                                                        {activeChordEvent?.displayChord || 'C'}
+                                                    </h2>
+                                                    {activeChordEvent?.rawChord && activeChordEvent.rawChord !== activeChordEvent.displayChord && (
+                                                        <span className="text-[10px] text-zinc-500 font-mono block mt-1">
+                                                            Original: {activeChordEvent.rawChord} (Simplified)
+                                                        </span>
+                                                    )}
+                                                </div>
+
+                                                {/* Next Chord Countdown */}
+                                                <div className="p-2 bg-zinc-950/80 rounded-2xl border border-zinc-800/80 flex items-center justify-between text-xs">
+                                                    <span className="text-zinc-500 font-bold text-[11px]">Next:</span>
+                                                    {activeChordEvent?.nextChord ? (
+                                                        <div className="flex items-center gap-2 font-mono">
+                                                            <span className="px-2 py-0.5 rounded-lg bg-amber-500/20 text-amber-300 font-black text-xs border border-amber-500/30">
+                                                                {activeChordEvent.nextChord}
+                                                            </span>
+                                                            <span className="text-zinc-400 font-bold text-[11px]">in {activeChordEvent.nextInSeconds}s</span>
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-zinc-600 font-medium text-[11px]">Holding chord</span>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* Interactive Fretboard Visualizer */}
+                                            <FretboardDiagram
+                                                chordName={activeChordEvent?.displayChord || 'C'}
+                                                instrument={jamInstrument}
+                                            />
+                                        </div>
+
+                                        {/* Real-time 12-Bin Chromagram Harmonic Deconvolution Visualizer */}
+                                        <ChromagramVisualizer chroma={liveChromaEnergy} />
+
+                                        {/* Synced Lyrics with Chords Row */}
+                                        <div className="space-y-2 pt-1 flex-1 flex flex-col min-h-0">
+                                            <div className="flex items-center justify-between px-1 shrink-0">
+                                                <span className="text-xs font-black uppercase text-zinc-400 tracking-wider flex items-center gap-1.5">
+                                                    <Mic2 size={13} className="text-amber-400" /> Sing-Along Sheet
+                                                </span>
+                                                <span className="text-[10px] text-zinc-500 font-bold">Click any line to seek</span>
+                                            </div>
+
+                                            <div className="space-y-2 max-h-[220px] overflow-y-auto custom-scrollbar pr-1">
+                                                {lyricsData?.lines && lyricsData.lines.length > 0 ? (
+                                                    lyricsData.lines.map((line, idx) => {
+                                                        const isActive = idx === currentLyricIndex;
+                                                        const lineChords = getChordsForLyricLine(line.time, lyricsData.lines[idx + 1]?.time);
+                                                        return (
+                                                            <div
+                                                                key={idx}
+                                                                onClick={() => seekTo(line.time)}
+                                                                className={`p-2.5 rounded-2xl transition-all cursor-pointer border ${
+                                                                    isActive
+                                                                        ? 'bg-amber-500/15 border-amber-500/40 shadow-lg scale-[1.01]'
+                                                                        : 'bg-zinc-900/40 border-zinc-900 hover:bg-zinc-900/80'
+                                                                }`}
+                                                            >
+                                                                {/* Chords row above text */}
+                                                                <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                                                                    {lineChords.map((ch, ci) => (
+                                                                        <span
+                                                                            key={ci}
+                                                                            className={`px-2 py-0.5 rounded-lg text-xs font-black font-mono tracking-wider shadow-sm ${
+                                                                                isActive
+                                                                                    ? 'bg-amber-400 text-black drop-shadow-[0_0_8px_rgba(251,191,36,0.8)] scale-105'
+                                                                                    : 'bg-zinc-800 text-amber-300 border border-zinc-700'
+                                                                            }`}
+                                                                        >
+                                                                            {ch}
+                                                                        </span>
+                                                                    ))}
+                                                                </div>
+                                                                {/* Lyric text */}
+                                                                <p className={`font-bold transition-colors ${
+                                                                    isActive ? 'text-white text-base' : 'text-zinc-400 text-xs'
+                                                                }`}>
+                                                                    {line.text}
+                                                                </p>
+                                                            </div>
+                                                        );
+                                                    })
+                                                ) : (
+                                                    <div className="p-4 text-center bg-zinc-900/30 rounded-2xl border border-zinc-800/60 space-y-1">
+                                                        <p className="text-xs text-zinc-400 font-bold">No synced lyrics available for sing-along overlay.</p>
+                                                        <p className="text-[10px] text-zinc-600">The chords above are analyzed live in real-time.</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* 3. Queue Tab Content */}
                                 {expandedSidePanel === 'queue' && (
                                     <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1">
                                         {audioQueue.map((track, i) => {
@@ -1345,7 +1856,19 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 </div>
                             </div>
 
-                            <div className="flex items-center gap-2 shrink-0">
+                            <div className="flex items-center gap-2 shrink-0 flex-wrap justify-center sm:justify-end">
+                                <button
+                                    onClick={() => setShowChordsOverlay(!showChordsOverlay)}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 border ${
+                                        showChordsOverlay
+                                            ? 'bg-amber-500 text-black border-amber-400 shadow-sm'
+                                            : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-white'
+                                    }`}
+                                    title="Toggle Guitar / Ukulele Chords above lyrics"
+                                >
+                                    <Guitar size={13} /> Chords {showChordsOverlay && '✓'}
+                                </button>
+
                                 <div className="flex bg-zinc-950 p-1 rounded-2xl border border-zinc-800">
                                     <button
                                         onClick={() => setLyricsViewMode('karaoke')}
@@ -1383,7 +1906,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             {lyricsLoading ? (
                                 <div className="flex flex-col items-center justify-center py-20 gap-3 m-auto">
                                     <div className="w-10 h-10 border-4 border-amber-500/20 border-t-amber-500 rounded-full animate-spin" />
-                                    <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">Fetching Lyrics from Database &amp; LRCLib...</p>
+                                    <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">Fetching Lyrics &amp; Chords...</p>
                                 </div>
                             ) : !lyricsData || (!lyricsData.lines?.length && !lyricsData.plainLyrics) ? (
                                 <div className="flex flex-col items-center justify-center py-20 text-center space-y-4 m-auto">
@@ -1407,6 +1930,8 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                     {lyricsData.lines.map((line, idx) => {
                                         const isActive = idx === currentLyricIndex;
                                         const isPast = currentLyricIndex !== -1 && idx < currentLyricIndex;
+                                        const lineChords = showChordsOverlay ? getChordsForLyricLine(line.time, lyricsData.lines[idx + 1]?.time) : [];
+
                                         return (
                                             <div
                                                 key={idx}
@@ -1414,13 +1939,36 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                 onClick={() => seekTo(line.time)}
                                                 className={`cursor-pointer transition-all duration-300 py-1.5 px-4 rounded-2xl inline-block max-w-2xl ${
                                                     isActive
-                                                        ? 'text-2xl sm:text-3xl md:text-4xl font-black text-amber-300 drop-shadow-[0_0_35px_rgba(251,191,36,0.6)] scale-105'
+                                                        ? 'scale-105'
+                                                        : ''
+                                                }`}
+                                            >
+                                                {/* Chords row if enabled */}
+                                                {showChordsOverlay && lineChords.length > 0 && (
+                                                    <div className="flex items-center justify-center gap-2 mb-1.5 flex-wrap">
+                                                        {lineChords.map((ch, ci) => (
+                                                            <span
+                                                                key={ci}
+                                                                className={`px-3 py-0.5 rounded-lg text-xs font-black font-mono tracking-wider shadow-md ${
+                                                                    isActive
+                                                                        ? 'bg-amber-400 text-black drop-shadow-[0_0_10px_rgba(251,191,36,0.9)] scale-110'
+                                                                        : 'bg-zinc-800/90 text-amber-300 border border-zinc-700'
+                                                                }`}
+                                                            >
+                                                                {ch}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                                <p className={`font-black transition-all ${
+                                                    isActive
+                                                        ? 'text-2xl sm:text-3xl md:text-4xl text-amber-300 drop-shadow-[0_0_35px_rgba(251,191,36,0.6)]'
                                                         : isPast
                                                         ? 'text-base sm:text-lg font-bold text-zinc-600 hover:text-zinc-400'
                                                         : 'text-base sm:text-lg font-bold text-zinc-400 hover:text-zinc-200'
-                                                }`}
-                                            >
-                                                {line.text}
+                                                }`}>
+                                                    {line.text}
+                                                </p>
                                             </div>
                                         );
                                     })}

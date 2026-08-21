@@ -148,6 +148,18 @@ function initializeSchema(d: any) {
         source TEXT,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS music_chords (
+        track_key TEXT PRIMARY KEY,
+        artist TEXT NOT NULL,
+        title TEXT NOT NULL,
+        chords_json TEXT NOT NULL,
+        cifra_text TEXT,
+        key_signature TEXT,
+        tempo INTEGER,
+        source TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
     `);
 
     // Migrations
@@ -793,6 +805,39 @@ export const saveLyrics = (trackKey: string, artist: string, title: string, sync
         return true;
     } catch (e) {
         console.error('Error saving lyrics:', e);
+        return false;
+    }
+};
+
+export const getSavedChords = (trackKey: string) => {
+    try {
+        const row = db.prepare('SELECT * FROM music_chords WHERE track_key = ?').get(trackKey) as any;
+        return row || null;
+    } catch (e) {
+        console.error('Error getting saved chords:', e);
+        return null;
+    }
+};
+
+export const saveChords = (trackKey: string, artist: string, title: string, chordsJson: string, cifraText: string = '', keySignature: string = 'C', tempo: number = 120, source: string = 'manual') => {
+    try {
+        const stmt = db.prepare(`
+            INSERT INTO music_chords (track_key, artist, title, chords_json, cifra_text, key_signature, tempo, source, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(track_key) DO UPDATE SET
+                artist = excluded.artist,
+                title = excluded.title,
+                chords_json = excluded.chords_json,
+                cifra_text = excluded.cifra_text,
+                key_signature = excluded.key_signature,
+                tempo = excluded.tempo,
+                source = excluded.source,
+                updated_at = CURRENT_TIMESTAMP
+        `);
+        stmt.run(trackKey, artist, title, chordsJson, cifraText, keySignature, tempo, source);
+        return true;
+    } catch (e) {
+        console.error('Error saving chords:', e);
         return false;
     }
 };
