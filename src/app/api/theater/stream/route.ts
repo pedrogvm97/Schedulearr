@@ -187,7 +187,7 @@ export async function GET(req: NextRequest) {
             }
         }
 
-        // 2B. Audio Transcoding for Local Files (Copy video + AAC audio)
+        // 2B. Audio Transcoding for Video Files (Copy video + AAC audio)
         if (isVideo && (transcode === 'audio' || transcode === 'true')) {
             try {
                 const hwConfig = await detectHardwareEncoder();
@@ -226,6 +226,50 @@ export async function GET(req: NextRequest) {
                 });
             } catch (ffmpegErr: any) {
                 console.warn('FFmpeg audio transcode failed, falling back to direct stream:', ffmpegErr.message);
+            }
+        }
+
+        // 2C. Audio Transcoding for Music Files (FLAC / WAV / ALAC / DSF -> High-Res MP3 320k)
+        const isAudio = ['.flac', '.wav', '.m4a', '.aac', '.ogg', '.opus', '.ape', '.dsf', '.wma', '.mp3', '.aiff'].includes(ext);
+        if (isAudio && (transcode === 'audio' || transcode === 'aac' || transcode === 'mp3' || transcode === 'true')) {
+            try {
+                const ffmpegArgs = [
+                    ...(parseFloat(startTime) > 0 ? ['-ss', startTime] : []),
+                    '-i', filePath,
+                    '-c:a', 'libmp3lame',
+                    '-b:a', '320k',
+                    '-id3v2_version', '3',
+                    '-f', 'mp3',
+                    'pipe:1'
+                ];
+
+                const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+
+                ffmpeg.stderr.on('data', (d) => {
+                    const str = d.toString();
+                    if (str.includes('Error') || str.includes('Invalid')) {
+                        console.warn('[FFmpeg Music Transcode Error]:', str);
+                    }
+                });
+
+                req.signal.addEventListener('abort', () => {
+                    ffmpeg.kill('SIGKILL');
+                });
+
+                // @ts-ignore
+                const webStream = Readable.toWeb(ffmpeg.stdout);
+
+                return new Response(webStream as any, {
+                    status: 200,
+                    headers: {
+                        'Content-Type': 'audio/mpeg',
+                        'Transfer-Encoding': 'chunked',
+                        'Cache-Control': 'no-cache',
+                        'X-Stream-Engine': 'Server-Side MP3 Transcode (320 kbps)'
+                    }
+                });
+            } catch (ffmpegErr: any) {
+                console.warn('FFmpeg music transcode failed, falling back to direct stream:', ffmpegErr.message);
             }
         }
 
