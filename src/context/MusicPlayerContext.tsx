@@ -242,6 +242,19 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     const [showExpandedSidePanel, setShowExpandedSidePanel] = useState(true);
     const [isVinylView, setIsVinylView] = useState(true);
 
+    // Vinyl Interactive DJ Scratch & Tonearm Controls (Gimmick)
+    const [tonearmCustomAngle, setTonearmCustomAngle] = useState<number | null>(null);
+    const [isScratchingDisc, setIsScratchingDisc] = useState(false);
+    const [discScratchAngle, setDiscScratchAngle] = useState(0);
+    const [scratchFeedback, setScratchFeedback] = useState<string | null>(null);
+
+    const isDraggingTonearmRef = useRef(false);
+    const isDraggingDiscRef = useRef(false);
+    const lastPointerAngleRef = useRef(0);
+    const wasPlayingBeforeDragRef = useRef(false);
+    const discPlatterRef = useRef<HTMLDivElement>(null);
+    const tonearmGimbalRef = useRef<HTMLDivElement>(null);
+
     // Musical Jam & Chords States
     const [chordsData, setChordsData] = useState<ChordsData | null>(null);
     const [chordsLoading, setChordsLoading] = useState(false);
@@ -778,6 +791,124 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         }
     };
 
+    // ── Vinyl DJ Scratch & Tonearm Interaction Handlers (Gimmick) ──
+    const effectiveTonearmAngle = tonearmCustomAngle !== null
+        ? tonearmCustomAngle
+        : isAudioPlaying
+            ? 18 + (audioDuration > 0 ? Math.min(16, (audioCurrentTime / audioDuration) * 16) : 6)
+            : 0;
+
+    const handleTonearmClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        togglePlayPause();
+    };
+
+    const handleTonearmPointerDown = (e: React.PointerEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        isDraggingTonearmRef.current = true;
+        wasPlayingBeforeDragRef.current = isAudioPlaying;
+        if (isAudioPlaying && audioRef.current) {
+            audioRef.current.pause();
+        }
+        (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    };
+
+    const handleTonearmPointerMove = (e: React.PointerEvent) => {
+        if (!isDraggingTonearmRef.current || !tonearmGimbalRef.current) return;
+        const rect = tonearmGimbalRef.current.getBoundingClientRect();
+        const pivotX = rect.left + rect.width / 2;
+        const pivotY = rect.top + rect.height / 2;
+        const dx = e.clientX - pivotX;
+        const dy = e.clientY - pivotY;
+        const angleRad = Math.atan2(-dx, dy);
+        let mappedDeg = angleRad * (180 / Math.PI);
+        mappedDeg = Math.max(0, Math.min(38, mappedDeg));
+        setTonearmCustomAngle(mappedDeg);
+
+        if (mappedDeg >= 14 && audioDuration > 0) {
+            const cueRatio = Math.max(0, Math.min(1, (mappedDeg - 18) / 16));
+            const cueTime = cueRatio * audioDuration;
+            setScratchFeedback(`🎵 Cue: ${formatTime(cueTime)}`);
+            seekTo(cueTime);
+        } else {
+            setScratchFeedback('⏹️ Resting Needle (Off)');
+        }
+    };
+
+    const handleTonearmPointerUp = (e: React.PointerEvent) => {
+        if (!isDraggingTonearmRef.current) return;
+        isDraggingTonearmRef.current = false;
+        const finalAngle = tonearmCustomAngle ?? 0;
+        setTonearmCustomAngle(null);
+
+        if (finalAngle < 12) {
+            setIsAudioPlaying(false);
+            if (audioRef.current) audioRef.current.pause();
+            setScratchFeedback(null);
+        } else {
+            if (audioDuration > 0) {
+                const cueRatio = Math.max(0, Math.min(1, (finalAngle - 18) / 16));
+                const cueTime = cueRatio * audioDuration;
+                seekTo(cueTime);
+            }
+            setIsAudioPlaying(true);
+            if (audioRef.current) audioRef.current.play().catch(() => {});
+            setTimeout(() => setScratchFeedback(null), 1200);
+        }
+    };
+
+    const handleDiscPointerDown = (e: React.PointerEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!discPlatterRef.current) return;
+        const rect = discPlatterRef.current.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+
+        isDraggingDiscRef.current = true;
+        setIsScratchingDisc(true);
+        wasPlayingBeforeDragRef.current = isAudioPlaying;
+        lastPointerAngleRef.current = Math.atan2(e.clientY - centerY, e.clientX - centerX) * (180 / Math.PI);
+
+        if (isAudioPlaying && audioRef.current) {
+            audioRef.current.pause();
+        }
+        (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    };
+
+    const handleDiscPointerMove = (e: React.PointerEvent) => {
+        if (!isDraggingDiscRef.current || !discPlatterRef.current) return;
+        const rect = discPlatterRef.current.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+
+        const currentAngle = Math.atan2(e.clientY - centerY, e.clientX - centerX) * (180 / Math.PI);
+        let delta = currentAngle - lastPointerAngleRef.current;
+        if (delta > 180) delta -= 360;
+        if (delta < -180) delta += 360;
+
+        lastPointerAngleRef.current = currentAngle;
+        setDiscScratchAngle(prev => prev + delta);
+
+        const timeDelta = (delta / 360) * 4.0;
+        const newTime = Math.max(0, Math.min(audioDuration || 300, audioCurrentTime + timeDelta));
+        seekTo(newTime);
+        setScratchFeedback(`🎛️ ${delta >= 0 ? '⏩ Forward' : '⏪ Rewind'} ${formatTime(newTime)}`);
+    };
+
+    const handleDiscPointerUp = (e: React.PointerEvent) => {
+        if (!isDraggingDiscRef.current) return;
+        isDraggingDiscRef.current = false;
+        setIsScratchingDisc(false);
+
+        if (wasPlayingBeforeDragRef.current) {
+            setIsAudioPlaying(true);
+            if (audioRef.current) audioRef.current.play().catch(() => {});
+        }
+        setTimeout(() => setScratchFeedback(null), 1000);
+    };
+
     const handleVolumeChange = (v: number) => {
         setAudioVolume(v);
         setIsAudioMuted(v === 0);
@@ -1187,7 +1318,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
                             {/* Main Artwork Stage: Vinyl Player vs Normal Cover Art */}
                             {isVinylView ? (
-                                /* ── Vinyl Turntable Player Representation ── */
+                                /* ── Vinyl Turntable Player Representation (Interactive DJ Scratch & Tonearm Gimmick) ── */
                                 <div className="relative w-full max-w-[320px] sm:max-w-[380px] md:max-w-[420px] aspect-[1.12/1] rounded-[2.5rem] bg-gradient-to-b from-zinc-800 via-zinc-900 to-[#09090b] border-2 border-zinc-700/80 p-4 sm:p-5 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.9),inset_0_1px_2px_rgba(255,255,255,0.15)] flex items-center justify-center select-none overflow-hidden group">
                                     {/* Turntable Plinth Metallic Inset */}
                                     <div className="absolute inset-2 sm:inset-3 rounded-[2rem] bg-gradient-to-b from-[#18181b] to-[#0c0c0e] border border-white/5 pointer-events-none shadow-inner" />
@@ -1200,30 +1331,49 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                 : 'bg-zinc-600'
                                         }`} />
                                         <div className="text-[9px] font-black uppercase tracking-widest text-zinc-400">
-                                            <span className="text-amber-400">33⅓ RPM</span> • DIRECT DRIVE
+                                            <span className="text-amber-400">33⅓ RPM</span> • {isScratchingDisc ? 'DJ SCRATCH' : 'DIRECT DRIVE'}
                                         </div>
                                     </div>
 
-                                    {/* Bottom-Right: Hi-Fi Badge */}
+                                    {/* Bottom-Right: Interactive Gimmick Hint Badge */}
                                     <div className="absolute bottom-4 right-5 sm:bottom-5 sm:right-6 z-20 pointer-events-none">
-                                        <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 bg-zinc-950/80 px-2 py-0.5 rounded-md border border-zinc-800">
-                                            HI-FI AUDIO
+                                        <span className="text-[9px] font-black uppercase tracking-widest text-amber-400/80 bg-zinc-950/90 px-2 py-0.5 rounded-md border border-zinc-800 shadow-sm">
+                                            🎛️ SCRATCH / PULL NEEDLE
                                         </span>
                                     </div>
 
-                                    {/* Rotating Turntable Platter & Vinyl Disc */}
-                                    <div className="relative w-52 h-52 sm:w-64 sm:h-64 md:w-72 md:h-72 -translate-x-3 sm:-translate-x-4 flex items-center justify-center">
+                                    {/* Floating Scratch / Cue HUD Feedback Badge */}
+                                    {scratchFeedback && (
+                                        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-40 px-3.5 py-1.5 rounded-2xl bg-black/95 border border-amber-400/80 text-amber-300 text-xs font-black font-mono shadow-[0_0_25px_rgba(251,191,36,0.7)] animate-in zoom-in-95 pointer-events-none whitespace-nowrap">
+                                            {scratchFeedback}
+                                        </div>
+                                    )}
+
+                                    {/* Rotating Turntable Platter & Vinyl Disc (Grabbable & Scratchable) */}
+                                    <div
+                                        ref={discPlatterRef}
+                                        onPointerDown={handleDiscPointerDown}
+                                        onPointerMove={handleDiscPointerMove}
+                                        onPointerUp={handleDiscPointerUp}
+                                        onPointerCancel={handleDiscPointerUp}
+                                        className="relative w-52 h-52 sm:w-64 sm:h-64 md:w-72 md:h-72 -translate-x-3 sm:-translate-x-4 flex items-center justify-center cursor-grab active:cursor-grabbing touch-none select-none"
+                                        title="Grab and rotate the vinyl record to scrub time / scratch!"
+                                    >
                                         {/* Turntable Platter (Brushed rim) */}
-                                        <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-zinc-700 via-zinc-800 to-zinc-600 p-1.5 shadow-2xl flex items-center justify-center border border-zinc-600/50">
+                                        <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-zinc-700 via-zinc-800 to-zinc-600 p-1.5 shadow-2xl flex items-center justify-center border border-zinc-600/50 pointer-events-none">
                                             {/* Rubber Slipmat */}
                                             <div className="w-full h-full rounded-full bg-zinc-950 flex items-center justify-center shadow-inner">
                                                 {/* ── Rotating Vinyl Disc with Cropped Artwork ── */}
                                                 <div
                                                     className="relative w-[96%] h-[96%] rounded-full bg-black shadow-2xl flex items-center justify-center overflow-hidden"
-                                                    style={{
-                                                        animation: 'vinyl-spin 8s linear infinite',
-                                                        animationPlayState: isAudioPlaying ? 'running' : 'paused'
-                                                    }}
+                                                    style={
+                                                        isScratchingDisc
+                                                            ? { transform: `rotate(${discScratchAngle}deg)` }
+                                                            : {
+                                                                  animation: 'vinyl-spin 8s linear infinite',
+                                                                  animationPlayState: isAudioPlaying ? 'running' : 'paused'
+                                                              }
+                                                    }
                                                 >
                                                     {/* Vinyl Outer Grooves / Concentric Rings */}
                                                     <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,_#000000_30%,_#18181b_31%,_#09090b_45%,_#1f1f23_46%,_#000000_65%,_#18181b_66%,_#000000_100%)] opacity-90 pointer-events-none" />
@@ -1238,15 +1388,15 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                     <div className="absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,transparent_0deg,rgba(255,255,255,0.08)_45deg,transparent_90deg,transparent_180deg,rgba(255,255,255,0.08)_225deg,transparent_270deg)] pointer-events-none" />
 
                                                     {/* Center Vinyl Label with Cropped Album Art */}
-                                                    <div className="relative w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 rounded-full overflow-hidden border-2 border-amber-500/60 shadow-2xl flex items-center justify-center z-10">
+                                                    <div className="relative w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 rounded-full overflow-hidden border-2 border-amber-500/60 shadow-2xl flex items-center justify-center z-10 pointer-events-none">
                                                         {playingAudio.posterUrl ? (
                                                             <img
                                                                 src={playingAudio.posterUrl}
                                                                 alt=""
-                                                                className="w-full h-full object-cover"
+                                                                className="w-full h-full object-cover pointer-events-none"
                                                             />
                                                         ) : (
-                                                            <div className="w-full h-full bg-gradient-to-tr from-amber-600 to-amber-400 flex items-center justify-center text-black font-black text-xs text-center p-2">
+                                                            <div className="w-full h-full bg-gradient-to-tr from-amber-600 to-amber-400 flex items-center justify-center text-black font-black text-xs text-center p-2 pointer-events-none">
                                                                 {playingAudio.title}
                                                             </div>
                                                         )}
@@ -1260,35 +1410,48 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         </div>
                                     </div>
 
-                                    {/* ── Mechanical Tonearm Assembly (Pivots smoothly on play/pause) ── */}
-                                    <div className="absolute top-4 right-5 sm:top-5 sm:right-6 md:top-6 md:right-7 z-30 pointer-events-none">
+                                    {/* ── Mechanical Tonearm Assembly (Clickable / Draggable Needle) ── */}
+                                    <div
+                                        ref={tonearmGimbalRef}
+                                        className="absolute top-4 right-5 sm:top-5 sm:right-6 md:top-6 md:right-7 z-30 touch-none select-none"
+                                    >
                                         {/* Tonearm Gimbal / Base */}
-                                        <div className="relative w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-gradient-to-b from-zinc-700 via-zinc-800 to-zinc-950 border-2 border-zinc-500 shadow-2xl flex items-center justify-center">
+                                        <div
+                                            onClick={handleTonearmClick}
+                                            className="relative w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-gradient-to-b from-zinc-700 via-zinc-800 to-zinc-950 border-2 border-zinc-500 shadow-2xl flex items-center justify-center cursor-pointer hover:border-amber-400 transition-colors"
+                                            title="Click to lift / drop needle to pause or play"
+                                        >
                                             {/* Chrome Pivot Cap */}
-                                            <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-zinc-300 via-white to-zinc-400 border border-zinc-400 shadow-md flex items-center justify-center">
+                                            <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-zinc-300 via-white to-zinc-400 border border-zinc-400 shadow-md flex items-center justify-center pointer-events-none">
                                                 <div className="w-2 h-2 rounded-full bg-zinc-900" />
                                             </div>
 
                                             {/* Tonearm Wand (Arm & Headshell) */}
                                             <div
-                                                className="absolute top-5 left-5 w-1.5 origin-top transition-transform duration-700 ease-in-out"
+                                                onPointerDown={handleTonearmPointerDown}
+                                                onPointerMove={handleTonearmPointerMove}
+                                                onPointerUp={handleTonearmPointerUp}
+                                                onPointerCancel={handleTonearmPointerUp}
+                                                className="absolute top-5 left-5 w-8 origin-top cursor-grab active:cursor-grabbing hover:brightness-110 group/arm"
                                                 style={{
-                                                    transform: isAudioPlaying ? 'rotate(27deg)' : 'rotate(0deg)'
+                                                    transform: `rotate(${effectiveTonearmAngle}deg)`,
+                                                    transition: isDraggingTonearmRef.current ? 'none' : 'transform 600ms cubic-bezier(0.34, 1.56, 0.64, 1)'
                                                 }}
+                                                title="Grab and pull the needle across the record to cue, or pull to cradle to pause"
                                             >
                                                 {/* Metallic Chrome Arm */}
-                                                <div className="w-1.5 h-36 sm:h-44 md:h-48 bg-gradient-to-r from-zinc-400 via-zinc-200 to-zinc-500 rounded-full shadow-lg relative">
+                                                <div className="w-1.5 h-36 sm:h-44 md:h-48 bg-gradient-to-r from-zinc-400 via-zinc-200 to-zinc-500 rounded-full shadow-lg relative pointer-events-none">
                                                     {/* Headshell / Stylus Cartridge */}
-                                                    <div className="absolute -bottom-2 -left-2 w-5 h-8 bg-gradient-to-b from-amber-400 to-amber-600 rounded-sm shadow-md flex items-center justify-center border border-amber-300">
+                                                    <div className="absolute -bottom-2 -left-2 w-6 h-9 bg-gradient-to-b from-amber-400 to-amber-600 rounded-sm shadow-md flex items-center justify-center border-2 border-amber-300 group-hover/arm:ring-2 group-hover/arm:ring-amber-400/80 transition-all pointer-events-none">
                                                         {/* Stylus Needle Indicator */}
-                                                        <div className="w-1 h-2 bg-white rounded-full shadow-sm" />
+                                                        <div className="w-1.5 h-2.5 bg-white rounded-full shadow-sm animate-pulse" />
                                                     </div>
                                                 </div>
                                             </div>
                                         </div>
 
                                         {/* Tonearm Rest / Cradle */}
-                                        <div className="absolute top-28 sm:top-36 right-4 w-3 h-4 bg-zinc-700 border border-zinc-600 rounded-sm shadow-inner" />
+                                        <div className="absolute top-28 sm:top-36 right-4 w-3 h-4 bg-zinc-700 border border-zinc-600 rounded-sm shadow-inner pointer-events-none" />
                                     </div>
                                 </div>
                             ) : (
