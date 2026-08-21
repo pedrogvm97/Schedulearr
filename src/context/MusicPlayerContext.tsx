@@ -6,7 +6,8 @@ import {
     Shuffle, Repeat, SkipForward, SkipBack,
     Disc, Music, ListMusic, Download, ArrowDownToLine,
     Info, Mic2, Edit3, Search, Sparkles, Check,
-    RefreshCw, ChevronDown, Sliders, Cast, Tv, Trash2, Plus
+    RefreshCw, ChevronDown, Sliders, Cast, Tv, Trash2, Plus,
+    Image as ImageIcon
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -109,6 +110,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     const [isExpandedPlayerOpen, setIsExpandedPlayerOpen] = useState(false);
     const [expandedSidePanel, setExpandedSidePanel] = useState<'lyrics' | 'queue' | 'specs'>('lyrics');
     const [showExpandedSidePanel, setShowExpandedSidePanel] = useState(true);
+    const [isVinylView, setIsVinylView] = useState(true);
 
     // Lyrics & Karaoke States
     const [showLyricsModal, setShowLyricsModal] = useState(false);
@@ -817,25 +819,149 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                     {/* Main Stage */}
                     <div className="relative z-10 flex-1 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center min-h-0 py-4 overflow-y-auto custom-scrollbar">
                         {/* Left / Center: Big Artwork & Full Controls */}
-                        <div className={`${showExpandedSidePanel ? 'lg:col-span-6 xl:col-span-5' : 'lg:col-span-8 lg:col-start-3'} flex flex-col items-center justify-center space-y-6 mx-auto w-full max-w-lg transition-all`}>
-                            {/* Big Album / Vinyl Art Frame */}
-                            <div className="relative w-64 h-64 sm:w-80 sm:h-80 md:w-96 md:h-96 group/disc shrink-0">
-                                {/* Rotating Vinyl Disc coming out behind art */}
-                                <div className={`absolute top-0 right-0 w-64 h-64 sm:w-80 sm:h-80 md:w-96 md:h-96 rounded-full bg-gradient-to-tr from-zinc-950 via-zinc-900 to-black border-4 border-zinc-800 shadow-2xl flex items-center justify-center translate-x-8 sm:translate-x-12 ${isAudioPlaying ? 'animate-spin-slow' : ''} transition-transform duration-500`}>
-                                    <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-amber-500/20 border-2 border-amber-500/40 flex items-center justify-center shadow-inner">
-                                        <div className="w-6 h-6 rounded-full bg-zinc-950 border border-zinc-800" />
+                        <div className={`${showExpandedSidePanel ? 'lg:col-span-6 xl:col-span-5' : 'lg:col-span-8 lg:col-start-3'} flex flex-col items-center justify-center space-y-5 mx-auto w-full max-w-lg transition-all`}>
+                            {/* View Mode Toggle: Vinyl Turntable vs Normal Cover Art */}
+                            <div className="flex items-center gap-1.5 bg-zinc-950/80 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner backdrop-blur-md">
+                                <button
+                                    onClick={() => setIsVinylView(true)}
+                                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                                        isVinylView
+                                            ? 'bg-amber-500 text-black shadow-md'
+                                            : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
+                                    }`}
+                                    title="Switch to Vinyl Turntable Player Mode"
+                                >
+                                    <Disc size={15} /> Vinyl Player
+                                </button>
+                                <button
+                                    onClick={() => setIsVinylView(false)}
+                                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                                        !isVinylView
+                                            ? 'bg-zinc-800 text-white border border-zinc-700 shadow-md'
+                                            : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
+                                    }`}
+                                    title="Switch to Standard Cover Artwork View"
+                                >
+                                    <ImageIcon size={15} /> Normal Art
+                                </button>
+                            </div>
+
+                            {/* Main Artwork Stage: Vinyl Player vs Normal Cover Art */}
+                            {isVinylView ? (
+                                /* ── Vinyl Turntable Player Representation ── */
+                                <div className="relative w-full max-w-[320px] sm:max-w-[380px] md:max-w-[420px] aspect-[1.12/1] rounded-[2.5rem] bg-gradient-to-b from-zinc-800 via-zinc-900 to-[#09090b] border-2 border-zinc-700/80 p-4 sm:p-5 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.9),inset_0_1px_2px_rgba(255,255,255,0.15)] flex items-center justify-center select-none overflow-hidden group">
+                                    {/* Turntable Plinth Metallic Inset */}
+                                    <div className="absolute inset-2 sm:inset-3 rounded-[2rem] bg-gradient-to-b from-[#18181b] to-[#0c0c0e] border border-white/5 pointer-events-none shadow-inner" />
+
+                                    {/* Top-Left: Direct Drive Specs & Power / Strobe LED */}
+                                    <div className="absolute top-4 left-5 sm:top-5 sm:left-6 z-20 flex items-center gap-2 pointer-events-none">
+                                        <span className={`w-2.5 h-2.5 rounded-full transition-all duration-300 ${
+                                            isAudioPlaying
+                                                ? 'bg-emerald-400 shadow-[0_0_10px_#34d399] ring-2 ring-emerald-500/30'
+                                                : 'bg-zinc-600'
+                                        }`} />
+                                        <div className="text-[9px] font-black uppercase tracking-widest text-zinc-400">
+                                            <span className="text-amber-400">33⅓ RPM</span> • DIRECT DRIVE
+                                        </div>
+                                    </div>
+
+                                    {/* Bottom-Right: Hi-Fi Badge */}
+                                    <div className="absolute bottom-4 right-5 sm:bottom-5 sm:right-6 z-20 pointer-events-none">
+                                        <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 bg-zinc-950/80 px-2 py-0.5 rounded-md border border-zinc-800">
+                                            HI-FI AUDIO
+                                        </span>
+                                    </div>
+
+                                    {/* Rotating Turntable Platter & Vinyl Disc */}
+                                    <div className="relative w-52 h-52 sm:w-64 sm:h-64 md:w-72 md:h-72 -translate-x-3 sm:-translate-x-4 flex items-center justify-center">
+                                        {/* Turntable Platter (Brushed rim) */}
+                                        <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-zinc-700 via-zinc-800 to-zinc-600 p-1.5 shadow-2xl flex items-center justify-center border border-zinc-600/50">
+                                            {/* Rubber Slipmat */}
+                                            <div className="w-full h-full rounded-full bg-zinc-950 flex items-center justify-center shadow-inner">
+                                                {/* ── Rotating Vinyl Disc with Cropped Artwork ── */}
+                                                <div
+                                                    className="relative w-[96%] h-[96%] rounded-full bg-black shadow-2xl flex items-center justify-center overflow-hidden"
+                                                    style={{
+                                                        animation: 'vinyl-spin 8s linear infinite',
+                                                        animationPlayState: isAudioPlaying ? 'running' : 'paused'
+                                                    }}
+                                                >
+                                                    {/* Vinyl Outer Grooves / Concentric Rings */}
+                                                    <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,_#000000_30%,_#18181b_31%,_#09090b_45%,_#1f1f23_46%,_#000000_65%,_#18181b_66%,_#000000_100%)] opacity-90 pointer-events-none" />
+                                                    
+                                                    {/* Subtle Vinyl Grooves lines */}
+                                                    <div className="absolute inset-2 rounded-full border border-white/5 pointer-events-none" />
+                                                    <div className="absolute inset-5 rounded-full border border-white/5 pointer-events-none" />
+                                                    <div className="absolute inset-8 rounded-full border border-white/5 pointer-events-none" />
+                                                    <div className="absolute inset-12 rounded-full border border-white/5 pointer-events-none" />
+                                                    
+                                                    {/* Conic Sheen Reflection */}
+                                                    <div className="absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,transparent_0deg,rgba(255,255,255,0.08)_45deg,transparent_90deg,transparent_180deg,rgba(255,255,255,0.08)_225deg,transparent_270deg)] pointer-events-none" />
+
+                                                    {/* Center Vinyl Label with Cropped Album Art */}
+                                                    <div className="relative w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 rounded-full overflow-hidden border-2 border-amber-500/60 shadow-2xl flex items-center justify-center z-10">
+                                                        {playingAudio.posterUrl ? (
+                                                            <img
+                                                                src={playingAudio.posterUrl}
+                                                                alt=""
+                                                                className="w-full h-full object-cover"
+                                                            />
+                                                        ) : (
+                                                            <div className="w-full h-full bg-gradient-to-tr from-amber-600 to-amber-400 flex items-center justify-center text-black font-black text-xs text-center p-2">
+                                                                {playingAudio.title}
+                                                            </div>
+                                                        )}
+                                                        {/* Center Ring & Spindle Hole */}
+                                                        <div className="absolute w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-zinc-950 border-2 border-zinc-400 flex items-center justify-center shadow-inner z-20">
+                                                            <div className="w-2.5 h-2.5 rounded-full bg-gradient-to-tr from-amber-400 to-amber-200 shadow-md" />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* ── Mechanical Tonearm Assembly (Pivots smoothly on play/pause) ── */}
+                                    <div className="absolute top-4 right-5 sm:top-5 sm:right-6 md:top-6 md:right-7 z-30 pointer-events-none">
+                                        {/* Tonearm Gimbal / Base */}
+                                        <div className="relative w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-gradient-to-b from-zinc-700 via-zinc-800 to-zinc-950 border-2 border-zinc-500 shadow-2xl flex items-center justify-center">
+                                            {/* Chrome Pivot Cap */}
+                                            <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-zinc-300 via-white to-zinc-400 border border-zinc-400 shadow-md flex items-center justify-center">
+                                                <div className="w-2 h-2 rounded-full bg-zinc-900" />
+                                            </div>
+
+                                            {/* Tonearm Wand (Arm & Headshell) */}
+                                            <div
+                                                className="absolute top-5 left-5 w-1.5 origin-top transition-transform duration-700 ease-in-out"
+                                                style={{
+                                                    transform: isAudioPlaying ? 'rotate(27deg)' : 'rotate(0deg)'
+                                                }}
+                                            >
+                                                {/* Metallic Chrome Arm */}
+                                                <div className="w-1.5 h-36 sm:h-44 md:h-48 bg-gradient-to-r from-zinc-400 via-zinc-200 to-zinc-500 rounded-full shadow-lg relative">
+                                                    {/* Headshell / Stylus Cartridge */}
+                                                    <div className="absolute -bottom-2 -left-2 w-5 h-8 bg-gradient-to-b from-amber-400 to-amber-600 rounded-sm shadow-md flex items-center justify-center border border-amber-300">
+                                                        {/* Stylus Needle Indicator */}
+                                                        <div className="w-1 h-2 bg-white rounded-full shadow-sm" />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Tonearm Rest / Cradle */}
+                                        <div className="absolute top-28 sm:top-36 right-4 w-3 h-4 bg-zinc-700 border border-zinc-600 rounded-sm shadow-inner" />
                                     </div>
                                 </div>
-
-                                {/* Front High-Res Cover Artwork */}
-                                <div className="relative w-64 h-64 sm:w-80 sm:h-80 md:w-96 md:h-96 rounded-[2.5rem] bg-zinc-900 border-2 border-zinc-800/80 overflow-hidden shadow-2xl flex items-center justify-center z-10">
+                            ) : (
+                                /* ── Normal High-Res Cover Artwork View (With No Other Effect) ── */
+                                <div className="relative w-64 h-64 sm:w-80 sm:h-80 md:w-96 md:h-96 rounded-[2.5rem] bg-zinc-900 border-2 border-zinc-800/80 overflow-hidden shadow-2xl flex items-center justify-center">
                                     {playingAudio.posterUrl ? (
                                         <img src={playingAudio.posterUrl} alt="" className="w-full h-full object-cover" />
                                     ) : (
                                         <Disc size={96} className="text-amber-400" />
                                     )}
                                 </div>
-                            </div>
+                            )}
 
                             {/* Track Info & Audiophile Badges */}
                             <div className="text-center space-y-2 w-full px-4">
