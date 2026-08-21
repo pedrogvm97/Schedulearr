@@ -209,8 +209,43 @@ export default function TheaterPage() {
     } = useMusicPlayer();
 
     const [playingVideo, setPlayingVideo] = useState<MediaItem | null>(null);
-    const [videoAudioMode, setVideoAudioMode] = useState<'direct' | 'transcode' | 'universal'>('transcode');
+    const [videoAudioMode, setVideoAudioMode] = useState<'universal' | 'transcode' | 'direct'>('universal');
+    const [videoQuality, setVideoQuality] = useState<'auto' | '1080p-high' | '1080p' | '720p' | '480p'>('auto');
     const [viewingPhotoIndex, setViewingPhotoIndex] = useState<number | null>(null);
+
+    // Load saved streaming preferences from localStorage
+    useEffect(() => {
+        try {
+            const savedMode = localStorage.getItem('schedulearr_video_mode');
+            if (savedMode && (savedMode === 'universal' || savedMode === 'transcode' || savedMode === 'direct')) {
+                setVideoAudioMode(savedMode as any);
+            }
+            const savedQ = localStorage.getItem('schedulearr_video_quality');
+            if (savedQ) {
+                setVideoQuality(savedQ as any);
+            }
+        } catch {}
+    }, []);
+
+    const handleSetVideoMode = (mode: 'universal' | 'transcode' | 'direct') => {
+        setVideoAudioMode(mode);
+        try { localStorage.setItem('schedulearr_video_mode', mode); } catch {}
+        setPlaybackError(null);
+        addDebugLog('info', `Switched video stream mode to: ${mode.toUpperCase()}`);
+        toast.info(
+            mode === 'universal'
+                ? '⚡ Server Optimized: Full H.264 + AAC compatibility stream (QuickSync/NVENC/CPU)'
+                : mode === 'transcode'
+                ? '🔊 Audio Transcode: Copy original video + AAC 2.0 transcode'
+                : '💎 Direct Play: Raw original bitstream'
+        );
+    };
+
+    const handleSetVideoQuality = (q: 'auto' | '1080p-high' | '1080p' | '720p' | '480p') => {
+        setVideoQuality(q);
+        try { localStorage.setItem('schedulearr_video_quality', q); } catch {}
+        toast.info(`Quality preset set to: ${q.toUpperCase()}`);
+    };
 
     // Video Player Advanced Controls & Diagnostics & Nerd Tools
     const [showStatsHud, setShowStatsHud] = useState(false);
@@ -801,16 +836,19 @@ export default function TheaterPage() {
 
             let streamUrl = playingVideo.streamUrl;
 
-            // Transcode mode query param injection
+            // Transcode mode & quality query param injection
             if (videoAudioMode === 'universal') {
-                streamUrl = `${streamUrl}${streamUrl.includes('?') ? '&' : '?'}transcode=universal`;
+                streamUrl = `${streamUrl}${streamUrl.includes('?') ? '&' : '?'}transcode=universal&quality=${videoQuality}`;
             } else if (videoAudioMode === 'transcode') {
                 streamUrl = `${streamUrl}${streamUrl.includes('?') ? '&' : '?'}transcode=audio`;
+            } else if (videoAudioMode === 'direct') {
+                streamUrl = `${streamUrl}${streamUrl.includes('?') ? '&' : '?'}transcode=direct`;
             }
 
             addDebugLog('info', `Initializing playback for "${playingVideo.title}"`, {
                 path: playingVideo.path,
                 mode: videoAudioMode,
+                quality: videoQuality,
                 streamUrl
             });
 
@@ -836,7 +874,7 @@ export default function TheaterPage() {
                             codeName: data.details,
                             message: `HLS fatal streaming error (${data.details}).`,
                             details: JSON.stringify(data, null, 2),
-                            suggestion: 'Switch to Full Universal Transcode (H.264+AAC) or open in VLC.'
+                            suggestion: 'Switch to Server-Side Optimized (Universal H.264+AAC) or open in VLC.'
                         });
                     }
                 });
@@ -861,7 +899,7 @@ export default function TheaterPage() {
                         setDiagnosticsData(d);
                         addDebugLog('info', 'ffprobe stream diagnostics loaded', d.original);
                         if (d.original?.videoCodec?.toUpperCase().includes('HEVC') && videoAudioMode === 'direct') {
-                            addDebugLog('warn', `Direct Play with HEVC video: Browser may fail if HEVC hardware decoding is unsupported. Universal Transcode recommended.`);
+                            addDebugLog('warn', `Direct Play with HEVC video: Browser may fail if HEVC hardware decoding is unsupported. Universal Server Optimized mode recommended.`);
                         }
                         if (d.original?.audioCodec?.toUpperCase().includes('DTS') && videoAudioMode === 'direct') {
                             addDebugLog('warn', `Direct Play with DTS audio: Browser cannot decode raw DTS audio without AAC transcoding.`);
@@ -879,7 +917,7 @@ export default function TheaterPage() {
                 hlsInstanceRef.current = null;
             }
         };
-    }, [playingVideo, videoAudioMode]);
+    }, [playingVideo, videoAudioMode, videoQuality]);
 
     // Live Video HLS Handler
     useEffect(() => {
@@ -2176,49 +2214,78 @@ export default function TheaterPage() {
                                 <h2 className="text-base sm:text-lg font-black text-white truncate max-w-xl flex items-center gap-2">
                                     {playingVideo.title}
                                     {videoAudioMode === 'universal' && (
-                                        <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 text-[10px] font-bold border border-emerald-500/30 uppercase">
-                                            Universal H.264
+                                        <span className="px-2.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 text-[11px] font-bold border border-emerald-500/30 uppercase flex items-center gap-1">
+                                            <Zap size={11} className="animate-pulse" /> Server Optimized
                                         </span>
                                     )}
                                     {videoAudioMode === 'transcode' && (
-                                        <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-400 text-[10px] font-bold border border-amber-500/30 uppercase">
-                                            Audio AAC
+                                        <span className="px-2.5 py-0.5 rounded-md bg-amber-500/20 text-amber-400 text-[11px] font-bold border border-amber-500/30 uppercase flex items-center gap-1">
+                                            <Headphones size={11} /> Audio AAC
+                                        </span>
+                                    )}
+                                    {videoAudioMode === 'direct' && (
+                                        <span className="px-2.5 py-0.5 rounded-md bg-sky-500/20 text-sky-400 text-[11px] font-bold border border-sky-500/30 uppercase flex items-center gap-1">
+                                            <Film size={11} /> Direct Play
                                         </span>
                                     )}
                                 </h2>
-                                <p className="text-[11px] text-zinc-500 font-mono truncate">{playingVideo.path}</p>
+                                <p className="text-xs text-zinc-500 font-mono truncate">{playingVideo.path}</p>
                             </div>
 
                             <div className="flex items-center flex-wrap gap-2">
-                                {/* Stream Mode Selector Cycle Button */}
-                                <button
-                                    onClick={() => {
-                                        const nextMode = videoAudioMode === 'transcode' ? 'universal' : videoAudioMode === 'universal' ? 'direct' : 'transcode';
-                                        setVideoAudioMode(nextMode);
-                                        setPlaybackError(null);
-                                        addDebugLog('info', `Switched playback mode to: ${nextMode.toUpperCase()}`);
-                                        toast.info(
-                                            nextMode === 'universal'
-                                                ? 'Universal Transcode: Full H.264 + AAC compatibility mode'
-                                                : nextMode === 'transcode'
-                                                    ? 'Audio Transcode: Video copy + AAC 2.0 transcode'
-                                                    : 'Direct Play: Raw file stream'
-                                        );
-                                    }}
-                                    className={`p-2 sm:p-2.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
-                                        videoAudioMode === 'universal'
-                                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                                            : videoAudioMode === 'transcode'
-                                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                                                : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
-                                    }`}
-                                    title="Click to cycle: Audio AAC ➔ Universal H.264 ➔ Direct Play"
-                                >
-                                    <Headphones size={15} />
-                                    <span>
-                                        {videoAudioMode === 'universal' ? 'Mode: Universal' : videoAudioMode === 'transcode' ? 'Mode: Audio AAC' : 'Mode: Direct'}
-                                    </span>
-                                </button>
+                                {/* Stream Mode Selector Pills */}
+                                <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800">
+                                    <button
+                                        onClick={() => handleSetVideoMode('universal')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1 ${
+                                            videoAudioMode === 'universal'
+                                                ? 'bg-emerald-500 text-black shadow-sm'
+                                                : 'text-zinc-400 hover:text-white'
+                                        }`}
+                                        title="Server-Side Optimized: Universal H.264 + AAC 2.0 with Hardware Acceleration (QuickSync/NVENC/CPU)"
+                                    >
+                                        <Zap size={12} /> Server Stream
+                                    </button>
+                                    <button
+                                        onClick={() => handleSetVideoMode('transcode')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1 ${
+                                            videoAudioMode === 'transcode'
+                                                ? 'bg-amber-500 text-black shadow-sm'
+                                                : 'text-zinc-400 hover:text-white'
+                                        }`}
+                                        title="Audio Transcode Only: Direct video bitstream + AAC audio transcode"
+                                    >
+                                        <Headphones size={12} /> Audio AAC
+                                    </button>
+                                    <button
+                                        onClick={() => handleSetVideoMode('direct')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1 ${
+                                            videoAudioMode === 'direct'
+                                                ? 'bg-sky-500 text-black shadow-sm'
+                                                : 'text-zinc-400 hover:text-white'
+                                        }`}
+                                        title="Direct Play: Raw original file bitstream"
+                                    >
+                                        <Film size={12} /> Direct
+                                    </button>
+                                </div>
+
+                                {/* Quality Preset Selector (when in Server Optimized mode) */}
+                                {videoAudioMode === 'universal' && (
+                                    <div className="flex items-center bg-zinc-950 px-2 py-1 rounded-xl border border-zinc-800 text-xs font-bold">
+                                        <span className="text-zinc-500 mr-1.5 text-[11px] uppercase font-black">Quality:</span>
+                                        <select
+                                            value={videoQuality}
+                                            onChange={(e) => handleSetVideoQuality(e.target.value as any)}
+                                            className="bg-transparent text-amber-300 font-black outline-none cursor-pointer text-xs uppercase"
+                                        >
+                                            <option value="auto" className="bg-zinc-900 text-white">Auto (1080p Standard)</option>
+                                            <option value="1080p-high" className="bg-zinc-900 text-white">1080p High (14 Mbps)</option>
+                                            <option value="720p" className="bg-zinc-900 text-white">720p Fast (4.5 Mbps)</option>
+                                            <option value="480p" className="bg-zinc-900 text-white">480p Mobile (1.8 Mbps)</option>
+                                        </select>
+                                    </div>
+                                )}
 
                                 {/* Nerd Tools & Debug Logs Drawer Toggle */}
                                 <button

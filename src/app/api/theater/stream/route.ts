@@ -5,6 +5,7 @@ import { getInstances } from '@/lib/db';
 import axios from 'axios';
 import { spawn } from 'child_process';
 import { Readable } from 'stream';
+import { detectHardwareEncoder, buildFFmpegArgs, QualityPreset } from '@/lib/transcoder';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,6 +45,7 @@ export async function GET(req: NextRequest) {
         const instanceId = searchParams.get('instanceId');
         const m3u = searchParams.get('m3u');
         const transcode = searchParams.get('transcode');
+        const quality = (searchParams.get('quality') || 'auto') as QualityPreset;
         const startTime = searchParams.get('ss') || '0';
         const title = searchParams.get('title') || 'media';
 
@@ -69,7 +71,7 @@ export async function GET(req: NextRequest) {
             });
         }
 
-        // 1. Plex Direct Stream or Transcode Proxy
+        // 1. Plex Direct Stream or Server-Side Transcode Proxy
         if (plexPart) {
             const plexInstances = getInstances().filter(i => i.type === 'plex' && i.enabled);
             const plex = instanceId ? plexInstances.find(i => i.id === instanceId) : plexInstances[0];
@@ -84,11 +86,21 @@ export async function GET(req: NextRequest) {
             const normalizedPlexPart = plexPart.startsWith('/') ? plexPart : `/${plexPart}`;
             const sep = normalizedPlexPart.includes('?') ? '&' : '?';
 
-            if (transcode === 'audio' || transcode === 'true') {
-                // Plex Universal Transcoder with AAC Audio
+            if (transcode === 'direct') {
+                // Direct play stream from Plex
+                plexStreamUrl = `${plexUrlBase}${normalizedPlexPart}${sep}X-Plex-Token=${plex.api_key}`;
+            } else if (transcode === 'audio') {
+                // Audio transcode only on Plex
                 plexStreamUrl = `${plexUrlBase}/video/:/transcode/universal/start.mp4?path=${encodeURIComponent(normalizedPlexPart)}&mediaIndex=0&partIndex=0&protocol=http&directPlay=0&directStream=1&directStreamAudio=0&fastSeek=1&copyts=1&X-Plex-Token=${plex.api_key}`;
             } else {
-                plexStreamUrl = `${plexUrlBase}${normalizedPlexPart}${sep}X-Plex-Token=${plex.api_key}`;
+                // Universal Server-Side Optimized Transcode on Plex (Default)
+                let maxBitrate = '12000';
+                let resolution = '1920x1080';
+                if (quality === '1080p-high') { maxBitrate = '16000'; resolution = '1920x1080'; }
+                else if (quality === '720p') { maxBitrate = '4500'; resolution = '1280x720'; }
+                else if (quality === '480p') { maxBitrate = '1800'; resolution = '854x480'; }
+
+                plexStreamUrl = `${plexUrlBase}/video/:/transcode/universal/start.mp4?path=${encodeURIComponent(normalizedPlexPart)}&mediaIndex=0&partIndex=0&protocol=http&directPlay=0&directStream=1&directStreamAudio=0&fastSeek=1&copyts=1&maxVideoBitrate=${maxBitrate}&videoResolution=${resolution}&videoQuality=100&X-Plex-Token=${plex.api_key}`;
             }
 
             const reqHeaders: Record<string, string> = {
@@ -116,6 +128,7 @@ export async function GET(req: NextRequest) {
             const fallbackMime = getMimeType(fileExt || '.mp4');
             resHeaders.set('Content-Type', incomingMime || fallbackMime);
             resHeaders.set('Accept-Ranges', 'bytes');
+            resHeaders.set('X-Stream-Engine', 'Plex Native Transcoder');
 
             // @ts-ignore
             return new Response(plexRes.data as any, {
@@ -129,26 +142,20 @@ export async function GET(req: NextRequest) {
             return new NextResponse('File not found', { status: 404 });
         }
 
-        // 2A. On-The-Fly Transcoding for Local Files
-        if (transcode === 'full' || transcode === 'universal') {
+        const ext = path.extname(filePath).toLowerCase();
+        const isVideo = ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.m4v', '.ts', '.wmv'].includes(ext);
+
+        // 2A. Universal Server-Side Optimized Conversion (Default for Video unless direct requested)
+        if (isVideo && (transcode === 'universal' || transcode === 'full' || !transcode)) {
             try {
-                const ffmpegArgs = [
-                    ...(parseFloat(startTime) > 0 ? ['-ss', startTime] : []),
-                    '-i', filePath,
-                    '-c:v', 'libx264',
-                    '-preset', 'veryfast',
-                    '-crf', '22',
-                    '-maxrate', '10M',
-                    '-bufsize', '20M',
-                    '-pix_fmt', 'yuv420p',
-                    '-c:a', 'aac',
-                    '-b:a', '256k',
-                    '-ac', '2',
-                    '-sn',
-                    '-f', 'mp4',
-                    '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
-                    'pipe:1'
-                ];
+                const hwConfig = await detectHardwareEncoder();
+                const ffmpegArgs = buildFFmpegArgs({
+                    filePath,
+                    startTime,
+                    quality,
+                    mode: 'universal',
+                    config: hwConfig
+                });
 
                 const ffmpeg = spawn('ffmpeg', ffmpegArgs);
 
@@ -171,29 +178,26 @@ export async function GET(req: NextRequest) {
                     headers: {
                         'Content-Type': 'video/mp4',
                         'Transfer-Encoding': 'chunked',
-                        'Cache-Control': 'no-cache'
+                        'Cache-Control': 'no-cache',
+                        'X-Hardware-Encoder': hwConfig.description
                     }
                 });
             } catch (ffmpegErr: any) {
-                console.warn('FFmpeg full transcode failed, falling back to direct stream:', ffmpegErr.message);
+                console.warn('FFmpeg hardware transcode failed, falling back to direct stream:', ffmpegErr.message);
             }
         }
 
-        // 2B. On-The-Fly Audio Transcoding for Local Files (DTS/TrueHD/EAC3 -> AAC)
-        if (transcode === 'audio' || transcode === 'true') {
+        // 2B. Audio Transcoding for Local Files (Copy video + AAC audio)
+        if (isVideo && (transcode === 'audio' || transcode === 'true')) {
             try {
-                const ffmpegArgs = [
-                    ...(parseFloat(startTime) > 0 ? ['-ss', startTime] : []),
-                    '-i', filePath,
-                    '-c:v', 'copy',
-                    '-c:a', 'aac',
-                    '-b:a', '256k',
-                    '-ac', '2',
-                    '-sn',
-                    '-f', 'mp4',
-                    '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
-                    'pipe:1'
-                ];
+                const hwConfig = await detectHardwareEncoder();
+                const ffmpegArgs = buildFFmpegArgs({
+                    filePath,
+                    startTime,
+                    quality,
+                    mode: 'audio',
+                    config: hwConfig
+                });
 
                 const ffmpeg = spawn('ffmpeg', ffmpegArgs);
 
@@ -216,7 +220,8 @@ export async function GET(req: NextRequest) {
                     headers: {
                         'Content-Type': 'video/mp4',
                         'Transfer-Encoding': 'chunked',
-                        'Cache-Control': 'no-cache'
+                        'Cache-Control': 'no-cache',
+                        'X-Stream-Mode': 'Audio Transcode AAC'
                     }
                 });
             } catch (ffmpegErr: any) {
