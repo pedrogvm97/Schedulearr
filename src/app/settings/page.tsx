@@ -758,6 +758,7 @@ export default function Settings() {
                             options={[
                                 { id: 'radarr', name: 'Radarr' },
                                 { id: 'sonarr', name: 'Sonarr' },
+                                { id: 'lidarr', name: 'Lidarr (Music)' },
                                 { id: 'prowlarr', name: 'Prowlarr' },
                                 { id: 'qbittorrent', name: 'qBittorrent' },
                                 { id: 'plex', name: 'Plex' }
@@ -769,7 +770,7 @@ export default function Settings() {
                         <label className="text-sm font-medium text-zinc-300">Name</label>
                         <input
                             type="text"
-                            placeholder="e.g. Radarr Movies 4K"
+                            placeholder={type === 'lidarr' ? "e.g. Lidarr Music FLAC" : type === 'radarr' ? "e.g. Radarr Movies 4K" : "e.g. Sonarr TV Series"}
                             value={name}
                             onChange={e => setName(e.target.value)}
                             className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
@@ -780,7 +781,7 @@ export default function Settings() {
                         <label className="text-sm font-medium text-zinc-300">URL</label>
                         <input
                             type="url"
-                            placeholder={type === 'plex' ? "http://192.168.1.125:32400" : "http://192.168.1.125:7878"}
+                            placeholder={type === 'plex' ? "http://192.168.1.125:32400" : type === 'lidarr' ? "http://192.168.1.125:8686" : type === 'sonarr' ? "http://192.168.1.125:8989" : "http://192.168.1.125:7878"}
                             value={url}
                             onChange={e => setUrl(e.target.value)}
                             className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
@@ -1942,7 +1943,7 @@ export default function Settings() {
                                     <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Excluded Libraries</label>
                                     <p className="text-[10px] text-zinc-500">Select individual Radarr/Sonarr instances (libraries) to protect them from auto-deletion.</p>
                                     <div className="flex flex-wrap gap-2 mt-2">
-                                        {instances.filter(i => i.type === 'radarr' || i.type === 'sonarr').map(inst => (
+                                        {instances.filter(i => i.type === 'radarr' || i.type === 'sonarr' || i.type === 'lidarr').map(inst => (
                                             <label key={inst.id} className={`flex items-center gap-2 cursor-pointer p-2 rounded-xl border transition-all ${diskSmartCleanIgnoredInstances.includes(inst.id) ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'}`}>
                                                 <div className={`w-3 h-3 rounded flex items-center justify-center transition-colors ${diskSmartCleanIgnoredInstances.includes(inst.id) ? 'bg-emerald-500 text-black' : 'bg-zinc-800'}`}>
                                                     {diskSmartCleanIgnoredInstances.includes(inst.id) && <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>}

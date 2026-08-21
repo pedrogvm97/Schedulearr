@@ -30,7 +30,7 @@ export async function GET(req: Request) {
                     timeout: 5000
                 });
                 if (res.status === 200) isOnline = true;
-            } else if (instance.type === 'prowlarr') {
+            } else if (instance.type === 'prowlarr' || instance.type === 'lidarr') {
                 const res = await axios.get(`${instance.url}/api/v1/system/status`, {
                     headers: { 'X-Api-Key': instance.api_key },
                     timeout: 5000

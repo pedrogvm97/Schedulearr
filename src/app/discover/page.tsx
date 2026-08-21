@@ -8,7 +8,8 @@ import {
     ChevronDown, Tags, Monitor, ChevronRight,
     HardDrive, Percent, PlayCircle, ChevronUp,
     PlaySquare, Square, Trash2, MoveHorizontal, MoreVertical,
-    CheckCircle2, Copy, ListOrdered, RefreshCw, Layers
+    CheckCircle2, Copy, ListOrdered, RefreshCw, Layers,
+    Disc, Music
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import { CustomSelect } from '@/components/CustomSelect';
@@ -18,11 +19,12 @@ import { MediaDetailsPanel } from '@/components/MediaDetailsPanel';
 import { PersonDetailsPanel } from '@/components/PersonDetailsPanel';
 import { InteractiveSearchModal } from '@/components/InteractiveSearchModal';
 import { DeleteMediaModal } from '@/components/DeleteMediaModal';
+import { MusicInspectorModal } from '@/components/MusicInspectorModal';
 
 interface Instance {
     id: string;
     name: string;
-    type: 'radarr' | 'sonarr';
+    type: 'radarr' | 'sonarr' | 'lidarr';
     color?: string;
     colorHex?: string;
     internalId?: number;
@@ -594,7 +596,7 @@ function UnifiedMediaCard({
 // Main Media Page Component
 // ──────────────────────────────────────────────
 export default function DiscoverPage() {
-    const [mediaType, setMediaType] = useState<'movie' | 'series'>('movie');
+    const [mediaType, setMediaType] = useState<'movie' | 'series' | 'music'>('movie');
     const [statusFilter, setStatusFilter] = useState<'all' | 'in_library' | 'not_in_library'>('all');
     const [searchQuery, setSearchQuery] = useState('');
     const [isSearching, setIsSearching] = useState(false);
@@ -602,6 +604,11 @@ export default function DiscoverPage() {
     const [libraryItems, setLibraryItems] = useState<any[]>([]);
     const [libraryLoading, setLibraryLoading] = useState(false);
     const [libraryMap, setLibraryMap] = useState<Map<string, { hasFile: boolean; isDownloading: boolean; percentage: number; sizeOnDisk: number; qualityProfileId?: number; instances: { id: string; name: string; colorHex?: string; internalId?: number }[] }>>(new Map());
+
+    // Music Specific States
+    const [musicResults, setMusicResults] = useState<any[]>([]);
+    const [musicLoading, setMusicLoading] = useState(false);
+    const [showMusicInspectorFor, setShowMusicInspectorFor] = useState<any>(null);
 
     const [instances, setInstances] = useState<Instance[]>([]);
     const [selectedInstanceIds, setSelectedInstanceIds] = useState<string[]>([]);
@@ -674,11 +681,47 @@ export default function DiscoverPage() {
 
     const availableInstances = useMemo(() =>
         instances.filter((inst: Instance) =>
-            inst.type === (mediaType === 'movie' ? 'radarr' : 'sonarr')
+            inst.type === (mediaType === 'movie' ? 'radarr' : mediaType === 'series' ? 'sonarr' : 'lidarr')
         ), [instances, mediaType]);
+
+    const handleMusicSearch = useCallback(async (queryText: string) => {
+        if (!queryText.trim()) return;
+        setMusicLoading(true);
+        try {
+            const instId = selectedInstanceIds[0] || (availableInstances[0] ? availableInstances[0].id : '');
+            const url = `/api/lidarr/lookup?term=${encodeURIComponent(queryText.trim())}${instId ? `&instanceId=${instId}` : ''}`;
+            const res = await fetch(url);
+            if (res.ok) {
+                const data = await res.json();
+                setMusicResults(Array.isArray(data.results) ? data.results : []);
+            } else {
+                setMusicResults([]);
+            }
+        } catch {
+            setMusicResults([]);
+        } finally {
+            setMusicLoading(false);
+        }
+    }, [selectedInstanceIds, availableInstances]);
 
     // 1. Load Library
     const loadLibrary = useCallback(async () => {
+        if (mediaType === 'music') {
+            setLibraryLoading(true);
+            try {
+                const res = await fetch('/api/lidarr/all');
+                if (res.ok) {
+                    const data = await res.json();
+                    setLibraryItems(Array.isArray(data.artists) ? data.artists : []);
+                }
+            } catch {
+                setLibraryItems([]);
+            } finally {
+                setLibraryLoading(false);
+            }
+            return;
+        }
+
         setLibraryLoading(true);
         try {
             const endpoint = mediaType === 'movie' ? '/api/radarr/all' : '/api/sonarr/all';
@@ -739,6 +782,10 @@ export default function DiscoverPage() {
 
     // 2. Load Catalog / Discovery
     const handleDiscovery = useCallback(async (pageNum: number = currentPage) => {
+        if (mediaType === 'music') {
+            handleMusicSearch(searchQuery || 'Top Hits');
+            return;
+        }
         if (availableInstances.length === 0) return;
         setIsSearching(true);
         let fetchedData: any[] = [];
@@ -766,10 +813,14 @@ export default function DiscoverPage() {
             setResults(fetchedData);
             setIsSearching(false);
         }
-    }, [mediaType, selectedInstanceIds, availableInstances, currentPage, filterPlatform, filterGenre, filterRating, filterPopularity, filterYear]);
+    }, [mediaType, selectedInstanceIds, availableInstances, currentPage, filterPlatform, filterGenre, filterRating, filterPopularity, filterYear, handleMusicSearch, searchQuery]);
 
     // 3. Search Handler
     const handleSearch = useCallback(async (query: string = searchQuery) => {
+        if (mediaType === 'music') {
+            handleMusicSearch(query);
+            return;
+        }
         if (!query.trim() || availableInstances.length === 0) {
             handleDiscovery(0);
             return;
@@ -788,7 +839,7 @@ export default function DiscoverPage() {
         } finally {
             setIsSearching(false);
         }
-    }, [searchQuery, availableInstances, mediaType, selectedInstanceIds, handleDiscovery]);
+    }, [searchQuery, availableInstances, mediaType, selectedInstanceIds, handleDiscovery, handleMusicSearch]);
 
     // Check if item is in library
     const isInLibrary = useCallback((item: any) => {
@@ -1318,7 +1369,7 @@ export default function DiscoverPage() {
                                 Media
                             </h1>
 
-                            {/* Media Type Toggle: Movies | Series */}
+                            {/* Media Type Toggle: Movies | Series | Music */}
                             <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner">
                                 <button 
                                     onClick={() => setMediaType('movie')} 
@@ -1332,6 +1383,15 @@ export default function DiscoverPage() {
                                 >
                                     <Tv size={15} /> Series
                                 </button>
+                                <button 
+                                    onClick={() => {
+                                        setMediaType('music');
+                                        if (musicResults.length === 0) handleMusicSearch('Top Hits');
+                                    }} 
+                                    className={`flex items-center gap-2 px-4 py-2 text-xs font-black rounded-xl transition-all ${mediaType === 'music' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                >
+                                    <Disc size={15} /> Music
+                                </button>
                             </div>
 
                             {/* Status Filter: All | In Library | Not in Library */}
@@ -1340,7 +1400,7 @@ export default function DiscoverPage() {
                                     onClick={() => setStatusFilter('all')} 
                                     className={`px-3.5 py-2 text-xs font-black rounded-xl transition-all ${statusFilter === 'all' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
                                 >
-                                    All ({unifiedPool.length})
+                                    All ({mediaType === 'music' ? musicResults.length : unifiedPool.length})
                                 </button>
                                 <button 
                                     onClick={() => setStatusFilter('in_library')} 
@@ -1363,7 +1423,7 @@ export default function DiscoverPage() {
                                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
                                 <input
                                     type="text"
-                                    placeholder={`Search ${mediaType === 'movie' ? 'movies' : 'series'}...`}
+                                    placeholder={mediaType === 'movie' ? 'Search movies...' : mediaType === 'series' ? 'Search series...' : 'Search artists, albums, songs, labels...'}
                                     value={searchQuery}
                                     onChange={e => setSearchQuery(e.target.value)}
                                     className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl pl-10 pr-9 py-2.5 text-xs text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all placeholder-zinc-600 font-medium"
@@ -1591,7 +1651,117 @@ export default function DiscoverPage() {
                 </div>
 
                 {/* ── Content Grid / List ── */}
-                {libraryLoading && libraryItems.length === 0 ? (
+                {mediaType === 'music' ? (
+                    musicLoading ? (
+                        <div className="flex flex-col items-center justify-center py-40 gap-3">
+                            <div className="w-12 h-12 border-4 border-amber-500/20 border-t-amber-500 rounded-full animate-spin" />
+                            <p className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Searching Music Catalog...</p>
+                        </div>
+                    ) : musicResults.length > 0 ? (
+                        <div className={viewMode === 'grid' ? 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6' : 'space-y-4'}>
+                            {musicResults.map((album, idx) => {
+                                const poster = album.posterUrl || album.remotePoster;
+                                const artist = album.artistName || album.title;
+                                const albumName = album.albumTitle || album.title;
+                                const year = album.year || (album.releaseDate ? new Date(album.releaseDate).getFullYear() : '');
+                                const recordLabel = album.recordLabel || album.copyright || 'Independent';
+
+                                if (viewMode === 'list') {
+                                    return (
+                                        <div
+                                            key={idx}
+                                            onClick={() => setShowMusicInspectorFor(album)}
+                                            className="flex items-center justify-between p-4 bg-zinc-950/70 border border-zinc-900 hover:border-amber-500/40 rounded-3xl hover:bg-zinc-900/50 transition-all cursor-pointer group shadow-xl gap-4"
+                                        >
+                                            <div className="flex items-center gap-4 min-w-0">
+                                                {/* CD Art */}
+                                                <div className="relative w-16 h-16 rounded-2xl bg-zinc-900 border border-zinc-800 overflow-hidden flex items-center justify-center text-amber-400 shrink-0 shadow group-hover:scale-105 transition-transform">
+                                                    {poster ? (
+                                                        <img src={poster} alt="" className="w-full h-full object-cover" />
+                                                    ) : (
+                                                        <Disc size={28} />
+                                                    )}
+                                                </div>
+
+                                                <div className="min-w-0 space-y-1">
+                                                    <div className="flex items-center gap-2">
+                                                        <h3 className="font-bold text-white text-base sm:text-lg truncate group-hover:text-amber-400 transition-colors">
+                                                            {albumName}
+                                                        </h3>
+                                                        <span className="px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[9px] font-black uppercase tracking-wider shrink-0">
+                                                            Album
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400 font-medium">
+                                                        <span className="text-amber-300 font-bold">{artist}</span>
+                                                        {year && <span>• {year}</span>}
+                                                        {album.trackCount && <span>• {album.trackCount} Tracks</span>}
+                                                        <span className="text-zinc-600 truncate">• {recordLabel}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <button className="px-4 py-2 rounded-xl bg-amber-500/10 group-hover:bg-amber-500 text-amber-400 group-hover:text-black border border-amber-500/20 font-black text-xs uppercase tracking-wider transition-all flex items-center gap-1.5 shrink-0">
+                                                <Disc size={14} /> Inspect CD
+                                            </button>
+                                        </div>
+                                    );
+                                }
+
+                                // 3D Vinyl / CD Album Disc Card
+                                return (
+                                    <div
+                                        key={idx}
+                                        onClick={() => setShowMusicInspectorFor(album)}
+                                        className="group flex flex-col bg-[#09090b] border border-zinc-900 hover:border-amber-500/50 rounded-3xl overflow-hidden transition-all duration-300 shadow-xl cursor-pointer hover:-translate-y-1.5"
+                                    >
+                                        <div className="relative aspect-square bg-zinc-900 overflow-hidden flex items-center justify-center p-3">
+                                            {/* Vinyl Disc Preview Coming Out on Hover */}
+                                            <div className="absolute top-3 right-3 w-32 h-32 rounded-full bg-gradient-to-tr from-zinc-950 via-zinc-900 to-black border-2 border-zinc-800 shadow-xl flex items-center justify-center translate-x-4 opacity-70 group-hover:translate-x-8 group-hover:opacity-100 transition-all duration-500">
+                                                <div className="w-10 h-10 rounded-full bg-amber-500/20 border border-amber-500/40 flex items-center justify-center">
+                                                    <div className="w-3 h-3 rounded-full bg-zinc-950" />
+                                                </div>
+                                            </div>
+
+                                            {/* Front Cover Artwork */}
+                                            <div className="relative w-full h-full rounded-2xl bg-zinc-950 border border-zinc-800 overflow-hidden shadow-2xl z-10 flex items-center justify-center">
+                                                {poster ? (
+                                                    <img src={poster} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" loading="lazy" />
+                                                ) : (
+                                                    <Disc size={48} className="text-amber-400 group-hover:rotate-45 transition-transform duration-500" />
+                                                )}
+                                                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3">
+                                                    <span className="text-[10px] font-black uppercase text-amber-400 flex items-center gap-1">
+                                                        <Sparkles size={11} /> Click to Inspect
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="p-4 space-y-1.5">
+                                            <h3 className="font-bold text-white text-base leading-snug line-clamp-1 group-hover:text-amber-400 transition-colors">
+                                                {albumName}
+                                            </h3>
+                                            <p className="text-xs font-bold text-amber-300 truncate">
+                                                {artist}
+                                            </p>
+                                            <div className="flex items-center justify-between text-[11px] text-zinc-500 font-semibold pt-1 border-t border-zinc-900">
+                                                <span>{year || 'Music'}</span>
+                                                <span className="truncate max-w-[100px]">{recordLabel}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    ) : (
+                        <div className="flex flex-col items-center justify-center py-40 bg-zinc-950/20 rounded-[3rem] border border-zinc-900/50 gap-4">
+                            <div className="p-6 bg-zinc-900/50 rounded-full text-amber-400/40"><Disc size={48} /></div>
+                            <p className="text-xl font-bold text-white">No music found</p>
+                            <p className="text-xs text-zinc-500 font-medium">Search for an artist (e.g. Daft Punk, Queen, Hans Zimmer) or album above.</p>
+                        </div>
+                    )
+                ) : libraryLoading && libraryItems.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-40 gap-3">
                         <div className="w-12 h-12 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin" />
                         <p className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Loading Library...</p>
@@ -1735,6 +1905,21 @@ export default function DiscoverPage() {
                 onConfirm={handleFinalDelete}
                 loading={isDeleting}
             />
+
+            {showMusicInspectorFor && (
+                <MusicInspectorModal
+                    album={showMusicInspectorFor}
+                    onClose={() => setShowMusicInspectorFor(null)}
+                    onSelectArtist={(artist) => {
+                        setSearchQuery(artist);
+                        handleMusicSearch(artist);
+                    }}
+                    onSelectLabel={(label) => {
+                        setSearchQuery(label);
+                        handleMusicSearch(label);
+                    }}
+                />
+            )}
         </>
     );
 }

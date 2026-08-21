@@ -4,6 +4,7 @@ import { getAllSeries, triggerEpisodeSearch, SonarrSeries, getQueue as getSonarr
 import { getIndexerHealth } from '@/lib/prowlarr';
 import { evaluateIndexerRules } from '@/lib/indexerAutomations';
 import { runAutoCleanup, runSmartCleanup } from '@/lib/autoCleanup';
+import axios from 'axios';
 
 // Prevent multiple scheduler instances from running in dev mode HMR
 declare global {
@@ -164,9 +165,10 @@ export async function runBatchSearch(manualTrigger: boolean = false) {
     // 2. Fetch ALL items to evaluate priority (from ENABLED instances only)
     const radarrs = getInstances('radarr', true);
     const sonarrs = getInstances('sonarr', true);
+    const lidarrs = getInstances('lidarr', true);
 
-    if (radarrs.length === 0 && sonarrs.length === 0) {
-        defaultRes.reason = 'No Radarr or Sonarr instances configured';
+    if (radarrs.length === 0 && sonarrs.length === 0 && lidarrs.length === 0) {
+        defaultRes.reason = 'No Radarr, Sonarr, or Lidarr instances configured';
         logSearchHistory(profile, [], [], defaultRes.reason, 'scheduler');
         return defaultRes;
     }
@@ -235,6 +237,33 @@ export async function runBatchSearch(manualTrigger: boolean = false) {
             }
         } catch (err) {
             console.error(`❌ [SCHEDULER] Error fetching from Sonarr instance ${s.url}:`, err);
+        }
+    }
+
+    let allMusicTargets: any[] = [];
+
+    // Lidarr Music Albums
+    for (const l of lidarrs) {
+        try {
+            const lidarrUrl = l.url.replace(/\/$/, '');
+            const res = await axios.get(`${lidarrUrl}/api/v1/wanted/missing?page=1&pageSize=20&sortKey=releaseDate&sortDirection=descending`, {
+                headers: { 'X-Api-Key': l.api_key },
+                timeout: 6000
+            });
+            if (res.data?.records && Array.isArray(res.data.records)) {
+                for (const album of res.data.records) {
+                    allMusicTargets.push({
+                        id: album.id,
+                        apiUrl: lidarrUrl,
+                        apiKey: l.api_key,
+                        instanceId: l.id,
+                        album,
+                        title: `${album.artist?.artistName || 'Artist'} - ${album.title || 'Album'}`
+                    });
+                }
+            }
+        } catch (err) {
+            console.error(`❌ [SCHEDULER] Error fetching missing albums from Lidarr instance ${l.url}:`, err);
         }
     }
 
@@ -411,13 +440,39 @@ export async function runBatchSearch(manualTrigger: boolean = false) {
         }
     }
 
+    // Lidarr Music Search Execution
+    const musicBatch = allMusicTargets.slice(0, Math.max(1, Math.floor(allowedBatchSize / 3)));
+    const lidarrGroups = musicBatch.reduce((acc, curr) => {
+        if (!acc[curr.apiUrl]) acc[curr.apiUrl] = { key: curr.apiKey, ids: [] };
+        acc[curr.apiUrl].ids.push(curr.id);
+        return acc;
+    }, {} as Record<string, { key: string, ids: number[] }>);
+
+    for (const [url, data] of Object.entries(lidarrGroups) as [string, any][]) {
+        if (data.ids.length > 0) {
+            console.log(`🎵 Triggering search for ${data.ids.length} albums on Lidarr at ${url}`);
+            try {
+                await axios.post(`${url}/api/v1/command`, {
+                    name: 'AlbumSearch',
+                    albumIds: data.ids
+                }, {
+                    headers: { 'X-Api-Key': data.key },
+                    timeout: 8000
+                });
+            } catch (err) {
+                console.error(`❌ [SCHEDULER] Failed to trigger album search on Lidarr at ${url}:`, err);
+            }
+        }
+    }
+
     const mTitles = movieBatch.map(m => m.movie.title);
     const eTitles = epBatch.map(e => e.seriesInfo ? `${e.seriesInfo.title} (Episode ID: ${e.id})` : `Episode ID: ${e.id}`);
+    const muTitles = musicBatch.map(mu => mu.title);
 
     // Log the success to the interactive history ledger
-    if (mTitles.length > 0 || eTitles.length > 0) {
-        console.log(`✅ Batch complete. Triggered ${mTitles.length} movies and ${eTitles.length} episodes.`);
-        logSearchHistory(profile, mTitles, eTitles, `Successfully triggered background priority searches.`, 'search');
+    if (mTitles.length > 0 || eTitles.length > 0 || muTitles.length > 0) {
+        console.log(`✅ Batch complete. Triggered ${mTitles.length} movies, ${eTitles.length} episodes, ${muTitles.length} albums.`);
+        logSearchHistory(profile, [...mTitles, ...muTitles], eTitles, `Successfully triggered background priority searches.`, 'search');
     } else {
         console.log('ℹ️  No missing media matched priority criteria. Skipping triggers.');
         logSearchHistory(profile, [], [], `No missing media matched priority criteria. Queue is fully downloaded.`, 'scheduler');
@@ -426,7 +481,8 @@ export async function runBatchSearch(manualTrigger: boolean = false) {
     return {
         success: true,
         movies: mTitles,
-        episodes: eTitles
+        episodes: eTitles,
+        albums: muTitles
     };
 }
 
