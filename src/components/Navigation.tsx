@@ -3,28 +3,22 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import {
+    Film, Play, Download, Sliders, Calendar,
+    BarChart3, Settings, Menu, X, Tv, ShieldCheck,
+    HardDrive, Sparkles, ChevronRight
+} from 'lucide-react';
 
 const primaryNavItems = [
     {
         href: '/discover',
         label: 'Media',
-        icon: (active: boolean) => (
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={active ? 2.5 : 2} strokeLinecap="round" strokeLinejoin="round">
-                <rect x="2" y="2" width="20" height="20" rx="2" ry="2"></rect>
-                <line x1="7" y1="2" x2="7" y2="22"></line>
-                <line x1="17" y1="2" x2="17" y2="22"></line>
-                <line x1="2" y1="12" x2="22" y2="12"></line>
-            </svg>
-        )
+        icon: (active: boolean) => <Film size={active ? 20 : 18} className={active ? 'text-emerald-400' : 'text-zinc-400'} />
     },
     {
         href: '/theater',
         label: 'Theater',
-        icon: (active: boolean) => (
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={active ? 2.5 : 2} strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="5 3 19 12 5 21 5 3"></polygon>
-            </svg>
-        )
+        icon: (active: boolean) => <Play size={active ? 20 : 18} className={active ? 'text-purple-400' : 'text-zinc-400'} />
     }
 ];
 
@@ -32,111 +26,95 @@ const secondaryNavItems = [
     {
         href: '/downloads',
         label: 'Downloads',
-        icon: (active: boolean) => (
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={active ? 2.5 : 2} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="7 10 12 15 17 10"></polyline>
-                <line x1="12" y1="15" x2="12" y2="3"></line>
-            </svg>
-        )
+        icon: (active: boolean) => <Download size={active ? 20 : 18} className={active ? 'text-sky-400' : 'text-zinc-400'} />
     },
     {
         href: '/profiles',
         label: 'Profiles & Indexers',
-        icon: (active: boolean) => (
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={active ? 2.5 : 2} strokeLinecap="round" strokeLinejoin="round">
-                <line x1="4" y1="21" x2="4" y2="14"></line>
-                <line x1="4" y1="10" x2="4" y2="3"></line>
-                <line x1="12" y1="21" x2="12" y2="12"></line>
-                <line x1="12" y1="8" x2="12" y2="3"></line>
-                <line x1="20" y1="21" x2="20" y2="16"></line>
-                <line x1="20" y1="12" x2="20" y2="3"></line>
-                <line x1="1" y1="14" x2="7" y2="14"></line>
-                <line x1="9" y1="8" x2="15" y2="8"></line>
-                <line x1="17" y1="16" x2="23" y2="16"></line>
-            </svg>
-        )
+        icon: (active: boolean) => <Sliders size={active ? 20 : 18} className={active ? 'text-amber-400' : 'text-zinc-400'} />
     },
     {
         href: '/',
         label: 'Schedule',
-        icon: (active: boolean) => (
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={active ? 2.5 : 2} strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-                <line x1="16" y1="2" x2="16" y2="6"></line>
-                <line x1="8" y1="2" x2="8" y2="6"></line>
-                <line x1="3" y1="10" x2="21" y2="10"></line>
-            </svg>
-        )
+        icon: (active: boolean) => <Calendar size={active ? 20 : 18} className={active ? 'text-emerald-400' : 'text-zinc-400'} />
     },
     {
         href: '/analytics',
-        label: 'User Analytics',
-        icon: (active: boolean) => (
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={active ? 2.5 : 2} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-                <circle cx="9" cy="7" r="4"></circle>
-                <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-                <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-            </svg>
-        )
+        label: 'Analytics',
+        icon: (active: boolean) => <BarChart3 size={active ? 20 : 18} className={active ? 'text-indigo-400' : 'text-zinc-400'} />
     },
     {
         href: '/settings',
         label: 'Settings',
-        icon: (active: boolean) => (
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={active ? 2.5 : 2} strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="3"></circle>
-                <path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"></path>
-            </svg>
-        )
+        icon: (active: boolean) => <Settings size={active ? 20 : 18} className={active ? 'text-zinc-200' : 'text-zinc-400'} />
     }
 ];
 
-const mobileNavItems = [
-    primaryNavItems[0], // Media
-    primaryNavItems[1], // Theater
-    secondaryNavItems[0], // Downloads
-    secondaryNavItems[1], // Profiles & Indexers
-    secondaryNavItems[2], // Schedule
-    secondaryNavItems[3], // User Analytics
-    secondaryNavItems[4]  // Settings
+// Clean 4-tab mobile core navigation
+const mobileCoreNavItems = [
+    {
+        href: '/discover',
+        label: 'Media',
+        icon: (active: boolean) => <Film size={20} className={active ? 'text-emerald-400' : 'text-zinc-400'} />
+    },
+    {
+        href: '/theater',
+        label: 'Theater',
+        icon: (active: boolean) => <Play size={20} className={active ? 'text-purple-400' : 'text-zinc-400'} />
+    },
+    {
+        href: '/downloads',
+        label: 'Downloads',
+        icon: (active: boolean) => <Download size={20} className={active ? 'text-sky-400' : 'text-zinc-400'} />
+    },
+    {
+        href: '/',
+        label: 'Schedule',
+        icon: (active: boolean) => <Calendar size={20} className={active ? 'text-emerald-400' : 'text-zinc-400'} />
+    }
 ];
 
 export function Navigation() {
     const pathname = usePathname();
+    const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
 
     const allNavItems = [...primaryNavItems, ...secondaryNavItems];
 
+    const isMoreTabActive = ['/profiles', '/analytics', '/settings', '/tv'].includes(pathname);
+
     return (
         <>
-            {/* Top Mobile App Header (<640px) */}
-            <header className="sm:hidden sticky top-0 z-50 w-full bg-zinc-950/90 backdrop-blur-2xl border-b border-zinc-800/80 px-4 h-14 flex items-center justify-between">
+            {/* ── Top Mobile App Header (<640px) ── */}
+            <header className="sm:hidden sticky top-0 z-50 w-full bg-zinc-950/85 backdrop-blur-2xl border-b border-white/5 px-4 h-14 flex items-center justify-between shadow-lg">
                 <Link href="/" className="flex items-center gap-2.5 active:scale-95 transition-transform">
-                    <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-500/20 via-teal-500/10 to-zinc-900 p-1 border border-emerald-500/30 flex items-center justify-center shadow-[0_0_10px_rgba(16,185,129,0.2)]">
-                        <img src="/icon.png" alt="Schedulearr Logo" className="w-full h-full object-contain" />
+                    <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-500/20 via-teal-500/10 to-zinc-900 p-1 border border-emerald-500/30 flex items-center justify-center shadow-[0_0_12px_rgba(16,185,129,0.25)]">
+                        <img src="/icon.png" alt="Schedulearr" className="w-full h-full object-contain" />
                     </div>
-                    <div className="flex flex-col">
-                        <div className="flex items-center gap-1.5">
-                            <span className="font-extrabold text-sm text-white tracking-tight">Schedulearr</span>
-                        </div>
-                    </div>
+                    <span className="font-black text-base text-white tracking-tight">Schedulearr</span>
                 </Link>
+
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => setIsMobileMoreOpen(true)}
+                        className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white active:scale-95 transition-all"
+                        aria-label="Open Navigation Menu"
+                    >
+                        <Menu size={18} />
+                    </button>
+                </div>
             </header>
 
-            {/* Desktop & Tablet Top Nav (≥640px) */}
-            <nav className="hidden sm:block border-b border-zinc-800/60 bg-zinc-950/70 backdrop-blur-2xl sticky top-0 z-50 w-full max-w-full">
+            {/* ── Desktop & Tablet Top Nav (≥640px) ── */}
+            <nav className="hidden sm:block border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur-2xl sticky top-0 z-50 w-full max-w-full">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
                     <Link href="/" className="flex items-center gap-3 group flex-shrink-0">
                         <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500/20 via-teal-500/10 to-zinc-900 p-1.5 border border-emerald-500/30 transition-transform group-hover:scale-105 shadow-[0_0_15px_rgba(16,185,129,0.15)] flex items-center justify-center">
                             <img src="/icon.png" alt="Schedulearr Logo" className="w-full h-full object-contain" />
                         </div>
-                        <div className="flex flex-col">
-                            <span className="font-extrabold text-base text-white tracking-tight">Schedulearr</span>
-                        </div>
+                        <span className="font-black text-lg text-white tracking-tight">Schedulearr</span>
                     </Link>
 
-                    {/* Clean Wrapped Nav Items (No Overflow Scroll) */}
+                    {/* Clean Wrapped Desktop Items */}
                     <div className="flex items-center gap-1 sm:gap-1.5 flex-wrap justify-end">
                         {allNavItems.map(item => {
                             const active = pathname === item.href;
@@ -144,15 +122,13 @@ export function Navigation() {
                                 <Link 
                                     key={item.href} 
                                     href={item.href} 
-                                    className={`flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 text-xs font-bold rounded-xl transition-all ${
+                                    className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all ${
                                         active 
                                             ? 'text-white bg-zinc-900 border border-zinc-700/60 shadow-lg shadow-black/40' 
                                             : 'text-zinc-400 hover:text-white hover:bg-zinc-900/50 border border-transparent'
                                     }`}
                                 >
-                                    <span className={active ? 'text-emerald-400' : 'text-zinc-500'}>
-                                        {item.icon(active)}
-                                    </span>
+                                    <span>{item.icon(active)}</span>
                                     <span className="tracking-tight">{item.label}</span>
                                 </Link>
                             );
@@ -161,35 +137,152 @@ export function Navigation() {
                 </div>
             </nav>
 
-            {/* Floating Glass Bottom Tab Bar (<640px Mobile Only) */}
+            {/* ── Modern Floating Glass Bottom Tab Bar (<640px Mobile Only) ── */}
             <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-50 px-3 pb-3 pointer-events-none" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
-                <div className="pointer-events-auto max-w-md mx-auto bg-zinc-900/90 backdrop-blur-2xl border border-zinc-800/90 rounded-2xl shadow-[0_10px_30px_rgba(0,0,0,0.8)] flex items-stretch h-14 p-1">
-                    {mobileNavItems.map(item => {
+                <div className="pointer-events-auto max-w-sm mx-auto bg-zinc-950/85 backdrop-blur-3xl border border-white/10 rounded-[1.75rem] shadow-[0_20px_50px_rgba(0,0,0,0.85)] flex items-center justify-between h-16 px-2 gap-1">
+                    {mobileCoreNavItems.map(item => {
                         const active = pathname === item.href;
                         return (
                             <Link
                                 key={item.href}
                                 href={item.href}
-                                className={`relative flex flex-col items-center justify-center flex-1 gap-0.5 rounded-xl transition-all active:scale-95 select-none ${
+                                className={`relative flex flex-col items-center justify-center flex-1 h-12 rounded-2xl transition-all active:scale-95 select-none ${
                                     active 
-                                        ? 'text-emerald-400 bg-zinc-800/80 border border-zinc-700/50 shadow-inner' 
+                                        ? 'text-white bg-zinc-900/90 border border-zinc-700/60 shadow-inner' 
                                         : 'text-zinc-400 hover:text-zinc-200'
                                 }`}
                             >
-                                {active && (
-                                    <div className="absolute top-1 w-1.5 h-1.5 bg-emerald-400 rounded-full shadow-[0_0_8px_rgba(52,211,153,0.9)]" />
-                                )}
-                                <div className={`transition-transform ${active ? 'scale-110 mt-1' : ''}`}>
+                                <div className={`transition-transform duration-200 ${active ? 'scale-110' : ''}`}>
                                     {item.icon(active)}
                                 </div>
-                                <span className={`text-[9px] font-extrabold uppercase tracking-wider leading-none ${active ? 'text-emerald-400' : 'text-zinc-400'}`}>
+                                <span className={`text-[10px] font-black uppercase tracking-wider mt-0.5 ${active ? 'text-white' : 'text-zinc-500'}`}>
                                     {item.label}
                                 </span>
                             </Link>
                         );
                     })}
+
+                    {/* "More" Trigger Tab */}
+                    <button
+                        onClick={() => setIsMobileMoreOpen(true)}
+                        className={`relative flex flex-col items-center justify-center flex-1 h-12 rounded-2xl transition-all active:scale-95 select-none ${
+                            isMoreTabActive
+                                ? 'text-white bg-zinc-900/90 border border-zinc-700/60 shadow-inner' 
+                                : 'text-zinc-400 hover:text-zinc-200'
+                        }`}
+                    >
+                        <div className={`transition-transform duration-200 ${isMoreTabActive ? 'scale-110 text-emerald-400' : ''}`}>
+                            <Menu size={20} />
+                        </div>
+                        <span className={`text-[10px] font-black uppercase tracking-wider mt-0.5 ${isMoreTabActive ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                            More
+                        </span>
+                    </button>
                 </div>
             </nav>
+
+            {/* ── Modern Mobile Slide-Up Action Sheet / Control Center ── */}
+            {isMobileMoreOpen && (
+                <div className="sm:hidden fixed inset-0 z-[120] flex flex-col justify-end bg-black/80 backdrop-blur-xl animate-in fade-in duration-200">
+                    <div 
+                        className="fixed inset-0"
+                        onClick={() => setIsMobileMoreOpen(false)}
+                    />
+
+                    <div className="relative bg-[#0c0c0c] border-t border-zinc-800 rounded-t-[2.5rem] p-6 pb-12 space-y-5 shadow-2xl animate-in slide-in-from-bottom duration-300 z-10">
+                        {/* Pull bar */}
+                        <div className="w-12 h-1.5 bg-zinc-800 rounded-full mx-auto -mt-2 mb-2" />
+
+                        <div className="flex items-center justify-between pb-3 border-b border-zinc-900">
+                            <div>
+                                <h3 className="text-lg font-black text-white">Hub & Controls</h3>
+                                <p className="text-xs text-zinc-500 font-medium">Quick navigation & system tools</p>
+                            </div>
+                            <button
+                                onClick={() => setIsMobileMoreOpen(false)}
+                                className="p-2 rounded-2xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        {/* Navigation Grid Cards */}
+                        <div className="grid grid-cols-2 gap-3">
+                            <Link
+                                href="/settings"
+                                onClick={() => setIsMobileMoreOpen(false)}
+                                className={`p-4 rounded-2xl border flex flex-col gap-2 transition-all active:scale-95 ${
+                                    pathname === '/settings' 
+                                        ? 'bg-zinc-900 border-zinc-700 text-white' 
+                                        : 'bg-zinc-950/80 border-zinc-900 text-zinc-300 hover:border-zinc-800'
+                                }`}
+                            >
+                                <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-200 shadow">
+                                    <Settings size={20} />
+                                </div>
+                                <div>
+                                    <h4 className="font-bold text-sm text-white">Settings</h4>
+                                    <p className="text-[11px] text-zinc-500">Instances & Config</p>
+                                </div>
+                            </Link>
+
+                            <Link
+                                href="/profiles"
+                                onClick={() => setIsMobileMoreOpen(false)}
+                                className={`p-4 rounded-2xl border flex flex-col gap-2 transition-all active:scale-95 ${
+                                    pathname === '/profiles' 
+                                        ? 'bg-zinc-900 border-zinc-700 text-white' 
+                                        : 'bg-zinc-950/80 border-zinc-900 text-zinc-300 hover:border-zinc-800'
+                                }`}
+                            >
+                                <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shadow">
+                                    <Sliders size={20} />
+                                </div>
+                                <div>
+                                    <h4 className="font-bold text-sm text-white">Profiles & Indexers</h4>
+                                    <p className="text-[11px] text-zinc-500">Custom formats & rules</p>
+                                </div>
+                            </Link>
+
+                            <Link
+                                href="/analytics"
+                                onClick={() => setIsMobileMoreOpen(false)}
+                                className={`p-4 rounded-2xl border flex flex-col gap-2 transition-all active:scale-95 ${
+                                    pathname === '/analytics' 
+                                        ? 'bg-zinc-900 border-zinc-700 text-white' 
+                                        : 'bg-zinc-950/80 border-zinc-900 text-zinc-300 hover:border-zinc-800'
+                                }`}
+                            >
+                                <div className="w-10 h-10 rounded-xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shadow">
+                                    <BarChart3 size={20} />
+                                </div>
+                                <div>
+                                    <h4 className="font-bold text-sm text-white">Analytics</h4>
+                                    <p className="text-[11px] text-zinc-500">Telemetry & Plex activity</p>
+                                </div>
+                            </Link>
+
+                            <Link
+                                href="/tv"
+                                onClick={() => setIsMobileMoreOpen(false)}
+                                className={`p-4 rounded-2xl border flex flex-col gap-2 transition-all active:scale-95 ${
+                                    pathname === '/tv' 
+                                        ? 'bg-zinc-900 border-zinc-700 text-white' 
+                                        : 'bg-zinc-950/80 border-zinc-900 text-zinc-300 hover:border-zinc-800'
+                                }`}
+                            >
+                                <div className="w-10 h-10 rounded-xl bg-purple-500/15 border border-purple-500/30 flex items-center justify-center text-purple-400 shadow">
+                                    <Tv size={20} />
+                                </div>
+                                <div>
+                                    <h4 className="font-bold text-sm text-white">Smart TV Mode</h4>
+                                    <p className="text-[11px] text-zinc-500">Big screen player</p>
+                                </div>
+                            </Link>
+                        </div>
+                    </div>
+                </div>
+            )}
         </>
     );
 }

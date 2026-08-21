@@ -1363,57 +1363,62 @@ export default function DiscoverPage() {
                 {/* ── Main Top Bar ── */}
                 <div className="bg-[#09090b]/80 border border-zinc-800/80 backdrop-blur-2xl p-4 sm:p-5 rounded-[2.5rem] shadow-2xl space-y-4">
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                        <div className="flex flex-wrap items-center gap-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-3 min-w-0">
                             {/* Page Title */}
-                            <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight flex items-center gap-2 mr-1">
-                                Media
-                            </h1>
-
-                            {/* Media Type Toggle: Movies | Series | Music */}
-                            <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner">
-                                <button 
-                                    onClick={() => setMediaType('movie')} 
-                                    className={`flex items-center gap-2 px-4 py-2 text-xs font-black rounded-xl transition-all ${mediaType === 'movie' ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                >
-                                    <Film size={15} /> Movies
-                                </button>
-                                <button 
-                                    onClick={() => setMediaType('series')} 
-                                    className={`flex items-center gap-2 px-4 py-2 text-xs font-black rounded-xl transition-all ${mediaType === 'series' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                >
-                                    <Tv size={15} /> Series
-                                </button>
-                                <button 
-                                    onClick={() => {
-                                        setMediaType('music');
-                                        if (musicResults.length === 0) handleMusicSearch('Top Hits');
-                                    }} 
-                                    className={`flex items-center gap-2 px-4 py-2 text-xs font-black rounded-xl transition-all ${mediaType === 'music' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                >
-                                    <Disc size={15} /> Music
-                                </button>
+                            <div className="flex items-center justify-between">
+                                <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight flex items-center gap-2 mr-1">
+                                    Media
+                                </h1>
                             </div>
 
-                            {/* Status Filter: All | In Library | Not in Library */}
-                            <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner">
-                                <button 
-                                    onClick={() => setStatusFilter('all')} 
-                                    className={`px-3.5 py-2 text-xs font-black rounded-xl transition-all ${statusFilter === 'all' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                >
-                                    All ({mediaType === 'music' ? musicResults.length : unifiedPool.length})
-                                </button>
-                                <button 
-                                    onClick={() => setStatusFilter('in_library')} 
-                                    className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-black rounded-xl transition-all ${statusFilter === 'in_library' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                >
-                                    <CheckCircle size={13} className="text-emerald-500" /> In Library ({libraryItems.length})
-                                </button>
-                                <button 
-                                    onClick={() => setStatusFilter('not_in_library')} 
-                                    className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-black rounded-xl transition-all ${statusFilter === 'not_in_library' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                >
-                                    <Sparkles size={13} className="text-amber-500" /> Not in Library
-                                </button>
+                            {/* Horizontally Scrollable Pills on Mobile */}
+                            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
+                                {/* Media Type Toggle: Movies | Series | Music */}
+                                <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner shrink-0">
+                                    <button 
+                                        onClick={() => setMediaType('movie')} 
+                                        className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 text-xs font-black rounded-xl transition-all ${mediaType === 'movie' ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                    >
+                                        <Film size={15} /> Movies
+                                    </button>
+                                    <button 
+                                        onClick={() => setMediaType('series')} 
+                                        className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 text-xs font-black rounded-xl transition-all ${mediaType === 'series' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                    >
+                                        <Tv size={15} /> Series
+                                    </button>
+                                    <button 
+                                        onClick={() => {
+                                            setMediaType('music');
+                                            if (musicResults.length === 0) handleMusicSearch('Top Hits');
+                                        }} 
+                                        className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 text-xs font-black rounded-xl transition-all ${mediaType === 'music' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                    >
+                                        <Disc size={15} /> Music
+                                    </button>
+                                </div>
+
+                                {/* Status Filter: All | In Library | Not in Library */}
+                                <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner shrink-0">
+                                    <button 
+                                        onClick={() => setStatusFilter('all')} 
+                                        className={`px-3 py-2 text-xs font-black rounded-xl transition-all ${statusFilter === 'all' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                    >
+                                        All ({mediaType === 'music' ? musicResults.length : unifiedPool.length})
+                                    </button>
+                                    <button 
+                                        onClick={() => setStatusFilter('in_library')} 
+                                        className={`flex items-center gap-1.5 px-3 py-2 text-xs font-black rounded-xl transition-all ${statusFilter === 'in_library' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                    >
+                                        <CheckCircle size={13} className="text-emerald-500" /> In Library
+                                    </button>
+                                    <button 
+                                        onClick={() => setStatusFilter('not_in_library')} 
+                                        className={`flex items-center gap-1.5 px-3 py-2 text-xs font-black rounded-xl transition-all ${statusFilter === 'not_in_library' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                    >
+                                        <Sparkles size={13} className="text-amber-500" /> Not in Library
+                                    </button>
+                                </div>
                             </div>
                         </div>
 

@@ -1996,10 +1996,10 @@ export default function TheaterPage() {
                PERSISTENT MUSIC STUDIO BOTTOM PLAYER BAR WITH QUEUE & SHUFFLE
                ══════════════════════════════════════════════════════════════ */}
             {playingAudio && (
-                <div className="fixed bottom-4 left-4 right-4 max-w-4xl mx-auto z-[180] bg-zinc-950/95 border border-zinc-800/90 backdrop-blur-2xl p-4 px-6 rounded-[2.5rem] shadow-2xl space-y-2 animate-in slide-in-from-bottom duration-300">
-                    <div className="flex items-center justify-between gap-4">
+                <div className="fixed bottom-20 sm:bottom-4 left-3 right-3 sm:left-4 sm:right-4 max-w-4xl mx-auto z-[180] bg-zinc-950/95 border border-zinc-800/90 backdrop-blur-2xl p-3 sm:p-4 px-4 sm:px-6 rounded-[2rem] sm:rounded-[2.5rem] shadow-2xl space-y-2 animate-in slide-in-from-bottom duration-300">
+                    <div className="flex items-center justify-between gap-2 sm:gap-4">
                         {/* Track Artwork & Info */}
-                        <div className="flex items-center gap-3.5 min-w-0 w-64">
+                        <div className="flex items-center gap-3 min-w-0 flex-1 sm:flex-initial sm:w-64">
                             <div className="w-14 h-14 rounded-2xl bg-zinc-900 border border-zinc-800 overflow-hidden flex items-center justify-center text-amber-400 shrink-0 relative shadow-md">
                                 {playingAudio.posterUrl ? (
                                     <img src={playingAudio.posterUrl} alt="" className="w-full h-full object-cover" />
@@ -2085,12 +2085,12 @@ export default function TheaterPage() {
                             </div>
                         </div>
 
-                        {/* Right Quick Actions: Grab, Queue, Cast, Close */}
-                        <div className="flex items-center gap-2 w-56 justify-end">
+                        {/* Right Quick Actions: Grab, Specs, Queue, Cast, Close */}
+                        <div className="flex items-center gap-1 sm:gap-2 w-auto sm:w-56 justify-end shrink-0">
                             {playingAudio.youtubeId && (
                                 <button
                                     onClick={() => handleGrabTrackToLibrary(playingAudio)}
-                                    className="p-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 text-xs font-bold"
+                                    className="p-2 sm:p-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 text-xs font-bold"
                                     title="Grab Track to Local Music Library Folder"
                                 >
                                     <ArrowDownToLine size={15} />
@@ -2099,7 +2099,7 @@ export default function TheaterPage() {
 
                             <button
                                 onClick={() => fetchAudioSpecs(playingAudio)}
-                                className="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-amber-400 hover:border-amber-500/40 text-xs font-bold transition-all"
+                                className="p-2 sm:p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-amber-400 hover:border-amber-500/40 text-xs font-bold transition-all"
                                 title="Audio Specs & Metadata (Stats for Audiophiles)"
                             >
                                 <Info size={16} />
@@ -2107,18 +2107,18 @@ export default function TheaterPage() {
 
                             <button
                                 onClick={() => setShowQueueDrawer(!showQueueDrawer)}
-                                className={`p-2.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
+                                className={`p-2 sm:p-2.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
                                     showQueueDrawer ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
                                 }`}
                                 title="Toggle Playback Queue"
                             >
                                 <ListMusic size={16} />
-                                <span className="hidden sm:inline">Queue ({audioQueue.length})</span>
+                                <span className="hidden md:inline">Queue ({audioQueue.length})</span>
                             </button>
 
                             <button
                                 onClick={() => openCastPicker(playingAudio)}
-                                className="p-2.5 rounded-xl bg-purple-500/15 hover:bg-purple-500 text-purple-400 hover:text-white border border-purple-500/30 text-xs font-bold"
+                                className="p-2 sm:p-2.5 rounded-xl bg-purple-500/15 hover:bg-purple-500 text-purple-400 hover:text-white border border-purple-500/30 text-xs font-bold"
                                 title="Cast Audio to Smart TV"
                             >
                                 <Cast size={15} />
@@ -2130,7 +2130,7 @@ export default function TheaterPage() {
                                     setPlayingAudio(null);
                                     setIsAudioPlaying(false);
                                 }}
-                                className="p-2 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"
+                                className="p-1.5 sm:p-2 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"
                             >
                                 <X size={18} />
                             </button>
