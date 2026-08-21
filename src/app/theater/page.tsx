@@ -13,7 +13,8 @@ import {
     Clock, FastForward, Rewind, Subtitles, ListFilter, Bookmark,
     ListPlus, Copy, Download, Shuffle, Repeat, SkipForward, SkipBack,
     Disc, User, ListMusic, Youtube, Globe, Heart, PlaySquare, ArrowDownToLine,
-    Headphones, RadioTower, Info, Mic2, FileText, Edit3, ChevronDown
+    Headphones, RadioTower, Info, Mic2, FileText, Edit3, ChevronDown,
+    Terminal, AlertTriangle, Bug, Code, Cpu, Monitor, RefreshCcw, CheckCheck
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import Hls from 'hls.js';
@@ -208,11 +209,22 @@ export default function TheaterPage() {
     } = useMusicPlayer();
 
     const [playingVideo, setPlayingVideo] = useState<MediaItem | null>(null);
-    const [videoAudioMode, setVideoAudioMode] = useState<'direct' | 'transcode'>('transcode');
+    const [videoAudioMode, setVideoAudioMode] = useState<'direct' | 'transcode' | 'universal'>('transcode');
     const [viewingPhotoIndex, setViewingPhotoIndex] = useState<number | null>(null);
 
-    // Video Player Advanced Controls & Diagnostics
+    // Video Player Advanced Controls & Diagnostics & Nerd Tools
     const [showStatsHud, setShowStatsHud] = useState(false);
+    const [showNerdToolsModal, setShowNerdToolsModal] = useState(false);
+    const [nerdActiveTab, setNerdActiveTab] = useState<'telemetry' | 'logs' | 'compat'>('telemetry');
+    const [debugLogs, setDebugLogs] = useState<{ id: string; timestamp: string; level: 'info' | 'warn' | 'error' | 'success'; message: string; details?: any; }[]>([]);
+    const [playbackError, setPlaybackError] = useState<{ code?: number; codeName?: string; message: string; details?: string; suggestion?: string; } | null>(null);
+
+    const addDebugLog = (level: 'info' | 'warn' | 'error' | 'success', message: string, details?: any) => {
+        const id = Math.random().toString(36).substring(2, 9);
+        const timestamp = new Date().toLocaleTimeString();
+        setDebugLogs(prev => [...prev.slice(-150), { id, timestamp, level, message, details }]);
+    };
+
     const [showSubtitlesDrawer, setShowSubtitlesDrawer] = useState(false);
     const [isSubSearchModalOpen, setIsSubSearchModalOpen] = useState(false);
     const [subSearchQuery, setSubSearchQuery] = useState('');
@@ -781,16 +793,26 @@ export default function TheaterPage() {
         playAlbum(albumTracks);
     };
 
-    // Video Player & HLS Handler for .ts and live streams + Audio Transcoding + Diagnostics Fetch
+    // Video Player & HLS Handler for .ts and live streams + Audio/Universal Transcoding + Diagnostics Fetch
     useEffect(() => {
         if (playingVideo && videoRef.current) {
             const video = videoRef.current;
+            setPlaybackError(null);
+
             let streamUrl = playingVideo.streamUrl;
 
-            // If audio mode is set to transcode (AAC Compatible), append transcode=audio
-            if (videoAudioMode === 'transcode' && !streamUrl.includes('transcode=')) {
+            // Transcode mode query param injection
+            if (videoAudioMode === 'universal') {
+                streamUrl = `${streamUrl}${streamUrl.includes('?') ? '&' : '?'}transcode=universal`;
+            } else if (videoAudioMode === 'transcode') {
                 streamUrl = `${streamUrl}${streamUrl.includes('?') ? '&' : '?'}transcode=audio`;
             }
+
+            addDebugLog('info', `Initializing playback for "${playingVideo.title}"`, {
+                path: playingVideo.path,
+                mode: videoAudioMode,
+                streamUrl
+            });
 
             const isTsOrHls = playingVideo.extension === 'TS' || streamUrl.includes('.m3u8') || streamUrl.includes('.ts');
 
@@ -802,12 +824,29 @@ export default function TheaterPage() {
                 hls.loadSource(streamUrl);
                 hls.attachMedia(video);
                 hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                    video.play().catch(() => {});
+                    addDebugLog('success', 'HLS Manifest parsed, triggering playback');
+                    video.play().catch((e) => {
+                        addDebugLog('warn', `Autoplay prevented or playback error: ${e.message}`);
+                    });
+                });
+                hls.on(Hls.Events.ERROR, (_event, data) => {
+                    addDebugLog(data.fatal ? 'error' : 'warn', `HLS event: ${data.details} (${data.type})`, data);
+                    if (data.fatal) {
+                        setPlaybackError({
+                            codeName: data.details,
+                            message: `HLS fatal streaming error (${data.details}).`,
+                            details: JSON.stringify(data, null, 2),
+                            suggestion: 'Switch to Full Universal Transcode (H.264+AAC) or open in VLC.'
+                        });
+                    }
                 });
                 hlsInstanceRef.current = hls;
             } else {
                 video.src = streamUrl;
-                video.play().catch(() => {});
+                addDebugLog('info', `Set HTML5 video.src to "${streamUrl}"`);
+                video.play().catch((e) => {
+                    addDebugLog('warn', `Video play() rejected: ${e.message}`);
+                });
             }
 
             handleDiscoverLocalSubtitles(playingVideo);
@@ -817,8 +856,21 @@ export default function TheaterPage() {
             // Fetch Stream Diagnostics (Original vs Played Codecs & Bitrate)
             fetch(`/api/theater/diagnostics?videoPath=${encodeURIComponent(playingVideo.path)}`)
                 .then(r => r.ok ? r.json() : null)
-                .then(d => { if (d) setDiagnosticsData(d); })
-                .catch(() => {});
+                .then(d => {
+                    if (d) {
+                        setDiagnosticsData(d);
+                        addDebugLog('info', 'ffprobe stream diagnostics loaded', d.original);
+                        if (d.original?.videoCodec?.toUpperCase().includes('HEVC') && videoAudioMode === 'direct') {
+                            addDebugLog('warn', `Direct Play with HEVC video: Browser may fail if HEVC hardware decoding is unsupported. Universal Transcode recommended.`);
+                        }
+                        if (d.original?.audioCodec?.toUpperCase().includes('DTS') && videoAudioMode === 'direct') {
+                            addDebugLog('warn', `Direct Play with DTS audio: Browser cannot decode raw DTS audio without AAC transcoding.`);
+                        }
+                    }
+                })
+                .catch(err => {
+                    addDebugLog('warn', `Failed to fetch diagnostics probe: ${err.message}`);
+                });
         }
 
         return () => {
@@ -873,13 +925,71 @@ export default function TheaterPage() {
                     currentTime: formatTime(video.currentTime),
                     duration: formatTime(video.duration),
                     droppedFrames: dropped,
-                    sourceMode: playingVideo?.posterUrl ? 'Plex Direct Stream' : (playingChannel ? 'HLS Live TV' : (videoAudioMode === 'transcode' ? 'Direct Video + AAC Transcode' : 'Direct Play (Local)'))
+                    sourceMode: playingVideo?.posterUrl
+                        ? 'Plex Direct Stream'
+                        : (playingChannel
+                            ? 'HLS Live TV'
+                            : (videoAudioMode === 'universal'
+                                ? 'Full Universal Transcode (H.264 + AAC)'
+                                : (videoAudioMode === 'transcode'
+                                    ? 'Direct Video + AAC Transcode'
+                                    : 'Direct Play (Local)')))
                 });
             }
         }, 1000);
 
         return () => clearInterval(interval);
     }, [playingVideo, playingChannel, videoAudioMode]);
+
+    // Copy Full Nerd Tools Diagnostic Report
+    const handleCopyDebugReport = () => {
+        const video = videoRef.current;
+        const report = [
+            `# Schedulearr Theater - Playback Debug & Diagnostic Report`,
+            `**Generated**: ${new Date().toISOString()}`,
+            `**Media Title**: ${playingVideo?.title || 'Unknown'}`,
+            `**File Path**: \`${playingVideo?.path || 'N/A'}\``,
+            `**Stream URL**: \`${playingVideo?.streamUrl || 'N/A'}\``,
+            `**Playback Mode**: ${videoAudioMode.toUpperCase()}`,
+            ``,
+            `## Original Media Specs (ffprobe)`,
+            `- **Video Codec**: ${diagnosticsData?.original?.videoCodec || 'N/A'}`,
+            `- **Resolution & FPS**: ${diagnosticsData?.original?.resolution || streamMetrics.resolution} @ ${diagnosticsData?.original?.fps || 'N/A'}`,
+            `- **Video Bitrate**: ${diagnosticsData?.original?.videoBitrate || 'N/A'}`,
+            `- **Audio Codec**: ${diagnosticsData?.original?.audioCodec || 'N/A'}`,
+            `- **Audio Channels & Bitrate**: ${diagnosticsData?.original?.audioChannels || 'N/A'} (${diagnosticsData?.original?.audioBitrate || 'N/A'})`,
+            `- **Container**: ${diagnosticsData?.original?.container || playingVideo?.extension || 'N/A'}`,
+            ``,
+            `## HTML5 Video Element State`,
+            `- **Current Time / Duration**: ${video ? formatTime(video.currentTime) : '0:00'} / ${video ? formatTime(video.duration) : '0:00'}`,
+            `- **Video Dimensions**: ${video?.videoWidth || 0} x ${video?.videoHeight || 0}`,
+            `- **Ready State**: ${video?.readyState ?? 'N/A'}`,
+            `- **Network State**: ${video?.networkState ?? 'N/A'}`,
+            `- **Paused**: ${video?.paused ?? 'N/A'}`,
+            `- **Muted**: ${video?.muted ?? 'N/A'}`,
+            `- **Buffered Ahead**: ${streamMetrics.bufferedSeconds}s`,
+            `- **Dropped Frames**: ${streamMetrics.droppedFrames}`,
+            `- **Error State**: ${playbackError ? `${playbackError.codeName} (Code ${playbackError.code}): ${playbackError.message}` : 'None'}`,
+            ``,
+            `## Browser & Codec Compatibility`,
+            `- **User-Agent**: \`${typeof navigator !== 'undefined' ? navigator.userAgent : 'N/A'}\``,
+            `- **Platform**: \`${typeof navigator !== 'undefined' ? navigator.platform : 'N/A'}\``,
+            `- **H.264 (avc1) Support**: ${video?.canPlayType('video/mp4; codecs="avc1.42E01E, mp4a.40.2"') || 'no'}`,
+            `- **HEVC (hev1) Support**: ${video?.canPlayType('video/mp4; codecs="hev1.1.6.L93.B0"') || 'no'}`,
+            `- **Matroska (.mkv) Support**: ${video?.canPlayType('video/x-matroska') || 'no'}`,
+            `- **MediaSource Support**: ${typeof MediaSource !== 'undefined' ? 'Yes' : 'No'}`,
+            ``,
+            `## Live Event Logs (${debugLogs.length} entries)`,
+            `\`\`\``,
+            ...debugLogs.map(l => `[${l.timestamp}] [${l.level.toUpperCase()}] ${l.message}${l.details ? ` | ${JSON.stringify(l.details)}` : ''}`),
+            `\`\`\``
+        ].join('\n');
+
+        if (typeof navigator !== 'undefined' && navigator.clipboard) {
+            navigator.clipboard.writeText(report);
+            toast.success('Nerd Tools debug report copied to clipboard!');
+        }
+    };
 
     // Save Curated Shortlist
     const handleSaveShortlist = async () => {
@@ -2056,62 +2166,102 @@ export default function TheaterPage() {
                 </div>
             )}
 
-            {/* ── Advanced Video Player Modal with Diagnostics & Working VLC ── */}
+            {/* ── Advanced Video Player Modal with Nerd Tools, Debug Logs & Universal Transcode ── */}
             {playingVideo && (
-                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/95 backdrop-blur-xl animate-in fade-in duration-200">
-                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-5xl overflow-hidden shadow-2xl relative flex flex-col">
-                        <div className="p-5 px-6 border-b border-zinc-900 flex items-center justify-between">
-                            <div>
-                                <h2 className="text-lg font-black text-white truncate max-w-xl">{playingVideo.title}</h2>
-                                <p className="text-xs text-zinc-500 font-medium">{playingVideo.path}</p>
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-2 sm:p-4 bg-black/95 backdrop-blur-xl animate-in fade-in duration-200">
+                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-5xl overflow-hidden shadow-2xl relative flex flex-col max-h-[95vh]">
+                        {/* Player Header */}
+                        <div className="p-4 sm:p-5 px-6 border-b border-zinc-900 flex flex-wrap items-center justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                                <h2 className="text-base sm:text-lg font-black text-white truncate max-w-xl flex items-center gap-2">
+                                    {playingVideo.title}
+                                    {videoAudioMode === 'universal' && (
+                                        <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 text-[10px] font-bold border border-emerald-500/30 uppercase">
+                                            Universal H.264
+                                        </span>
+                                    )}
+                                    {videoAudioMode === 'transcode' && (
+                                        <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-400 text-[10px] font-bold border border-amber-500/30 uppercase">
+                                            Audio AAC
+                                        </span>
+                                    )}
+                                </h2>
+                                <p className="text-[11px] text-zinc-500 font-mono truncate">{playingVideo.path}</p>
                             </div>
 
-                            <div className="flex items-center gap-2">
-                                {/* Audio Compatibility Toggle (Fixes No Sound on DTS/TrueHD) */}
+                            <div className="flex items-center flex-wrap gap-2">
+                                {/* Stream Mode Selector Cycle Button */}
                                 <button
                                     onClick={() => {
-                                        const nextMode = videoAudioMode === 'direct' ? 'transcode' : 'direct';
+                                        const nextMode = videoAudioMode === 'transcode' ? 'universal' : videoAudioMode === 'universal' ? 'direct' : 'transcode';
                                         setVideoAudioMode(nextMode);
-                                        toast.info(nextMode === 'transcode' ? 'Audio Mode: AAC Stereo Compatible (Transcoding audio on-the-fly)' : 'Audio Mode: Direct Play');
+                                        setPlaybackError(null);
+                                        addDebugLog('info', `Switched playback mode to: ${nextMode.toUpperCase()}`);
+                                        toast.info(
+                                            nextMode === 'universal'
+                                                ? 'Universal Transcode: Full H.264 + AAC compatibility mode'
+                                                : nextMode === 'transcode'
+                                                    ? 'Audio Transcode: Video copy + AAC 2.0 transcode'
+                                                    : 'Direct Play: Raw file stream'
+                                        );
                                     }}
-                                    className={`p-2.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
-                                        videoAudioMode === 'transcode' ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+                                    className={`p-2 sm:p-2.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
+                                        videoAudioMode === 'universal'
+                                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                            : videoAudioMode === 'transcode'
+                                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                                : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
                                     }`}
-                                    title={videoAudioMode === 'transcode' ? "Audio: AAC Stereo Compatible (Transcoded for browser support)" : "Audio: Direct Play (Raw File Stream)"}
+                                    title="Click to cycle: Audio AAC ➔ Universal H.264 ➔ Direct Play"
                                 >
                                     <Headphones size={15} />
-                                    <span>{videoAudioMode === 'transcode' ? 'Audio: AAC' : 'Audio: Direct'}</span>
+                                    <span>
+                                        {videoAudioMode === 'universal' ? 'Mode: Universal' : videoAudioMode === 'transcode' ? 'Mode: Audio AAC' : 'Mode: Direct'}
+                                    </span>
                                 </button>
 
+                                {/* Nerd Tools & Debug Logs Drawer Toggle */}
                                 <button
-                                    onClick={() => setShowStatsHud(!showStatsHud)}
-                                    className={`p-2.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
-                                        showStatsHud ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+                                    onClick={() => setShowNerdToolsModal(true)}
+                                    className={`p-2 sm:p-2.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
+                                        playbackError
+                                            ? 'bg-red-500/20 text-red-400 border-red-500/40 animate-pulse'
+                                            : showNerdToolsModal
+                                                ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                                                : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
                                     }`}
-                                    title="Toggle Stream Metrics (Stats for Nerds)"
+                                    title="Stats for Nerds & Debug Logs (Copyable report)"
                                 >
-                                    <Activity size={16} /> Metrics
+                                    <Terminal size={15} />
+                                    <span>Nerd Tools</span>
+                                    {debugLogs.length > 0 && (
+                                        <span className="ml-0.5 px-1.5 py-0.2 rounded-full bg-zinc-800 text-[10px] text-zinc-400">
+                                            {debugLogs.length}
+                                        </span>
+                                    )}
                                 </button>
 
+                                {/* Subtitles Drawer Toggle */}
                                 <button
                                     onClick={() => setShowSubtitlesDrawer(!showSubtitlesDrawer)}
-                                    className={`p-2.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
+                                    className={`p-2 sm:p-2.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
                                         showSubtitlesDrawer || selectedSubtitle ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/40' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
                                     }`}
                                     title="Subtitles & Timing Sync"
                                 >
-                                    <Subtitles size={16} /> Subtitles
+                                    <Subtitles size={15} /> Subtitles
                                 </button>
 
+                                {/* Cast to Smart TV */}
                                 <button
                                     onClick={() => openCastPicker(playingVideo)}
-                                    className="p-2.5 rounded-xl bg-purple-500/15 hover:bg-purple-500 text-purple-400 hover:text-white border border-purple-500/30 text-xs font-bold flex items-center gap-1.5 transition-all"
+                                    className="p-2 sm:p-2.5 rounded-xl bg-purple-500/15 hover:bg-purple-500 text-purple-400 hover:text-white border border-purple-500/30 text-xs font-bold flex items-center gap-1.5 transition-all"
                                     title="Cast Stream directly to Smart TV (/tv)"
                                 >
                                     <Cast size={15} /> Cast to TV
                                 </button>
 
-                                {/* Working VLC Launcher (Downloads .m3u + Copies Stream URL) */}
+                                {/* Open in VLC */}
                                 <button
                                     onClick={() => {
                                         const m3uUrl = `${window.location.origin}${playingVideo.streamUrl}&m3u=true&title=${encodeURIComponent(playingVideo.title)}`;
@@ -2123,9 +2273,10 @@ export default function TheaterPage() {
                                         document.body.appendChild(a);
                                         a.click();
                                         document.body.removeChild(a);
+                                        addDebugLog('info', 'Generated .m3u playlist and opened stream for VLC');
                                         toast.success('Stream URL copied! Opening VLC playlist file (.m3u)...');
                                     }}
-                                    className="p-2.5 rounded-xl bg-orange-500/15 hover:bg-orange-500 text-orange-400 hover:text-black border border-orange-500/30 text-xs font-bold flex items-center gap-1.5 transition-all"
+                                    className="p-2 sm:p-2.5 rounded-xl bg-orange-500/15 hover:bg-orange-500 text-orange-400 hover:text-black border border-orange-500/30 text-xs font-bold flex items-center gap-1.5 transition-all"
                                     title="Open Stream in VLC Media Player (.m3u playlist download)"
                                 >
                                     <ExternalLink size={15} /> Open in VLC
@@ -2133,19 +2284,76 @@ export default function TheaterPage() {
 
                                 <button
                                     onClick={() => setPlayingVideo(null)}
-                                    className="p-2 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all ml-2"
+                                    className="p-2 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all ml-1"
                                 >
                                     <X size={20} />
                                 </button>
                             </div>
                         </div>
 
-                        <div className="relative aspect-video bg-black flex items-center justify-center overflow-hidden">
+                        {/* Video Stage Container */}
+                        <div className="relative aspect-video bg-black flex items-center justify-center overflow-hidden flex-1">
                             <video
                                 ref={videoRef}
                                 controls
                                 autoPlay
                                 className="w-full h-full object-contain"
+                                onLoadStart={() => {
+                                    addDebugLog('info', 'Video event: loadstart');
+                                    setPlaybackError(null);
+                                }}
+                                onLoadedMetadata={(e) => {
+                                    const v = e.currentTarget;
+                                    addDebugLog('success', `Video event: loadedmetadata (${v.videoWidth}x${v.videoHeight}, duration: ${Math.round(v.duration || 0)}s)`);
+                                }}
+                                onCanPlay={() => addDebugLog('success', 'Video event: canplay (Ready for playback)')}
+                                onPlaying={() => addDebugLog('info', 'Video event: playing')}
+                                onWaiting={() => addDebugLog('warn', 'Video event: waiting (buffering stream data)')}
+                                onStalled={() => addDebugLog('warn', 'Video event: stalled (no network data received)')}
+                                onError={(e) => {
+                                    const v = e.currentTarget;
+                                    const err = v.error;
+                                    let codeName = 'MEDIA_ERR_UNKNOWN';
+                                    let message = 'An unknown video playback error occurred.';
+                                    let suggestion = 'Switch to Full Universal Transcode (H.264+AAC) or open in VLC.';
+                                    if (err) {
+                                        switch (err.code) {
+                                            case 1:
+                                                codeName = 'MEDIA_ERR_ABORTED';
+                                                message = 'Video playback aborted by user or browser.';
+                                                break;
+                                            case 2:
+                                                codeName = 'MEDIA_ERR_NETWORK';
+                                                message = 'Network error: Video download failed from server.';
+                                                suggestion = 'Ensure server is accessible and file path is valid.';
+                                                break;
+                                            case 3:
+                                                codeName = 'MEDIA_ERR_DECODE';
+                                                message = 'Decode error: The video bitstream could not be decoded.';
+                                                suggestion = 'Your browser cannot decode this video codec (e.g. HEVC 10-bit HDR). Switch to Full Universal Transcode.';
+                                                break;
+                                            case 4:
+                                                codeName = 'MEDIA_ERR_SRC_NOT_SUPPORTED';
+                                                message = 'Format or codec not supported by browser (e.g. MKV container, HEVC H.265, DTS/TrueHD audio).';
+                                                suggestion = 'Click "Switch to Full Universal Transcode" below to transcode into standard H.264+AAC, or open in VLC.';
+                                                break;
+                                        }
+                                    }
+                                    addDebugLog('error', `HTMLVideoElement Error: ${codeName} (Code ${err?.code || '?'}) - ${message}`, {
+                                        code: err?.code,
+                                        codeName,
+                                        networkState: v.networkState,
+                                        readyState: v.readyState,
+                                        currentSrc: v.currentSrc
+                                    });
+                                    setPlaybackError({
+                                        code: err?.code,
+                                        codeName,
+                                        message,
+                                        details: err?.message || undefined,
+                                        suggestion
+                                    });
+                                }}
                             >
                                 {selectedSubtitle && (
                                     <track
@@ -2158,68 +2366,60 @@ export default function TheaterPage() {
                                 )}
                             </video>
 
-                            {/* ── Stats for Nerds (Stream Metrics & Codec Diagnostics HUD) ── */}
-                            {showStatsHud && (
-                                <div className="absolute top-4 left-4 z-40 p-5 rounded-3xl bg-black/90 border border-zinc-800 text-zinc-300 font-mono text-xs space-y-3 backdrop-blur-xl shadow-2xl animate-in fade-in max-w-md w-full">
-                                    <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
-                                        <span className="font-bold text-emerald-400 flex items-center gap-1.5 text-sm">
-                                            <Activity size={15} /> Stream Diagnostics
-                                        </span>
-                                        <button onClick={() => setShowStatsHud(false)} className="text-zinc-500 hover:text-white">
-                                            <X size={14} />
-                                        </button>
+                            {/* ── Playback Error Crash Diagnostic Overlay ── */}
+                            {playbackError && (
+                                <div className="absolute inset-0 z-30 bg-black/92 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center animate-in fade-in">
+                                    <div className="w-16 h-16 rounded-2xl bg-red-500/20 border border-red-500/40 flex items-center justify-center text-red-400 mb-3 shadow-[0_0_25px_rgba(239,68,68,0.25)]">
+                                        <AlertTriangle size={32} />
                                     </div>
+                                    <h3 className="text-lg font-black text-white mb-1">
+                                        Playback Incompatible ({playbackError.codeName || `Code ${playbackError.code}`})
+                                    </h3>
+                                    <p className="text-sm text-zinc-300 max-w-lg mb-2">
+                                        {playbackError.message}
+                                    </p>
+                                    <p className="text-xs text-amber-400/95 font-medium max-w-md mb-6">
+                                        💡 {playbackError.suggestion}
+                                    </p>
 
-                                    <div className="space-y-2 text-[11px]">
-                                        {/* Video Track Info */}
-                                        <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-900 space-y-1">
-                                            <span className="text-[10px] font-black uppercase text-zinc-500 tracking-wider block">Video Stream</span>
-                                            <div className="flex justify-between">
-                                                <span className="text-zinc-400">Original Codec:</span>
-                                                <span className="font-bold text-white">{diagnosticsData?.original?.videoCodec || 'HEVC (H.265)'}</span>
-                                            </div>
-                                            <div className="flex justify-between">
-                                                <span className="text-zinc-400">Resolution & FPS:</span>
-                                                <span className="font-bold text-white">{diagnosticsData?.original?.resolution || streamMetrics.resolution} @ {diagnosticsData?.original?.fps || '24 fps'}</span>
-                                            </div>
-                                            <div className="flex justify-between">
-                                                <span className="text-zinc-400">Video Bitrate:</span>
-                                                <span className="font-bold text-emerald-400">{diagnosticsData?.original?.videoBitrate || 'High Bitrate'}</span>
-                                            </div>
-                                            <div className="flex justify-between">
-                                                <span className="text-zinc-400">Output Stream:</span>
-                                                <span className="font-bold text-indigo-400">{diagnosticsData?.playing?.videoCodec || 'Direct HTML5 Stream'}</span>
-                                            </div>
-                                        </div>
+                                    <div className="flex flex-wrap items-center justify-center gap-2.5 max-w-lg">
+                                        <button
+                                            onClick={() => {
+                                                setVideoAudioMode('universal');
+                                                setPlaybackError(null);
+                                                addDebugLog('info', 'User triggered switch to Full Universal Transcode');
+                                                toast.info('Switched to Full Universal Transcode (H.264 + AAC)');
+                                            }}
+                                            className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-2 shadow-lg transition-all"
+                                        >
+                                            <RefreshCcw size={14} /> Full Transcode (Universal H.264)
+                                        </button>
 
-                                        {/* Audio Track Info */}
-                                        <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-900 space-y-1">
-                                            <span className="text-[10px] font-black uppercase text-zinc-500 tracking-wider block">Audio Stream</span>
-                                            <div className="flex justify-between">
-                                                <span className="text-zinc-400">Original Codec:</span>
-                                                <span className="font-bold text-white">{diagnosticsData?.original?.audioCodec || 'DTS-HD / TrueHD / EAC3'}</span>
-                                            </div>
-                                            <div className="flex justify-between">
-                                                <span className="text-zinc-400">Channels & Bitrate:</span>
-                                                <span className="font-bold text-white">{diagnosticsData?.original?.audioChannels || '5.1 / 7.1'} ({diagnosticsData?.original?.audioBitrate || '1536 kbps'})</span>
-                                            </div>
-                                            <div className="flex justify-between">
-                                                <span className="text-zinc-400">Output Audio:</span>
-                                                <span className="font-bold text-amber-400">{videoAudioMode === 'transcode' ? 'AAC Stereo 256k (Transcoded)' : 'Direct Play (Raw)'}</span>
-                                            </div>
-                                        </div>
+                                        <button
+                                            onClick={() => {
+                                                setVideoAudioMode('transcode');
+                                                setPlaybackError(null);
+                                                addDebugLog('info', 'User triggered switch to Audio AAC Transcode');
+                                                toast.info('Switched to Audio AAC Transcode');
+                                            }}
+                                            className="px-4 py-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/40 font-bold text-xs flex items-center gap-2 transition-all"
+                                        >
+                                            <Headphones size={14} /> Audio: AAC Mode
+                                        </button>
 
-                                        {/* Playback Stats */}
-                                        <div className="grid grid-cols-2 gap-2 pt-1 text-[10px]">
-                                            <div className="p-2 rounded-lg bg-zinc-950 border border-zinc-900">
-                                                <span className="text-zinc-500 block">Buffer Ahead:</span>
-                                                <span className="font-bold text-emerald-400">{streamMetrics.bufferedSeconds}s</span>
-                                            </div>
-                                            <div className="p-2 rounded-lg bg-zinc-950 border border-zinc-900">
-                                                <span className="text-zinc-500 block">Dropped Frames:</span>
-                                                <span className="font-bold text-white">{streamMetrics.droppedFrames}</span>
-                                            </div>
-                                        </div>
+                                        <button
+                                            onClick={() => setShowNerdToolsModal(true)}
+                                            className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-700 font-bold text-xs flex items-center gap-2 transition-all"
+                                        >
+                                            <Terminal size={14} /> Nerd Tools & Logs
+                                        </button>
+
+                                        <button
+                                            onClick={handleCopyDebugReport}
+                                            className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 font-bold text-xs flex items-center gap-2 transition-all"
+                                        >
+                                            <Copy size={14} /> Copy Debug Info
+                                        </button>
                                     </div>
                                 </div>
                             )}
@@ -2324,6 +2524,310 @@ export default function TheaterPage() {
                     </div>
                 </div>
             )}
+
+            {/* ── Dedicated "Stats for Nerds & Debug Console" Modal (Copyable) ── */}
+            {showNerdToolsModal && (
+                <div className="fixed inset-0 z-[260] flex items-center justify-center p-3 sm:p-6 bg-black/90 backdrop-blur-2xl animate-in fade-in duration-200">
+                    <div className="bg-[#0e0e10] border border-zinc-800 rounded-[2.5rem] w-full max-w-4xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
+                        {/* Header */}
+                        <div className="p-5 px-6 border-b border-zinc-800/80 flex items-center justify-between bg-zinc-950/80">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2.5 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400">
+                                    <Terminal size={22} />
+                                </div>
+                                <div>
+                                    <h2 className="text-lg font-black text-white flex items-center gap-2">
+                                        Stats for Nerds & Debug Console
+                                    </h2>
+                                    <p className="text-xs text-zinc-400">Live stream diagnostics, HTML5 player telemetry, and copyable debug log</p>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={handleCopyDebugReport}
+                                    className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-2 shadow-lg transition-all active:scale-95"
+                                    title="Copy full diagnostic report to clipboard"
+                                >
+                                    <Copy size={15} /> Copy Debug Report
+                                </button>
+                                <button
+                                    onClick={() => setShowNerdToolsModal(false)}
+                                    className="p-2.5 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"
+                                >
+                                    <X size={20} />
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Tab Switcher */}
+                        <div className="px-6 pt-3 border-b border-zinc-800/60 bg-zinc-950/40 flex items-center gap-2">
+                            <button
+                                onClick={() => setNerdActiveTab('telemetry')}
+                                className={`pb-3 px-3 text-xs font-black uppercase tracking-wider border-b-2 transition-all flex items-center gap-2 ${
+                                    nerdActiveTab === 'telemetry'
+                                        ? 'border-emerald-500 text-emerald-400'
+                                        : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                                }`}
+                            >
+                                <Activity size={15} /> Stream Telemetry
+                            </button>
+
+                            <button
+                                onClick={() => setNerdActiveTab('logs')}
+                                className={`pb-3 px-3 text-xs font-black uppercase tracking-wider border-b-2 transition-all flex items-center gap-2 ${
+                                    nerdActiveTab === 'logs'
+                                        ? 'border-emerald-500 text-emerald-400'
+                                        : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                                }`}
+                            >
+                                <Bug size={15} /> Event Logs
+                                <span className="px-2 py-0.5 rounded-full bg-zinc-800 text-[10px] text-zinc-300 font-bold">
+                                    {debugLogs.length}
+                                </span>
+                            </button>
+
+                            <button
+                                onClick={() => setNerdActiveTab('compat')}
+                                className={`pb-3 px-3 text-xs font-black uppercase tracking-wider border-b-2 transition-all flex items-center gap-2 ${
+                                    nerdActiveTab === 'compat'
+                                        ? 'border-emerald-500 text-emerald-400'
+                                        : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                                }`}
+                            >
+                                <Monitor size={15} /> Browser Codecs
+                            </button>
+                        </div>
+
+                        {/* Modal Body */}
+                        <div className="p-6 overflow-y-auto custom-scrollbar flex-1 space-y-5 font-mono text-xs text-zinc-300">
+                            {/* TAB 1: STREAM TELEMETRY */}
+                            {nerdActiveTab === 'telemetry' && (
+                                <div className="space-y-4">
+                                    {/* Video Stream Comparison Card */}
+                                    <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[11px] font-black uppercase text-emerald-400 tracking-wider flex items-center gap-1.5">
+                                                <Film size={14} /> Video Stream Details
+                                            </span>
+                                            <span className="px-2 py-0.5 rounded bg-zinc-900 text-[10px] text-zinc-400 font-bold">
+                                                Container: {diagnosticsData?.original?.container || playingVideo?.extension || 'MKV'}
+                                            </span>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                                            <div className="p-3 rounded-xl bg-zinc-900/60 border border-zinc-800/80 space-y-1">
+                                                <span className="text-[10px] text-zinc-500 uppercase block font-bold">Original Bitstream (ffprobe)</span>
+                                                <div className="flex justify-between"><span className="text-zinc-400">Codec:</span><span className="font-bold text-white">{diagnosticsData?.original?.videoCodec || 'HEVC / H.265'}</span></div>
+                                                <div className="flex justify-between"><span className="text-zinc-400">Resolution:</span><span className="font-bold text-white">{diagnosticsData?.original?.resolution || streamMetrics.resolution}</span></div>
+                                                <div className="flex justify-between"><span className="text-zinc-400">Framerate:</span><span className="font-bold text-white">{diagnosticsData?.original?.fps || '24 fps'}</span></div>
+                                                <div className="flex justify-between"><span className="text-zinc-400">Bitrate:</span><span className="font-bold text-emerald-400">{diagnosticsData?.original?.videoBitrate || 'High Bitrate'}</span></div>
+                                            </div>
+
+                                            <div className="p-3 rounded-xl bg-zinc-900/60 border border-zinc-800/80 space-y-1">
+                                                <span className="text-[10px] text-zinc-500 uppercase block font-bold">Active Playback Stream</span>
+                                                <div className="flex justify-between"><span className="text-zinc-400">Output Mode:</span><span className="font-bold text-emerald-400">{streamMetrics.sourceMode}</span></div>
+                                                <div className="flex justify-between"><span className="text-zinc-400">Viewport Size:</span><span className="font-bold text-white">{videoRef.current ? `${videoRef.current.videoWidth} x ${videoRef.current.videoHeight}` : '0 x 0'}</span></div>
+                                                <div className="flex justify-between"><span className="text-zinc-400">Dropped Frames:</span><span className="font-bold text-amber-400">{streamMetrics.droppedFrames}</span></div>
+                                                <div className="flex justify-between"><span className="text-zinc-400">Buffer Ahead:</span><span className="font-bold text-emerald-400">{streamMetrics.bufferedSeconds}s</span></div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Audio Stream Details */}
+                                    <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3">
+                                        <span className="text-[11px] font-black uppercase text-amber-400 tracking-wider flex items-center gap-1.5">
+                                            <Headphones size={14} /> Audio Stream Details
+                                        </span>
+
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                                            <div className="p-3 rounded-xl bg-zinc-900/60 border border-zinc-800/80 space-y-1">
+                                                <span className="text-[10px] text-zinc-500 uppercase block font-bold">Original Audio (ffprobe)</span>
+                                                <div className="flex justify-between"><span className="text-zinc-400">Codec:</span><span className="font-bold text-white">{diagnosticsData?.original?.audioCodec || 'DTS-HD / TrueHD / EAC3'}</span></div>
+                                                <div className="flex justify-between"><span className="text-zinc-400">Channels:</span><span className="font-bold text-white">{diagnosticsData?.original?.audioChannels || '5.1 / 7.1'}</span></div>
+                                                <div className="flex justify-between"><span className="text-zinc-400">Bitrate:</span><span className="font-bold text-white">{diagnosticsData?.original?.audioBitrate || '1536 kbps'}</span></div>
+                                            </div>
+
+                                            <div className="p-3 rounded-xl bg-zinc-900/60 border border-zinc-800/80 space-y-1">
+                                                <span className="text-[10px] text-zinc-500 uppercase block font-bold">Active Audio Output</span>
+                                                <div className="flex justify-between"><span className="text-zinc-400">Encoder / Mode:</span><span className="font-bold text-amber-400">{videoAudioMode === 'universal' || videoAudioMode === 'transcode' ? 'AAC Stereo 256k (Transcoded)' : 'Direct Play (Raw Bitstream)'}</span></div>
+                                                <div className="flex justify-between"><span className="text-zinc-400">Channels:</span><span className="font-bold text-white">2.0 Stereo</span></div>
+                                                <div className="flex justify-between"><span className="text-zinc-400">Muted:</span><span className="font-bold text-white">{videoRef.current?.muted ? 'Yes' : 'No'}</span></div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* HTML5 Video Element Internal State */}
+                                    <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-2">
+                                        <span className="text-[11px] font-black uppercase text-indigo-400 tracking-wider flex items-center gap-1.5">
+                                            <Code size={14} /> HTMLVideoElement State
+                                        </span>
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                                            <div className="p-2.5 rounded-xl bg-zinc-900/50 border border-zinc-800">
+                                                <span className="text-zinc-500 block">Ready State:</span>
+                                                <span className="font-bold text-white">{videoRef.current ? ['HAVE_NOTHING', 'HAVE_METADATA', 'HAVE_CURRENT_DATA', 'HAVE_FUTURE_DATA', 'HAVE_ENOUGH_DATA'][videoRef.current.readyState] : 'N/A'}</span>
+                                            </div>
+                                            <div className="p-2.5 rounded-xl bg-zinc-900/50 border border-zinc-800">
+                                                <span className="text-zinc-500 block">Network State:</span>
+                                                <span className="font-bold text-white">{videoRef.current ? ['NETWORK_EMPTY', 'NETWORK_IDLE', 'NETWORK_LOADING', 'NETWORK_NO_SOURCE'][videoRef.current.networkState] : 'N/A'}</span>
+                                            </div>
+                                            <div className="p-2.5 rounded-xl bg-zinc-900/50 border border-zinc-800">
+                                                <span className="text-zinc-500 block">Current Time:</span>
+                                                <span className="font-bold text-white">{streamMetrics.currentTime}</span>
+                                            </div>
+                                            <div className="p-2.5 rounded-xl bg-zinc-900/50 border border-zinc-800">
+                                                <span className="text-zinc-500 block">Duration:</span>
+                                                <span className="font-bold text-white">{streamMetrics.duration}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* TAB 2: LIVE EVENT LOGS */}
+                            {nerdActiveTab === 'logs' && (
+                                <div className="space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-xs text-zinc-400">Captured {debugLogs.length} events during this session:</span>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={handleCopyDebugReport}
+                                                className="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-xs font-bold text-emerald-400 border border-zinc-800 flex items-center gap-1.5 transition-all"
+                                            >
+                                                <Copy size={13} /> Copy Logs
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    setDebugLogs([]);
+                                                    toast.info('Debug logs cleared');
+                                                }}
+                                                className="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-xs font-bold text-zinc-400 border border-zinc-800 flex items-center gap-1.5 transition-all"
+                                            >
+                                                <Trash2 size={13} /> Clear
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="p-4 rounded-2xl bg-black border border-zinc-900 max-h-[50vh] overflow-y-auto custom-scrollbar space-y-2 font-mono text-[11px]">
+                                        {debugLogs.length === 0 ? (
+                                            <p className="text-zinc-600 text-center py-6">No playback logs recorded yet.</p>
+                                        ) : (
+                                            debugLogs.map((log) => (
+                                                <div key={log.id} className="flex items-start gap-2.5 leading-relaxed">
+                                                    <span className="text-zinc-600 shrink-0 font-mono text-[10px]">[{log.timestamp}]</span>
+                                                    <span className={`px-1.5 py-0.2 rounded text-[9px] font-black uppercase shrink-0 ${
+                                                        log.level === 'error'
+                                                            ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                                                            : log.level === 'warn'
+                                                                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                                                : log.level === 'success'
+                                                                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                                                    : 'bg-zinc-900 text-zinc-400 border border-zinc-800'
+                                                    }`}>
+                                                        {log.level}
+                                                    </span>
+                                                    <span className={`flex-1 break-words ${
+                                                        log.level === 'error' ? 'text-red-300 font-bold' : log.level === 'warn' ? 'text-amber-200' : 'text-zinc-300'
+                                                    }`}>
+                                                        {log.message}
+                                                        {log.details && (
+                                                            <pre className="mt-1 p-2 rounded-lg bg-zinc-950 text-zinc-500 text-[10px] overflow-x-auto whitespace-pre-wrap">
+                                                                {typeof log.details === 'string' ? log.details : JSON.stringify(log.details, null, 2)}
+                                                            </pre>
+                                                        )}
+                                                    </span>
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* TAB 3: BROWSER CODEC COMPATIBILITY PROBE */}
+                            {nerdActiveTab === 'compat' && (
+                                <div className="space-y-4">
+                                    <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-2">
+                                        <span className="text-[11px] font-black uppercase text-indigo-400 tracking-wider flex items-center gap-1.5">
+                                            <Monitor size={14} /> Client Browser Environment
+                                        </span>
+                                        <p className="text-xs text-zinc-400 break-all">
+                                            <span className="text-zinc-600 block">User-Agent:</span>
+                                            {typeof navigator !== 'undefined' ? navigator.userAgent : 'Unknown'}
+                                        </p>
+                                    </div>
+
+                                    <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3">
+                                        <span className="text-[11px] font-black uppercase text-emerald-400 tracking-wider block">
+                                            HTML5 canPlayType() Support Matrix
+                                        </span>
+
+                                        <div className="space-y-2 text-xs">
+                                            {[
+                                                { label: 'H.264 / AVC (MP4)', mime: 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"' },
+                                                { label: 'HEVC / H.265 (MP4)', mime: 'video/mp4; codecs="hev1.1.6.L93.B0"' },
+                                                { label: 'VP9 (WebM)', mime: 'video/webm; codecs="vp9, opus"' },
+                                                { label: 'AV1 (MP4)', mime: 'video/mp4; codecs="av01.0.05M.08"' },
+                                                { label: 'Matroska Container (.mkv)', mime: 'video/x-matroska' },
+                                                { label: 'AAC Audio', mime: 'audio/mp4; codecs="mp4a.40.2"' },
+                                                { label: 'FLAC Audio', mime: 'audio/flac' },
+                                                { label: 'Opus Audio', mime: 'audio/ogg; codecs="opus"' },
+                                                { label: 'Dolby Digital AC3', mime: 'audio/mp4; codecs="ac-3"' },
+                                                { label: 'Dolby Digital Plus EAC3', mime: 'audio/mp4; codecs="ec-3"' }
+                                            ].map(item => {
+                                                const res = videoRef.current?.canPlayType(item.mime) || (typeof document !== 'undefined' ? document.createElement('video').canPlayType(item.mime) : '');
+                                                return (
+                                                    <div key={item.label} className="p-2.5 rounded-xl bg-zinc-900/60 border border-zinc-800 flex items-center justify-between">
+                                                        <div>
+                                                            <span className="font-bold text-white block">{item.label}</span>
+                                                            <span className="text-[10px] text-zinc-500 font-mono">{item.mime}</span>
+                                                        </div>
+                                                        <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider ${
+                                                            res === 'probably'
+                                                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                                                : res === 'maybe'
+                                                                    ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                                                    : 'bg-red-500/20 text-red-400 border border-red-500/30'
+                                                        }`}>
+                                                            {res || 'unsupported'}
+                                                        </span>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Modal Footer Quick Actions */}
+                        <div className="p-4 px-6 border-t border-zinc-800 bg-zinc-950/90 flex flex-wrap items-center justify-between gap-3">
+                            <div className="text-xs text-zinc-500">
+                                Stuck on playback? Use Universal Transcode or download VLC playlist.
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => {
+                                        setVideoAudioMode('universal');
+                                        setPlaybackError(null);
+                                        setShowNerdToolsModal(false);
+                                        toast.info('Switched to Full Universal Transcode (H.264 + AAC)');
+                                    }}
+                                    className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-2 shadow-lg transition-all"
+                                >
+                                    <RefreshCcw size={14} /> Full Transcode (Universal H.264)
+                                </button>
+                                <button
+                                    onClick={handleCopyDebugReport}
+                                    className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-700 font-bold text-xs flex items-center gap-2 transition-all"
+                                >
+                                    <Copy size={14} /> Copy Report
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
 
             {/* ── Subtitle Search Modal with Language Selector ── */}
             {isSubSearchModalOpen && (

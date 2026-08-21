@@ -121,7 +121,57 @@ export async function GET(req: NextRequest) {
             return new NextResponse('File not found', { status: 404 });
         }
 
-        // 2A. On-The-Fly Audio Transcoding for Local Files (DTS/TrueHD/EAC3 -> AAC)
+        // 2A. On-The-Fly Transcoding for Local Files
+        if (transcode === 'full' || transcode === 'universal') {
+            try {
+                const ffmpegArgs = [
+                    ...(parseFloat(startTime) > 0 ? ['-ss', startTime] : []),
+                    '-i', filePath,
+                    '-c:v', 'libx264',
+                    '-preset', 'veryfast',
+                    '-crf', '22',
+                    '-maxrate', '10M',
+                    '-bufsize', '20M',
+                    '-pix_fmt', 'yuv420p',
+                    '-c:a', 'aac',
+                    '-b:a', '256k',
+                    '-ac', '2',
+                    '-sn',
+                    '-f', 'mp4',
+                    '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+                    'pipe:1'
+                ];
+
+                const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+
+                ffmpeg.stderr.on('data', (d) => {
+                    const str = d.toString();
+                    if (str.includes('Error') || str.includes('Invalid')) {
+                        console.warn('[FFmpeg Full Transcode Error]:', str);
+                    }
+                });
+
+                req.signal.addEventListener('abort', () => {
+                    ffmpeg.kill('SIGKILL');
+                });
+
+                // @ts-ignore
+                const webStream = Readable.toWeb(ffmpeg.stdout);
+
+                return new Response(webStream as any, {
+                    status: 200,
+                    headers: {
+                        'Content-Type': 'video/mp4',
+                        'Transfer-Encoding': 'chunked',
+                        'Cache-Control': 'no-cache'
+                    }
+                });
+            } catch (ffmpegErr: any) {
+                console.warn('FFmpeg full transcode failed, falling back to direct stream:', ffmpegErr.message);
+            }
+        }
+
+        // 2B. On-The-Fly Audio Transcoding for Local Files (DTS/TrueHD/EAC3 -> AAC)
         if (transcode === 'audio' || transcode === 'true') {
             try {
                 const ffmpegArgs = [
@@ -131,12 +181,20 @@ export async function GET(req: NextRequest) {
                     '-c:a', 'aac',
                     '-b:a', '256k',
                     '-ac', '2',
+                    '-sn',
                     '-f', 'mp4',
                     '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
                     'pipe:1'
                 ];
 
                 const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+
+                ffmpeg.stderr.on('data', (d) => {
+                    const str = d.toString();
+                    if (str.includes('Error') || str.includes('Invalid')) {
+                        console.warn('[FFmpeg Audio Transcode Error]:', str);
+                    }
+                });
 
                 req.signal.addEventListener('abort', () => {
                     ffmpeg.kill('SIGKILL');
