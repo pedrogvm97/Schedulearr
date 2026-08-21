@@ -151,6 +151,28 @@ export default function TheaterPage() {
     const [sortBy, setSortBy] = useState<'added' | 'title' | 'date' | 'size'>('added');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
+    // Content-type tab system
+    const [activeContentTab, setActiveContentTab] = useState<'movie' | 'show' | 'live' | 'music'>('movie');
+    // Per-tab enabled library IDs (empty Set = all enabled)
+    const [enabledLibsByTab, setEnabledLibsByTab] = useState<Record<string, Set<string>>>({});
+
+    const toggleLibraryInTab = (tab: string, libId: string, allLibIds: string[]) => {
+        setEnabledLibsByTab(prev => {
+            const current = new Set(prev[tab] ?? allLibIds);
+            if (current.has(libId)) {
+                current.delete(libId);
+                if (current.size === 0) {
+                    // Don't allow deselecting all — reset to all
+                    return { ...prev, [tab]: new Set(allLibIds) };
+                }
+            } else {
+                current.add(libId);
+            }
+            return { ...prev, [tab]: new Set(current) };
+        });
+    };
+
+
     // Add Library Modal States
     const [isAddLibModalOpen, setIsAddLibModalOpen] = useState(false);
     const [modalTab, setModalTab] = useState<'import' | 'custom' | 'iptv'>('import');
@@ -214,11 +236,20 @@ export default function TheaterPage() {
     const [videoQuality, setVideoQuality] = useState<'auto' | '1080p-high' | '1080p' | '720p' | '480p'>('auto');
     const [viewingPhotoIndex, setViewingPhotoIndex] = useState<number | null>(null);
 
+    // Track previous values to detect null→value transitions only
+    const prevVideoRef = useRef<MediaItem | null>(null);
+    const prevChannelRef = useRef<IptvChannel | null>(null);
+
     // Automatically pause/stop background music playback when a movie/video or TV channel starts
+    // Only fires when a video/channel transitions from null → something, NOT on mount or re-renders
     useEffect(() => {
-        if (playingVideo || playingChannel) {
+        const videoJustStarted = !prevVideoRef.current && !!playingVideo;
+        const channelJustStarted = !prevChannelRef.current && !!playingChannel;
+        if (videoJustStarted || channelJustStarted) {
             closePlayer();
         }
+        prevVideoRef.current = playingVideo;
+        prevChannelRef.current = playingChannel;
     }, [playingVideo, playingChannel]);
 
     // Load saved streaming preferences from localStorage (default to universal for max compatibility)
@@ -414,6 +445,11 @@ export default function TheaterPage() {
                 setLibraries(libs);
                 if (libs.length > 0 && (!activeLibraryId || !libs.some(l => l.id === activeLibraryId))) {
                     setActiveLibraryId(libs[0].id);
+                    // Auto-select content tab matching first library type
+                    const firstType = libs[0].type;
+                    if (firstType === 'movie' || firstType === 'show' || firstType === 'live' || firstType === 'music') {
+                        setActiveContentTab(firstType);
+                    }
                 }
             }
         } catch {
@@ -430,6 +466,30 @@ export default function TheaterPage() {
     const activeLibrary = useMemo(() => {
         return libraries.find(l => l.id === activeLibraryId);
     }, [libraries, activeLibraryId]);
+
+    // Libraries matching the current content tab type
+    const activeTabLibraries = useMemo(() => {
+        return libraries.filter(l => l.type === activeContentTab);
+    }, [libraries, activeContentTab]);
+
+    // Enabled libraries for the current tab (respects per-tab toggles)
+    const enabledTabLibraries = useMemo(() => {
+        const enabledSet = enabledLibsByTab[activeContentTab];
+        if (!enabledSet || enabledSet.size === 0) return activeTabLibraries;
+        return activeTabLibraries.filter(l => enabledSet.has(l.id));
+    }, [activeTabLibraries, enabledLibsByTab, activeContentTab]);
+
+    // Sync activeLibraryId to first library of the new tab whenever tab changes
+    useEffect(() => {
+        const tabLibs = libraries.filter(l => l.type === activeContentTab);
+        if (tabLibs.length > 0) {
+            if (!tabLibs.some(l => l.id === activeLibraryId)) {
+                setActiveLibraryId(tabLibs[0].id);
+            }
+        } else {
+            setActiveLibraryId(null);
+        }
+    }, [activeContentTab, libraries]);
 
     // 2. Fetch Items for Selected Library (Files, Music, or IPTV)
     const fetchLibraryItems = async (lib: TheaterLibrary) => {
@@ -486,6 +546,7 @@ export default function TheaterPage() {
             setIptvChannels([]);
         }
     }, [activeLibraryId]);
+
 
     // 3. Fetch External Sources (Plex Libraries, Sonarr/Radarr Folders)
     const fetchSources = async () => {
@@ -1283,90 +1344,133 @@ export default function TheaterPage() {
             <Toaster position="top-right" theme="dark" richColors />
 
             <div className="space-y-6 pb-36">
-                {/* ── Top Header & Library Switcher ── */}
-                <div className="flex flex-wrap items-center justify-between gap-4 bg-[#09090b]/80 border border-zinc-800/80 backdrop-blur-2xl p-5 sm:p-6 rounded-[2.5rem] shadow-2xl">
-                    <div className="flex flex-wrap items-center gap-4">
+                {/* ══════════════════════════════════════════════════════════════
+                    TOP HEADER — Title left, Search + Actions right
+                    ══════════════════════════════════════════════════════════════ */}
+                <div className="bg-[#09090b]/80 border border-zinc-800/80 backdrop-blur-2xl p-5 sm:p-6 rounded-[2.5rem] shadow-2xl space-y-4">
+                    {/* Row 1: Title + Search */}
+                    <div className="flex flex-wrap items-center justify-between gap-4">
                         <div>
                             <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white flex items-center gap-3">
                                 <Film size={26} className="text-emerald-400" /> Theater
                             </h1>
                             <p className="text-sm text-zinc-500 mt-0.5 font-medium">
-                                Media streaming, Music Studio, Live TV playlists, and universal players.
+                                Movies, Series, Live TV, and Music Studio
                             </p>
                         </div>
 
-                        {/* Libraries Selector Pills */}
-                        <div className="flex flex-wrap items-center gap-2 bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner">
-                            {libraries.map(lib => {
-                                const isActive = lib.id === activeLibraryId;
+                        <div className="flex items-center gap-2 flex-1 lg:flex-none lg:w-[420px]">
+                            {/* Global Search */}
+                            <div className="relative flex-1">
+                                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
+                                <input
+                                    type="text"
+                                    placeholder="Search movies, series, music, channels..."
+                                    value={searchQuery}
+                                    onChange={e => setSearchQuery(e.target.value)}
+                                    className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl pl-10 pr-8 py-3 text-sm text-white placeholder-zinc-600 outline-none focus:border-emerald-500 transition-colors"
+                                />
+                                {searchQuery && (
+                                    <button
+                                        onClick={() => setSearchQuery('')}
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                                    >
+                                        <X size={14} />
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Rescan */}
+                            {activeLibrary && (
+                                <button
+                                    onClick={() => fetchLibraryItems(activeLibrary)}
+                                    title="Rescan Library"
+                                    className="p-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white transition-colors shrink-0"
+                                >
+                                    <RefreshCw size={16} className={loadingItems ? 'animate-spin text-emerald-400' : ''} />
+                                </button>
+                            )}
+
+                            {/* Pair Smart TV */}
+                            <button
+                                onClick={() => setIsPairTvModalOpen(true)}
+                                className="p-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-indigo-400 hover:text-indigo-300 transition-colors shrink-0 relative"
+                                title="Pair a Smart TV"
+                            >
+                                <Tv size={16} />
+                                {pairedTvCount > 0 && <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border border-zinc-950 animate-pulse" />}
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Row 2: Content-type tabs */}
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex items-center gap-1.5 bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner flex-wrap">
+                            {([
+                                { id: 'movie', label: 'Movies', icon: <Film size={15} />, color: 'text-indigo-400', activeBg: 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40' },
+                                { id: 'show', label: 'Series', icon: <Tv size={15} />, color: 'text-emerald-400', activeBg: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' },
+                                { id: 'live', label: 'Live TV', icon: <RadioTower size={15} />, color: 'text-red-400', activeBg: 'bg-red-500/20 text-red-300 border border-red-500/40' },
+                                { id: 'music', label: 'Music', icon: <Music size={15} />, color: 'text-amber-400', activeBg: 'bg-amber-500/20 text-amber-300 border border-amber-500/40' },
+                            ] as const).map(tab => {
+                                const isActive = activeContentTab === tab.id;
+                                const count = libraries.filter(l => l.type === tab.id).length;
                                 return (
                                     <button
-                                        key={lib.id}
-                                        onClick={() => setActiveLibraryId(lib.id)}
-                                        className={`flex items-center gap-2 px-4 py-2 text-xs font-black rounded-xl transition-all ${
-                                            isActive
-                                                ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 shadow-md'
-                                                : 'text-zinc-500 hover:text-zinc-300'
+                                        key={tab.id}
+                                        onClick={() => setActiveContentTab(tab.id)}
+                                        className={`flex items-center gap-2 px-4 py-2 text-sm font-black rounded-xl transition-all ${
+                                            isActive ? tab.activeBg : 'text-zinc-500 hover:text-zinc-300'
                                         }`}
                                     >
-                                        {getLibIcon(lib.type, 14)}
-                                        <span>{lib.name}</span>
+                                        {tab.icon}
+                                        <span>{tab.label}</span>
+                                        {count > 0 && (
+                                            <span className={`text-[10px] px-1.5 py-0.5 rounded-lg font-bold ${isActive ? 'bg-white/10' : 'bg-zinc-900'}`}>
+                                                {count}
+                                            </span>
+                                        )}
                                     </button>
                                 );
                             })}
-
-                            <button
-                                onClick={() => setIsAddLibModalOpen(true)}
-                                className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-black rounded-xl text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 border border-dashed border-emerald-500/30 transition-all shadow-sm"
-                            >
-                                <Plus size={14} /> Add Library
-                            </button>
-
-                            <button
-                                onClick={() => setIsPairTvModalOpen(true)}
-                                className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-black rounded-xl text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 border border-dashed border-indigo-500/30 transition-all shadow-sm"
-                                title="Pair a Smart TV via /tv"
-                            >
-                                <Tv size={14} /> Pair Smart TV {pairedTvCount > 0 && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />}
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="flex items-center gap-3 w-full lg:w-auto">
-                        {/* Search Input */}
-                        <div className="relative flex-1 lg:w-64">
-                            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" size={15} />
-                            <input
-                                type="text"
-                                placeholder={activeLibrary?.type === 'live' ? "Search channels..." : activeLibrary?.type === 'music' ? "Search songs, albums, artists..." : "Search library..."}
-                                value={searchQuery}
-                                onChange={e => setSearchQuery(e.target.value)}
-                                className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl pl-10 pr-8 py-2.5 text-xs text-white placeholder-zinc-600 outline-none focus:border-emerald-500"
-                            />
-                            {searchQuery && (
-                                <button
-                                    onClick={() => setSearchQuery('')}
-                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
-                                >
-                                    <X size={14} />
-                                </button>
-                            )}
                         </div>
 
-                        {activeLibrary && (
-                            <button
-                                onClick={() => fetchLibraryItems(activeLibrary)}
-                                title="Rescan Library"
-                                className="p-2.5 rounded-2xl bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white transition-colors"
-                            >
-                                <RefreshCw size={16} className={loadingItems ? 'animate-spin text-emerald-400' : ''} />
-                            </button>
-                        )}
+                        {/* Add Library button */}
+                        <button
+                            onClick={() => setIsAddLibModalOpen(true)}
+                            className="flex items-center gap-1.5 px-3.5 py-2 text-sm font-black rounded-xl text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 border border-dashed border-emerald-500/30 transition-all shadow-sm"
+                        >
+                            <Plus size={14} /> Add Library
+                        </button>
                     </div>
+
+                    {/* Row 3: Per-tab library toggles (only when there are multiple libraries for this tab) */}
+                    {activeTabLibraries.length > 1 && (
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                            <span className="text-xs text-zinc-600 font-bold uppercase tracking-wider">Libraries:</span>
+                            {activeTabLibraries.map(lib => {
+                                const enabledSet = enabledLibsByTab[activeContentTab];
+                                const isEnabled = !enabledSet || enabledSet.size === 0 || enabledSet.has(lib.id);
+                                return (
+                                    <button
+                                        key={lib.id}
+                                        onClick={() => toggleLibraryInTab(activeContentTab, lib.id, activeTabLibraries.map(l => l.id))}
+                                        className={`flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold transition-all border ${
+                                            isEnabled
+                                                ? 'bg-zinc-800 text-white border-zinc-700'
+                                                : 'bg-transparent text-zinc-600 border-zinc-800 hover:text-zinc-400'
+                                        }`}
+                                    >
+                                        {isEnabled && <Check size={11} className="text-emerald-400" />}
+                                        {lib.name}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    )}
                 </div>
 
-                {/* ── Sub-bar for Music Studio vs Live TV vs Movies/Shows ── */}
-                {activeLibrary?.type === 'music' ? (
+                {/* ── Sub-bar: Music Studio tabs / Live TV shortlists / Movie sort/view controls ── */}
+                {activeContentTab === 'music' && activeLibrary?.type === 'music' ? (
                     <div className="space-y-4">
                         <div className="flex flex-wrap items-center justify-between gap-4 px-2">
                             {/* Music Sub-Tabs: Albums, Artists/Composers, Songs, Playlists, Online Search */}
@@ -1381,7 +1485,7 @@ export default function TheaterPage() {
                                     <button
                                         key={t.id}
                                         onClick={() => setMusicTab(t.id as any)}
-                                        className={`flex items-center gap-2 px-4 py-2 text-xs font-black rounded-xl transition-all ${
+                                        className={`flex items-center gap-2 px-4 py-2 text-sm font-black rounded-xl transition-all ${
                                             musicTab === t.id
                                                 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-md'
                                                 : 'text-zinc-500 hover:text-zinc-300'
@@ -1401,7 +1505,7 @@ export default function TheaterPage() {
                                             setAddToPlaylistTrack(null);
                                             setIsCreatePlaylistModalOpen(true);
                                         }}
-                                        className="flex items-center gap-1.5 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-amber-500/20"
+                                        className="flex items-center gap-1.5 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-black text-sm uppercase tracking-wider rounded-xl transition-all shadow-md shadow-amber-500/20"
                                     >
                                         <Plus size={14} /> New Playlist
                                     </button>
@@ -1417,14 +1521,14 @@ export default function TheaterPage() {
                             </div>
                         </div>
                     </div>
-                ) : activeLibrary?.type === 'live' ? (
+                ) : activeContentTab === 'live' && activeLibrary?.type === 'live' ? (
                     <div className="space-y-3">
                         <div className="flex flex-wrap items-center justify-between gap-4 px-2">
                             <div className="flex flex-wrap items-center gap-3">
                                 <div className="flex items-center gap-2 bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800">
                                     <button
                                         onClick={() => setActiveShortlistId('ALL')}
-                                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                                        className={`px-3 py-1.5 rounded-xl text-sm font-bold transition-all ${
                                             activeShortlistId === 'ALL'
                                                 ? 'bg-red-500/20 text-red-400 border border-red-500/30'
                                                 : 'text-zinc-500 hover:text-zinc-300'
@@ -1437,7 +1541,7 @@ export default function TheaterPage() {
                                         <div key={s.id} className="flex items-center gap-1">
                                             <button
                                                 onClick={() => setActiveShortlistId(s.id)}
-                                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                                                className={`px-3 py-1.5 rounded-xl text-sm font-bold transition-all ${
                                                     activeShortlistId === s.id
                                                         ? 'bg-red-500/20 text-red-400 border border-red-500/30'
                                                         : 'text-zinc-500 hover:text-zinc-300'
@@ -1462,7 +1566,7 @@ export default function TheaterPage() {
                                             setShortlistSelectedChanIds([]);
                                             setIsShortlistManagerOpen(true);
                                         }}
-                                        className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold text-emerald-400 hover:bg-emerald-500/10 border border-dashed border-emerald-500/30"
+                                        className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-sm font-bold text-emerald-400 hover:bg-emerald-500/10 border border-dashed border-emerald-500/30"
                                     >
                                         <Plus size={13} /> New Shortlist
                                     </button>
@@ -1482,7 +1586,7 @@ export default function TheaterPage() {
                             <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar py-1 px-2">
                                 <button
                                     onClick={() => setSelectedIptvGroup('ALL')}
-                                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold shrink-0 transition-all ${
+                                    className={`px-3.5 py-1.5 rounded-xl text-sm font-bold shrink-0 transition-all ${
                                         selectedIptvGroup === 'ALL'
                                             ? 'bg-zinc-800 text-white'
                                             : 'bg-zinc-950/60 text-zinc-500 hover:text-zinc-300 border border-zinc-900'
@@ -1494,7 +1598,7 @@ export default function TheaterPage() {
                                     <button
                                         key={g.name}
                                         onClick={() => setSelectedIptvGroup(g.name)}
-                                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold shrink-0 transition-all ${
+                                        className={`px-3.5 py-1.5 rounded-xl text-sm font-bold shrink-0 transition-all ${
                                             selectedIptvGroup === g.name
                                                 ? 'bg-zinc-800 text-white'
                                                 : 'bg-zinc-950/60 text-zinc-500 hover:text-zinc-300 border border-zinc-900'
@@ -1506,20 +1610,12 @@ export default function TheaterPage() {
                             </div>
                         )}
                     </div>
-                ) : activeLibrary && (
+                ) : activeLibrary && (activeContentTab === 'movie' || activeContentTab === 'show') ? (
                     <div className="flex flex-wrap items-center justify-between gap-4 px-2">
                         <div className="flex items-center gap-3">
                             <span className="text-base font-bold text-white">
-                                {activeLibrary.name}
+                                {filteredItems.length} items
                             </span>
-                            <span className="text-zinc-500 text-xs font-semibold">
-                                ({filteredItems.length} items)
-                            </span>
-                            {activeLibrary.folders.map((f, i) => (
-                                <span key={i} className="hidden md:inline-block px-2.5 py-0.5 rounded-lg bg-zinc-900 border border-zinc-800 text-[10px] text-zinc-500 font-mono truncate max-w-xs">
-                                    {f}
-                                </span>
-                            ))}
                         </div>
 
                         <div className="flex items-center gap-3">
@@ -1564,7 +1660,6 @@ export default function TheaterPage() {
                                 <button
                                     onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
                                     className="p-1.5 px-2.5 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all text-xs font-bold flex items-center gap-1.5"
-                                    title={sortOrder === 'asc' ? 'Sorting Ascending (Click to sort Descending)' : 'Sorting Descending (Click to sort Ascending)'}
                                 >
                                     {sortOrder === 'asc' ? (
                                         <ArrowUp size={14} className="text-emerald-400" />
@@ -1600,7 +1695,8 @@ export default function TheaterPage() {
                             </button>
                         </div>
                     </div>
-                )}
+                ) : null}
+
 
                 {/* ── Content Area: Music vs Live TV vs Movies/Shows ── */}
                 {loadingLibraries ? (
@@ -1631,7 +1727,7 @@ export default function TheaterPage() {
                         <div className="w-10 h-10 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin" />
                         <span className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Scanning media files...</span>
                     </div>
-                ) : activeLibrary?.type === 'music' ? (
+                ) : activeContentTab === 'music' && activeLibrary?.type === 'music' ? (
                     /* ══════════════════════════════════════════════════════════════
                        MUSIC STUDIO VIEWS (Albums, Artists, Songs, Playlists, Online)
                        ══════════════════════════════════════════════════════════════ */
@@ -1970,7 +2066,7 @@ export default function TheaterPage() {
                             </div>
                         )}
                     </div>
-                ) : activeLibrary?.type === 'live' ? (
+                ) : activeContentTab === 'live' && activeLibrary?.type === 'live' ? (
                     /* ── Live TV Channels Grid ── */
                     filteredIptvChannels.length === 0 ? (
                         <div className="p-16 bg-zinc-950/40 rounded-[2.5rem] border border-zinc-900 text-center space-y-2">
@@ -2010,6 +2106,24 @@ export default function TheaterPage() {
                             ))}
                         </div>
                     )
+                ) : activeTabLibraries.length === 0 ? (
+                    <div className="p-16 bg-zinc-950/40 rounded-[2.5rem] border border-zinc-900 text-center space-y-4 max-w-xl mx-auto my-12 shadow-2xl">
+                        <div className="w-16 h-16 rounded-3xl bg-zinc-800 flex items-center justify-center text-zinc-500 mx-auto">
+                            {activeContentTab === 'movie' ? <Film size={32} /> : activeContentTab === 'show' ? <Tv size={32} /> : activeContentTab === 'live' ? <RadioTower size={32} /> : <Music size={32} />}
+                        </div>
+                        <div>
+                            <h2 className="text-xl font-bold text-white">No {activeContentTab === 'movie' ? 'Movie' : activeContentTab === 'show' ? 'Series' : activeContentTab === 'live' ? 'Live TV' : 'Music'} Libraries</h2>
+                            <p className="text-sm text-zinc-500 mt-1">
+                                Add a {activeContentTab === 'movie' ? 'movie' : activeContentTab === 'show' ? 'series' : activeContentTab === 'live' ? 'live TV' : 'music'} library to get started.
+                            </p>
+                        </div>
+                        <button
+                            onClick={() => setIsAddLibModalOpen(true)}
+                            className="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black uppercase text-xs tracking-widest rounded-2xl transition-all shadow-lg shadow-emerald-500/20 flex items-center gap-2 mx-auto"
+                        >
+                            <Plus size={16} /> Add Library
+                        </button>
+                    </div>
                 ) : filteredItems.length === 0 ? (
                     <div className="p-16 bg-zinc-950/40 rounded-[2.5rem] border border-zinc-900 text-center space-y-2">
                         <Folder size={40} className="mx-auto text-zinc-700" />

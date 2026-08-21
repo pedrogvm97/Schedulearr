@@ -1019,6 +1019,9 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         toast.info('Switched to Server-Side MP3/AAC Transcode');
     };
 
+    // Stall watchdog for YouTube/online tracks that never start playing (server fetch timeout)
+    const audioStallWatchdogRef = useRef<NodeJS.Timeout | null>(null);
+
     // When playingAudio changes, load source, fetch lyrics and fetch chords
     useEffect(() => {
         if (playingAudio && audioRef.current) {
@@ -1035,7 +1038,28 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             });
             fetchLyrics(playingAudio);
             fetchChords(playingAudio);
+
+            // For YouTube/online streams: if no audio event fires within 12s, surface the error
+            if (audioStallWatchdogRef.current) clearTimeout(audioStallWatchdogRef.current);
+            if (playingAudio.youtubeId || playingAudio.streamUrl.includes('/api/theater/music/stream')) {
+                audioStallWatchdogRef.current = setTimeout(() => {
+                    if (audioRef.current && audioRef.current.currentTime === 0 && audioRef.current.readyState < 3) {
+                        setIsAudioPlaying(false);
+                        setAudioPlaybackStatus('error');
+                        setAudioPlaybackError({
+                            name: 'STREAM_UNAVAILABLE',
+                            message: `Cannot stream "${playingAudio?.title || 'Track'}" from YouTube.`,
+                            details: 'The server could not extract a direct audio URL from YouTube (yt-dlp/Invidious/Piped all failed or timed out). This is a server-side issue.',
+                            suggestion: 'Use "Grab to Library" to download this track permanently, or try a different result.'
+                        });
+                        addAudioNerdLog('error', 'YouTube audio stream stalled at 0:00 after 12s — server could not extract URL');
+                    }
+                }, 12000);
+            }
         }
+        return () => {
+            if (audioStallWatchdogRef.current) clearTimeout(audioStallWatchdogRef.current);
+        };
     }, [playingAudio]);
 
     return (
@@ -1094,6 +1118,10 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                     }
                 }}
                 onPlaying={() => {
+                    if (audioStallWatchdogRef.current) {
+                        clearTimeout(audioStallWatchdogRef.current);
+                        audioStallWatchdogRef.current = null;
+                    }
                     setAudioPlaybackStatus('playing');
                     setIsAudioPlaying(true);
                     setAudioPlaybackError(null);
