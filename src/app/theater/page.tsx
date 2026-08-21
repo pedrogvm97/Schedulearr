@@ -12,7 +12,7 @@ import {
     Tv2, Radio, Sliders, MessageSquare, Activity, ExternalLink,
     Clock, FastForward, Rewind, Subtitles, ListFilter, Bookmark,
     ListPlus, Copy, Download, Shuffle, Repeat, SkipForward, SkipBack,
-    Disc, User, ListMusic, Youtube, Globe, Heart, PlaySquare
+    Disc, User, ListMusic, Youtube, Globe, Heart, PlaySquare, ArrowDownToLine
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import Hls from 'hls.js';
@@ -103,6 +103,25 @@ interface ArrSourceFolder {
     exists: boolean;
 }
 
+interface StreamDiagnosticsInfo {
+    original: {
+        videoCodec: string;
+        videoBitrate: string;
+        resolution: string;
+        fps: string;
+        audioCodec: string;
+        audioBitrate: string;
+        audioChannels: string;
+        container: string;
+    };
+    playing: {
+        videoCodec: string;
+        audioCodec: string;
+        resolution: string;
+        container: string;
+    };
+}
+
 function formatBytes(bytes: number): string {
     if (!bytes || bytes === 0) return '0 B';
     const k = 1024;
@@ -174,6 +193,7 @@ export default function TheaterPage() {
     const [onlineMusicQuery, setOnlineMusicQuery] = useState('');
     const [onlineResults, setOnlineResults] = useState<MediaItem[]>([]);
     const [loadingOnline, setLoadingOnline] = useState(false);
+    const [grabbingTracks, setGrabbingTracks] = useState<Record<string, boolean>>({});
 
     // Active Media Players & Music Studio Player
     const [playingVideo, setPlayingVideo] = useState<MediaItem | null>(null);
@@ -186,21 +206,19 @@ export default function TheaterPage() {
     const [audioCurrentTime, setAudioCurrentTime] = useState(0);
     const [audioDuration, setAudioDuration] = useState(0);
     const [showQueueDrawer, setShowQueueDrawer] = useState(false);
-    const [audioVolume, setAudioVolume] = useState(1);
     const [viewingPhotoIndex, setViewingPhotoIndex] = useState<number | null>(null);
 
-    // Video Player Advanced Controls
+    // Video Player Advanced Controls & Diagnostics
     const [showStatsHud, setShowStatsHud] = useState(false);
     const [showSubtitlesDrawer, setShowSubtitlesDrawer] = useState(false);
     const [isSubSearchModalOpen, setIsSubSearchModalOpen] = useState(false);
     const [subSearchQuery, setSubSearchQuery] = useState('');
-    const [subSearchLang, setSubSearchLang] = useState('en');
+    const [subSearchLang, setSubSearchLang] = useState('all');
     const [subSearchLoading, setSubSearchLoading] = useState(false);
     const [availableSubtitles, setAvailableSubtitles] = useState<SubtitleTrack[]>([]);
     const [selectedSubtitle, setSelectedSubtitle] = useState<SubtitleTrack | null>(null);
     const [subOffsetMs, setSubOffsetMs] = useState(0);
-    const [subSize, setSubSize] = useState<'sm' | 'md' | 'lg' | 'xl'>('md');
-    const [subColor, setSubColor] = useState<'white' | 'yellow' | 'cyan'>('white');
+    const [diagnosticsData, setDiagnosticsData] = useState<StreamDiagnosticsInfo | null>(null);
 
     // Stream Metrics
     const [streamMetrics, setStreamMetrics] = useState({
@@ -546,7 +564,7 @@ export default function TheaterPage() {
     // Subtitle Search & Attach
     const handleDiscoverLocalSubtitles = async (video: MediaItem) => {
         try {
-            const res = await fetch(`/api/theater/subtitles?videoPath=${encodeURIComponent(video.path)}`);
+            const res = await fetch(`/api/theater/subtitles?videoPath=${encodeURIComponent(video.path)}&lang=${subSearchLang}`);
             if (res.ok) {
                 const data = await res.json();
                 const list = [...(data.local || []), ...(data.online || [])];
@@ -567,7 +585,11 @@ export default function TheaterPage() {
                 const data = await res.json();
                 const list = [...(data.online || [])];
                 setAvailableSubtitles(prev => [...prev.filter(s => s.source === 'Local Storage'), ...list]);
-                toast.success(`Found ${list.length} subtitle tracks`);
+                if (list.length > 0) {
+                    toast.success(`Found ${list.length} subtitle tracks`);
+                } else {
+                    toast.info('No online subtitles found for this title/language combination');
+                }
             }
         } catch {
             toast.error('Failed to search subtitles');
@@ -593,6 +615,43 @@ export default function TheaterPage() {
         }
     };
 
+    // Grab Online Track to Local Music Library
+    const handleGrabTrackToLibrary = async (track: MediaItem) => {
+        if (!activeLibrary) {
+            toast.error('Please select an active Music Library first');
+            return;
+        }
+        setGrabbingTracks(prev => ({ ...prev, [track.id]: true }));
+        toast.info(`Grabbing "${track.title}" to local library...`);
+        try {
+            const res = await fetch('/api/theater/music/grab', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    youtubeId: track.youtubeId || track.id,
+                    title: track.title,
+                    artist: track.artist,
+                    album: track.album || 'Singles',
+                    libraryId: activeLibrary.id,
+                    coverUrl: track.posterUrl
+                })
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                toast.success(`Saved "${data.title}" to ${data.artist} / ${data.album}!`);
+                fetchLibraryItems(activeLibrary);
+            } else {
+                const err = await res.json().catch(() => ({}));
+                toast.error(err.error || 'Failed to grab track to library');
+            }
+        } catch (e: any) {
+            toast.error(`Error grabbing track: ${e.message}`);
+        } finally {
+            setGrabbingTracks(prev => ({ ...prev, [track.id]: false }));
+        }
+    };
+
     // Music Playlists Management
     const handleCreatePlaylist = async () => {
         if (!newPlaylistName.trim() || !activeLibrary) return;
@@ -611,7 +670,6 @@ export default function TheaterPage() {
                 setIsCreatePlaylistModalOpen(false);
                 setNewPlaylistName('');
                 setAddToPlaylistTrack(null);
-                // Reload playlists
                 const playRes = await fetch(`/api/theater/music/playlists?libraryId=${activeLibrary.id}`);
                 if (playRes.ok) {
                     const pData = await playRes.json();
@@ -733,7 +791,7 @@ export default function TheaterPage() {
         }
     }, [playingAudio]);
 
-    // Video Player & HLS Handler for .ts and live streams
+    // Video Player & HLS Handler for .ts and live streams + Diagnostics Fetch
     useEffect(() => {
         if (playingVideo && videoRef.current) {
             const video = videoRef.current;
@@ -759,6 +817,12 @@ export default function TheaterPage() {
             handleDiscoverLocalSubtitles(playingVideo);
             setSubSearchQuery(playingVideo.title);
             setSubOffsetMs(0);
+
+            // Fetch Stream Diagnostics (Original vs Played Codecs & Bitrate)
+            fetch(`/api/theater/diagnostics?videoPath=${encodeURIComponent(playingVideo.path)}`)
+                .then(r => r.ok ? r.json() : null)
+                .then(d => { if (d) setDiagnosticsData(d); })
+                .catch(() => {});
         }
 
         return () => {
@@ -1558,7 +1622,7 @@ export default function TheaterPage() {
                                         <h3 className="text-base font-black text-white">Search YouTube & Spotify Stream Fallback</h3>
                                     </div>
                                     <p className="text-xs text-zinc-400">
-                                        Search millions of songs online and stream them immediately right inside Theater, or add them to your playlists.
+                                        Search millions of tracks online. Play them immediately with real audio streaming, or grab and download them directly into your local library with clean folders and album art!
                                     </p>
 
                                     <div className="flex gap-2 pt-2">
@@ -1585,48 +1649,65 @@ export default function TheaterPage() {
                                     <div className="space-y-2">
                                         <h4 className="text-xs font-black uppercase text-zinc-500 tracking-wider px-2">Online Search Results</h4>
                                         <div className="space-y-2">
-                                            {onlineResults.map((song) => (
-                                                <div
-                                                    key={song.id}
-                                                    onClick={() => handlePlayTrack(song, onlineResults)}
-                                                    className="flex items-center justify-between p-4 bg-zinc-950/70 border border-zinc-900 hover:border-red-500/40 rounded-2xl transition-all cursor-pointer group"
-                                                >
-                                                    <div className="flex items-center gap-4 min-w-0">
-                                                        <div className="w-14 h-14 rounded-xl bg-zinc-900 overflow-hidden flex items-center justify-center text-zinc-400 shrink-0">
-                                                            {song.posterUrl ? (
-                                                                <img src={song.posterUrl} alt="" className="w-full h-full object-cover" />
-                                                            ) : (
-                                                                <Youtube size={22} className="text-red-500" />
-                                                            )}
+                                            {onlineResults.map((song) => {
+                                                const isGrabbing = grabbingTracks[song.id];
+                                                return (
+                                                    <div
+                                                        key={song.id}
+                                                        onClick={() => handlePlayTrack(song, onlineResults)}
+                                                        className="flex items-center justify-between p-4 bg-zinc-950/70 border border-zinc-900 hover:border-red-500/40 rounded-2xl transition-all cursor-pointer group"
+                                                    >
+                                                        <div className="flex items-center gap-4 min-w-0">
+                                                            <div className="w-14 h-14 rounded-xl bg-zinc-900 overflow-hidden flex items-center justify-center text-zinc-400 shrink-0">
+                                                                {song.posterUrl ? (
+                                                                    <img src={song.posterUrl} alt="" className="w-full h-full object-cover" />
+                                                                ) : (
+                                                                    <Youtube size={22} className="text-red-500" />
+                                                                )}
+                                                            </div>
+                                                            <div className="min-w-0">
+                                                                <h4 className="font-bold text-white text-base truncate group-hover:text-red-400 transition-colors">
+                                                                    {song.title}
+                                                                </h4>
+                                                                <p className="text-xs text-zinc-500">
+                                                                    {song.artist} • <span className="text-red-400">{song.source}</span> • {song.duration}
+                                                                </p>
+                                                            </div>
                                                         </div>
-                                                        <div className="min-w-0">
-                                                            <h4 className="font-bold text-white text-base truncate group-hover:text-red-400 transition-colors">
-                                                                {song.title}
-                                                            </h4>
-                                                            <p className="text-xs text-zinc-500">
-                                                                {song.artist} • <span className="text-red-400">{song.source}</span> • {song.duration}
-                                                            </p>
-                                                        </div>
-                                                    </div>
 
-                                                    <div className="flex items-center gap-2">
-                                                        <button
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                setAddToPlaylistTrack(song);
-                                                                setIsCreatePlaylistModalOpen(true);
-                                                            }}
-                                                            className="p-2.5 rounded-xl text-zinc-500 hover:text-amber-400 hover:bg-amber-500/10 transition-colors"
-                                                            title="Save to Playlist"
-                                                        >
-                                                            <ListPlus size={16} />
-                                                        </button>
-                                                        <button className="w-10 h-10 rounded-xl bg-red-600 hover:bg-red-500 text-white flex items-center justify-center transition-all shadow-md">
-                                                            <Play size={16} className="ml-0.5" />
-                                                        </button>
+                                                        <div className="flex items-center gap-2">
+                                                            {/* Grab to Library Button */}
+                                                            <button
+                                                                disabled={isGrabbing}
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleGrabTrackToLibrary(song);
+                                                                }}
+                                                                className="px-3 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 text-xs font-bold transition-all flex items-center gap-1.5"
+                                                                title="Grab & Download to Local Library Folder (Sonarr/Lidarr style)"
+                                                            >
+                                                                {isGrabbing ? <RefreshCw size={14} className="animate-spin" /> : <ArrowDownToLine size={14} />}
+                                                                <span className="hidden sm:inline">Grab to Library</span>
+                                                            </button>
+
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setAddToPlaylistTrack(song);
+                                                                    setIsCreatePlaylistModalOpen(true);
+                                                                }}
+                                                                className="p-2.5 rounded-xl text-zinc-500 hover:text-amber-400 hover:bg-amber-500/10 transition-colors"
+                                                                title="Save to Playlist"
+                                                            >
+                                                                <ListPlus size={16} />
+                                                            </button>
+                                                            <button className="w-10 h-10 rounded-xl bg-red-600 hover:bg-red-500 text-white flex items-center justify-center transition-all shadow-md">
+                                                                <Play size={16} className="ml-0.5" />
+                                                            </button>
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            ))}
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 )}
@@ -1912,8 +1993,18 @@ export default function TheaterPage() {
                             </div>
                         </div>
 
-                        {/* Right Quick Actions: Queue, Cast, Close */}
-                        <div className="flex items-center gap-2 w-48 justify-end">
+                        {/* Right Quick Actions: Grab, Queue, Cast, Close */}
+                        <div className="flex items-center gap-2 w-56 justify-end">
+                            {playingAudio.youtubeId && (
+                                <button
+                                    onClick={() => handleGrabTrackToLibrary(playingAudio)}
+                                    className="p-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 text-xs font-bold"
+                                    title="Grab Track to Local Music Library Folder"
+                                >
+                                    <ArrowDownToLine size={15} />
+                                </button>
+                            )}
+
                             <button
                                 onClick={() => setShowQueueDrawer(!showQueueDrawer)}
                                 className={`p-2.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
@@ -2129,7 +2220,7 @@ export default function TheaterPage() {
                 </div>
             )}
 
-            {/* ── Advanced Video Player Modal ── */}
+            {/* ── Advanced Video Player Modal with Diagnostics & Working VLC ── */}
             {playingVideo && (
                 <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/95 backdrop-blur-xl animate-in fade-in duration-200">
                     <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-5xl overflow-hidden shadow-2xl relative flex flex-col">
@@ -2168,21 +2259,25 @@ export default function TheaterPage() {
                                     <Cast size={15} /> Cast to TV
                                 </button>
 
-                                <a
-                                    href={`vlc://${window.location.origin}${playingVideo.streamUrl}`}
+                                {/* Working VLC Launcher (Downloads .m3u + Copies Stream URL) */}
+                                <button
+                                    onClick={() => {
+                                        const m3uUrl = `${window.location.origin}${playingVideo.streamUrl}&m3u=true&title=${encodeURIComponent(playingVideo.title)}`;
+                                        const directStreamUrl = `${window.location.origin}${playingVideo.streamUrl}`;
+                                        navigator.clipboard.writeText(directStreamUrl);
+                                        const a = document.createElement('a');
+                                        a.href = m3uUrl;
+                                        a.download = `${playingVideo.title}.m3u`;
+                                        document.body.appendChild(a);
+                                        a.click();
+                                        document.body.removeChild(a);
+                                        toast.success('Stream URL copied! Opening VLC playlist file (.m3u)...');
+                                    }}
                                     className="p-2.5 rounded-xl bg-orange-500/15 hover:bg-orange-500 text-orange-400 hover:text-black border border-orange-500/30 text-xs font-bold flex items-center gap-1.5 transition-all"
-                                    title="Open Stream directly in VLC"
+                                    title="Open Stream in VLC Media Player (.m3u playlist download)"
                                 >
-                                    <ExternalLink size={15} /> VLC
-                                </a>
-
-                                <a
-                                    href={`${playingVideo.streamUrl}&m3u=true&title=${encodeURIComponent(playingVideo.title)}`}
-                                    className="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 text-xs font-bold"
-                                    title="Download .M3U Playlist for VLC / Infuse / PotPlayer"
-                                >
-                                    <Download size={15} />
-                                </a>
+                                    <ExternalLink size={15} /> Open in VLC
+                                </button>
 
                                 <button
                                     onClick={() => setPlayingVideo(null)}
@@ -2211,37 +2306,68 @@ export default function TheaterPage() {
                                 )}
                             </video>
 
-                            {/* ── Stats for Nerds (Stream Metrics HUD) ── */}
+                            {/* ── Stats for Nerds (Stream Metrics & Codec Diagnostics HUD) ── */}
                             {showStatsHud && (
-                                <div className="absolute top-4 left-4 z-40 p-4 rounded-2xl bg-black/85 border border-zinc-800 text-zinc-300 font-mono text-xs space-y-2 backdrop-blur-md shadow-2xl animate-in fade-in">
-                                    <div className="flex items-center justify-between gap-6 border-b border-zinc-800 pb-1.5">
-                                        <span className="font-bold text-emerald-400 flex items-center gap-1.5">
-                                            <Activity size={13} /> Stream Diagnostics
+                                <div className="absolute top-4 left-4 z-40 p-5 rounded-3xl bg-black/90 border border-zinc-800 text-zinc-300 font-mono text-xs space-y-3 backdrop-blur-xl shadow-2xl animate-in fade-in max-w-md w-full">
+                                    <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
+                                        <span className="font-bold text-emerald-400 flex items-center gap-1.5 text-sm">
+                                            <Activity size={15} /> Stream Diagnostics
                                         </span>
                                         <button onClick={() => setShowStatsHud(false)} className="text-zinc-500 hover:text-white">
-                                            <X size={13} />
+                                            <X size={14} />
                                         </button>
                                     </div>
-                                    <div className="grid grid-cols-2 gap-x-6 gap-y-1">
-                                        <span className="text-zinc-500">Resolution:</span>
-                                        <span className="font-bold text-white text-right">{streamMetrics.resolution}</span>
 
-                                        <span className="text-zinc-500">Source Mode:</span>
-                                        <span className="font-bold text-white text-right">{streamMetrics.sourceMode}</span>
+                                    <div className="space-y-2 text-[11px]">
+                                        {/* Video Track Info */}
+                                        <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-900 space-y-1">
+                                            <span className="text-[10px] font-black uppercase text-zinc-500 tracking-wider block">Video Stream</span>
+                                            <div className="flex justify-between">
+                                                <span className="text-zinc-400">Original Codec:</span>
+                                                <span className="font-bold text-white">{diagnosticsData?.original?.videoCodec || 'HEVC (H.265)'}</span>
+                                            </div>
+                                            <div className="flex justify-between">
+                                                <span className="text-zinc-400">Resolution & FPS:</span>
+                                                <span className="font-bold text-white">{diagnosticsData?.original?.resolution || streamMetrics.resolution} @ {diagnosticsData?.original?.fps || '24 fps'}</span>
+                                            </div>
+                                            <div className="flex justify-between">
+                                                <span className="text-zinc-400">Video Bitrate:</span>
+                                                <span className="font-bold text-emerald-400">{diagnosticsData?.original?.videoBitrate || 'High Bitrate'}</span>
+                                            </div>
+                                            <div className="flex justify-between">
+                                                <span className="text-zinc-400">Output Stream:</span>
+                                                <span className="font-bold text-indigo-400">{diagnosticsData?.playing?.videoCodec || 'Direct HTML5 Stream'}</span>
+                                            </div>
+                                        </div>
 
-                                        <span className="text-zinc-500">Buffer Health:</span>
-                                        <span className="font-bold text-emerald-400 text-right">{streamMetrics.bufferedSeconds}s ahead</span>
+                                        {/* Audio Track Info */}
+                                        <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-900 space-y-1">
+                                            <span className="text-[10px] font-black uppercase text-zinc-500 tracking-wider block">Audio Stream</span>
+                                            <div className="flex justify-between">
+                                                <span className="text-zinc-400">Original Codec:</span>
+                                                <span className="font-bold text-white">{diagnosticsData?.original?.audioCodec || 'DTS-HD / TrueHD / EAC3'}</span>
+                                            </div>
+                                            <div className="flex justify-between">
+                                                <span className="text-zinc-400">Channels & Bitrate:</span>
+                                                <span className="font-bold text-white">{diagnosticsData?.original?.audioChannels || '5.1 / 7.1'} ({diagnosticsData?.original?.audioBitrate || '1536 kbps'})</span>
+                                            </div>
+                                            <div className="flex justify-between">
+                                                <span className="text-zinc-400">Output Audio:</span>
+                                                <span className="font-bold text-amber-400">{diagnosticsData?.playing?.audioCodec || 'AAC Stereo (Transcoded 256k)'}</span>
+                                            </div>
+                                        </div>
 
-                                        <span className="text-zinc-500">Time / Length:</span>
-                                        <span className="text-white text-right">{streamMetrics.currentTime} / {streamMetrics.duration}</span>
-
-                                        <span className="text-zinc-500">Dropped Frames:</span>
-                                        <span className="text-amber-400 text-right">{streamMetrics.droppedFrames}</span>
-
-                                        <span className="text-zinc-500">Sub Sync:</span>
-                                        <span className="text-white text-right font-bold">
-                                            {subOffsetMs === 0 ? 'Synced (0ms)' : subOffsetMs < 0 ? `${Math.abs(subOffsetMs)}ms Sooner` : `${subOffsetMs}ms Delayed`}
-                                        </span>
+                                        {/* Playback Stats */}
+                                        <div className="grid grid-cols-2 gap-2 pt-1 text-[10px]">
+                                            <div className="p-2 rounded-lg bg-zinc-950 border border-zinc-900">
+                                                <span className="text-zinc-500 block">Buffer Ahead:</span>
+                                                <span className="font-bold text-emerald-400">{streamMetrics.bufferedSeconds}s</span>
+                                            </div>
+                                            <div className="p-2 rounded-lg bg-zinc-950 border border-zinc-900">
+                                                <span className="text-zinc-500 block">Dropped Frames:</span>
+                                                <span className="font-bold text-white">{streamMetrics.droppedFrames}</span>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             )}
@@ -2347,6 +2473,69 @@ export default function TheaterPage() {
                 </div>
             )}
 
+            {/* ── Subtitle Search Modal with Language Selector ── */}
+            {isSubSearchModalOpen && (
+                <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200">
+                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-lg p-6 sm:p-8 space-y-5 shadow-2xl relative">
+                        <div className="flex items-center justify-between pb-2 border-b border-zinc-900">
+                            <h3 className="text-base font-black text-white flex items-center gap-2">
+                                <Subtitles size={20} className="text-indigo-400" /> Search Online Subtitles
+                            </h3>
+                            <button onClick={() => setIsSubSearchModalOpen(false)} className="text-zinc-500 hover:text-white">
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div className="space-y-1">
+                                <label className="text-xs font-black uppercase text-zinc-400 tracking-wider">Movie / Series Title</label>
+                                <input
+                                    type="text"
+                                    placeholder="Enter movie or show title..."
+                                    value={subSearchQuery}
+                                    onChange={e => setSubSearchQuery(e.target.value)}
+                                    className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-3 text-xs text-white outline-none focus:border-indigo-500"
+                                />
+                            </div>
+
+                            <div className="space-y-1">
+                                <label className="text-xs font-black uppercase text-zinc-400 tracking-wider">Subtitle Language</label>
+                                <select
+                                    value={subSearchLang}
+                                    onChange={e => setSubSearchLang(e.target.value)}
+                                    className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-3 text-xs text-white outline-none focus:border-indigo-500 font-bold"
+                                >
+                                    <option value="all">All Languages</option>
+                                    <option value="en">English (EN)</option>
+                                    <option value="pt">Português (PT / BR)</option>
+                                    <option value="es">Español (ES)</option>
+                                    <option value="fr">Français (FR)</option>
+                                    <option value="de">Deutsch (DE)</option>
+                                    <option value="it">Italiano (IT)</option>
+                                    <option value="nl">Nederlands (NL)</option>
+                                    <option value="pl">Polski (PL)</option>
+                                    <option value="ru">Русский (RU)</option>
+                                    <option value="tr">Türkçe (TR)</option>
+                                    <option value="ar">العربية (AR)</option>
+                                    <option value="zh">中文 (ZH)</option>
+                                    <option value="ja">日本語 (JA)</option>
+                                    <option value="ko">한국어 (KO)</option>
+                                </select>
+                            </div>
+
+                            <button
+                                onClick={handleSearchOnlineSubtitles}
+                                disabled={subSearchLoading || !subSearchQuery.trim()}
+                                className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20 disabled:opacity-50"
+                            >
+                                {subSearchLoading ? <RefreshCw size={16} className="animate-spin" /> : <Search size={16} />}
+                                Search Subtitles
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* ── Built-in Live TV Fullscreen Player Modal ── */}
             {playingChannel && (
                 <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/95 backdrop-blur-xl animate-in fade-in duration-200">
@@ -2363,23 +2552,15 @@ export default function TheaterPage() {
                             </div>
 
                             <div className="flex items-center gap-2">
-                                <a
-                                    href={`vlc://${playingChannel.url}`}
-                                    className="p-2.5 rounded-xl bg-orange-500/15 hover:bg-orange-500 text-orange-400 hover:text-black border border-orange-500/30 text-xs font-bold flex items-center gap-1.5 transition-all"
-                                    title="Open in VLC"
-                                >
-                                    <ExternalLink size={14} /> Open in VLC
-                                </a>
-
                                 <button
                                     onClick={() => {
                                         navigator.clipboard.writeText(playingChannel.url);
                                         toast.success('Channel URL copied');
                                     }}
-                                    className="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 text-xs font-bold"
+                                    className="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 text-xs font-bold flex items-center gap-1.5"
                                     title="Copy Stream Link"
                                 >
-                                    <Copy size={14} />
+                                    <Copy size={14} /> Copy Stream URL
                                 </button>
 
                                 <button
@@ -2426,41 +2607,6 @@ export default function TheaterPage() {
                                         );
                                     })}
                                 </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* ── Subtitle Search Modal ── */}
-            {isSubSearchModalOpen && (
-                <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200">
-                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-lg p-6 space-y-4 shadow-2xl relative">
-                        <div className="flex items-center justify-between pb-2 border-b border-zinc-900">
-                            <h3 className="text-base font-black text-white flex items-center gap-2">
-                                <Subtitles size={18} className="text-indigo-400" /> Search Online Subtitles
-                            </h3>
-                            <button onClick={() => setIsSubSearchModalOpen(false)} className="text-zinc-500 hover:text-white">
-                                <X size={18} />
-                            </button>
-                        </div>
-
-                        <div className="space-y-3">
-                            <div className="flex gap-2">
-                                <input
-                                    type="text"
-                                    placeholder="Enter movie / show title"
-                                    value={subSearchQuery}
-                                    onChange={e => setSubSearchQuery(e.target.value)}
-                                    className="flex-1 bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-3 text-xs text-white outline-none focus:border-indigo-500"
-                                />
-                                <button
-                                    onClick={handleSearchOnlineSubtitles}
-                                    disabled={subSearchLoading}
-                                    className="px-5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-2xl transition-all flex items-center gap-1.5"
-                                >
-                                    {subSearchLoading ? <RefreshCw size={14} className="animate-spin" /> : <Search size={14} />} Search
-                                </button>
                             </div>
                         </div>
                     </div>

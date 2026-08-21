@@ -51,7 +51,7 @@ export async function GET(req: Request) {
                             extension: 'STREAM',
                             posterUrl: thumbnail,
                             source: 'YouTube Music',
-                            streamUrl: `https://www.youtube.com/embed/${video.videoId}?autoplay=1&enablejsapi=1`,
+                            streamUrl: `/api/theater/music/stream?ytId=${video.videoId}`,
                             youtubeId: video.videoId
                         });
 
