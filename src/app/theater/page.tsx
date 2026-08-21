@@ -13,7 +13,7 @@ import {
     Clock, FastForward, Rewind, Subtitles, ListFilter, Bookmark,
     ListPlus, Copy, Download, Shuffle, Repeat, SkipForward, SkipBack,
     Disc, User, ListMusic, Youtube, Globe, Heart, PlaySquare, ArrowDownToLine,
-    Headphones, RadioTower, Info
+    Headphones, RadioTower, Info, Mic2, FileText, Edit3
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import Hls from 'hls.js';
@@ -238,6 +238,29 @@ export default function TheaterPage() {
     const liveVideoRef = useRef<HTMLVideoElement>(null);
     const audioRef = useRef<HTMLAudioElement>(null);
     const hlsInstanceRef = useRef<Hls | null>(null);
+
+    // Lyrics & Karaoke Studio States
+    const [showLyricsModal, setShowLyricsModal] = useState(false);
+    const [lyricsData, setLyricsData] = useState<{
+        trackKey?: string;
+        artist?: string;
+        title?: string;
+        syncedLyrics: string | null;
+        plainLyrics: string | null;
+        lines: Array<{ time: number; text: string }>;
+        isSynced: boolean;
+        source?: string;
+    } | null>(null);
+    const [lyricsLoading, setLyricsLoading] = useState(false);
+    const [lyricsViewMode, setLyricsViewMode] = useState<'karaoke' | 'full'>('karaoke');
+    const [isLyricsEditorOpen, setIsLyricsEditorOpen] = useState(false);
+    const [lyricsSearchQuery, setLyricsSearchQuery] = useState('');
+    const [lyricsSearchResults, setLyricsSearchResults] = useState<any[]>([]);
+    const [lyricsSearchLoading, setLyricsSearchLoading] = useState(false);
+    const [customLrcText, setCustomLrcText] = useState('');
+    const [editorTab, setEditorTab] = useState<'search' | 'custom'>('search');
+    const [isSavingLyrics, setIsSavingLyrics] = useState(false);
+    const activeLyricRef = useRef<HTMLDivElement>(null);
 
     // Smart TV Pairing & Remote Casting States
     const [isPairTvModalOpen, setIsPairTvModalOpen] = useState(false);
@@ -874,8 +897,164 @@ export default function TheaterPage() {
         if (playingAudio && audioRef.current) {
             audioRef.current.src = playingAudio.streamUrl;
             audioRef.current.play().then(() => setIsAudioPlaying(true)).catch(() => setIsAudioPlaying(false));
+            fetchLyrics(playingAudio);
         }
     }, [playingAudio]);
+
+    // ── Lyrics & Karaoke Studio Handlers ──
+    const fetchLyrics = async (track: MediaItem | null) => {
+        if (!track) {
+            setLyricsData(null);
+            return;
+        }
+        setLyricsLoading(true);
+        try {
+            const artist = track.artist || '';
+            const title = track.title || '';
+            const album = track.album || '';
+            const duration = track.durationSeconds || '';
+            const res = await fetch(`/api/theater/music/lyrics?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}&album=${encodeURIComponent(album)}&duration=${encodeURIComponent(duration)}`);
+            if (res.ok) {
+                const data = await res.json();
+                setLyricsData(data);
+            } else {
+                setLyricsData(null);
+            }
+        } catch {
+            setLyricsData(null);
+        } finally {
+            setLyricsLoading(false);
+        }
+    };
+
+    const handleSearchLyrics = async (query: string) => {
+        if (!query.trim()) return;
+        setLyricsSearchLoading(true);
+        try {
+            const res = await fetch(`/api/theater/music/lyrics?search=true&q=${encodeURIComponent(query.trim())}`);
+            if (res.ok) {
+                const data = await res.json();
+                setLyricsSearchResults(Array.isArray(data.results) ? data.results : []);
+            } else {
+                setLyricsSearchResults([]);
+            }
+        } catch {
+            setLyricsSearchResults([]);
+        } finally {
+            setLyricsSearchLoading(false);
+        }
+    };
+
+    const handleApplyLyricsMatch = async (candidate: any) => {
+        if (!playingAudio) return;
+        try {
+            const res = await fetch('/api/theater/music/lyrics', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    artist: playingAudio.artist || candidate.artistName,
+                    title: playingAudio.title || candidate.trackName,
+                    syncedLyrics: candidate.syncedLyrics,
+                    plainLyrics: candidate.plainLyrics
+                })
+            });
+            if (res.ok) {
+                toast.success('Lyrics match updated and saved!');
+                setLyricsData({
+                    syncedLyrics: candidate.syncedLyrics,
+                    plainLyrics: candidate.plainLyrics,
+                    lines: candidate.lines || [],
+                    isSynced: !!candidate.syncedLyrics,
+                    source: 'manual_matched'
+                });
+                setIsLyricsEditorOpen(false);
+            } else {
+                toast.error('Failed to save lyrics match');
+            }
+        } catch {
+            toast.error('Error saving lyrics match');
+        }
+    };
+
+    const handleSaveCustomLyrics = async () => {
+        if (!playingAudio || !customLrcText.trim()) return;
+        setIsSavingLyrics(true);
+        try {
+            const isSynced = customLrcText.includes('[') && customLrcText.includes(']');
+            const res = await fetch('/api/theater/music/lyrics', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    artist: playingAudio.artist || 'Unknown',
+                    title: playingAudio.title || 'Track',
+                    syncedLyrics: isSynced ? customLrcText : '',
+                    plainLyrics: !isSynced ? customLrcText : ''
+                })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                toast.success('Custom lyrics saved!');
+                setLyricsData({
+                    syncedLyrics: isSynced ? customLrcText : '',
+                    plainLyrics: !isSynced ? customLrcText : '',
+                    lines: data.lines || [],
+                    isSynced,
+                    source: 'custom_pasted'
+                });
+                setIsLyricsEditorOpen(false);
+            } else {
+                toast.error('Failed to save custom lyrics');
+            }
+        } catch {
+            toast.error('Error saving custom lyrics');
+        } finally {
+            setIsSavingLyrics(false);
+        }
+    };
+
+    const handleDownloadTrack = (track: MediaItem | null) => {
+        if (!track) return;
+        const targetPath = track.path || track.streamUrl;
+        const dlUrl = `/api/theater/music/download?path=${encodeURIComponent(targetPath)}&title=${encodeURIComponent(track.title)}&artist=${encodeURIComponent(track.artist || '')}`;
+        
+        const a = document.createElement('a');
+        a.href = dlUrl;
+        a.download = `${track.artist ? `${track.artist} - ` : ''}${track.title}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        toast.success(`Starting download: "${track.title}"`);
+    };
+
+    const handleDownloadAlbum = (albumTracks: MediaItem[], albumTitle?: string) => {
+        if (!albumTracks || albumTracks.length === 0) return;
+        toast.info(`Downloading ${albumTracks.length} tracks from "${albumTitle || 'Album'}"...`);
+        albumTracks.forEach((t, i) => {
+            setTimeout(() => {
+                handleDownloadTrack(t);
+            }, i * 350);
+        });
+    };
+
+    const currentLyricIndex = useMemo(() => {
+        if (!lyricsData || !lyricsData.lines || lyricsData.lines.length === 0) return -1;
+        const lines = lyricsData.lines;
+        for (let i = lines.length - 1; i >= 0; i--) {
+            if (audioCurrentTime >= lines[i].time) {
+                return i;
+            }
+        }
+        return -1;
+    }, [lyricsData, audioCurrentTime]);
+
+    useEffect(() => {
+        if (showLyricsModal && activeLyricRef.current) {
+            activeLyricRef.current.scrollIntoView({
+                behavior: 'smooth',
+                block: 'center'
+            });
+        }
+    }, [currentLyricIndex, showLyricsModal]);
 
     // Video Player & HLS Handler for .ts and live streams + Audio Transcoding + Diagnostics Fetch
     useEffect(() => {
@@ -1625,7 +1804,18 @@ export default function TheaterPage() {
                                                 </div>
                                             </div>
 
-                                            <div className="flex items-center gap-3">
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleDownloadTrack(track);
+                                                    }}
+                                                    className="p-2 rounded-xl text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+                                                    title="Download Track to Local Machine"
+                                                >
+                                                    <Download size={16} />
+                                                </button>
+
                                                 <button
                                                     onClick={(e) => {
                                                         e.stopPropagation();
@@ -2085,8 +2275,8 @@ export default function TheaterPage() {
                             </div>
                         </div>
 
-                        {/* Right Quick Actions: Grab, Specs, Queue, Cast, Close */}
-                        <div className="flex items-center gap-1 sm:gap-2 w-auto sm:w-56 justify-end shrink-0">
+                        {/* Right Quick Actions: Grab, Lyrics, Download, Specs, Queue, Cast, Close */}
+                        <div className="flex items-center gap-1 sm:gap-2 w-auto sm:w-72 justify-end shrink-0">
                             {playingAudio.youtubeId && (
                                 <button
                                     onClick={() => handleGrabTrackToLibrary(playingAudio)}
@@ -2096,6 +2286,26 @@ export default function TheaterPage() {
                                     <ArrowDownToLine size={15} />
                                 </button>
                             )}
+
+                            {/* Karaoke / Live Lyrics */}
+                            <button
+                                onClick={() => setShowLyricsModal(true)}
+                                className={`p-2 sm:p-2.5 rounded-xl border text-xs font-bold transition-all ${
+                                    showLyricsModal ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-amber-400 hover:border-amber-500/40'
+                                }`}
+                                title="Karaoke Live Lyrics & Match Editor"
+                            >
+                                <Mic2 size={16} />
+                            </button>
+
+                            {/* Download Track to Local Machine */}
+                            <button
+                                onClick={() => handleDownloadTrack(playingAudio)}
+                                className="p-2 sm:p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-emerald-400 hover:border-emerald-500/40 text-xs font-bold transition-all"
+                                title="Download Audio File to Local Machine"
+                            >
+                                <Download size={16} />
+                            </button>
 
                             <button
                                 onClick={() => fetchAudioSpecs(playingAudio)}
@@ -2309,7 +2519,7 @@ export default function TheaterPage() {
                                 <p className="text-sm font-semibold text-zinc-400">{selectedAlbum.artist}</p>
                                 <span className="text-xs text-zinc-600 font-bold block">{selectedAlbum.tracks.length} Songs</span>
 
-                                <div className="pt-2">
+                                <div className="pt-2 flex flex-wrap items-center gap-3">
                                     <button
                                         onClick={() => {
                                             handlePlayAlbum(selectedAlbum.tracks);
@@ -2318,6 +2528,14 @@ export default function TheaterPage() {
                                         className="px-6 py-3 bg-amber-500 hover:bg-amber-400 text-black font-black uppercase text-xs tracking-widest rounded-2xl transition-all shadow-lg shadow-amber-500/20 flex items-center gap-2"
                                     >
                                         <Play size={16} /> Play Album
+                                    </button>
+
+                                    <button
+                                        onClick={() => handleDownloadAlbum(selectedAlbum.tracks, selectedAlbum.name)}
+                                        className="px-5 py-3 bg-zinc-900 hover:bg-zinc-800 text-white font-black uppercase text-xs tracking-widest rounded-2xl border border-zinc-800 transition-all flex items-center gap-2"
+                                        title="Download All Tracks in this Album to Local Machine"
+                                    >
+                                        <Download size={15} /> Download Album
                                     </button>
                                 </div>
                             </div>
@@ -2335,9 +2553,21 @@ export default function TheaterPage() {
                                         <span className="w-6 text-zinc-600 font-mono font-bold group-hover:text-amber-400">{i + 1}</span>
                                         <span className="font-bold text-white group-hover:text-amber-400 transition-colors truncate">{track.title}</span>
                                     </div>
-                                    <button className="w-8 h-8 rounded-lg bg-zinc-900 group-hover:bg-amber-500 text-zinc-400 group-hover:text-black flex items-center justify-center transition-all">
-                                        <Play size={13} className="ml-0.5" />
-                                    </button>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleDownloadTrack(track);
+                                            }}
+                                            className="w-8 h-8 rounded-lg bg-zinc-900 hover:bg-emerald-500 text-zinc-400 hover:text-black flex items-center justify-center transition-all"
+                                            title="Download Track to Local Machine"
+                                        >
+                                            <Download size={13} />
+                                        </button>
+                                        <button className="w-8 h-8 rounded-lg bg-zinc-900 group-hover:bg-amber-500 text-zinc-400 group-hover:text-black flex items-center justify-center transition-all">
+                                            <Play size={13} className="ml-0.5" />
+                                        </button>
+                                    </div>
                                 </div>
                             ))}
                         </div>
@@ -3540,6 +3770,291 @@ export default function TheaterPage() {
                                     className="w-full py-3.5 bg-zinc-900 hover:bg-zinc-800 text-white border border-zinc-800 font-bold text-xs uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2"
                                 >
                                     <Cast size={15} className="text-purple-400" /> Cast to All Devices ({pairedTvSessions.length})
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* ── Karaoke Live Lyrics & Studio Modal ── */}
+            {showLyricsModal && playingAudio && (
+                <div className="fixed inset-0 z-[260] flex items-center justify-center p-4 sm:p-6 bg-black/90 backdrop-blur-2xl animate-in fade-in duration-200">
+                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-4xl p-6 sm:p-10 shadow-2xl relative max-h-[90vh] flex flex-col space-y-6 overflow-hidden">
+                        {/* Close Button */}
+                        <button
+                            onClick={() => setShowLyricsModal(false)}
+                            className="absolute top-6 right-6 p-2.5 rounded-2xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all z-20"
+                        >
+                            <X size={22} />
+                        </button>
+
+                        {/* Header: Track Info + Karaoke/Full Mode Switch + Edit Match */}
+                        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pb-4 border-b border-zinc-900">
+                            <div className="flex items-center gap-4 min-w-0">
+                                <div className="w-16 h-16 rounded-2xl bg-zinc-900 border border-zinc-800 overflow-hidden flex items-center justify-center text-amber-400 shrink-0 shadow-lg">
+                                    {playingAudio.posterUrl ? (
+                                        <img src={playingAudio.posterUrl} alt="" className="w-full h-full object-cover" />
+                                    ) : (
+                                        <Disc size={32} />
+                                    )}
+                                </div>
+                                <div className="min-w-0 text-center sm:text-left">
+                                    <div className="flex items-center justify-center sm:justify-start gap-2">
+                                        <span className="px-2.5 py-0.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-black uppercase flex items-center gap-1">
+                                            <Mic2 size={11} /> Karaoke Studio
+                                        </span>
+                                        {lyricsData?.isSynced && (
+                                            <span className="px-2.5 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-black uppercase flex items-center gap-1">
+                                                <Sparkles size={11} /> Time-Synced
+                                            </span>
+                                        )}
+                                    </div>
+                                    <h2 className="text-xl sm:text-2xl font-black text-white truncate mt-1">{playingAudio.title}</h2>
+                                    <p className="text-xs text-zinc-400 font-semibold truncate">{playingAudio.artist || 'Unknown Artist'} • {playingAudio.album || 'Single'}</p>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                                {/* View mode toggle */}
+                                <div className="flex bg-zinc-950 p-1 rounded-2xl border border-zinc-800">
+                                    <button
+                                        onClick={() => setLyricsViewMode('karaoke')}
+                                        className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                                            lyricsViewMode === 'karaoke' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                        }`}
+                                    >
+                                        Karaoke
+                                    </button>
+                                    <button
+                                        onClick={() => setLyricsViewMode('full')}
+                                        className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                                            lyricsViewMode === 'full' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                        }`}
+                                    >
+                                        Full Text
+                                    </button>
+                                </div>
+
+                                {/* Edit Match / Search Lyrics Button */}
+                                <button
+                                    onClick={() => {
+                                        setLyricsSearchQuery(`${playingAudio.artist || ''} ${playingAudio.title || ''}`.trim());
+                                        setCustomLrcText(lyricsData?.syncedLyrics || lyricsData?.plainLyrics || '');
+                                        setIsLyricsEditorOpen(true);
+                                    }}
+                                    className="px-3.5 py-2 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 active:scale-95"
+                                    title="Edit lyrics match or search alternative versions"
+                                >
+                                    <Edit3 size={13} /> Edit Match
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Content: Karaoke Scroll or Full Lyrics */}
+                        <div className="flex-1 min-h-[350px] max-h-[55vh] overflow-y-auto custom-scrollbar p-2 relative flex flex-col">
+                            {lyricsLoading ? (
+                                <div className="flex flex-col items-center justify-center py-20 gap-3 m-auto">
+                                    <div className="w-10 h-10 border-4 border-amber-500/20 border-t-amber-500 rounded-full animate-spin" />
+                                    <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">Fetching Lyrics from Database &amp; LRCLib...</p>
+                                </div>
+                            ) : !lyricsData || (!lyricsData.lines?.length && !lyricsData.plainLyrics) ? (
+                                <div className="flex flex-col items-center justify-center py-20 text-center space-y-4 m-auto">
+                                    <div className="p-5 bg-zinc-900/60 rounded-full text-zinc-600"><Mic2 size={36} /></div>
+                                    <div>
+                                        <p className="text-base font-bold text-white">No lyrics found for this song</p>
+                                        <p className="text-xs text-zinc-500 mt-1">You can search LRCLib or paste lyrics manually.</p>
+                                    </div>
+                                    <button
+                                        onClick={() => {
+                                            setLyricsSearchQuery(`${playingAudio.artist || ''} ${playingAudio.title || ''}`.trim());
+                                            setIsLyricsEditorOpen(true);
+                                        }}
+                                        className="px-6 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2"
+                                    >
+                                        <Search size={14} /> Search / Add Lyrics
+                                    </button>
+                                </div>
+                            ) : lyricsViewMode === 'karaoke' && lyricsData.isSynced ? (
+                                <div className="space-y-6 py-24 text-center">
+                                    {lyricsData.lines.map((line, idx) => {
+                                        const isActive = idx === currentLyricIndex;
+                                        const isPast = currentLyricIndex !== -1 && idx < currentLyricIndex;
+                                        return (
+                                            <div
+                                                key={idx}
+                                                ref={isActive ? activeLyricRef : null}
+                                                onClick={() => {
+                                                    if (audioRef.current) {
+                                                        audioRef.current.currentTime = line.time;
+                                                        setAudioCurrentTime(line.time);
+                                                    }
+                                                }}
+                                                className={`cursor-pointer transition-all duration-300 py-1.5 px-4 rounded-2xl inline-block max-w-2xl ${
+                                                    isActive
+                                                        ? 'text-2xl sm:text-3xl md:text-4xl font-black text-amber-300 drop-shadow-[0_0_35px_rgba(251,191,36,0.6)] scale-105'
+                                                        : isPast
+                                                        ? 'text-base sm:text-lg font-bold text-zinc-600 hover:text-zinc-400'
+                                                        : 'text-base sm:text-lg font-bold text-zinc-400 hover:text-zinc-200'
+                                                }`}
+                                            >
+                                                {line.text}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <div className="p-4 sm:p-6 text-center whitespace-pre-line text-base sm:text-lg font-semibold text-zinc-300 leading-relaxed max-w-xl mx-auto">
+                                    {lyricsData.plainLyrics || lyricsData.lines.map(l => l.text).join('\n')}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Bottom Controls Bar inside Karaoke Modal */}
+                        <div className="pt-4 border-t border-zinc-900 flex items-center justify-between gap-4">
+                            <div className="flex items-center gap-3">
+                                <button
+                                    onClick={() => {
+                                        if (audioRef.current) {
+                                            if (isAudioPlaying) {
+                                                audioRef.current.pause();
+                                                setIsAudioPlaying(false);
+                                            } else {
+                                                audioRef.current.play();
+                                                setIsAudioPlaying(true);
+                                            }
+                                        }
+                                    }}
+                                    className="w-10 h-10 rounded-xl bg-amber-500 hover:bg-amber-400 text-black flex items-center justify-center transition-all"
+                                >
+                                    {isAudioPlaying ? <Pause size={18} /> : <Play size={18} className="ml-0.5" />}
+                                </button>
+                                <div className="text-xs font-mono text-zinc-400">
+                                    <span>{formatTime(audioCurrentTime)}</span> / <span>{formatTime(audioDuration)}</span>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => handleDownloadTrack(playingAudio)}
+                                    className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-emerald-400 border border-zinc-800 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all"
+                                >
+                                    <Download size={14} /> Download Audio
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Lyrics Match Editor & Search Modal ── */}
+            {isLyricsEditorOpen && (
+                <div className="fixed inset-0 z-[280] flex items-center justify-center p-4 sm:p-6 bg-black/90 backdrop-blur-2xl animate-in fade-in duration-200">
+                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-2xl p-6 sm:p-8 space-y-6 shadow-2xl relative max-h-[85vh] flex flex-col overflow-hidden">
+                        <button
+                            onClick={() => setIsLyricsEditorOpen(false)}
+                            className="absolute top-6 right-6 p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all"
+                        >
+                            <X size={20} />
+                        </button>
+
+                        <div className="space-y-1">
+                            <h3 className="text-xl font-black text-white">Edit Lyrics Match &amp; Source</h3>
+                            <p className="text-xs text-zinc-500 font-medium">Search LRCLib for matching synced lyrics or paste custom LRC timestamps.</p>
+                        </div>
+
+                        {/* Tabs: Search LRCLib | Paste Custom */}
+                        <div className="flex bg-zinc-950 p-1 rounded-2xl border border-zinc-800">
+                            <button
+                                onClick={() => setEditorTab('search')}
+                                className={`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                                    editorTab === 'search' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                }`}
+                            >
+                                Search LRCLib
+                            </button>
+                            <button
+                                onClick={() => setEditorTab('custom')}
+                                className={`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                                    editorTab === 'custom' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                }`}
+                            >
+                                Paste Custom LRC / Text
+                            </button>
+                        </div>
+
+                        {editorTab === 'search' ? (
+                            <div className="space-y-4 flex-1 flex flex-col min-h-0">
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. Queen Bohemian Rhapsody"
+                                        value={lyricsSearchQuery}
+                                        onChange={e => setLyricsSearchQuery(e.target.value)}
+                                        onKeyDown={e => e.key === 'Enter' && handleSearchLyrics(lyricsSearchQuery)}
+                                        className="flex-1 bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-2.5 text-xs text-white outline-none focus:border-amber-500 font-medium"
+                                    />
+                                    <button
+                                        onClick={() => handleSearchLyrics(lyricsSearchQuery)}
+                                        disabled={lyricsSearchLoading}
+                                        className="px-5 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider shrink-0 transition-all flex items-center gap-1.5 disabled:opacity-60"
+                                    >
+                                        {lyricsSearchLoading ? <RefreshCw size={14} className="animate-spin" /> : <Search size={14} />}
+                                        Search
+                                    </button>
+                                </div>
+
+                                <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1 min-h-[220px] max-h-[300px]">
+                                    {lyricsSearchLoading ? (
+                                        <div className="flex items-center justify-center py-12 gap-2 text-xs text-zinc-500 font-bold">
+                                            <RefreshCw size={16} className="animate-spin text-amber-400" /> Searching LRCLib...
+                                        </div>
+                                    ) : lyricsSearchResults.length === 0 ? (
+                                        <div className="text-center py-12 text-xs text-zinc-600">
+                                            Enter artist and title above to search for lyrics matches.
+                                        </div>
+                                    ) : (
+                                        lyricsSearchResults.map((cand) => (
+                                            <div
+                                                key={cand.id}
+                                                className="p-3.5 bg-zinc-950 border border-zinc-900 hover:border-amber-500/40 rounded-2xl transition-all flex items-center justify-between gap-3 text-xs"
+                                            >
+                                                <div className="min-w-0">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-bold text-white truncate">{cand.trackName}</span>
+                                                        {cand.hasSyncedLyrics && (
+                                                            <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 text-[9px] font-black uppercase">Synced</span>
+                                                        )}
+                                                    </div>
+                                                    <p className="text-zinc-500 text-[11px] truncate">{cand.artistName} • {cand.albumName || 'Album'}</p>
+                                                </div>
+                                                <button
+                                                    onClick={() => handleApplyLyricsMatch(cand)}
+                                                    className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider shrink-0 transition-all flex items-center gap-1"
+                                                >
+                                                    <Check size={13} /> Apply Match
+                                                </button>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="space-y-4 flex-1 flex flex-col min-h-0">
+                                <textarea
+                                    value={customLrcText}
+                                    onChange={e => setCustomLrcText(e.target.value)}
+                                    placeholder="Paste [00:12.34] Synced LRC timestamps or plain text lyrics here..."
+                                    rows={10}
+                                    className="w-full flex-1 bg-zinc-950 border border-zinc-800 rounded-2xl p-4 text-xs font-mono text-zinc-200 outline-none focus:border-amber-500 resize-none custom-scrollbar"
+                                />
+                                <button
+                                    onClick={handleSaveCustomLyrics}
+                                    disabled={isSavingLyrics || !customLrcText.trim()}
+                                    className="w-full py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 disabled:opacity-60"
+                                >
+                                    {isSavingLyrics ? <RefreshCw size={15} className="animate-spin" /> : <Check size={15} />}
+                                    Save &amp; Apply Lyrics
                                 </button>
                             </div>
                         )}

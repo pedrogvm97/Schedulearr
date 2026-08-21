@@ -71,9 +71,15 @@ export const getIndexerHealth = async (url: string, apiKey: string): Promise<Ind
 
 export const testProwlarrIndexer = async (url: string, apiKey: string, indexerId: number): Promise<{ success: boolean; message?: string }> => {
     try {
-        const response = await axios.post(`${url}/api/v1/indexer/test`, { id: indexerId }, {
+        // Prowlarr requires the full indexer model object in POST /api/v1/indexer/test
+        const getRes = await axios.get(`${url}/api/v1/indexer/${indexerId}`, {
             headers: { 'X-Api-Key': apiKey },
-            timeout: 15000
+            timeout: 10000
+        });
+
+        await axios.post(`${url}/api/v1/indexer/test`, getRes.data, {
+            headers: { 'X-Api-Key': apiKey },
+            timeout: 20000
         });
         return { success: true, message: 'Indexer tested successfully!' };
     } catch (error: any) {

@@ -138,6 +138,16 @@ function initializeSchema(d: any) {
         cover_url TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS music_lyrics (
+        track_key TEXT PRIMARY KEY,
+        artist TEXT NOT NULL,
+        title TEXT NOT NULL,
+        synced_lyrics TEXT,
+        plain_lyrics TEXT,
+        source TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
     `);
 
     // Migrations
@@ -752,6 +762,37 @@ export const deleteMusicPlaylist = (id: string) => {
         return true;
     } catch (e) {
         console.error('Error deleting music playlist:', e);
+        return false;
+    }
+};
+
+export const getSavedLyrics = (trackKey: string) => {
+    try {
+        const row = db.prepare('SELECT * FROM music_lyrics WHERE track_key = ?').get(trackKey) as any;
+        return row || null;
+    } catch (e) {
+        console.error('Error getting saved lyrics:', e);
+        return null;
+    }
+};
+
+export const saveLyrics = (trackKey: string, artist: string, title: string, syncedLyrics: string, plainLyrics: string, source: string = 'manual') => {
+    try {
+        const stmt = db.prepare(`
+            INSERT INTO music_lyrics (track_key, artist, title, synced_lyrics, plain_lyrics, source, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(track_key) DO UPDATE SET
+                artist = excluded.artist,
+                title = excluded.title,
+                synced_lyrics = excluded.synced_lyrics,
+                plain_lyrics = excluded.plain_lyrics,
+                source = excluded.source,
+                updated_at = CURRENT_TIMESTAMP
+        `);
+        stmt.run(trackKey, artist, title, syncedLyrics, plainLyrics, source);
+        return true;
+    } catch (e) {
+        console.error('Error saving lyrics:', e);
         return false;
     }
 };
