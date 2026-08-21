@@ -14,7 +14,7 @@ import {
     ListPlus, Copy, Download, Shuffle, Repeat, SkipForward, SkipBack,
     Disc, User, ListMusic, Youtube, Globe, Heart, PlaySquare, ArrowDownToLine,
     Headphones, RadioTower, Info, Mic2, FileText, Edit3, ChevronDown,
-    Terminal, AlertTriangle, Bug, Code, Cpu, Monitor, RefreshCcw, CheckCheck
+    Terminal, AlertTriangle, Bug, Code, Cpu, Monitor, RefreshCcw, CheckCheck, Zap
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import Hls from 'hls.js';
@@ -205,7 +205,8 @@ export default function TheaterPage() {
         playTrack,
         playAlbum,
         handleDownloadTrack,
-        handleDownloadAlbum
+        handleDownloadAlbum,
+        closePlayer
     } = useMusicPlayer();
 
     const [playingVideo, setPlayingVideo] = useState<MediaItem | null>(null);
@@ -213,7 +214,14 @@ export default function TheaterPage() {
     const [videoQuality, setVideoQuality] = useState<'auto' | '1080p-high' | '1080p' | '720p' | '480p'>('auto');
     const [viewingPhotoIndex, setViewingPhotoIndex] = useState<number | null>(null);
 
-    // Load saved streaming preferences from localStorage
+    // Automatically pause/stop background music playback when a movie/video or TV channel starts
+    useEffect(() => {
+        if (playingVideo || playingChannel) {
+            closePlayer();
+        }
+    }, [playingVideo, playingChannel]);
+
+    // Load saved streaming preferences from localStorage (default to universal for max compatibility)
     useEffect(() => {
         try {
             const savedMode = localStorage.getItem('schedulearr_video_mode');
@@ -253,6 +261,9 @@ export default function TheaterPage() {
     const [nerdActiveTab, setNerdActiveTab] = useState<'telemetry' | 'logs' | 'compat'>('telemetry');
     const [debugLogs, setDebugLogs] = useState<{ id: string; timestamp: string; level: 'info' | 'warn' | 'error' | 'success'; message: string; details?: any; }[]>([]);
     const [playbackError, setPlaybackError] = useState<{ code?: number; codeName?: string; message: string; details?: string; suggestion?: string; } | null>(null);
+    const [isVlcModalOpen, setIsVlcModalOpen] = useState(false);
+    const [vlcModalInfo, setVlcModalInfo] = useState<{ title: string; m3uUrl: string; directUrl: string; transcodeUrl: string } | null>(null);
+    const stallTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     const addDebugLog = (level: 'info' | 'warn' | 'error' | 'success', message: string, details?: any) => {
         const id = Math.random().toString(36).substring(2, 9);
@@ -834,6 +845,11 @@ export default function TheaterPage() {
             const video = videoRef.current;
             setPlaybackError(null);
 
+            if (stallTimeoutRef.current) {
+                clearTimeout(stallTimeoutRef.current);
+                stallTimeoutRef.current = null;
+            }
+
             let streamUrl = playingVideo.streamUrl;
 
             // Transcode mode & quality query param injection
@@ -885,6 +901,20 @@ export default function TheaterPage() {
                 video.play().catch((e) => {
                     addDebugLog('warn', `Video play() rejected: ${e.message}`);
                 });
+
+                // Playback Watchdog: If the browser hangs at 0:00 without progressing for > 4.5s
+                stallTimeoutRef.current = setTimeout(() => {
+                    if (video && video.currentTime === 0 && (video.readyState <= 2 || video.paused)) {
+                        if (videoAudioMode !== 'universal') {
+                            addDebugLog('error', `Playback watchdog timeout: Stream stalled at 0:00 in ${videoAudioMode.toUpperCase()} mode.`);
+                            setPlaybackError({
+                                codeName: 'STREAM_STALLED_CODEC_INCOMPATIBLE',
+                                message: `Stream stalled at 0:00. Your browser cannot decode this video bitstream (${videoAudioMode === 'transcode' ? 'Audio-only AAC / Video-copy' : 'Direct Stream'}) over the web network.`,
+                                suggestion: 'Click "Full Transcode (Universal H.264)" below to convert on-the-fly with QuickSync/NVENC/CPU into standard H.264+AAC, or open in VLC.'
+                            });
+                        }
+                    }
+                }, 4500);
             }
 
             handleDiscoverLocalSubtitles(playingVideo);
@@ -898,8 +928,8 @@ export default function TheaterPage() {
                     if (d) {
                         setDiagnosticsData(d);
                         addDebugLog('info', 'ffprobe stream diagnostics loaded', d.original);
-                        if (d.original?.videoCodec?.toUpperCase().includes('HEVC') && videoAudioMode === 'direct') {
-                            addDebugLog('warn', `Direct Play with HEVC video: Browser may fail if HEVC hardware decoding is unsupported. Universal Server Optimized mode recommended.`);
+                        if (d.original?.videoCodec?.toUpperCase().includes('HEVC') && videoAudioMode !== 'universal') {
+                            addDebugLog('warn', `HEVC 4K source video in ${videoAudioMode.toUpperCase()} mode: Browser may stall if HEVC decoding is unsupported. Universal Server Optimized mode recommended.`);
                         }
                         if (d.original?.audioCodec?.toUpperCase().includes('DTS') && videoAudioMode === 'direct') {
                             addDebugLog('warn', `Direct Play with DTS audio: Browser cannot decode raw DTS audio without AAC transcoding.`);
@@ -912,6 +942,10 @@ export default function TheaterPage() {
         }
 
         return () => {
+            if (stallTimeoutRef.current) {
+                clearTimeout(stallTimeoutRef.current);
+                stallTimeoutRef.current = null;
+            }
             if (hlsInstanceRef.current) {
                 hlsInstanceRef.current.destroy();
                 hlsInstanceRef.current = null;
@@ -2565,20 +2599,29 @@ export default function TheaterPage() {
                                 {/* Open in VLC */}
                                 <button
                                     onClick={() => {
-                                        const m3uUrl = `${window.location.origin}${playingVideo.streamUrl}&m3u=true&title=${encodeURIComponent(playingVideo.title)}`;
-                                        const directStreamUrl = `${window.location.origin}${playingVideo.streamUrl}`;
+                                        const origin = window.location.origin;
+                                        const m3uUrl = `${origin}${playingVideo.streamUrl}&m3u=true&origin=${encodeURIComponent(origin)}&title=${encodeURIComponent(playingVideo.title)}`;
+                                        const directStreamUrl = `${origin}${playingVideo.streamUrl}&transcode=direct`;
+                                        const transcodeStreamUrl = `${origin}${playingVideo.streamUrl}&transcode=universal`;
                                         navigator.clipboard.writeText(directStreamUrl);
                                         const a = document.createElement('a');
                                         a.href = m3uUrl;
-                                        a.download = `${playingVideo.title}.m3u`;
+                                        a.download = `${playingVideo.title.replace(/[^a-zA-Z0-9_-]/g, '_')}.m3u`;
                                         document.body.appendChild(a);
                                         a.click();
                                         document.body.removeChild(a);
-                                        addDebugLog('info', 'Generated .m3u playlist and opened stream for VLC');
-                                        toast.success('Stream URL copied! Opening VLC playlist file (.m3u)...');
+                                        setVlcModalInfo({
+                                            title: playingVideo.title,
+                                            m3uUrl,
+                                            directUrl: directStreamUrl,
+                                            transcodeUrl: transcodeStreamUrl
+                                        });
+                                        setIsVlcModalOpen(true);
+                                        addDebugLog('info', 'Generated .m3u playlist and opened VLC modal');
+                                        toast.success('Direct Stream URL copied! Opening VLC playlist file (.m3u)...');
                                     }}
                                     className="p-2 sm:p-2.5 rounded-xl bg-orange-500/15 hover:bg-orange-500 text-orange-400 hover:text-black border border-orange-500/30 text-xs font-bold flex items-center gap-1.5 transition-all"
-                                    title="Open Stream in VLC Media Player (.m3u playlist download)"
+                                    title="Open Stream in VLC Media Player (.m3u playlist download & stream links)"
                                 >
                                     <ExternalLink size={15} /> Open in VLC
                                 </button>
@@ -2608,7 +2651,28 @@ export default function TheaterPage() {
                                     addDebugLog('success', `Video event: loadedmetadata (${v.videoWidth}x${v.videoHeight}, duration: ${Math.round(v.duration || 0)}s)`);
                                 }}
                                 onCanPlay={() => addDebugLog('success', 'Video event: canplay (Ready for playback)')}
-                                onPlaying={() => addDebugLog('info', 'Video event: playing')}
+                                onPlaying={() => {
+                                    if (stallTimeoutRef.current) {
+                                        clearTimeout(stallTimeoutRef.current);
+                                        stallTimeoutRef.current = null;
+                                    }
+                                    if (playbackError?.codeName === 'STREAM_STALLED_CODEC_INCOMPATIBLE') {
+                                        setPlaybackError(null);
+                                    }
+                                    addDebugLog('info', 'Video event: playing');
+                                }}
+                                onTimeUpdate={(e) => {
+                                    const v = e.currentTarget;
+                                    if (v.currentTime > 0) {
+                                        if (stallTimeoutRef.current) {
+                                            clearTimeout(stallTimeoutRef.current);
+                                            stallTimeoutRef.current = null;
+                                        }
+                                        if (playbackError?.codeName === 'STREAM_STALLED_CODEC_INCOMPATIBLE') {
+                                            setPlaybackError(null);
+                                        }
+                                    }
+                                }}
                                 onWaiting={() => addDebugLog('warn', 'Video event: waiting (buffering stream data)')}
                                 onStalled={() => addDebugLog('warn', 'Video event: stalled (no network data received)')}
                                 onError={(e) => {
@@ -2979,6 +3043,25 @@ export default function TheaterPage() {
                                             <div className="p-2.5 rounded-xl bg-zinc-900/50 border border-zinc-800">
                                                 <span className="text-zinc-500 block">Duration:</span>
                                                 <span className="font-bold text-white">{streamMetrics.duration}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Network & Cloudflare Tunnel Diagnostics */}
+                                    <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-2">
+                                        <span className="text-[11px] font-black uppercase text-sky-400 tracking-wider flex items-center gap-1.5">
+                                            <Globe size={14} /> Network & Cloudflare Tunnel Diagnostics
+                                        </span>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                                            <div className="p-3 rounded-xl bg-zinc-900/60 border border-zinc-800/80 space-y-1">
+                                                <div className="flex justify-between"><span className="text-zinc-400">Client Host:</span><span className="font-bold text-white truncate max-w-[180px]">{typeof window !== 'undefined' ? window.location.host : 'N/A'}</span></div>
+                                                <div className="flex justify-between"><span className="text-zinc-400">Protocol:</span><span className="font-bold text-emerald-400">{typeof window !== 'undefined' ? window.location.protocol.toUpperCase().replace(':', '') : 'HTTPS'}</span></div>
+                                                <div className="flex justify-between"><span className="text-zinc-400">Cloudflare Tunnel:</span><span className="font-bold text-sky-400">{typeof window !== 'undefined' && window.location.host.includes('.') ? 'Active / Proxied' : 'Local Network'}</span></div>
+                                            </div>
+                                            <div className="p-3 rounded-xl bg-zinc-900/60 border border-zinc-800/80 space-y-1">
+                                                <div className="flex justify-between"><span className="text-zinc-400">Active Stream URL:</span><span className="font-bold text-amber-300 truncate max-w-[180px]">{videoRef.current?.currentSrc || 'Loading...'}</span></div>
+                                                <div className="flex justify-between"><span className="text-zinc-400">Range Seeking:</span><span className="font-bold text-emerald-400">HTTP 206 Supported</span></div>
+                                                <div className="flex justify-between"><span className="text-zinc-400">Hardware Acceleration:</span><span className="font-bold text-purple-400">QuickSync / NVENC / CPU</span></div>
                                             </div>
                                         </div>
                                     </div>
@@ -3992,6 +4075,120 @@ export default function TheaterPage() {
                                 </button>
                             </div>
                         )}
+                    </div>
+                </div>
+            )}
+
+            {/* ── VLC Media Player & External Network Stream Modal ── */}
+            {isVlcModalOpen && vlcModalInfo && (
+                <div className="fixed inset-0 z-[350] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
+                    <div className="bg-[#0e0e11] border border-orange-500/30 rounded-3xl w-full max-w-xl p-6 sm:p-7 space-y-6 shadow-2xl relative animate-in zoom-in-95 duration-200">
+                        {/* Header */}
+                        <div className="flex items-start justify-between gap-4">
+                            <div className="flex items-center gap-3">
+                                <div className="w-12 h-12 rounded-2xl bg-orange-500/15 border border-orange-500/30 flex items-center justify-center text-orange-400 shrink-0 shadow-lg shadow-orange-500/10">
+                                    <ExternalLink size={24} />
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-black text-white">Open in VLC Media Player</h3>
+                                    <p className="text-xs text-zinc-400 truncate max-w-sm font-medium">
+                                        {vlcModalInfo.title}
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setIsVlcModalOpen(false)}
+                                className="p-2 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        {/* M3U Download Notification */}
+                        <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-3 text-xs text-emerald-300">
+                            <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />
+                            <span>
+                                <strong>Playlist Downloaded:</strong> The <code className="bg-emerald-950 px-1 py-0.5 rounded text-[11px]">.m3u</code> file was downloaded to your device. Double-click to open directly in VLC!
+                            </span>
+                        </div>
+
+                        {/* Stream URLs for Network Stream Copy */}
+                        <div className="space-y-4">
+                            {/* Direct Stream URL */}
+                            <div className="space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-[10px] font-black uppercase text-zinc-400 tracking-wider flex items-center gap-1">
+                                        <Film size={12} className="text-sky-400" /> Direct Stream URL (Raw MKV / HEVC 4K)
+                                    </label>
+                                    <span className="text-[10px] text-zinc-500 font-bold">VLC Native Decode</span>
+                                </div>
+                                <div className="flex items-center gap-2 bg-zinc-950 p-2 rounded-xl border border-zinc-800">
+                                    <input
+                                        type="text"
+                                        readOnly
+                                        value={vlcModalInfo.directUrl}
+                                        className="bg-transparent text-xs text-zinc-300 font-mono flex-1 outline-none truncate select-all"
+                                    />
+                                    <button
+                                        onClick={() => {
+                                            navigator.clipboard.writeText(vlcModalInfo.directUrl);
+                                            toast.success('Direct stream URL copied to clipboard!');
+                                        }}
+                                        className="px-3 py-1.5 rounded-lg bg-sky-500/20 hover:bg-sky-500 text-sky-400 hover:text-black font-bold text-xs flex items-center gap-1 transition-all shrink-0"
+                                    >
+                                        <Copy size={12} /> Copy
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Server Transcoded Stream URL */}
+                            <div className="space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-[10px] font-black uppercase text-zinc-400 tracking-wider flex items-center gap-1">
+                                        <Zap size={12} className="text-emerald-400" /> Server Transcoded Stream (Universal H.264)
+                                    </label>
+                                    <span className="text-[10px] text-zinc-500 font-bold">For Low Bandwidth / Mobile</span>
+                                </div>
+                                <div className="flex items-center gap-2 bg-zinc-950 p-2 rounded-xl border border-zinc-800">
+                                    <input
+                                        type="text"
+                                        readOnly
+                                        value={vlcModalInfo.transcodeUrl}
+                                        className="bg-transparent text-xs text-zinc-300 font-mono flex-1 outline-none truncate select-all"
+                                    />
+                                    <button
+                                        onClick={() => {
+                                            navigator.clipboard.writeText(vlcModalInfo.transcodeUrl);
+                                            toast.success('Transcoded stream URL copied to clipboard!');
+                                        }}
+                                        className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500 text-emerald-400 hover:text-black font-bold text-xs flex items-center gap-1 transition-all shrink-0"
+                                    >
+                                        <Copy size={12} /> Copy
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Quick Instructions */}
+                        <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-2 text-xs text-zinc-400">
+                            <span className="text-[10px] font-black uppercase text-zinc-500 tracking-wider block">
+                                How to stream in VLC (Windows, Mac, iOS, Android):
+                            </span>
+                            <ol className="list-decimal list-inside space-y-1 text-zinc-300 text-[11px] leading-relaxed">
+                                <li>Open <strong>VLC Media Player</strong> on any device (home or mobile over Cloudflare).</li>
+                                <li>Press <strong className="text-white">Ctrl+N</strong> (or go to <span className="text-orange-400">Media → Open Network Stream</span>).</li>
+                                <li>Paste the copied URL above and press <strong className="text-emerald-400">Play</strong>.</li>
+                            </ol>
+                        </div>
+
+                        <div className="flex justify-end">
+                            <button
+                                onClick={() => setIsVlcModalOpen(false)}
+                                className="px-6 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs rounded-xl transition-all"
+                            >
+                                Done
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

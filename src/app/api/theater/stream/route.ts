@@ -51,14 +51,30 @@ export async function GET(req: NextRequest) {
 
         // 0. Generate .M3U playlist file for VLC / External Players
         if (m3u === 'true') {
-            const host = req.headers.get('host') || 'localhost:3010';
-            const protocol = req.headers.get('x-forwarded-proto') || 'http';
-            let targetStream = '';
+            const clientOrigin = searchParams.get('origin');
+            const host = req.headers.get('x-forwarded-host') || req.headers.get('host') || 'localhost:3010';
+            const forwardedProto = req.headers.get('x-forwarded-proto');
+            const cfVisitor = req.headers.get('cf-visitor');
+            
+            let baseOrigin = clientOrigin;
+            if (!baseOrigin) {
+                let protocol = 'http';
+                if (forwardedProto) {
+                    protocol = forwardedProto;
+                } else if (cfVisitor && cfVisitor.includes('https')) {
+                    protocol = 'https';
+                } else if (host.includes('.') && !host.includes('localhost') && !host.startsWith('192.168.') && !host.startsWith('10.') && !host.startsWith('172.')) {
+                    protocol = 'https';
+                }
+                baseOrigin = `${protocol}://${host}`;
+            }
+            baseOrigin = baseOrigin.replace(/\/$/, '');
 
+            let targetStream = '';
             if (plexPart) {
-                targetStream = `${protocol}://${host}/api/theater/stream?plexPart=${encodeURIComponent(plexPart)}&instanceId=${encodeURIComponent(instanceId || '')}`;
+                targetStream = `${baseOrigin}/api/theater/stream?plexPart=${encodeURIComponent(plexPart)}&instanceId=${encodeURIComponent(instanceId || '')}&transcode=${transcode || 'direct'}`;
             } else if (filePath) {
-                targetStream = `${protocol}://${host}/api/theater/stream?path=${encodeURIComponent(filePath)}`;
+                targetStream = `${baseOrigin}/api/theater/stream?path=${encodeURIComponent(filePath)}&transcode=${transcode || 'direct'}`;
             }
 
             const m3uContent = `#EXTM3U\n#EXTINF:-1,${title}\n${targetStream}\n`;
@@ -66,7 +82,8 @@ export async function GET(req: NextRequest) {
                 headers: {
                     'Content-Type': 'application/x-mpegurl',
                     'Content-Disposition': `attachment; filename="${title.replace(/[^a-zA-Z0-9_-]/g, '_')}.m3u"`,
-                    'Cache-Control': 'no-cache'
+                    'Cache-Control': 'no-cache',
+                    'Access-Control-Allow-Origin': '*'
                 }
             });
         }
