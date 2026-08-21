@@ -260,17 +260,35 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     };
 
     // Download Helpers
-    const handleDownloadTrack = (track: MediaItem | null) => {
+    const handleDownloadTrack = async (track: MediaItem | null) => {
         const t = track || playingAudio;
         if (!t) return;
-        const downloadUrl = `/api/theater/music/download?path=${encodeURIComponent(t.path || '')}&title=${encodeURIComponent(t.title || t.name)}&artist=${encodeURIComponent(t.artist || '')}`;
-        const a = document.createElement('a');
-        a.href = downloadUrl;
-        a.download = `${t.artist ? `${t.artist} - ` : ''}${t.title || t.name}.${t.extension || 'mp3'}`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        toast.success(`Downloading "${t.title}" to your computer...`);
+        toast.info(`Preparing download for "${t.title}"...`);
+
+        try {
+            const downloadUrl = `/api/theater/music/download?path=${encodeURIComponent(t.path || '')}&title=${encodeURIComponent(t.title || t.name)}&artist=${encodeURIComponent(t.artist || '')}&streamUrl=${encodeURIComponent(t.streamUrl || '')}&ext=${encodeURIComponent(t.extension || '')}&youtubeId=${encodeURIComponent(t.youtubeId || '')}`;
+            
+            const res = await fetch(downloadUrl);
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                toast.error(errData.error || `Download failed (HTTP ${res.status})`);
+                return;
+            }
+
+            const blob = await res.blob();
+            const blobUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            const ext = (t.extension && t.extension !== 'STREAM' && t.extension !== 'AUDIO') ? t.extension.toLowerCase().replace('.', '') : 'mp3';
+            a.download = `${t.artist ? `${t.artist} - ` : ''}${t.title || t.name}.${ext}`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(blobUrl);
+            toast.success(`Downloaded "${t.title}"!`);
+        } catch (err: any) {
+            toast.error(`Download failed: ${err.message}`);
+        }
     };
 
     const handleDownloadAlbum = (tracks: MediaItem[], albumName?: string) => {
@@ -538,15 +556,38 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             {/* Global Persistent Audio Element */}
             <audio
                 ref={audioRef}
+                preload="auto"
                 onTimeUpdate={() => {
                     if (audioRef.current) setAudioCurrentTime(audioRef.current.currentTime);
                 }}
                 onLoadedMetadata={() => {
                     if (audioRef.current) setAudioDuration(audioRef.current.duration);
                 }}
+                onCanPlay={() => {
+                    if (isAudioPlaying && audioRef.current?.paused) {
+                        audioRef.current.play().catch(() => {});
+                    }
+                }}
                 onEnded={nextTrack}
                 onPlay={() => setIsAudioPlaying(true)}
                 onPause={() => setIsAudioPlaying(false)}
+                onError={() => {
+                    const err = audioRef.current?.error;
+                    console.error('Audio playback error:', err);
+                    if (playingAudio && !playingAudio.streamUrl.includes('transcode=')) {
+                        const separator = playingAudio.streamUrl.includes('?') ? '&' : '?';
+                        const transcodeUrl = `${playingAudio.streamUrl}${separator}transcode=audio`;
+                        if (audioRef.current) {
+                            audioRef.current.src = transcodeUrl;
+                            audioRef.current.play().catch(() => {
+                                setIsAudioPlaying(false);
+                            });
+                        }
+                    } else {
+                        setIsAudioPlaying(false);
+                        toast.error(`Unable to stream "${playingAudio?.title || 'Track'}"`);
+                    }
+                }}
             />
 
             {children}

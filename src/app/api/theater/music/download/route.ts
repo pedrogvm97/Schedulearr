@@ -3,11 +3,16 @@ import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
 import { Readable } from 'stream';
+import { getInstances } from '@/lib/db';
+import { exec } from 'child_process';
+import util from 'util';
+
+const execPromise = util.promisify(exec);
 
 export const dynamic = 'force-dynamic';
 
-function getMimeType(filePath: string): string {
-    const ext = path.extname(filePath).toLowerCase();
+function getMimeType(filenameOrExt: string): string {
+    const ext = filenameOrExt.startsWith('.') ? filenameOrExt.toLowerCase() : path.extname(filenameOrExt).toLowerCase();
     switch (ext) {
         case '.flac': return 'audio/flac';
         case '.mp3': return 'audio/mpeg';
@@ -16,7 +21,8 @@ function getMimeType(filePath: string): string {
         case '.aac': return 'audio/aac';
         case '.ogg': return 'audio/ogg';
         case '.opus': return 'audio/opus';
-        default: return 'application/octet-stream';
+        case '.mp4': return 'audio/mp4';
+        default: return 'audio/mpeg';
     }
 }
 
@@ -27,7 +33,9 @@ export async function GET(req: NextRequest) {
         const albumFolder = searchParams.get('albumFolder');
         const customTitle = searchParams.get('title') || 'track';
         const artist = searchParams.get('artist') || '';
-        const listOnly = searchParams.get('list') === 'true';
+        const streamUrlParam = searchParams.get('streamUrl') || '';
+        const youtubeId = searchParams.get('youtubeId') || '';
+        const extParam = searchParams.get('ext') || '';
 
         // 1. Album Files Listing
         if (albumFolder) {
@@ -36,7 +44,7 @@ export async function GET(req: NextRequest) {
             }
 
             const entries = fs.readdirSync(albumFolder, { withFileTypes: true });
-            const audioExtensions = new Set(['.flac', '.mp3', '.m4a', '.wav', '.aac', '.ogg', '.opus']);
+            const audioExtensions = new Set(['.flac', '.mp3', '.m4a', '.wav', '.aac', '.ogg', '.opus', '.mp4']);
             const audioFiles: Array<{ name: string; path: string; size: number; downloadUrl: string }> = [];
 
             for (const entry of entries) {
@@ -62,40 +70,123 @@ export async function GET(req: NextRequest) {
             });
         }
 
-        // 2. Single Audio File Download
-        if (!filePath) {
-            return NextResponse.json({ error: 'Missing path parameter' }, { status: 400 });
-        }
+        // 2. Single Audio File Download - Local Filesystem
+        if (filePath && fs.existsSync(filePath)) {
+            const stat = fs.statSync(filePath);
+            if (stat.isFile()) {
+                const baseFilename = path.basename(filePath);
+                const downloadFilename = artist && customTitle 
+                    ? `${artist.replace(/[/\\?%*:|"<>]/g, '')} - ${customTitle.replace(/[/\\?%*:|"<>]/g, '')}${path.extname(filePath)}`
+                    : baseFilename;
 
-        if (!fs.existsSync(filePath)) {
-            return NextResponse.json({ error: 'Audio file not found on disk' }, { status: 404 });
-        }
+                const mimeType = getMimeType(filePath);
+                const nodeStream = fs.createReadStream(filePath);
+                const webStream = Readable.toWeb(nodeStream);
 
-        const stat = fs.statSync(filePath);
-        if (!stat.isFile()) {
-            return NextResponse.json({ error: 'Specified path is not a file' }, { status: 400 });
-        }
-
-        const baseFilename = path.basename(filePath);
-        const downloadFilename = artist && customTitle 
-            ? `${artist.replace(/[/\\?%*:|"<>]/g, '')} - ${customTitle.replace(/[/\\?%*:|"<>]/g, '')}${path.extname(filePath)}`
-            : baseFilename;
-
-        const mimeType = getMimeType(filePath);
-        const nodeStream = fs.createReadStream(filePath);
-        const webStream = Readable.toWeb(nodeStream);
-
-        return new Response(webStream as any, {
-            status: 200,
-            headers: {
-                'Content-Type': mimeType,
-                'Content-Length': stat.size.toString(),
-                'Content-Disposition': `attachment; filename="${encodeURIComponent(downloadFilename)}"; filename*=UTF-8''${encodeURIComponent(downloadFilename)}`,
-                'Cache-Control': 'public, max-age=86400'
+                return new Response(webStream as any, {
+                    status: 200,
+                    headers: {
+                        'Content-Type': mimeType,
+                        'Content-Length': stat.size.toString(),
+                        'Content-Disposition': `attachment; filename="${encodeURIComponent(downloadFilename)}"; filename*=UTF-8''${encodeURIComponent(downloadFilename)}`,
+                        'Cache-Control': 'public, max-age=86400'
+                    }
+                });
             }
-        });
+        }
+
+        // 3. Plex Stream / Remote Stream Download
+        if (streamUrlParam) {
+            let targetStreamUrl = streamUrlParam;
+
+            // If it's a relative Plex stream URL like /api/theater/stream?plexPart=...
+            if (targetStreamUrl.includes('plexPart=')) {
+                try {
+                    const parsed = new URL(targetStreamUrl, req.url);
+                    const plexPart = parsed.searchParams.get('plexPart');
+                    const instanceId = parsed.searchParams.get('instanceId');
+
+                    if (plexPart) {
+                        const plexInstances = getInstances().filter(i => i.type === 'plex' && i.enabled);
+                        const plex = instanceId ? plexInstances.find(i => i.id === instanceId) : plexInstances[0];
+
+                        if (plex) {
+                            const plexUrlBase = plex.url.replace(/\/$/, '');
+                            const normalizedPart = plexPart.startsWith('/') ? plexPart : `/${plexPart}`;
+                            const sep = normalizedPart.includes('?') ? '&' : '?';
+                            targetStreamUrl = `${plexUrlBase}${normalizedPart}${sep}X-Plex-Token=${plex.api_key}`;
+                        }
+                    }
+                } catch {}
+            } else if (targetStreamUrl.startsWith('/')) {
+                targetStreamUrl = new URL(targetStreamUrl, req.url).toString();
+            }
+
+            try {
+                const remoteRes = await axios.get(targetStreamUrl, {
+                    responseType: 'stream',
+                    timeout: 20000,
+                    validateStatus: () => true
+                });
+
+                if (remoteRes.status >= 200 && remoteRes.status < 300) {
+                    const ext = extParam ? `.${extParam.toLowerCase().replace('.', '')}` : (path.extname(filePath || '') || '.mp3');
+                    const cleanExt = (ext === '.stream' || ext === '.audio') ? '.mp3' : ext;
+                    const downloadFilename = artist && customTitle 
+                        ? `${artist.replace(/[/\\?%*:|"<>]/g, '')} - ${customTitle.replace(/[/\\?%*:|"<>]/g, '')}${cleanExt}`
+                        : `${customTitle.replace(/[/\\?%*:|"<>]/g, '')}${cleanExt}`;
+
+                    const mimeType = remoteRes.headers['content-type'] || getMimeType(cleanExt);
+                    const webStream = Readable.toWeb(remoteRes.data);
+
+                    const resHeaders = new Headers();
+                    resHeaders.set('Content-Type', mimeType);
+                    if (remoteRes.headers['content-length']) resHeaders.set('Content-Length', String(remoteRes.headers['content-length']));
+                    resHeaders.set('Content-Disposition', `attachment; filename="${encodeURIComponent(downloadFilename)}"; filename*=UTF-8''${encodeURIComponent(downloadFilename)}`);
+                    resHeaders.set('Cache-Control', 'public, max-age=86400');
+
+                    return new Response(webStream as any, {
+                        status: 200,
+                        headers: resHeaders
+                    });
+                }
+            } catch (e: any) {
+                console.error('Remote audio stream download proxy error:', e.message);
+            }
+        }
+
+        // 4. YouTube Audio Download via yt-dlp
+        if (youtubeId) {
+            try {
+                const cleanYtId = youtubeId.replace(/^yt-/, '');
+                const { stdout } = await execPromise(`yt-dlp -g -f bestaudio/best "https://www.youtube.com/watch?v=${cleanYtId}"`, { timeout: 10000 });
+                if (stdout && stdout.trim().startsWith('http')) {
+                    const directYtAudioUrl = stdout.trim().split('\n')[0];
+                    const ytRes = await axios.get(directYtAudioUrl, { responseType: 'stream', timeout: 20000 });
+                    
+                    const downloadFilename = artist && customTitle 
+                        ? `${artist.replace(/[/\\?%*:|"<>]/g, '')} - ${customTitle.replace(/[/\\?%*:|"<>]/g, '')}.mp3`
+                        : `${customTitle.replace(/[/\\?%*:|"<>]/g, '')}.mp3`;
+
+                    const webStream = Readable.toWeb(ytRes.data);
+                    return new Response(webStream as any, {
+                        status: 200,
+                        headers: {
+                            'Content-Type': 'audio/mpeg',
+                            'Content-Disposition': `attachment; filename="${encodeURIComponent(downloadFilename)}"; filename*=UTF-8''${encodeURIComponent(downloadFilename)}`,
+                            'Cache-Control': 'public, max-age=86400'
+                        }
+                    });
+                }
+            } catch (e: any) {
+                console.error('YouTube audio download error:', e.message);
+            }
+        }
+
+        return NextResponse.json({ error: 'Audio file not accessible on server or remote stream unavailable' }, { status: 404 });
     } catch (e: any) {
-        console.error('Download error:', e);
+        console.error('Download route fatal error:', e);
         return NextResponse.json({ error: e.message }, { status: 500 });
     }
 }
+

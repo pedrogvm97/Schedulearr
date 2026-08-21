@@ -81,11 +81,14 @@ export async function GET(req: NextRequest) {
             const plexUrlBase = plex.url.replace(/\/$/, '');
             let plexStreamUrl = '';
 
+            const normalizedPlexPart = plexPart.startsWith('/') ? plexPart : `/${plexPart}`;
+            const sep = normalizedPlexPart.includes('?') ? '&' : '?';
+
             if (transcode === 'audio' || transcode === 'true') {
                 // Plex Universal Transcoder with AAC Audio
-                plexStreamUrl = `${plexUrlBase}/video/:/transcode/universal/start.mp4?path=${encodeURIComponent(plexPart)}&mediaIndex=0&partIndex=0&protocol=http&directPlay=0&directStream=1&directStreamAudio=0&fastSeek=1&copyts=1&X-Plex-Token=${plex.api_key}`;
+                plexStreamUrl = `${plexUrlBase}/video/:/transcode/universal/start.mp4?path=${encodeURIComponent(normalizedPlexPart)}&mediaIndex=0&partIndex=0&protocol=http&directPlay=0&directStream=1&directStreamAudio=0&fastSeek=1&copyts=1&X-Plex-Token=${plex.api_key}`;
             } else {
-                plexStreamUrl = `${plexUrlBase}${plexPart}?X-Plex-Token=${plex.api_key}`;
+                plexStreamUrl = `${plexUrlBase}${normalizedPlexPart}${sep}X-Plex-Token=${plex.api_key}`;
             }
 
             const reqHeaders: Record<string, string> = {
@@ -106,7 +109,12 @@ export async function GET(req: NextRequest) {
             const resHeaders = new Headers();
             if (plexRes.headers['content-range']) resHeaders.set('Content-Range', String(plexRes.headers['content-range']));
             if (plexRes.headers['content-length']) resHeaders.set('Content-Length', String(plexRes.headers['content-length']));
-            resHeaders.set('Content-Type', plexRes.headers['content-type'] || 'video/mp4');
+            
+            // Accurate MIME type detection for Audio & Video
+            const incomingMime = plexRes.headers['content-type'];
+            const fileExt = path.extname(normalizedPlexPart.split('?')[0]).toLowerCase();
+            const fallbackMime = getMimeType(fileExt || '.mp4');
+            resHeaders.set('Content-Type', incomingMime || fallbackMime);
             resHeaders.set('Accept-Ranges', 'bytes');
 
             // @ts-ignore
