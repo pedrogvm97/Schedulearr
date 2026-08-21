@@ -160,6 +160,42 @@ function initializeSchema(d: any) {
         source TEXT,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS playback_sessions (
+        session_id TEXT PRIMARY KEY,
+        user_name TEXT DEFAULT 'Pedro',
+        media_id TEXT,
+        title TEXT NOT NULL,
+        artist TEXT,
+        album TEXT,
+        media_type TEXT DEFAULT 'music',
+        poster TEXT,
+        device_name TEXT DEFAULT 'Web Music Player',
+        platform TEXT DEFAULT 'Web',
+        state TEXT DEFAULT 'playing',
+        progress_percent INTEGER DEFAULT 0,
+        view_offset_ms INTEGER DEFAULT 0,
+        duration_ms INTEGER DEFAULT 0,
+        bandwidth_mbps TEXT DEFAULT '0.3',
+        transcode_decision TEXT DEFAULT 'Direct Play',
+        last_heartbeat DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS playback_history (
+        id TEXT PRIMARY KEY,
+        user_name TEXT DEFAULT 'Pedro',
+        media_id TEXT,
+        title TEXT NOT NULL,
+        artist TEXT,
+        album TEXT,
+        media_type TEXT DEFAULT 'music',
+        poster TEXT,
+        device_name TEXT DEFAULT 'Web Music Player',
+        platform TEXT DEFAULT 'Web',
+        duration_ms INTEGER DEFAULT 0,
+        view_offset_ms INTEGER DEFAULT 0,
+        viewed_at INTEGER NOT NULL
+      );
     `);
 
     // Migrations
@@ -839,6 +875,183 @@ export const saveChords = (trackKey: string, artist: string, title: string, chor
     } catch (e) {
         console.error('Error saving chords:', e);
         return false;
+    }
+};
+
+export const recordPlaybackHeartbeat = (data: {
+    sessionId: string;
+    userName?: string;
+    mediaId?: string;
+    title: string;
+    artist?: string;
+    album?: string;
+    mediaType?: 'music' | 'movie' | 'series' | 'livetv' | 'track';
+    poster?: string;
+    deviceName?: string;
+    platform?: string;
+    state?: 'playing' | 'paused';
+    progressPercent?: number;
+    viewOffsetMs?: number;
+    durationMs?: number;
+    bandwidthMbps?: string;
+    transcodeDecision?: string;
+}) => {
+    try {
+        const stmt = db.prepare(`
+            INSERT INTO playback_sessions (
+                session_id, user_name, media_id, title, artist, album, media_type,
+                poster, device_name, platform, state, progress_percent, view_offset_ms,
+                duration_ms, bandwidth_mbps, transcode_decision, last_heartbeat
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(session_id) DO UPDATE SET
+                user_name = excluded.user_name,
+                media_id = excluded.media_id,
+                title = excluded.title,
+                artist = excluded.artist,
+                album = excluded.album,
+                media_type = excluded.media_type,
+                poster = excluded.poster,
+                device_name = excluded.device_name,
+                platform = excluded.platform,
+                state = excluded.state,
+                progress_percent = excluded.progress_percent,
+                view_offset_ms = excluded.view_offset_ms,
+                duration_ms = excluded.duration_ms,
+                bandwidth_mbps = excluded.bandwidth_mbps,
+                transcode_decision = excluded.transcode_decision,
+                last_heartbeat = CURRENT_TIMESTAMP
+        `);
+
+        stmt.run(
+            data.sessionId,
+            data.userName || 'Pedro',
+            data.mediaId || '',
+            data.title,
+            data.artist || '',
+            data.album || '',
+            data.mediaType || 'music',
+            data.poster || '',
+            data.deviceName || 'Web Music Player',
+            data.platform || 'Web',
+            data.state || 'playing',
+            data.progressPercent || 0,
+            data.viewOffsetMs || 0,
+            data.durationMs || 0,
+            data.bandwidthMbps || '0.3',
+            data.transcodeDecision || 'Direct Play'
+        );
+
+        // Also record to playback_history if viewed for >= 5s
+        if ((data.viewOffsetMs || 0) >= 5000 || (data.progressPercent || 0) >= 2) {
+            const histId = `${data.sessionId}-${data.mediaId || data.title}`;
+            const histStmt = db.prepare(`
+                INSERT INTO playback_history (
+                    id, user_name, media_id, title, artist, album, media_type,
+                    poster, device_name, platform, duration_ms, view_offset_ms, viewed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    view_offset_ms = MAX(playback_history.view_offset_ms, excluded.view_offset_ms),
+                    duration_ms = excluded.duration_ms,
+                    viewed_at = excluded.viewed_at
+            `);
+            histStmt.run(
+                histId,
+                data.userName || 'Pedro',
+                data.mediaId || '',
+                data.title,
+                data.artist || '',
+                data.album || '',
+                data.mediaType || 'music',
+                data.poster || '',
+                data.deviceName || 'Web Music Player',
+                data.platform || 'Web',
+                data.durationMs || 0,
+                data.viewOffsetMs || 0,
+                Date.now()
+            );
+        }
+
+        return true;
+    } catch (e) {
+        console.error('Error recording playback heartbeat:', e);
+        return false;
+    }
+};
+
+export const endPlaybackSession = (sessionId: string) => {
+    try {
+        db.prepare('DELETE FROM playback_sessions WHERE session_id = ?').run(sessionId);
+        return true;
+    } catch (e) {
+        console.error('Error ending playback session:', e);
+        return false;
+    }
+};
+
+export const getActivePlaybackSessions = () => {
+    try {
+        // Prune stale sessions older than 25 seconds
+        db.prepare("DELETE FROM playback_sessions WHERE datetime(last_heartbeat) < datetime('now', '-25 seconds')").run();
+        const rows = db.prepare('SELECT * FROM playback_sessions ORDER BY last_heartbeat DESC').all() as any[];
+        return rows.map(r => ({
+            id: r.session_id,
+            instanceName: r.media_type === 'music' ? 'Schedulearr Music' : 'Schedulearr Theater',
+            title: r.title,
+            seriesTitle: r.artist || r.album || undefined,
+            mediaType: r.media_type,
+            poster: r.poster,
+            user: {
+                name: r.user_name || 'Pedro'
+            },
+            player: {
+                title: r.device_name || 'Web Player',
+                platform: r.platform || 'Web',
+                state: r.state || 'playing'
+            },
+            playback: {
+                progressPercent: r.progress_percent || 0,
+                viewOffsetMs: r.view_offset_ms || 0,
+                durationMs: r.duration_ms || 0,
+                bandwidthMbps: r.bandwidth_mbps || '0.3'
+            },
+            transcode: {
+                streamType: r.transcode_decision || 'Direct Play',
+                videoDecision: 'direct',
+                audioDecision: 'direct',
+                videoCodec: '',
+                resolution: 'Audio / Lossless'
+            }
+        }));
+    } catch (e) {
+        console.error('Error getting active playback sessions:', e);
+        return [];
+    }
+};
+
+export const getPlaybackHistory = (limit: number = 500) => {
+    try {
+        const rows = db.prepare('SELECT * FROM playback_history ORDER BY viewed_at DESC LIMIT ?').all(limit) as any[];
+        return rows.map(r => ({
+            id: r.id,
+            instanceName: r.media_type === 'music' ? 'Schedulearr Music' : 'Schedulearr Theater',
+            title: r.title,
+            seriesTitle: r.artist || r.album || undefined,
+            mediaType: r.media_type,
+            poster: r.poster,
+            viewedAt: r.viewed_at,
+            durationMs: r.duration_ms,
+            viewOffsetMs: r.view_offset_ms,
+            user: {
+                name: r.user_name || 'Pedro'
+            },
+            player: {
+                title: r.device_name || 'Web Player',
+                platform: r.platform || 'Web'
+            }
+        }));
+    } catch (e) {
+        console.error('Error getting playback history:', e);
+        return [];
     }
 };
 

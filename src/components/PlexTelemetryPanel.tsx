@@ -15,7 +15,7 @@ export interface PlexSession {
     seasonNumber?: number;
     episodeNumber?: number;
     year?: number;
-    mediaType: 'movie' | 'series' | 'livetv';
+    mediaType: 'movie' | 'series' | 'livetv' | 'music' | 'track' | 'audio';
     poster?: string;
     user: { name: string; thumb?: string; };
     player: { title: string; platform: string; state: string; };
@@ -30,7 +30,7 @@ export interface PlexHistory {
     seriesTitle?: string;
     seasonNumber?: number;
     episodeNumber?: number;
-    mediaType: 'movie' | 'series' | 'livetv';
+    mediaType: 'movie' | 'series' | 'livetv' | 'music' | 'track' | 'audio';
     poster?: string;
     viewedAt: number;
     durationMs?: number;
@@ -217,15 +217,15 @@ function PlexTelemetryPanelInner() {
         );
     }
 
-    if (!data?.hasPlex) {
+    if (!data?.hasPlex && history.length === 0 && (!data?.sessions || data.sessions.length === 0)) {
         return (
             <div className="p-8 rounded-3xl bg-zinc-950/60 border border-zinc-800/80 text-center space-y-4 max-w-2xl mx-auto my-8">
                 <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mx-auto">
-                    <AlertCircle size={24} />
+                    <Activity size={24} />
                 </div>
-                <h3 className="text-lg font-black text-white">No Plex Instances Connected</h3>
+                <h3 className="text-lg font-black text-white">No Live Streams or Playback History</h3>
                 <p className="text-xs text-zinc-400 leading-relaxed max-w-lg mx-auto">
-                    Connect your Plex Media Server in <strong className="text-white">Settings → System Settings</strong> to unlock Tautulli-style active streaming telemetry, live user tracking, and watch history analytics.
+                    Start playing music or movies in <strong className="text-white">Theater / Music Player</strong>, or connect a Plex server in Settings, to unlock real-time streaming telemetry and listening analytics.
                 </p>
             </div>
         );
@@ -267,8 +267,8 @@ function PlexTelemetryPanelInner() {
 
                 <div className="p-5 rounded-2xl bg-zinc-950/70 border border-zinc-800/80 flex items-center justify-between shadow-xl relative group">
                     <div className="space-y-1">
-                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block flex items-center gap-1 cursor-help" title="Plex natively does not store watch durations in its history log. This is an estimate based on average media lengths (Movies = 2h, Shows = 45m). For exact to-the-second tracking, a dedicated tracker like Tautulli is required.">
-                            Estimated Watch Time
+                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block flex items-center gap-1 cursor-help" title="Combined watch and listening time across Plex and Schedulearr players.">
+                            Total Listening &amp; Watch Time
                         </span>
                         <span className="text-3xl font-black text-amber-400">
                             {formatHours(filteredHistory.reduce((acc, h) => acc + (h.viewOffsetMs || h.durationMs || 0), 0))}
@@ -299,82 +299,94 @@ function PlexTelemetryPanelInner() {
                         
                         {data.sessions.length === 0 ? (
                             <div className="p-12 text-center bg-zinc-950/40 rounded-2xl border border-zinc-800/80 border-dashed">
-                                <Film className="mx-auto text-zinc-700 mb-3" size={32} />
+                                <Activity className="mx-auto text-zinc-700 mb-3" size={32} />
                                 <p className="text-zinc-400 font-bold text-sm">No Active Streams</p>
                             </div>
                         ) : (
                             <div className="grid grid-cols-1 gap-4">
-                                {data.sessions.map(s => (
-                                    <div key={s.id} className="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800/90 shadow-xl flex gap-4">
-                                        {s.poster ? (
-                                            <img src={s.poster} alt={s.title} className="w-16 h-24 object-cover rounded-xl shadow-lg border border-white/10" />
-                                        ) : (
-                                            <div className="w-16 h-24 rounded-xl bg-zinc-900 border border-white/5 flex items-center justify-center">
-                                                <Film className="text-zinc-700" size={24} />
-                                            </div>
-                                        )}
-                                        
-                                        <div className="flex-1 min-w-0 space-y-2">
-                                            <div className="flex justify-between items-start gap-4">
-                                                <div>
-                                                    <h4 className="text-sm font-bold text-white truncate">
-                                                        {s.mediaType === 'series' && s.seriesTitle ? `${s.seriesTitle} - ` : ''}
-                                                        {s.title}
-                                                    </h4>
-                                                    <div className="flex items-center gap-2 text-xs text-zinc-500 mt-0.5">
-                                                        {s.mediaType === 'series' && s.seasonNumber !== undefined && (
-                                                            <span className="font-medium text-emerald-500">S{String(s.seasonNumber).padStart(2, '0')}E{String(s.episodeNumber).padStart(2, '0')}</span>
+                                {data.sessions.map(s => {
+                                    const isMusic = s.mediaType === 'music' || s.mediaType === 'track' || s.mediaType === 'audio';
+                                    return (
+                                        <div key={s.id} className="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800/90 shadow-xl flex gap-4">
+                                            {s.poster ? (
+                                                <img src={s.poster} alt={s.title} className={`${isMusic ? 'w-20 h-20 rounded-2xl' : 'w-16 h-24 rounded-xl'} object-cover shadow-lg border border-white/10 shrink-0`} />
+                                            ) : (
+                                                <div className={`${isMusic ? 'w-20 h-20 rounded-2xl' : 'w-16 h-24 rounded-xl'} bg-zinc-900 border border-white/5 flex items-center justify-center shrink-0`}>
+                                                    {isMusic ? <Music className="text-amber-400" size={28} /> : <Film className="text-zinc-700" size={24} />}
+                                                </div>
+                                            )}
+                                            
+                                            <div className="flex-1 min-w-0 space-y-2">
+                                                <div className="flex justify-between items-start gap-4">
+                                                    <div className="min-w-0">
+                                                        <div className="flex items-center gap-2">
+                                                            <h4 className="text-sm font-bold text-white truncate">
+                                                                {s.mediaType === 'series' && s.seriesTitle ? `${s.seriesTitle} - ` : ''}
+                                                                {s.title}
+                                                            </h4>
+                                                            {isMusic && (
+                                                                <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-amber-500/15 text-amber-400 border border-amber-500/30 flex items-center gap-1 shrink-0">
+                                                                    <Music size={10} /> Music
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <div className="flex items-center gap-2 text-xs text-zinc-400 mt-0.5 truncate font-medium">
+                                                            {isMusic && s.seriesTitle && <span>{s.seriesTitle}</span>}
+                                                            {s.mediaType === 'series' && s.seasonNumber !== undefined && (
+                                                                <span className="font-medium text-emerald-500">S{String(s.seasonNumber).padStart(2, '0')}E{String(s.episodeNumber).padStart(2, '0')}</span>
+                                                            )}
+                                                            {s.year && <span>• {s.year}</span>}
+                                                            <span className="text-[10px] text-zinc-500">• {s.instanceName}</span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex flex-col items-end gap-1.5 shrink-0">
+                                                        {s.transcode.streamType === 'Direct Play' ? (
+                                                            <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                                                                Direct Play ({s.transcode.resolution || 'Audio'})
+                                                            </span>
+                                                        ) : (
+                                                            <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                                                                {s.transcode.streamType}
+                                                            </span>
                                                         )}
-                                                        {s.year && <span>{s.year}</span>}
+                                                        <span className="text-[10px] font-black text-sky-400">{s.playback.bandwidthMbps} Mbps</span>
                                                     </div>
                                                 </div>
-                                                <div className="flex flex-col items-end gap-1.5 shrink-0">
-                                                    {s.transcode.streamType === 'Direct Play' ? (
-                                                        <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                                                            Direct Play ({s.transcode.resolution})
-                                                        </span>
-                                                    ) : (
-                                                        <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                                                            Transcode ({s.transcode.videoCodec})
-                                                        </span>
-                                                    )}
-                                                    <span className="text-[10px] font-black text-sky-400">{s.playback.bandwidthMbps} Mbps</span>
-                                                </div>
-                                            </div>
 
-                                            <div className="flex items-center justify-between gap-4 mt-2">
-                                                <div className="flex items-center gap-2">
-                                                    {s.user.thumb ? (
-                                                        <img src={s.user.thumb} alt={s.user.name} className="w-6 h-6 rounded-full border border-zinc-700" />
-                                                    ) : (
-                                                        <div className="w-6 h-6 rounded-full bg-zinc-800 flex items-center justify-center text-[10px] font-bold text-zinc-400">
-                                                            {s.user.name.charAt(0).toUpperCase()}
-                                                        </div>
-                                                    )}
-                                                    <span className="text-xs font-bold text-zinc-300">{s.user.name}</span>
+                                                <div className="flex items-center justify-between gap-4 mt-2">
+                                                    <div className="flex items-center gap-2">
+                                                        {s.user.thumb ? (
+                                                            <img src={s.user.thumb} alt={s.user.name} className="w-6 h-6 rounded-full border border-zinc-700" />
+                                                        ) : (
+                                                            <div className="w-6 h-6 rounded-full bg-zinc-800 flex items-center justify-center text-[10px] font-bold text-zinc-400">
+                                                                {s.user.name.charAt(0).toUpperCase()}
+                                                            </div>
+                                                        )}
+                                                        <span className="text-xs font-bold text-zinc-300">{s.user.name}</span>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+                                                        {isMusic ? <Headphones size={13} className="text-amber-400" /> : getPlatformIcon(s.player.platform)}
+                                                        <span className="truncate max-w-[120px]">{s.player.title}</span>
+                                                    </div>
                                                 </div>
 
-                                                <div className="flex items-center gap-1.5 text-xs text-zinc-500">
-                                                    {getPlatformIcon(s.player.platform)}
-                                                    <span className="truncate max-w-[100px]">{s.player.title}</span>
-                                                </div>
-                                            </div>
-
-                                            <div className="space-y-1.5 mt-2">
-                                                <div className="flex justify-between text-[10px] font-bold text-zinc-500">
-                                                    <span>{formatDuration(s.playback.viewOffsetMs)}</span>
-                                                    <span>{formatDuration(s.playback.durationMs)}</span>
-                                                </div>
-                                                <div className="h-1.5 bg-zinc-900 rounded-full overflow-hidden relative border border-zinc-800">
-                                                    <div 
-                                                        className="absolute inset-y-0 left-0 bg-emerald-500 transition-all duration-1000 ease-linear shadow-[0_0_10px_rgba(16,185,129,0.5)]"
-                                                        style={{ width: `${s.playback.progressPercent}%` }}
-                                                    />
+                                                <div className="space-y-1.5 mt-2">
+                                                    <div className="flex justify-between text-[10px] font-bold text-zinc-500">
+                                                        <span>{formatDuration(s.playback.viewOffsetMs)}</span>
+                                                        <span>{formatDuration(s.playback.durationMs)}</span>
+                                                    </div>
+                                                    <div className="h-1.5 bg-zinc-900 rounded-full overflow-hidden relative border border-zinc-800">
+                                                        <div 
+                                                            className="absolute inset-y-0 left-0 bg-amber-500 transition-all duration-1000 ease-linear shadow-[0_0_10px_rgba(245,158,11,0.5)]"
+                                                            style={{ width: `${s.playback.progressPercent}%` }}
+                                                        />
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         )}
                     </div>
@@ -487,6 +499,7 @@ function PlexTelemetryPanelInner() {
                                                     <div className="text-[10px] font-bold text-zinc-600 flex items-center gap-1">
                                                         {item.player.platform} 
                                                         {item.mediaType === 'livetv' && <span className="ml-2 text-rose-500 uppercase tracking-widest px-1.5 py-0.5 bg-rose-500/10 rounded">Live TV</span>}
+                                                        {(item.mediaType === 'music' || item.mediaType === 'track') && <span className="ml-2 text-amber-400 uppercase tracking-widest px-1.5 py-0.5 bg-amber-500/10 rounded border border-amber-500/20">Music</span>}
                                                     </div>
                                                 </div>
                                             </div>

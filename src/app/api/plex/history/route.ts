@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getInstances } from '@/lib/db';
+import { getInstances, getPlaybackHistory } from '@/lib/db';
 import axios from 'axios';
 
 export const dynamic = 'force-dynamic';
@@ -10,13 +10,14 @@ export async function GET(request: Request) {
         const limitStr = searchParams.get('limit') || '500';
         const limit = parseInt(limitStr, 10);
 
+        const localHistory = getPlaybackHistory(limit);
         const instances = getInstances().filter(i => i.type === 'plex');
 
         if (instances.length === 0) {
-            return NextResponse.json({ history: [] });
+            return NextResponse.json({ history: localHistory });
         }
 
-        const allHistory: any[] = [];
+        const allHistory: any[] = [...localHistory];
         let plexUsers: Record<string, {name: string, thumb: string | null}> = {};
 
         for (const plex of instances) {

@@ -331,6 +331,54 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         }
     }, [currentLyricIndex, isExpandedPlayerOpen, expandedSidePanel]);
 
+    // Send live playback session heartbeat to Analytics telemetry
+    useEffect(() => {
+        if (!playingAudio) return;
+
+        const sendHeartbeat = async (stateOverride?: 'playing' | 'paused') => {
+            try {
+                const currentState = stateOverride || (isAudioPlaying ? 'playing' : 'paused');
+                const isTranscoding = audioRef.current?.src.includes('transcode=audio') || audioRef.current?.src.includes('transcode=mp3');
+                await fetch('/api/theater/session', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        sessionId: 'schedulearr-music-player',
+                        userName: 'Pedro',
+                        mediaId: playingAudio.id,
+                        title: playingAudio.title,
+                        artist: playingAudio.artist || playingAudio.folder || 'Unknown Artist',
+                        album: playingAudio.album || 'Single',
+                        mediaType: 'music',
+                        poster: playingAudio.posterUrl,
+                        deviceName: 'Web Music Player',
+                        platform: 'Web',
+                        state: currentState,
+                        progressPercent: audioDuration > 0 ? Math.min(100, Math.round((audioCurrentTime / audioDuration) * 100)) : 0,
+                        viewOffsetMs: Math.round(audioCurrentTime * 1000),
+                        durationMs: Math.round(audioDuration * 1000) || playingAudio.durationMs || 0,
+                        bandwidthMbps: isTranscoding ? '0.3' : '1.4',
+                        transcodeDecision: isTranscoding ? 'Transcode (MP3 320k)' : 'Direct Play'
+                    })
+                });
+            } catch {
+                // Ignore background telemetry errors
+            }
+        };
+
+        sendHeartbeat();
+
+        const interval = setInterval(() => {
+            if (isAudioPlaying) {
+                sendHeartbeat('playing');
+            }
+        }, 4000);
+
+        return () => {
+            clearInterval(interval);
+        };
+    }, [playingAudio?.id, isAudioPlaying]);
+
     // Handle Fetching Lyrics
     const fetchLyrics = async (item: MediaItem) => {
         setLyricsLoading(true);
@@ -947,6 +995,9 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
     const closePlayer = () => {
         if (audioRef.current) audioRef.current.pause();
+        try {
+            fetch('/api/theater/session?sessionId=schedulearr-music-player', { method: 'DELETE' }).catch(() => {});
+        } catch {}
         setPlayingAudio(null);
         setIsAudioPlaying(false);
         setIsExpandedPlayerOpen(false);

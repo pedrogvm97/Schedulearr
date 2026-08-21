@@ -979,6 +979,49 @@ export default function TheaterPage() {
         return () => clearInterval(interval);
     }, [playingVideo, playingChannel, videoAudioMode]);
 
+    // Send video playback session heartbeat to Analytics telemetry
+    useEffect(() => {
+        if (!playingVideo) return;
+
+        const sendVideoHeartbeat = async () => {
+            try {
+                const video = videoRef.current;
+                const isVideoPlaying = video ? !video.paused : true;
+                await fetch('/api/theater/session', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        sessionId: 'schedulearr-theater-video',
+                        userName: 'Pedro',
+                        mediaId: playingVideo.id,
+                        title: playingVideo.title,
+                        seriesTitle: playingVideo.folder || undefined,
+                        mediaType: playingVideo.category === 'video' ? 'movie' : 'video',
+                        poster: playingVideo.posterUrl,
+                        deviceName: 'Schedulearr Theater Player',
+                        platform: 'Web',
+                        state: isVideoPlaying ? 'playing' : 'paused',
+                        progressPercent: video && video.duration > 0 ? Math.min(100, Math.round((video.currentTime / video.duration) * 100)) : 0,
+                        viewOffsetMs: video ? Math.round(video.currentTime * 1000) : 0,
+                        durationMs: video && video.duration > 0 ? Math.round(video.duration * 1000) : playingVideo.durationMs || 0,
+                        bandwidthMbps: '8.0',
+                        transcodeDecision: videoAudioMode === 'universal' ? 'Server Transcode (QSV/Universal)' : videoAudioMode === 'transcode' ? 'Audio Transcode (AAC)' : 'Direct Play'
+                    })
+                });
+            } catch {}
+        };
+
+        sendVideoHeartbeat();
+
+        const interval = setInterval(() => {
+            sendVideoHeartbeat();
+        }, 5000);
+
+        return () => {
+            clearInterval(interval);
+        };
+    }, [playingVideo?.id, videoAudioMode]);
+
     // Copy Full Nerd Tools Diagnostic Report
     const handleCopyDebugReport = () => {
         const video = videoRef.current;

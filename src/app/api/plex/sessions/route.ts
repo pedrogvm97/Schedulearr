@@ -1,25 +1,26 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
-import { getInstances } from '@/lib/db';
+import { getInstances, getActivePlaybackSessions } from '@/lib/db';
 import axios from 'axios';
 
 export async function GET(req: Request) {
     try {
         const instances = getInstances().filter(i => i.type === 'plex');
+        const localSessions = getActivePlaybackSessions();
 
-        if (instances.length === 0) {
+        const allSessions: any[] = [...localSessions];
+        let totalBandwidthKbps = localSessions.reduce((acc, s) => acc + (parseFloat(s.playback.bandwidthMbps || '0.3') * 1000), 0);
+
+        if (instances.length === 0 && localSessions.length === 0) {
             return NextResponse.json({
                 hasPlex: false,
                 activeStreamsCount: 0,
-                totalBandwidthMbps: 0,
+                totalBandwidthMbps: '0.0',
                 sessions: [],
                 topUsers: [],
                 history: []
             });
         }
-
-        const allSessions: any[] = [];
-        let totalBandwidthKbps = 0;
 
         for (const plex of instances) {
             try {
