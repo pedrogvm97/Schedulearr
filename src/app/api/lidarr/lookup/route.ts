@@ -33,6 +33,11 @@ export async function GET(req: Request) {
 
         // 2. Query Lidarr if instance exists
         let lidarrPromise = Promise.resolve<any>(null);
+        const instances = getInstances();
+        const instance = instanceId
+            ? instances.find(i => i.id === instanceId)
+            : instances.find(i => i.type === 'lidarr' && i.enabled);
+
         if (instance) {
             const lidarrUrl = `${instance.url.replace(/\/$/, '')}/api/v1/artist/lookup?term=${encodeURIComponent(cleanTerm)}`;
             lidarrPromise = axios.get(lidarrUrl, {
