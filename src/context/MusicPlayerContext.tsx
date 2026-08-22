@@ -8,7 +8,7 @@ import {
     Info, Mic2, Edit3, Search, Sparkles, Check,
     RefreshCw, ChevronDown, Sliders, Cast, Tv, Trash2, Plus,
     Image as ImageIcon, Guitar, Activity, Zap, Layers, Music2,
-    Terminal, AlertTriangle, RotateCcw, Copy
+    Terminal, AlertTriangle, RotateCcw, Copy, User, ExternalLink, Calendar, Radio
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -91,6 +91,7 @@ interface MusicPlayerContextType {
     closePlayer: () => void;
     openExpandedPlayer: () => void;
     closeExpandedPlayer: () => void;
+    openArtistDetails: (artistName?: string) => void;
     handleDownloadTrack: (track: MediaItem | null) => void;
     handleDownloadAlbum: (tracks: MediaItem[], albumName?: string) => void;
 }
@@ -239,9 +240,15 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     // UI Drawer & Modal States
     const [showQueueDrawer, setShowQueueDrawer] = useState(false);
     const [isExpandedPlayerOpen, setIsExpandedPlayerOpen] = useState(false);
-    const [expandedSidePanel, setExpandedSidePanel] = useState<'lyrics' | 'chords' | 'queue' | 'specs'>('lyrics');
+    const [expandedSidePanel, setExpandedSidePanel] = useState<'lyrics' | 'chords' | 'queue' | 'specs' | 'artist'>('lyrics');
     const [showExpandedSidePanel, setShowExpandedSidePanel] = useState(true);
     const [isVinylView, setIsVinylView] = useState(true);
+
+    // Artist Biography & Discography States
+    const [showArtistModal, setShowArtistModal] = useState(false);
+    const [selectedArtistName, setSelectedArtistName] = useState<string | null>(null);
+    const [artistData, setArtistData] = useState<any | null>(null);
+    const [artistLoading, setArtistLoading] = useState(false);
 
     // Vinyl Interactive DJ Scratch & Tonearm Controls (Gimmick)
     const [tonearmCustomAngle, setTonearmCustomAngle] = useState<number | null>(null);
@@ -295,6 +302,8 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     const [isSavingLyrics, setIsSavingLyrics] = useState(false);
     const activeLyricRef = useRef<HTMLDivElement>(null);
     const expandedActiveLyricRef = useRef<HTMLDivElement>(null);
+    const expandedLyricsContainerRef = useRef<HTMLDivElement>(null);
+    const standaloneLyricsContainerRef = useRef<HTMLDivElement>(null);
 
     // Specs & Diagnostics Modal States
     const [isAudioSpecsOpen, setIsAudioSpecsOpen] = useState(false);
@@ -319,15 +328,22 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         return -1;
     }, [lyricsData, audioCurrentTime]);
 
+    // Isolated Smooth Scrolling for Lyrics without affecting parent page/modal geometry
     useEffect(() => {
-        if (showLyricsModal && activeLyricRef.current) {
-            activeLyricRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (showLyricsModal && activeLyricRef.current && standaloneLyricsContainerRef.current) {
+            const container = standaloneLyricsContainerRef.current;
+            const el = activeLyricRef.current;
+            const targetTop = el.offsetTop - container.offsetTop - container.clientHeight / 2 + el.clientHeight / 2;
+            container.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
         }
     }, [currentLyricIndex, showLyricsModal]);
 
     useEffect(() => {
-        if (isExpandedPlayerOpen && expandedActiveLyricRef.current) {
-            expandedActiveLyricRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (isExpandedPlayerOpen && expandedSidePanel === 'lyrics' && expandedActiveLyricRef.current && expandedLyricsContainerRef.current) {
+            const container = expandedLyricsContainerRef.current;
+            const el = expandedActiveLyricRef.current;
+            const targetTop = el.offsetTop - container.offsetTop - container.clientHeight / 2 + el.clientHeight / 2;
+            container.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
         }
     }, [currentLyricIndex, isExpandedPlayerOpen, expandedSidePanel]);
 
@@ -1255,6 +1271,46 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         }
     }, [playingAudio]);
 
+    const fetchArtistInfo = async (artistName?: string) => {
+        const target = (artistName || playingAudio?.artist || '').trim();
+        if (!target) return;
+        setArtistLoading(true);
+        setSelectedArtistName(target);
+        try {
+            const res = await fetch(`/api/lidarr/lookup?term=${encodeURIComponent(target)}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.results && data.results.length > 0) {
+                    const match = data.results.find((r: any) => r.artistName?.toLowerCase() === target.toLowerCase()) || data.results[0];
+                    setArtistData(match);
+                    addAudioNerdLog('info', `Fetched artist info for "${target}"`, { source: data.source });
+                } else {
+                    setArtistData({ artistName: target, overview: `No biography found for "${target}".`, albums: [] });
+                }
+            } else {
+                setArtistData({ artistName: target, overview: `Could not retrieve details for "${target}".`, albums: [] });
+            }
+        } catch (e: any) {
+            addAudioNerdLog('warn', `Failed to fetch artist details: ${e.message}`);
+            setArtistData({ artistName: target, overview: `Failed to connect to artist database.`, albums: [] });
+        } finally {
+            setArtistLoading(false);
+        }
+    };
+
+    const openArtistDetails = (artistName?: string) => {
+        const target = (artistName || playingAudio?.artist || '').trim();
+        if (!target) return;
+        setSelectedArtistName(target);
+        fetchArtistInfo(target);
+        if (isExpandedPlayerOpen) {
+            setShowExpandedSidePanel(true);
+            setExpandedSidePanel('artist');
+        } else {
+            setShowArtistModal(true);
+        }
+    };
+
     return (
         <MusicPlayerContext.Provider
             value={{
@@ -1282,6 +1338,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                 closePlayer,
                 openExpandedPlayer: () => setIsExpandedPlayerOpen(true),
                 closeExpandedPlayer: () => setIsExpandedPlayerOpen(false),
+                openArtistDetails,
                 handleDownloadTrack,
                 handleDownloadAlbum
             }}
@@ -1444,7 +1501,16 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         </button>
                                     )}
                                 </div>
-                                <p className="text-xs text-zinc-400 truncate">{playingAudio.artist || playingAudio.folder || 'Artist'}</p>
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        openArtistDetails(playingAudio.artist);
+                                    }}
+                                    className="text-xs text-zinc-400 hover:text-amber-300 hover:underline truncate text-left transition-colors block"
+                                    title={`View artist biography & albums for ${playingAudio.artist || 'Artist'}`}
+                                >
+                                    {playingAudio.artist || playingAudio.folder || 'Artist'}
+                                </button>
                             </div>
                         </div>
 
@@ -1667,7 +1733,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                EXPANDED NOW PLAYING SCREEN WITH BIG ARTWORK & RIGHT PANEL
                ══════════════════════════════════════════════════════════════ */}
             {isExpandedPlayerOpen && playingAudio && (
-                <div className="fixed inset-0 z-[275] bg-black/95 backdrop-blur-3xl flex flex-col p-4 sm:p-8 animate-in fade-in duration-200 overflow-hidden select-none">
+                <div className="fixed inset-0 z-[275] bg-black/95 backdrop-blur-3xl flex flex-col p-3 sm:p-5 lg:p-6 max-h-screen overflow-hidden select-none">
                     {/* Ambient Blurred Background Art */}
                     {playingAudio.posterUrl && (
                         <div
@@ -1677,55 +1743,73 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                     )}
 
                     {/* Top Bar: Minimize, Title, Header Actions */}
-                    <div className="relative z-10 flex items-center justify-between gap-4 pb-4 border-b border-zinc-900/80 shrink-0">
+                    <div className="relative z-10 flex items-center justify-between gap-3 pb-3 border-b border-zinc-900/80 shrink-0 h-12">
                         <button
                             onClick={() => setIsExpandedPlayerOpen(false)}
-                            className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs font-black uppercase tracking-wider transition-all"
+                            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-2xl bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs font-black uppercase tracking-wider transition-all"
                         >
-                            <ChevronDown size={18} /> Minimize
+                            <ChevronDown size={16} /> Minimize
                         </button>
 
-                        <div className="text-center">
-                            <span className="text-[10px] font-black uppercase tracking-widest text-amber-400">
+                        <div className="text-center truncate px-2">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-amber-400 block">
                                 Now Playing Studio
                             </span>
-                            <h3 className="text-sm font-bold text-white max-w-xs sm:max-w-md truncate">
+                            <h3 className="text-xs sm:text-sm font-bold text-white max-w-xs sm:max-w-md truncate">
                                 {playingAudio.album || playingAudio.folder || 'Theater Audio'}
                             </h3>
                         </div>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5">
                             {/* Chords / Musical Jam Stage Quick Switch */}
                             <button
                                 onClick={() => {
                                     setShowExpandedSidePanel(true);
                                     setExpandedSidePanel('chords');
                                 }}
-                                className={`px-3 py-2 rounded-2xl border text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all ${
+                                className={`px-3 py-1.5 rounded-2xl border text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all ${
                                     showExpandedSidePanel && expandedSidePanel === 'chords'
                                         ? 'bg-amber-500 text-black border-amber-400 shadow-md'
                                         : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
                                 }`}
                                 title="Open Guitar & Ukulele Chords Jam Stage"
                             >
-                                <Guitar size={14} className={showExpandedSidePanel && expandedSidePanel === 'chords' ? 'text-black' : 'text-amber-400'} />
+                                <Guitar size={13} className={showExpandedSidePanel && expandedSidePanel === 'chords' ? 'text-black' : 'text-amber-400'} />
                                 <span className="hidden md:inline">Chords 🎸</span>
+                            </button>
+
+                            {/* Artist Bio & Discography Button */}
+                            <button
+                                onClick={() => {
+                                    setShowExpandedSidePanel(true);
+                                    setExpandedSidePanel('artist');
+                                    fetchArtistInfo(playingAudio.artist);
+                                }}
+                                className={`px-3 py-1.5 rounded-2xl border text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all ${
+                                    showExpandedSidePanel && expandedSidePanel === 'artist'
+                                        ? 'bg-amber-500 text-black border-amber-400 shadow-md'
+                                        : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
+                                }`}
+                                title="View Artist Bio & Discography"
+                            >
+                                <User size={13} className={showExpandedSidePanel && expandedSidePanel === 'artist' ? 'text-black' : 'text-amber-400'} />
+                                <span className="hidden md:inline">Artist</span>
                             </button>
 
                             {/* Force Server Transcode Button */}
                             <button
                                 onClick={handleForceAudioTranscode}
-                                className="px-3 py-2 rounded-2xl bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-amber-400 border border-zinc-800 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all"
+                                className="px-2.5 py-1.5 rounded-2xl bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-amber-400 border border-zinc-800 text-xs font-black uppercase tracking-wider flex items-center gap-1 transition-all hidden sm:flex"
                                 title="Force Server-Side Audio Transcoding (MP3 320k)"
                             >
-                                <Zap size={14} className="text-amber-400" />
-                                <span className="hidden md:inline">Transcode</span>
+                                <Zap size={13} className="text-amber-400" />
+                                <span className="hidden lg:inline">Transcode</span>
                             </button>
 
                             {/* Nerd Tools Button */}
                             <button
                                 onClick={() => setShowAudioNerdModal(true)}
-                                className={`px-3 py-2 rounded-2xl border text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all ${
+                                className={`p-2 rounded-2xl border text-xs font-black uppercase tracking-wider flex items-center gap-1 transition-all ${
                                     showAudioNerdModal || audioPlaybackError
                                         ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
                                         : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
@@ -1733,346 +1817,279 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 title="Audio Diagnostics & Stats for Nerds"
                             >
                                 <Terminal size={14} />
-                                <span className="hidden sm:inline">Nerd Tools</span>
                             </button>
 
                             {/* Toggle Right Side Panel Button */}
                             <button
                                 onClick={() => setShowExpandedSidePanel(!showExpandedSidePanel)}
-                                className={`px-3.5 py-2 rounded-2xl border text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all ${
+                                className={`px-3 py-1.5 rounded-2xl border text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all ${
                                     showExpandedSidePanel
                                         ? 'bg-amber-500 text-black border-amber-400 shadow-md'
                                         : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
                                 }`}
-                                title={showExpandedSidePanel ? 'Hide side panel to focus on artwork' : 'Show lyrics, queue & specs side panel'}
+                                title={showExpandedSidePanel ? 'Hide side panel' : 'Show side panel'}
                             >
-                                <Sliders size={14} />
-                                <span className="hidden sm:inline">{showExpandedSidePanel ? 'Hide Panel' : 'Show Panel'}</span>
+                                <Sliders size={13} />
+                                <span className="hidden sm:inline">{showExpandedSidePanel ? 'Hide' : 'Panel'}</span>
                             </button>
 
                             <button
                                 onClick={() => setIsExpandedPlayerOpen(false)}
-                                className="p-2 rounded-2xl text-zinc-400 hover:text-white hover:bg-zinc-900 transition-colors"
+                                className="p-1.5 rounded-2xl text-zinc-400 hover:text-white hover:bg-zinc-900 transition-colors"
                             >
-                                <X size={20} />
+                                <X size={18} />
                             </button>
                         </div>
                     </div>
 
-                    {/* Main Stage */}
-                    <div className="relative z-10 flex-1 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center min-h-0 py-4 overflow-y-auto custom-scrollbar">
-                        {/* Left / Center: Big Artwork & Full Controls */}
-                        <div className={`${showExpandedSidePanel ? 'lg:col-span-6 xl:col-span-5' : 'lg:col-span-8 lg:col-start-3'} flex flex-col items-center justify-center space-y-5 mx-auto w-full max-w-lg transition-all`}>
+                    {/* Main Stage: Fixed viewport grid */}
+                    <div className="relative z-10 flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch pt-3 overflow-hidden">
+                        {/* Left / Center: Artwork & Full Controls - Scaled to fit viewport without parent scroll */}
+                        <div className={`${showExpandedSidePanel ? 'lg:col-span-5 xl:col-span-5' : 'lg:col-span-8 lg:col-start-3'} flex flex-col justify-between items-center h-full max-h-full mx-auto w-full max-w-md overflow-hidden py-1`}>
                             {/* View Mode Toggle: Vinyl Turntable vs Normal Cover Art */}
-                            <div className="flex items-center gap-1.5 bg-zinc-950/80 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner backdrop-blur-md">
+                            <div className="flex items-center gap-1 bg-zinc-950/80 p-1 rounded-xl border border-zinc-800/80 shadow-inner backdrop-blur-md shrink-0">
                                 <button
                                     onClick={() => setIsVinylView(true)}
-                                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                                    className={`flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
                                         isVinylView
                                             ? 'bg-amber-500 text-black shadow-md'
                                             : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
                                     }`}
                                     title="Switch to Vinyl Turntable Player Mode"
                                 >
-                                    <Disc size={15} /> Vinyl Player
+                                    <Disc size={13} /> Vinyl
                                 </button>
                                 <button
                                     onClick={() => setIsVinylView(false)}
-                                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                                    className={`flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
                                         !isVinylView
                                             ? 'bg-zinc-800 text-white border border-zinc-700 shadow-md'
                                             : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
                                     }`}
                                     title="Switch to Standard Cover Artwork View"
                                 >
-                                    <ImageIcon size={15} /> Normal Art
+                                    <ImageIcon size={13} /> Normal Art
                                 </button>
                             </div>
 
                             {/* Main Artwork Stage: Vinyl Player vs Normal Cover Art */}
-                            {isVinylView ? (
-                                /* ── Vinyl Turntable Player Representation (Interactive DJ Scratch & Tonearm Gimmick) ── */
-                                <div className="relative w-full max-w-[320px] sm:max-w-[380px] md:max-w-[420px] aspect-[1.12/1] rounded-[2.5rem] bg-gradient-to-b from-zinc-800 via-zinc-900 to-[#09090b] border-2 border-zinc-700/80 p-4 sm:p-5 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.9),inset_0_1px_2px_rgba(255,255,255,0.15)] flex items-center justify-center select-none overflow-hidden group">
-                                    {/* Turntable Plinth Metallic Inset */}
-                                    <div className="absolute inset-2 sm:inset-3 rounded-[2rem] bg-gradient-to-b from-[#18181b] to-[#0c0c0e] border border-white/5 pointer-events-none shadow-inner" />
+                            <div className="flex-1 min-h-0 flex items-center justify-center w-full my-2">
+                                {isVinylView ? (
+                                    /* ── Vinyl Turntable Player Representation ── */
+                                    <div className="relative w-full max-w-[280px] sm:max-w-[320px] aspect-[1.12/1] rounded-[2rem] bg-gradient-to-b from-zinc-800 via-zinc-900 to-[#09090b] border-2 border-zinc-700/80 p-3 shadow-2xl flex items-center justify-center select-none overflow-hidden group">
+                                        {/* Turntable Plinth Inset */}
+                                        <div className="absolute inset-2 rounded-[1.5rem] bg-gradient-to-b from-[#18181b] to-[#0c0c0e] border border-white/5 pointer-events-none shadow-inner" />
 
-                                    {/* Top-Left: Direct Drive Specs & Power / Strobe LED */}
-                                    <div className="absolute top-4 left-5 sm:top-5 sm:left-6 z-20 flex items-center gap-2 pointer-events-none">
-                                        <span className={`w-2.5 h-2.5 rounded-full transition-all duration-300 ${
-                                            isAudioPlaying
-                                                ? 'bg-emerald-400 shadow-[0_0_10px_#34d399] ring-2 ring-emerald-500/30'
-                                                : 'bg-zinc-600'
-                                        }`} />
-                                        <div className="text-[9px] font-black uppercase tracking-widest text-zinc-400">
-                                            <span className="text-amber-400">33⅓ RPM</span> • {isScratchingDisc ? 'DJ SCRATCH' : 'DIRECT DRIVE'}
+                                        {/* Top-Left: Direct Drive Specs & Power LED */}
+                                        <div className="absolute top-3 left-4 z-20 flex items-center gap-1.5 pointer-events-none">
+                                            <span className={`w-2 h-2 rounded-full transition-all duration-300 ${
+                                                isAudioPlaying
+                                                    ? 'bg-emerald-400 shadow-[0_0_8px_#34d399] ring-2 ring-emerald-500/30'
+                                                    : 'bg-zinc-600'
+                                            }`} />
+                                            <div className="text-[8px] font-black uppercase tracking-widest text-zinc-400">
+                                                <span className="text-amber-400">33⅓ RPM</span>
+                                            </div>
                                         </div>
-                                    </div>
 
-                                    {/* Bottom-Right: Interactive Gimmick Hint Badge */}
-                                    <div className="absolute bottom-4 right-5 sm:bottom-5 sm:right-6 z-20 pointer-events-none">
-                                        <span className="text-[9px] font-black uppercase tracking-widest text-amber-400/80 bg-zinc-950/90 px-2 py-0.5 rounded-md border border-zinc-800 shadow-sm">
-                                            🎛️ SCRATCH / PULL NEEDLE
-                                        </span>
-                                    </div>
+                                        {/* Rotating Turntable Platter & Vinyl Disc */}
+                                        <div
+                                            ref={discPlatterRef}
+                                            onPointerDown={handleDiscPointerDown}
+                                            onPointerMove={handleDiscPointerMove}
+                                            onPointerUp={handleDiscPointerUp}
+                                            onPointerCancel={handleDiscPointerUp}
+                                            className="relative w-44 h-44 sm:w-52 sm:h-52 -translate-x-2.5 flex items-center justify-center cursor-grab active:cursor-grabbing touch-none select-none"
+                                            title="Grab and rotate the vinyl record to scrub time / scratch!"
+                                        >
+                                            <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-zinc-700 via-zinc-800 to-zinc-600 p-1 shadow-2xl flex items-center justify-center border border-zinc-600/50 pointer-events-none">
+                                                <div className="w-full h-full rounded-full bg-zinc-950 flex items-center justify-center shadow-inner">
+                                                    <div
+                                                        className="relative w-[96%] h-[96%] rounded-full bg-black shadow-2xl flex items-center justify-center overflow-hidden"
+                                                        style={
+                                                            isScratchingDisc
+                                                                ? { transform: `rotate(${discScratchAngle}deg)` }
+                                                                : {
+                                                                      animation: 'vinyl-spin 8s linear infinite',
+                                                                      animationPlayState: isAudioPlaying ? 'running' : 'paused'
+                                                                  }
+                                                        }
+                                                    >
+                                                        <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,_#000000_30%,_#18181b_31%,_#09090b_45%,_#1f1f23_46%,_#000000_65%,_#18181b_66%,_#000000_100%)] opacity-90 pointer-events-none" />
+                                                        <div className="absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,transparent_0deg,rgba(255,255,255,0.08)_45deg,transparent_90deg,transparent_180deg,rgba(255,255,255,0.08)_225deg,transparent_270deg)] pointer-events-none" />
 
-                                    {/* Floating Scratch / Cue HUD Feedback Badge */}
-                                    {scratchFeedback && (
-                                        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-40 px-3.5 py-1.5 rounded-2xl bg-black/95 border border-amber-400/80 text-amber-300 text-xs font-black font-mono shadow-[0_0_25px_rgba(251,191,36,0.7)] animate-in zoom-in-95 pointer-events-none whitespace-nowrap">
-                                            {scratchFeedback}
-                                        </div>
-                                    )}
-
-                                    {/* Rotating Turntable Platter & Vinyl Disc (Grabbable & Scratchable) */}
-                                    <div
-                                        ref={discPlatterRef}
-                                        onPointerDown={handleDiscPointerDown}
-                                        onPointerMove={handleDiscPointerMove}
-                                        onPointerUp={handleDiscPointerUp}
-                                        onPointerCancel={handleDiscPointerUp}
-                                        className="relative w-52 h-52 sm:w-64 sm:h-64 md:w-72 md:h-72 -translate-x-3 sm:-translate-x-4 flex items-center justify-center cursor-grab active:cursor-grabbing touch-none select-none"
-                                        title="Grab and rotate the vinyl record to scrub time / scratch!"
-                                    >
-                                        {/* Turntable Platter (Brushed rim) */}
-                                        <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-zinc-700 via-zinc-800 to-zinc-600 p-1.5 shadow-2xl flex items-center justify-center border border-zinc-600/50 pointer-events-none">
-                                            {/* Rubber Slipmat */}
-                                            <div className="w-full h-full rounded-full bg-zinc-950 flex items-center justify-center shadow-inner">
-                                                {/* ── Rotating Vinyl Disc with Cropped Artwork ── */}
-                                                <div
-                                                    className="relative w-[96%] h-[96%] rounded-full bg-black shadow-2xl flex items-center justify-center overflow-hidden"
-                                                    style={
-                                                        isScratchingDisc
-                                                            ? { transform: `rotate(${discScratchAngle}deg)` }
-                                                            : {
-                                                                  animation: 'vinyl-spin 8s linear infinite',
-                                                                  animationPlayState: isAudioPlaying ? 'running' : 'paused'
-                                                              }
-                                                    }
-                                                >
-                                                    {/* Vinyl Outer Grooves / Concentric Rings */}
-                                                    <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,_#000000_30%,_#18181b_31%,_#09090b_45%,_#1f1f23_46%,_#000000_65%,_#18181b_66%,_#000000_100%)] opacity-90 pointer-events-none" />
-                                                    
-                                                    {/* Subtle Vinyl Grooves lines */}
-                                                    <div className="absolute inset-2 rounded-full border border-white/5 pointer-events-none" />
-                                                    <div className="absolute inset-5 rounded-full border border-white/5 pointer-events-none" />
-                                                    <div className="absolute inset-8 rounded-full border border-white/5 pointer-events-none" />
-                                                    <div className="absolute inset-12 rounded-full border border-white/5 pointer-events-none" />
-                                                    
-                                                    {/* Conic Sheen Reflection */}
-                                                    <div className="absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,transparent_0deg,rgba(255,255,255,0.08)_45deg,transparent_90deg,transparent_180deg,rgba(255,255,255,0.08)_225deg,transparent_270deg)] pointer-events-none" />
-
-                                                    {/* Center Vinyl Label with Cropped Album Art */}
-                                                    <div className="relative w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 rounded-full overflow-hidden border-2 border-amber-500/60 shadow-2xl flex items-center justify-center z-10 pointer-events-none">
-                                                        {playingAudio.posterUrl ? (
-                                                            <img
-                                                                src={playingAudio.posterUrl}
-                                                                alt=""
-                                                                className="w-full h-full object-cover pointer-events-none"
-                                                            />
-                                                        ) : (
-                                                            <div className="w-full h-full bg-gradient-to-tr from-amber-600 to-amber-400 flex items-center justify-center text-black font-black text-xs text-center p-2 pointer-events-none">
-                                                                {playingAudio.title}
+                                                        {/* Center Label */}
+                                                        <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden border-2 border-amber-500/60 shadow-2xl flex items-center justify-center z-10 pointer-events-none">
+                                                            {playingAudio.posterUrl ? (
+                                                                <img
+                                                                    src={playingAudio.posterUrl}
+                                                                    alt=""
+                                                                    className="w-full h-full object-cover pointer-events-none"
+                                                                />
+                                                            ) : (
+                                                                <div className="w-full h-full bg-gradient-to-tr from-amber-600 to-amber-400 flex items-center justify-center text-black font-black text-[10px] text-center p-1 pointer-events-none">
+                                                                    {playingAudio.title}
+                                                                </div>
+                                                            )}
+                                                            <div className="absolute w-6 h-6 rounded-full bg-zinc-950 border-2 border-zinc-400 flex items-center justify-center shadow-inner z-20">
+                                                                <div className="w-2 h-2 rounded-full bg-gradient-to-tr from-amber-400 to-amber-200 shadow-md" />
                                                             </div>
-                                                        )}
-                                                        {/* Center Ring & Spindle Hole */}
-                                                        <div className="absolute w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-zinc-950 border-2 border-zinc-400 flex items-center justify-center shadow-inner z-20">
-                                                            <div className="w-2.5 h-2.5 rounded-full bg-gradient-to-tr from-amber-400 to-amber-200 shadow-md" />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Tonearm */}
+                                        <div
+                                            ref={tonearmGimbalRef}
+                                            className="absolute top-3 right-4 z-30 touch-none select-none"
+                                        >
+                                            <div
+                                                onClick={handleTonearmClick}
+                                                className="relative w-9 h-9 rounded-full bg-gradient-to-b from-zinc-700 via-zinc-800 to-zinc-950 border-2 border-zinc-500 shadow-2xl flex items-center justify-center cursor-pointer hover:border-amber-400 transition-colors"
+                                                title="Click to lift / drop needle to pause or play"
+                                            >
+                                                <div className="w-4 h-4 rounded-full bg-gradient-to-tr from-zinc-300 via-white to-zinc-400 border border-zinc-400 shadow-md flex items-center justify-center pointer-events-none">
+                                                    <div className="w-1.5 h-1.5 rounded-full bg-zinc-900" />
+                                                </div>
+                                                <div
+                                                    onPointerDown={handleTonearmPointerDown}
+                                                    onPointerMove={handleTonearmPointerMove}
+                                                    onPointerUp={handleTonearmPointerUp}
+                                                    onPointerCancel={handleTonearmPointerUp}
+                                                    className="absolute top-4 left-4 w-6 origin-top cursor-grab active:cursor-grabbing hover:brightness-110 group/arm"
+                                                    style={{
+                                                        transform: `rotate(${effectiveTonearmAngle}deg)`,
+                                                        transition: isDraggingTonearmRef.current ? 'none' : 'transform 600ms cubic-bezier(0.34, 1.56, 0.64, 1)'
+                                                    }}
+                                                >
+                                                    <div className="w-1 h-28 sm:h-34 bg-gradient-to-r from-zinc-400 via-zinc-200 to-zinc-500 rounded-full shadow-lg relative pointer-events-none">
+                                                        <div className="absolute -bottom-1 -left-1.5 w-4 h-6 bg-gradient-to-b from-amber-400 to-amber-600 rounded-sm shadow-md flex items-center justify-center border border-amber-300 pointer-events-none">
+                                                            <div className="w-1 h-2 bg-white rounded-full shadow-sm animate-pulse" />
                                                         </div>
                                                     </div>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
-
-                                    {/* ── Mechanical Tonearm Assembly (Clickable / Draggable Needle) ── */}
-                                    <div
-                                        ref={tonearmGimbalRef}
-                                        className="absolute top-4 right-5 sm:top-5 sm:right-6 md:top-6 md:right-7 z-30 touch-none select-none"
-                                    >
-                                        {/* Tonearm Gimbal / Base */}
-                                        <div
-                                            onClick={handleTonearmClick}
-                                            className="relative w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-gradient-to-b from-zinc-700 via-zinc-800 to-zinc-950 border-2 border-zinc-500 shadow-2xl flex items-center justify-center cursor-pointer hover:border-amber-400 transition-colors"
-                                            title="Click to lift / drop needle to pause or play"
-                                        >
-                                            {/* Chrome Pivot Cap */}
-                                            <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-zinc-300 via-white to-zinc-400 border border-zinc-400 shadow-md flex items-center justify-center pointer-events-none">
-                                                <div className="w-2 h-2 rounded-full bg-zinc-900" />
-                                            </div>
-
-                                            {/* Tonearm Wand (Arm & Headshell) */}
-                                            <div
-                                                onPointerDown={handleTonearmPointerDown}
-                                                onPointerMove={handleTonearmPointerMove}
-                                                onPointerUp={handleTonearmPointerUp}
-                                                onPointerCancel={handleTonearmPointerUp}
-                                                className="absolute top-5 left-5 w-8 origin-top cursor-grab active:cursor-grabbing hover:brightness-110 group/arm"
-                                                style={{
-                                                    transform: `rotate(${effectiveTonearmAngle}deg)`,
-                                                    transition: isDraggingTonearmRef.current ? 'none' : 'transform 600ms cubic-bezier(0.34, 1.56, 0.64, 1)'
-                                                }}
-                                                title="Grab and pull the needle across the record to cue, or pull to cradle to pause"
-                                            >
-                                                {/* Metallic Chrome Arm */}
-                                                <div className="w-1.5 h-36 sm:h-44 md:h-48 bg-gradient-to-r from-zinc-400 via-zinc-200 to-zinc-500 rounded-full shadow-lg relative pointer-events-none">
-                                                    {/* Headshell / Stylus Cartridge */}
-                                                    <div className="absolute -bottom-2 -left-2 w-6 h-9 bg-gradient-to-b from-amber-400 to-amber-600 rounded-sm shadow-md flex items-center justify-center border-2 border-amber-300 group-hover/arm:ring-2 group-hover/arm:ring-amber-400/80 transition-all pointer-events-none">
-                                                        {/* Stylus Needle Indicator */}
-                                                        <div className="w-1.5 h-2.5 bg-white rounded-full shadow-sm animate-pulse" />
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        {/* Tonearm Rest / Cradle */}
-                                        <div className="absolute top-28 sm:top-36 right-4 w-3 h-4 bg-zinc-700 border border-zinc-600 rounded-sm shadow-inner pointer-events-none" />
+                                ) : (
+                                    /* ── Normal High-Res Cover Artwork View ── */
+                                    <div className="relative max-h-[30vh] sm:max-h-[34vh] md:max-h-[38vh] aspect-square w-auto h-full rounded-[2rem] bg-zinc-900 border-2 border-zinc-800/80 overflow-hidden shadow-2xl flex items-center justify-center">
+                                        {playingAudio.posterUrl ? (
+                                            <img src={playingAudio.posterUrl} alt="" className="w-full h-full object-cover" />
+                                        ) : (
+                                            <Disc size={72} className="text-amber-400" />
+                                        )}
                                     </div>
-                                </div>
-                            ) : (
-                                /* ── Normal High-Res Cover Artwork View (With No Other Effect) ── */
-                                <div className="relative w-64 h-64 sm:w-80 sm:h-80 md:w-96 md:h-96 rounded-[2.5rem] bg-zinc-900 border-2 border-zinc-800/80 overflow-hidden shadow-2xl flex items-center justify-center">
-                                    {playingAudio.posterUrl ? (
-                                        <img src={playingAudio.posterUrl} alt="" className="w-full h-full object-cover" />
-                                    ) : (
-                                        <Disc size={96} className="text-amber-400" />
-                                    )}
-                                </div>
-                            )}
+                                )}
+                            </div>
 
-                            {/* Prominent Playback Error Diagnostic Banner */}
-                            {audioPlaybackError && (
-                                <div className="w-full p-4 rounded-2xl bg-red-500/15 border border-red-500/30 text-left space-y-2 animate-in fade-in shadow-xl">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-xs font-black text-red-400 uppercase tracking-wider flex items-center gap-1.5">
-                                            <AlertTriangle size={15} /> Playback Failed ({audioPlaybackError.name || 'Error'})
-                                        </span>
-                                        <button
-                                            onClick={() => setShowAudioNerdModal(true)}
-                                            className="text-[11px] text-amber-300 hover:text-white font-mono underline"
-                                        >
-                                            View Logs
-                                        </button>
-                                    </div>
-                                    <p className="text-xs text-zinc-300">{audioPlaybackError.message}</p>
-                                    <div className="flex flex-wrap items-center gap-2 pt-1">
-                                        <button
-                                            onClick={handleForceAudioTranscode}
-                                            className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase transition-all flex items-center gap-1 shadow-md shadow-amber-500/20"
-                                        >
-                                            <Zap size={13} /> Force Server Transcode (MP3 320k)
-                                        </button>
-                                        <button
-                                            onClick={() => {
-                                                if (audioRef.current && playingAudio) {
-                                                    setAudioPlaybackStatus('loading');
-                                                    setAudioPlaybackError(null);
-                                                    audioRef.current.src = `${playingAudio.streamUrl}${playingAudio.streamUrl.includes('?') ? '&' : '?'}retry=${Date.now()}`;
-                                                    audioRef.current.play().catch(() => {});
-                                                }
-                                            }}
-                                            className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs border border-zinc-800 transition-all flex items-center gap-1"
-                                        >
-                                            <RotateCcw size={13} /> Retry Stream
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Track Info & Audiophile Badges */}
-                            <div className="text-center space-y-2 w-full px-4">
-                                <div className="flex items-center justify-center gap-2">
-                                    <span className="px-2.5 py-0.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-black uppercase tracking-wider">
-                                        {playingAudio.extension?.toUpperCase() === 'FLAC' ? 'FLAC 24-bit Lossless' : `${playingAudio.extension?.toUpperCase() || 'Audio'} • High-Res`}
+                            {/* Track Info & Clickable Artist */}
+                            <div className="text-center space-y-1 w-full px-2 shrink-0">
+                                <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                                    <span className="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[9px] font-black uppercase tracking-wider">
+                                        {playingAudio.extension?.toUpperCase() === 'FLAC' ? 'FLAC 24-bit' : `${playingAudio.extension?.toUpperCase() || 'Audio'}`}
                                     </span>
                                     {playingAudio.album && (
-                                        <span className="px-2.5 py-0.5 rounded-lg bg-zinc-900 text-zinc-400 border border-zinc-800 text-[10px] font-black uppercase">
+                                        <span className="px-2 py-0.5 rounded-md bg-zinc-900 text-zinc-400 border border-zinc-800 text-[9px] font-black uppercase truncate max-w-[180px]">
                                             {playingAudio.album}
                                         </span>
                                     )}
                                 </div>
 
-                                <h2 className="text-2xl sm:text-3xl font-black text-white leading-tight truncate">
+                                <h2 className="text-lg sm:text-2xl font-black text-white leading-tight truncate">
                                     {playingAudio.title}
                                 </h2>
-                                <p className="text-base font-bold text-amber-300 truncate">
-                                    {playingAudio.artist || playingAudio.folder || 'Artist'}
-                                </p>
+                                
+                                {/* Clickable Artist Name to view Bio & Discography */}
+                                <div>
+                                    <button
+                                        onClick={() => openArtistDetails(playingAudio.artist)}
+                                        className="text-sm sm:text-base font-bold text-amber-300 hover:text-amber-200 hover:underline transition-colors max-w-full truncate inline-flex items-center gap-1 cursor-pointer"
+                                        title={`View artist biography & albums for ${playingAudio.artist || 'Artist'}`}
+                                    >
+                                        <User size={13} className="text-amber-400 shrink-0" />
+                                        <span>{playingAudio.artist || playingAudio.folder || 'Artist'}</span>
+                                    </button>
+                                </div>
                             </div>
 
                             {/* Seekbar with Live Timestamps */}
-                            <div className="w-full space-y-2 px-2">
+                            <div className="w-full space-y-1 px-1 shrink-0 pt-2">
                                 <input
                                     type="range"
                                     min={0}
                                     max={audioDuration || 100}
                                     value={audioCurrentTime}
                                     onChange={e => seekTo(Number(e.target.value))}
-                                    className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                                    className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
                                 />
-                                <div className="flex justify-between text-xs font-mono text-zinc-500 font-bold">
+                                <div className="flex justify-between text-[11px] font-mono text-zinc-500 font-bold">
                                     <span>{formatTime(audioCurrentTime)}</span>
                                     <span>{formatTime(audioDuration)}</span>
                                 </div>
                             </div>
 
                             {/* Master Playback Controls */}
-                            <div className="flex items-center justify-center gap-5 sm:gap-7 w-full">
+                            <div className="flex items-center justify-center gap-4 sm:gap-6 w-full shrink-0 py-1">
                                 <button
                                     onClick={() => setIsShuffle(!isShuffle)}
-                                    className={`p-3 rounded-2xl transition-all ${isShuffle ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-500 hover:text-white'}`}
+                                    className={`p-2 rounded-xl transition-all ${isShuffle ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-500 hover:text-white'}`}
                                     title="Shuffle"
                                 >
-                                    <Shuffle size={20} />
+                                    <Shuffle size={16} />
                                 </button>
 
                                 <button
                                     onClick={prevTrack}
-                                    className="p-3 rounded-2xl text-zinc-300 hover:text-white hover:bg-zinc-900 transition-all"
+                                    className="p-2 rounded-xl text-zinc-300 hover:text-white hover:bg-zinc-900 transition-all"
                                     title="Previous Track"
                                 >
-                                    <SkipBack size={24} />
+                                    <SkipBack size={20} />
                                 </button>
 
                                 <button
                                     onClick={togglePlayPause}
                                     disabled={audioPlaybackStatus === 'loading'}
-                                    className="w-16 h-16 rounded-3xl bg-amber-500 hover:bg-amber-400 text-black flex items-center justify-center shadow-xl shadow-amber-500/30 transition-all scale-100 active:scale-95 disabled:opacity-75"
+                                    className="w-13 h-13 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black flex items-center justify-center shadow-lg shadow-amber-500/30 transition-all scale-100 active:scale-95 disabled:opacity-75"
                                     title={audioPlaybackStatus === 'loading' ? 'Loading Track...' : isAudioPlaying ? 'Pause' : 'Play'}
                                 >
                                     {audioPlaybackStatus === 'loading' || audioPlaybackStatus === 'buffering' ? (
-                                        <div className="w-7 h-7 border-3 border-black border-t-transparent rounded-full animate-spin" />
+                                        <div className="w-6 h-6 border-2 border-black border-t-transparent rounded-full animate-spin" />
                                     ) : isAudioPlaying ? (
-                                        <Pause size={28} />
+                                        <Pause size={22} />
                                     ) : (
-                                        <Play size={28} className="ml-1" />
+                                        <Play size={22} className="ml-0.5" />
                                     )}
                                 </button>
 
                                 <button
                                     onClick={nextTrack}
-                                    className="p-3 rounded-2xl text-zinc-300 hover:text-white hover:bg-zinc-900 transition-all"
+                                    className="p-2 rounded-xl text-zinc-300 hover:text-white hover:bg-zinc-900 transition-all"
                                     title="Next Track"
                                 >
-                                    <SkipForward size={24} />
+                                    <SkipForward size={20} />
                                 </button>
 
                                 <button
                                     onClick={() => setIsRepeat(!isRepeat)}
-                                    className={`p-3 rounded-2xl transition-all ${isRepeat ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-500 hover:text-white'}`}
+                                    className={`p-2 rounded-xl transition-all ${isRepeat ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-500 hover:text-white'}`}
                                     title="Repeat"
                                 >
-                                    <Repeat size={20} />
+                                    <Repeat size={16} />
                                 </button>
                             </div>
 
-                            {/* Volume Slider & Quick Bottom Action Buttons */}
-                            <div className="flex flex-wrap items-center justify-between gap-4 w-full pt-2 border-t border-zinc-900/90 px-2">
-                                <div className="flex items-center gap-2">
+                            {/* Volume Slider & Quick Actions */}
+                            <div className="flex items-center justify-between gap-3 w-full pt-1.5 border-t border-zinc-900/90 px-1 shrink-0">
+                                <div className="flex items-center gap-1.5">
                                     <button
                                         onClick={toggleMute}
                                         className="text-zinc-500 hover:text-white transition-colors"
                                         title={isAudioMuted ? 'Unmute' : 'Mute'}
                                     >
-                                        {isAudioMuted || audioVolume === 0 ? <VolumeX size={18} className="text-red-400" /> : <Volume2 size={18} />}
+                                        {isAudioMuted || audioVolume === 0 ? <VolumeX size={15} className="text-red-400" /> : <Volume2 size={15} />}
                                     </button>
                                     <input
                                         type="range"
@@ -2081,80 +2098,91 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         step={0.01}
                                         value={isAudioMuted ? 0 : audioVolume}
                                         onChange={e => handleVolumeChange(Number(e.target.value))}
-                                        className="w-24 sm:w-28 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                                        className="w-20 sm:w-24 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
                                     />
                                 </div>
 
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-1.5">
                                     <button
                                         onClick={() => handleDownloadTrack(playingAudio)}
-                                        className="px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-emerald-400 border border-zinc-800 text-xs font-bold transition-all flex items-center gap-1.5"
-                                        title="Download Track to Local Machine"
+                                        className="px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-emerald-400 border border-zinc-800 text-[11px] font-bold transition-all flex items-center gap-1"
+                                        title="Download Track"
                                     >
-                                        <Download size={14} /> Download
+                                        <Download size={12} /> Download
                                     </button>
                                     <button
                                         onClick={() => fetchAudioSpecs(playingAudio)}
-                                        className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-amber-400 border border-zinc-800 text-xs font-bold transition-all"
+                                        className="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-amber-400 border border-zinc-800 transition-all"
                                         title="Stats for Audiophiles"
                                     >
-                                        <Info size={16} />
+                                        <Info size={14} />
                                     </button>
                                     <button
                                         onClick={() => openCastPicker(playingAudio)}
-                                        className="p-2 rounded-xl bg-purple-500/15 hover:bg-purple-500 text-purple-400 hover:text-white border border-purple-500/30 text-xs font-bold transition-all"
+                                        className="p-1.5 rounded-lg bg-purple-500/15 hover:bg-purple-500 text-purple-400 hover:text-white border border-purple-500/30 transition-all"
                                         title="Cast to Smart TV"
                                     >
-                                        <Cast size={16} />
+                                        <Cast size={14} />
                                     </button>
                                 </div>
                             </div>
                         </div>
 
-                        {/* Right Side: Toggleable Panel (Lyrics / Queue / Specs) */}
+                        {/* Right Side: Toggleable Panel (Lyrics / Jam / Artist / Queue / Specs) */}
                         {showExpandedSidePanel && (
-                            <div className="lg:col-span-6 xl:col-span-7 h-full flex flex-col bg-zinc-950/80 border border-zinc-900 rounded-[2.5rem] p-6 shadow-2xl space-y-4 min-h-[420px] max-h-[75vh] overflow-hidden">
-                                {/* Panel Tab Selectors: Lyrics | Jam Stage | Queue | Specs */}
-                                <div className="flex items-center justify-between pb-3 border-b border-zinc-900 shrink-0">
-                                    <div className="flex bg-zinc-900/90 p-1 rounded-2xl border border-zinc-800 flex-wrap gap-1">
+                            <div className="lg:col-span-7 xl:col-span-7 h-full max-h-full flex flex-col bg-zinc-950/80 border border-zinc-900 rounded-[2rem] p-4 sm:p-5 shadow-2xl space-y-3 min-h-0 overflow-hidden">
+                                {/* Panel Tab Selectors */}
+                                <div className="flex items-center justify-between pb-2.5 border-b border-zinc-900 shrink-0">
+                                    <div className="flex bg-zinc-900/90 p-1 rounded-xl border border-zinc-800 flex-wrap gap-1">
                                         <button
                                             onClick={() => setExpandedSidePanel('lyrics')}
-                                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
                                                 expandedSidePanel === 'lyrics' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
                                             }`}
                                         >
-                                            <Mic2 size={13} /> Lyrics
+                                            <Mic2 size={12} /> Lyrics
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                setExpandedSidePanel('artist');
+                                                fetchArtistInfo(playingAudio.artist);
+                                            }}
+                                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
+                                                expandedSidePanel === 'artist' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                            }`}
+                                        >
+                                            <User size={12} /> Artist Bio
                                         </button>
                                         <button
                                             onClick={() => setExpandedSidePanel('chords')}
-                                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
                                                 expandedSidePanel === 'chords' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
                                             }`}
                                         >
-                                            <Guitar size={13} /> Jam Stage <span className="text-[9px] px-1 py-0.2 rounded bg-black/30 font-mono">🧪</span>
+                                            <Guitar size={12} /> Jam Stage
                                         </button>
                                         <button
                                             onClick={() => setExpandedSidePanel('queue')}
-                                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
                                                 expandedSidePanel === 'queue' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
                                             }`}
                                         >
-                                            <ListMusic size={13} /> Queue ({audioQueue.length})
+                                            <ListMusic size={12} /> Queue ({audioQueue.length})
                                         </button>
                                         <button
                                             onClick={() => setExpandedSidePanel('specs')}
-                                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
                                                 expandedSidePanel === 'specs' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
                                             }`}
                                         >
-                                            <Info size={13} /> Specs
+                                            <Info size={12} /> Specs
                                         </button>
                                     </div>
 
                                     {expandedSidePanel === 'lyrics' && (
-                                        <div className="flex items-center gap-2">
+                                        <div className="flex items-center gap-1.5">
                                             {lyricsData?.isSynced && (
-                                                <span className="px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[9px] font-black uppercase flex items-center gap-1">
+                                                <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[9px] font-black uppercase flex items-center gap-1">
                                                     <Sparkles size={10} /> Synced
                                                 </span>
                                             )}
@@ -2164,21 +2192,24 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                     setCustomLrcText(lyricsData?.syncedLyrics || lyricsData?.plainLyrics || '');
                                                     setIsLyricsEditorOpen(true);
                                                 }}
-                                                className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-[11px] font-bold flex items-center gap-1 transition-all"
+                                                className="px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-[11px] font-bold flex items-center gap-1 transition-all"
                                                 title="Edit lyrics match"
                                             >
-                                                <Edit3 size={11} /> Edit Match
+                                                <Edit3 size={11} /> Edit
                                             </button>
                                         </div>
                                     )}
                                 </div>
 
-                                {/* 1. Lyrics Tab Content */}
+                                {/* 1. Lyrics Tab Content - Isolated Smooth Scroll */}
                                 {expandedSidePanel === 'lyrics' && (
-                                    <div className="flex-1 overflow-y-auto custom-scrollbar p-2 flex flex-col">
+                                    <div
+                                        ref={expandedLyricsContainerRef}
+                                        className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-2 flex flex-col"
+                                    >
                                         {lyricsLoading ? (
                                             <div className="flex flex-col items-center justify-center py-20 gap-3 m-auto">
-                                                <div className="w-10 h-10 border-4 border-amber-500/20 border-t-amber-500 rounded-full animate-spin" />
+                                                <div className="w-9 h-9 border-3 border-amber-500/20 border-t-amber-500 rounded-full animate-spin" />
                                                 <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">Fetching Lyrics...</p>
                                             </div>
                                         ) : !lyricsData || (!lyricsData.lines?.length && !lyricsData.plainLyrics) ? (
@@ -2193,13 +2224,13 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                         setLyricsSearchQuery(`${playingAudio.artist || ''} ${playingAudio.title || ''}`.trim());
                                                         setIsLyricsEditorOpen(true);
                                                     }}
-                                                    className="px-5 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2"
+                                                    className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5"
                                                 >
-                                                    <Search size={14} /> Search / Add Lyrics
+                                                    <Search size={13} /> Search / Add Lyrics
                                                 </button>
                                             </div>
                                         ) : lyricsData.isSynced ? (
-                                            <div className="space-y-6 py-20 text-center">
+                                            <div className="space-y-4 py-16 text-center">
                                                 {lyricsData.lines.map((line, idx) => {
                                                     const isActive = idx === currentLyricIndex;
                                                     const isPast = currentLyricIndex !== -1 && idx < currentLyricIndex;
@@ -2208,12 +2239,12 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                             key={idx}
                                                             ref={isActive ? expandedActiveLyricRef : null}
                                                             onClick={() => seekTo(line.time)}
-                                                            className={`cursor-pointer transition-all duration-300 py-1 px-4 rounded-2xl inline-block max-w-xl ${
+                                                            className={`cursor-pointer transition-colors duration-200 py-1.5 px-3 rounded-xl inline-block max-w-xl ${
                                                                 isActive
-                                                                    ? 'text-2xl sm:text-3xl font-black text-amber-300 drop-shadow-[0_0_30px_rgba(251,191,36,0.6)] scale-105'
+                                                                    ? 'text-xl sm:text-2xl font-black text-amber-300 drop-shadow-[0_0_20px_rgba(251,191,36,0.6)]'
                                                                     : isPast
-                                                                    ? 'text-base font-bold text-zinc-600 hover:text-zinc-400'
-                                                                    : 'text-base font-bold text-zinc-400 hover:text-zinc-200'
+                                                                    ? 'text-sm sm:text-base font-bold text-zinc-600 hover:text-zinc-400'
+                                                                    : 'text-sm sm:text-base font-bold text-zinc-400 hover:text-zinc-200'
                                                             }`}
                                                         >
                                                             {line.text}
@@ -2222,66 +2253,180 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                 })}
                                             </div>
                                         ) : (
-                                            <div className="p-4 text-center whitespace-pre-line text-base font-semibold text-zinc-300 leading-relaxed max-w-lg mx-auto">
+                                            <div className="p-4 text-center whitespace-pre-line text-sm sm:text-base font-semibold text-zinc-300 leading-relaxed max-w-lg mx-auto">
                                                 {lyricsData.plainLyrics || lyricsData.lines.map(l => l.text).join('\n')}
                                             </div>
                                         )}
                                     </div>
                                 )}
 
-                                {/* 2. Musical Jam Stage Tab Content */}
+                                {/* 2. Artist Bio & Discography Tab Content */}
+                                {expandedSidePanel === 'artist' && (
+                                    <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-2 space-y-4">
+                                        {artistLoading ? (
+                                            <div className="flex flex-col items-center justify-center py-20 gap-3 m-auto">
+                                                <div className="w-9 h-9 border-3 border-amber-500/20 border-t-amber-500 rounded-full animate-spin" />
+                                                <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">Loading Artist Profile &amp; Discography...</p>
+                                            </div>
+                                        ) : artistData ? (
+                                            <div className="space-y-4">
+                                                {/* Artist Header Card */}
+                                                <div className="p-4 sm:p-5 bg-zinc-900/60 rounded-2xl border border-zinc-800 flex flex-col sm:flex-row items-center sm:items-start gap-4">
+                                                    {artistData.posterUrl ? (
+                                                        <img
+                                                            src={artistData.posterUrl}
+                                                            alt=""
+                                                            className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl object-cover border border-zinc-700 shadow-xl shrink-0"
+                                                        />
+                                                    ) : (
+                                                        <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl bg-zinc-800 flex items-center justify-center text-amber-400 shrink-0 border border-zinc-700">
+                                                            <User size={36} />
+                                                        </div>
+                                                    )}
+                                                    <div className="min-w-0 flex-1 text-center sm:text-left space-y-1.5">
+                                                        <div className="flex items-center justify-center sm:justify-start gap-2 flex-wrap">
+                                                            <h2 className="text-xl sm:text-2xl font-black text-white">{artistData.artistName}</h2>
+                                                            {artistData.status && (
+                                                                <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[9px] font-black uppercase">
+                                                                    {artistData.status}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        {artistData.genres && artistData.genres.length > 0 && (
+                                                            <div className="flex items-center justify-center sm:justify-start gap-1 flex-wrap">
+                                                                {artistData.genres.slice(0, 4).map((g: string, gi: number) => (
+                                                                    <span key={gi} className="px-2 py-0.5 rounded-md bg-zinc-800 text-zinc-300 text-[10px] font-bold">
+                                                                        {g}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                        {artistData.recordLabel && (
+                                                            <p className="text-xs text-zinc-500 font-medium">{artistData.recordLabel}</p>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                {/* Biography Text */}
+                                                {artistData.overview && (
+                                                    <div className="p-4 bg-zinc-900/40 rounded-2xl border border-zinc-800/80 space-y-2">
+                                                        <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 block">
+                                                            Biography &amp; Overview
+                                                        </span>
+                                                        <p className="text-xs sm:text-sm text-zinc-300 leading-relaxed whitespace-pre-line max-h-44 overflow-y-auto custom-scrollbar pr-1">
+                                                            {artistData.overview}
+                                                        </p>
+                                                    </div>
+                                                )}
+
+                                                {/* Discography & Albums Grid */}
+                                                <div className="space-y-3">
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-xs font-black uppercase tracking-wider text-white flex items-center gap-1.5">
+                                                            <Disc size={14} className="text-amber-400" /> Discography &amp; Albums ({artistData.albums?.length || 0})
+                                                        </span>
+                                                    </div>
+
+                                                    {artistData.albums && artistData.albums.length > 0 ? (
+                                                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                                            {artistData.albums.map((album: any, ai: number) => {
+                                                                const coverImg = album.coverUrl || album.remoteCover || album.images?.find((img: any) => img.coverType === 'cover')?.remoteUrl;
+                                                                return (
+                                                                    <div
+                                                                        key={ai}
+                                                                        className="p-2.5 bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-800/80 hover:border-amber-500/40 rounded-2xl transition-all space-y-2 group flex flex-col justify-between"
+                                                                    >
+                                                                        <div className="aspect-square w-full rounded-xl overflow-hidden bg-zinc-950 flex items-center justify-center relative">
+                                                                            {coverImg ? (
+                                                                                <img src={coverImg} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                                                                            ) : (
+                                                                                <Disc size={28} className="text-zinc-700" />
+                                                                            )}
+                                                                            {album.releaseDate && (
+                                                                                <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-black/80 backdrop-blur-sm text-[9px] font-mono font-bold text-amber-300">
+                                                                                    {new Date(album.releaseDate).getFullYear() || album.releaseDate.substring(0, 4)}
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                        <div>
+                                                                            <h4 className="font-bold text-white text-xs truncate group-hover:text-amber-400 transition-colors" title={album.title}>
+                                                                                {album.title}
+                                                                            </h4>
+                                                                            {album.trackCount && (
+                                                                                <span className="text-[10px] text-zinc-500 font-medium">
+                                                                                    {album.trackCount} Tracks
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="p-6 text-center bg-zinc-900/30 rounded-2xl border border-zinc-800/60 text-xs text-zinc-500">
+                                                            No albums listed for this artist.
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="p-8 text-center text-xs text-zinc-500">
+                                                No artist information available.
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* 3. Musical Jam Stage Tab Content */}
                                 {expandedSidePanel === 'chords' && (
-                                    <div className="flex-1 overflow-y-auto custom-scrollbar p-1 space-y-4 flex flex-col">
+                                    <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-1 space-y-3 flex flex-col">
                                         {/* Top Musician Controls Bar */}
-                                        <div className="p-3 bg-zinc-900/60 rounded-2xl border border-zinc-800 flex flex-wrap items-center justify-between gap-2.5 shrink-0">
+                                        <div className="p-2.5 bg-zinc-900/60 rounded-xl border border-zinc-800 flex flex-wrap items-center justify-between gap-2 shrink-0">
                                             {/* Instrument Switcher */}
-                                            <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-xl border border-zinc-800">
+                                            <div className="flex items-center gap-1 bg-zinc-950 p-0.5 rounded-lg border border-zinc-800">
                                                 <button
                                                     onClick={() => setJamInstrument('guitar')}
-                                                    className={`px-2.5 py-1 rounded-lg text-[11px] font-black uppercase transition-all flex items-center gap-1 ${
+                                                    className={`px-2 py-1 rounded-md text-[10px] font-black uppercase transition-all flex items-center gap-1 ${
                                                         jamInstrument === 'guitar' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-white'
                                                     }`}
                                                 >
-                                                    <Guitar size={12} /> Guitar
+                                                    <Guitar size={11} /> Guitar
                                                 </button>
                                                 <button
                                                     onClick={() => setJamInstrument('ukulele')}
-                                                    className={`px-2.5 py-1 rounded-lg text-[11px] font-black uppercase transition-all flex items-center gap-1 ${
+                                                    className={`px-2 py-1 rounded-md text-[10px] font-black uppercase transition-all flex items-center gap-1 ${
                                                         jamInstrument === 'ukulele' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-white'
                                                     }`}
                                                 >
-                                                    <Music2 size={12} /> Ukulele
+                                                    <Music2 size={11} /> Ukulele
                                                 </button>
                                             </div>
 
                                             {/* Difficulty Selector */}
-                                            <div className="flex items-center gap-1.5">
+                                            <div className="flex items-center gap-1">
                                                 <span className="text-[10px] font-black uppercase text-zinc-500">Mode:</span>
-                                                <div className="flex bg-zinc-950 p-0.5 rounded-xl border border-zinc-800 text-[10px] font-black uppercase">
+                                                <div className="flex bg-zinc-950 p-0.5 rounded-lg border border-zinc-800 text-[10px] font-black uppercase">
                                                     <button
                                                         onClick={() => setJamDifficulty('beginner')}
-                                                        className={`px-2 py-1 rounded-lg transition-all ${
+                                                        className={`px-1.5 py-0.5 rounded transition-all ${
                                                             jamDifficulty === 'beginner' ? 'bg-emerald-500 text-black font-black' : 'text-zinc-500 hover:text-zinc-300'
                                                         }`}
-                                                        title="Simple open chords (triads)"
                                                     >
-                                                        Beginner
+                                                        Beg
                                                     </button>
                                                     <button
                                                         onClick={() => setJamDifficulty('intermediate')}
-                                                        className={`px-2 py-1 rounded-lg transition-all ${
+                                                        className={`px-1.5 py-0.5 rounded transition-all ${
                                                             jamDifficulty === 'intermediate' ? 'bg-amber-500 text-black font-black' : 'text-zinc-500 hover:text-zinc-300'
                                                         }`}
-                                                        title="7ths & suspended chords"
                                                     >
-                                                        Medium
+                                                        Med
                                                     </button>
                                                     <button
                                                         onClick={() => setJamDifficulty('advanced')}
-                                                        className={`px-2 py-1 rounded-lg transition-all ${
+                                                        className={`px-1.5 py-0.5 rounded transition-all ${
                                                             jamDifficulty === 'advanced' ? 'bg-purple-500 text-white font-black' : 'text-zinc-500 hover:text-zinc-300'
                                                         }`}
-                                                        title="Full jazz voicings & alterations"
                                                     >
                                                         Pro
                                                     </button>
@@ -2289,154 +2434,68 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                             </div>
 
                                             {/* Transpose Controls */}
-                                            <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-xl border border-zinc-800">
+                                            <div className="flex items-center gap-1 bg-zinc-950 p-0.5 rounded-lg border border-zinc-800">
                                                 <button
                                                     onClick={() => setJamTranspose(prev => prev - 1)}
-                                                    className="w-5 h-5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-black text-xs flex items-center justify-center transition-all"
-                                                    title="Transpose Down (-1 semitone)"
+                                                    className="w-4 h-4 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-black text-xs flex items-center justify-center"
                                                 >
                                                     -
                                                 </button>
-                                                <span className="text-[11px] font-mono font-bold text-amber-300 px-1">
+                                                <span className="text-[10px] font-mono font-bold text-amber-300 px-1">
                                                     {jamTranspose > 0 ? `+${jamTranspose}` : jamTranspose}st
                                                 </span>
                                                 <button
                                                     onClick={() => setJamTranspose(prev => prev + 1)}
-                                                    className="w-5 h-5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-black text-xs flex items-center justify-center transition-all"
-                                                    title="Transpose Up (+1 semitone)"
+                                                    className="w-4 h-4 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-black text-xs flex items-center justify-center"
                                                 >
                                                     +
                                                 </button>
-                                                {jamTranspose !== 0 && (
-                                                    <button
-                                                        onClick={() => setJamTranspose(0)}
-                                                        className="text-[9px] text-zinc-500 hover:text-amber-400 font-bold px-1"
-                                                        title="Reset Transpose"
-                                                    >
-                                                        0
-                                                    </button>
-                                                )}
                                             </div>
                                         </div>
 
                                         {/* Center Stage Hero: Big Active Chord + Fretboard */}
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-stretch">
-                                            {/* Active Chord Big Card */}
-                                            <div className="p-4 bg-gradient-to-br from-zinc-900/90 to-zinc-950 border border-zinc-800 rounded-3xl flex flex-col justify-between space-y-3 relative overflow-hidden shadow-xl">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 items-stretch">
+                                            <div className="p-3.5 bg-gradient-to-br from-zinc-900/90 to-zinc-950 border border-zinc-800 rounded-2xl flex flex-col justify-between space-y-2 relative overflow-hidden shadow-xl">
                                                 <div className="flex items-center justify-between">
-                                                    <span className="text-[11px] font-black uppercase text-zinc-500 tracking-wider flex items-center gap-1">
-                                                        <Activity size={13} className="text-amber-400 animate-pulse" /> Active Chord
+                                                    <span className="text-[10px] font-black uppercase text-zinc-500 tracking-wider flex items-center gap-1">
+                                                        <Activity size={12} className="text-amber-400 animate-pulse" /> Active Chord
                                                     </span>
-                                                    {activeChordEvent?.isLiveDsp ? (
-                                                        <span className="text-[9px] px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/30 font-bold uppercase">
-                                                            🧪 DSP AI Live
-                                                        </span>
-                                                    ) : chordsData?.source ? (
-                                                        <span className="text-[9px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold">
-                                                            {chordsData.source}
-                                                        </span>
-                                                    ) : null}
                                                 </div>
 
-                                                <div className="text-center py-2">
-                                                    <h2 className="text-5xl sm:text-6xl font-black text-amber-300 tracking-tight drop-shadow-[0_0_25px_rgba(251,191,36,0.6)]">
+                                                <div className="text-center py-1">
+                                                    <h2 className="text-4xl sm:text-5xl font-black text-amber-300 tracking-tight drop-shadow-[0_0_20px_rgba(251,191,36,0.6)]">
                                                         {activeChordEvent?.displayChord || 'C'}
                                                     </h2>
-                                                    {activeChordEvent?.rawChord && activeChordEvent.rawChord !== activeChordEvent.displayChord && (
-                                                        <span className="text-[10px] text-zinc-500 font-mono block mt-1">
-                                                            Original: {activeChordEvent.rawChord} (Simplified)
-                                                        </span>
-                                                    )}
                                                 </div>
 
-                                                {/* Next Chord Countdown */}
-                                                <div className="p-2 bg-zinc-950/80 rounded-2xl border border-zinc-800/80 flex items-center justify-between text-xs">
-                                                    <span className="text-zinc-500 font-bold text-[11px]">Next:</span>
+                                                <div className="p-1.5 bg-zinc-950/80 rounded-xl border border-zinc-800/80 flex items-center justify-between text-xs">
+                                                    <span className="text-zinc-500 font-bold text-[10px]">Next:</span>
                                                     {activeChordEvent?.nextChord ? (
-                                                        <div className="flex items-center gap-2 font-mono">
-                                                            <span className="px-2 py-0.5 rounded-lg bg-amber-500/20 text-amber-300 font-black text-xs border border-amber-500/30">
+                                                        <div className="flex items-center gap-1.5 font-mono">
+                                                            <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-black text-[11px]">
                                                                 {activeChordEvent.nextChord}
                                                             </span>
-                                                            <span className="text-zinc-400 font-bold text-[11px]">in {activeChordEvent.nextInSeconds}s</span>
+                                                            <span className="text-zinc-400 text-[10px]">in {activeChordEvent.nextInSeconds}s</span>
                                                         </div>
                                                     ) : (
-                                                        <span className="text-zinc-600 font-medium text-[11px]">Holding chord</span>
+                                                        <span className="text-zinc-600 text-[10px]">Holding chord</span>
                                                     )}
                                                 </div>
                                             </div>
 
-                                            {/* Interactive Fretboard Visualizer */}
                                             <FretboardDiagram
                                                 chordName={activeChordEvent?.displayChord || 'C'}
                                                 instrument={jamInstrument}
                                             />
                                         </div>
 
-                                        {/* Real-time 12-Bin Chromagram Harmonic Deconvolution Visualizer */}
                                         <ChromagramVisualizer chroma={liveChromaEnergy} />
-
-                                        {/* Synced Lyrics with Chords Row */}
-                                        <div className="space-y-2 pt-1 flex-1 flex flex-col min-h-0">
-                                            <div className="flex items-center justify-between px-1 shrink-0">
-                                                <span className="text-xs font-black uppercase text-zinc-400 tracking-wider flex items-center gap-1.5">
-                                                    <Mic2 size={13} className="text-amber-400" /> Sing-Along Sheet
-                                                </span>
-                                                <span className="text-[10px] text-zinc-500 font-bold">Click any line to seek</span>
-                                            </div>
-
-                                            <div className="space-y-2 max-h-[220px] overflow-y-auto custom-scrollbar pr-1">
-                                                {lyricsData?.lines && lyricsData.lines.length > 0 ? (
-                                                    lyricsData.lines.map((line, idx) => {
-                                                        const isActive = idx === currentLyricIndex;
-                                                        const lineChords = getChordsForLyricLine(line.time, lyricsData.lines[idx + 1]?.time);
-                                                        return (
-                                                            <div
-                                                                key={idx}
-                                                                onClick={() => seekTo(line.time)}
-                                                                className={`p-2.5 rounded-2xl transition-all cursor-pointer border ${
-                                                                    isActive
-                                                                        ? 'bg-amber-500/15 border-amber-500/40 shadow-lg scale-[1.01]'
-                                                                        : 'bg-zinc-900/40 border-zinc-900 hover:bg-zinc-900/80'
-                                                                }`}
-                                                            >
-                                                                {/* Chords row above text */}
-                                                                <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                                                                    {lineChords.map((ch, ci) => (
-                                                                        <span
-                                                                            key={ci}
-                                                                            className={`px-2 py-0.5 rounded-lg text-xs font-black font-mono tracking-wider shadow-sm ${
-                                                                                isActive
-                                                                                    ? 'bg-amber-400 text-black drop-shadow-[0_0_8px_rgba(251,191,36,0.8)] scale-105'
-                                                                                    : 'bg-zinc-800 text-amber-300 border border-zinc-700'
-                                                                            }`}
-                                                                        >
-                                                                            {ch}
-                                                                        </span>
-                                                                    ))}
-                                                                </div>
-                                                                {/* Lyric text */}
-                                                                <p className={`font-bold transition-colors ${
-                                                                    isActive ? 'text-white text-base' : 'text-zinc-400 text-xs'
-                                                                }`}>
-                                                                    {line.text}
-                                                                </p>
-                                                            </div>
-                                                        );
-                                                    })
-                                                ) : (
-                                                    <div className="p-4 text-center bg-zinc-900/30 rounded-2xl border border-zinc-800/60 space-y-1">
-                                                        <p className="text-xs text-zinc-400 font-bold">No synced lyrics available for sing-along overlay.</p>
-                                                        <p className="text-[10px] text-zinc-600">The chords above are analyzed live in real-time.</p>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
                                     </div>
                                 )}
 
-                                {/* 3. Queue Tab Content */}
+                                {/* 4. Queue Tab Content */}
                                 {expandedSidePanel === 'queue' && (
-                                    <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1">
+                                    <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
                                         {audioQueue.map((track, i) => {
                                             const isCurrent = i === queueIndex;
                                             return (
@@ -2447,49 +2506,49 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                         setPlayingAudio(track);
                                                         setIsAudioPlaying(true);
                                                     }}
-                                                    className={`p-3.5 rounded-2xl text-xs font-bold transition-all flex items-center justify-between cursor-pointer border ${
+                                                    className={`p-3 rounded-xl text-xs font-bold transition-all flex items-center justify-between cursor-pointer border ${
                                                         isCurrent
                                                             ? 'bg-amber-500/15 text-amber-300 border-amber-500/40 shadow-sm'
                                                             : 'bg-zinc-900/40 border-zinc-900 text-zinc-300 hover:bg-zinc-900/80 hover:text-white'
                                                     }`}
                                                 >
-                                                    <div className="flex items-center gap-3 min-w-0">
-                                                        <span className="w-6 text-zinc-600 font-mono font-bold">{i + 1}</span>
+                                                    <div className="flex items-center gap-2.5 min-w-0">
+                                                        <span className="w-5 text-zinc-600 font-mono font-bold">{i + 1}</span>
                                                         <div className="truncate">
                                                             <p className="truncate font-bold text-white">{track.title}</p>
-                                                            <span className="text-[11px] text-zinc-500">{track.artist || 'Artist'}</span>
+                                                            <span className="text-[10px] text-zinc-500">{track.artist || 'Artist'}</span>
                                                         </div>
                                                     </div>
-                                                    {isCurrent && <Volume2 size={16} className="text-amber-400 shrink-0 animate-pulse" />}
+                                                    {isCurrent && <Volume2 size={15} className="text-amber-400 shrink-0 animate-pulse" />}
                                                 </div>
                                             );
                                         })}
                                     </div>
                                 )}
 
-                                {/* 3. Specs Tab Content */}
+                                {/* 5. Specs Tab Content */}
                                 {expandedSidePanel === 'specs' && (
-                                    <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-3">
-                                        <div className="grid grid-cols-2 gap-3 text-xs">
-                                            <div className="p-4 bg-zinc-900/60 rounded-2xl border border-zinc-800 space-y-1">
+                                    <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-2 space-y-2.5">
+                                        <div className="grid grid-cols-2 gap-2.5 text-xs">
+                                            <div className="p-3 bg-zinc-900/60 rounded-xl border border-zinc-800 space-y-0.5">
                                                 <span className="text-[10px] font-black uppercase text-zinc-500 block">Codec &amp; Format</span>
                                                 <span className="font-bold text-white">{playingAudio.extension?.toUpperCase() || 'Audio'}</span>
                                             </div>
-                                            <div className="p-4 bg-zinc-900/60 rounded-2xl border border-zinc-800 space-y-1">
+                                            <div className="p-3 bg-zinc-900/60 rounded-xl border border-zinc-800 space-y-0.5">
                                                 <span className="text-[10px] font-black uppercase text-zinc-500 block">Quality Type</span>
                                                 <span className="font-bold text-amber-400">{playingAudio.extension?.toLowerCase() === 'flac' ? '24-bit Lossless' : 'High-Res Audio'}</span>
                                             </div>
-                                            <div className="p-4 bg-zinc-900/60 rounded-2xl border border-zinc-800 space-y-1">
+                                            <div className="p-3 bg-zinc-900/60 rounded-xl border border-zinc-800 space-y-0.5">
                                                 <span className="text-[10px] font-black uppercase text-zinc-500 block">File Size</span>
                                                 <span className="font-bold text-white">{formatBytes(playingAudio.sizeBytes)}</span>
                                             </div>
-                                            <div className="p-4 bg-zinc-900/60 rounded-2xl border border-zinc-800 space-y-1">
+                                            <div className="p-3 bg-zinc-900/60 rounded-xl border border-zinc-800 space-y-0.5">
                                                 <span className="text-[10px] font-black uppercase text-zinc-500 block">Channels</span>
                                                 <span className="font-bold text-white">Stereo (2.0)</span>
                                             </div>
                                         </div>
 
-                                        <div className="p-4 bg-zinc-900/40 rounded-2xl border border-zinc-800 text-xs space-y-1">
+                                        <div className="p-3 bg-zinc-900/40 rounded-xl border border-zinc-800 text-xs space-y-0.5">
                                             <span className="text-[10px] font-black uppercase text-zinc-500 block">Path / Source</span>
                                             <p className="font-mono text-[11px] text-zinc-400 break-all">{playingAudio.path || playingAudio.streamUrl}</p>
                                         </div>
@@ -2497,6 +2556,142 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 )}
                             </div>
                         )}
+                    </div>
+                </div>
+            )}
+
+            {/* ══════════════════════════════════════════════════════════════
+               STANDALONE ARTIST BIOGRAPHY & DISCOGRAPHY MODAL
+               ══════════════════════════════════════════════════════════════ */}
+            {showArtistModal && selectedArtistName && (
+                <div className="fixed inset-0 z-[310] flex items-center justify-center p-4 sm:p-6 bg-black/90 backdrop-blur-2xl animate-in fade-in duration-200">
+                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-4xl p-6 sm:p-8 shadow-2xl relative max-h-[88vh] flex flex-col space-y-5 overflow-hidden">
+                        <button
+                            onClick={() => setShowArtistModal(false)}
+                            className="absolute top-6 right-6 p-2.5 rounded-2xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all z-20"
+                        >
+                            <X size={20} />
+                        </button>
+
+                        <div className="flex items-center gap-2 pb-2 border-b border-zinc-900">
+                            <span className="px-2.5 py-0.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-black uppercase flex items-center gap-1">
+                                <User size={12} /> Artist Profile &amp; Discography
+                            </span>
+                        </div>
+
+                        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar space-y-5 pr-1">
+                            {artistLoading ? (
+                                <div className="flex flex-col items-center justify-center py-20 gap-3">
+                                    <div className="w-10 h-10 border-3 border-amber-500/20 border-t-amber-500 rounded-full animate-spin" />
+                                    <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">Loading Artist Profile...</p>
+                                </div>
+                            ) : artistData ? (
+                                <div className="space-y-5">
+                                    {/* Artist Header */}
+                                    <div className="p-5 bg-zinc-900/60 rounded-3xl border border-zinc-800 flex flex-col sm:flex-row items-center sm:items-start gap-5">
+                                        {artistData.posterUrl ? (
+                                            <img
+                                                src={artistData.posterUrl}
+                                                alt=""
+                                                className="w-28 h-28 sm:w-36 sm:h-36 rounded-2xl object-cover border border-zinc-700 shadow-2xl shrink-0"
+                                            />
+                                        ) : (
+                                            <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-2xl bg-zinc-800 flex items-center justify-center text-amber-400 shrink-0 border border-zinc-700">
+                                                <User size={48} />
+                                            </div>
+                                        )}
+                                        <div className="min-w-0 flex-1 text-center sm:text-left space-y-2">
+                                            <div className="flex items-center justify-center sm:justify-start gap-2.5 flex-wrap">
+                                                <h1 className="text-2xl sm:text-3xl font-black text-white">{artistData.artistName}</h1>
+                                                {artistData.status && (
+                                                    <span className="px-2.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[10px] font-black uppercase">
+                                                        {artistData.status}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            {artistData.genres && artistData.genres.length > 0 && (
+                                                <div className="flex items-center justify-center sm:justify-start gap-1.5 flex-wrap">
+                                                    {artistData.genres.map((g: string, gi: number) => (
+                                                        <span key={gi} className="px-2.5 py-0.5 rounded-lg bg-zinc-800 text-zinc-300 text-xs font-bold">
+                                                            {g}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            )}
+                                            {artistData.recordLabel && (
+                                                <p className="text-xs text-zinc-400 font-medium">{artistData.recordLabel}</p>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Biography Overview */}
+                                    {artistData.overview && (
+                                        <div className="p-5 bg-zinc-900/40 rounded-3xl border border-zinc-800/80 space-y-2">
+                                            <span className="text-[11px] font-black uppercase tracking-wider text-amber-400 block">
+                                                Artist Biography
+                                            </span>
+                                            <p className="text-xs sm:text-sm text-zinc-300 leading-relaxed whitespace-pre-line">
+                                                {artistData.overview}
+                                            </p>
+                                        </div>
+                                    )}
+
+                                    {/* Discography / Albums Grid */}
+                                    <div className="space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-sm font-black uppercase tracking-wider text-white flex items-center gap-2">
+                                                <Disc size={16} className="text-amber-400" /> Albums &amp; Discography ({artistData.albums?.length || 0})
+                                            </span>
+                                        </div>
+
+                                        {artistData.albums && artistData.albums.length > 0 ? (
+                                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                                                {artistData.albums.map((album: any, ai: number) => {
+                                                    const coverImg = album.coverUrl || album.remoteCover || album.images?.find((img: any) => img.coverType === 'cover')?.remoteUrl;
+                                                    return (
+                                                        <div
+                                                            key={ai}
+                                                            className="p-3 bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-800/80 hover:border-amber-500/40 rounded-2xl transition-all space-y-2 group flex flex-col justify-between"
+                                                        >
+                                                            <div className="aspect-square w-full rounded-xl overflow-hidden bg-zinc-950 flex items-center justify-center relative">
+                                                                {coverImg ? (
+                                                                    <img src={coverImg} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                                                                ) : (
+                                                                    <Disc size={32} className="text-zinc-700" />
+                                                                )}
+                                                                {album.releaseDate && (
+                                                                    <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded bg-black/80 backdrop-blur-sm text-[10px] font-mono font-bold text-amber-300">
+                                                                        {new Date(album.releaseDate).getFullYear() || album.releaseDate.substring(0, 4)}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <div>
+                                                                <h4 className="font-bold text-white text-xs truncate group-hover:text-amber-400 transition-colors" title={album.title}>
+                                                                    {album.title}
+                                                                </h4>
+                                                                {album.trackCount && (
+                                                                    <span className="text-[10px] text-zinc-500 font-medium">
+                                                                        {album.trackCount} Tracks
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        ) : (
+                                            <div className="p-8 text-center bg-zinc-900/30 rounded-2xl border border-zinc-800/60 text-xs text-zinc-500">
+                                                No albums found for this artist.
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="p-12 text-center text-zinc-500 text-xs">
+                                    Could not find details for &quot;{selectedArtistName}&quot;.
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
             )}
@@ -2535,7 +2730,17 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         )}
                                     </div>
                                     <h2 className="text-xl sm:text-2xl font-black text-white truncate mt-1">{playingAudio.title}</h2>
-                                    <p className="text-xs text-zinc-400 font-semibold truncate">{playingAudio.artist || 'Unknown Artist'} • {playingAudio.album || 'Single'}</p>
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                        <button
+                                            onClick={() => openArtistDetails(playingAudio.artist)}
+                                            className="text-xs text-zinc-400 font-semibold truncate hover:text-amber-300 hover:underline transition-colors cursor-pointer"
+                                            title={`View artist biography & albums for ${playingAudio.artist || 'Artist'}`}
+                                        >
+                                            {playingAudio.artist || 'Unknown Artist'}
+                                        </button>
+                                        <span className="text-zinc-600 text-xs">•</span>
+                                        <span className="text-xs text-zinc-400 truncate">{playingAudio.album || 'Single'}</span>
+                                    </div>
                                 </div>
                             </div>
 
@@ -2585,7 +2790,10 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             </div>
                         </div>
 
-                        <div className="flex-1 min-h-[350px] max-h-[55vh] overflow-y-auto custom-scrollbar p-2 relative flex flex-col">
+                        <div
+                            ref={standaloneLyricsContainerRef}
+                            className="flex-1 min-h-[350px] max-h-[55vh] overflow-y-auto custom-scrollbar p-2 relative flex flex-col"
+                        >
                             {lyricsLoading ? (
                                 <div className="flex flex-col items-center justify-center py-20 gap-3 m-auto">
                                     <div className="w-10 h-10 border-4 border-amber-500/20 border-t-amber-500 rounded-full animate-spin" />
