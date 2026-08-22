@@ -9,9 +9,10 @@ import {
     RefreshCw, ChevronDown, Sliders, Cast, Tv, Trash2, Plus,
     Image as ImageIcon, Guitar, Activity, Zap, Layers, Music2,
     Terminal, AlertTriangle, RotateCcw, Copy, User, ExternalLink, Calendar, Radio,
-    Star, ListPlus, Heart, Youtube
+    Star, ListPlus, Heart, Youtube, Wrench
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { sanitizeSongMetadata } from '@/lib/songSanitizer';
 import {
     DifficultyLevel,
     InstrumentType,
@@ -642,6 +643,15 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     const [karaokeSubTab, setKaraokeSubTab] = useState<'lyrics' | 'guitar' | 'bass' | 'sing'>('lyrics');
     const [isMinimalistVinylMode, setIsMinimalistVinylMode] = useState(false);
 
+    // Fix Match & Verified Metadata States
+    const [isFixMatchOpen, setIsFixMatchOpen] = useState(false);
+    const [fixMatchQuery, setFixMatchQuery] = useState('');
+    const [fixMatchResults, setFixMatchResults] = useState<any[]>([]);
+    const [fixMatchLoading, setFixMatchLoading] = useState(false);
+    const [customMatchArtist, setCustomMatchArtist] = useState('');
+    const [customMatchTitle, setCustomMatchTitle] = useState('');
+    const [customMatchAlbum, setCustomMatchAlbum] = useState('');
+
     // Specs & Diagnostics Modal States
     const [isAudioSpecsOpen, setIsAudioSpecsOpen] = useState(false);
     const [audioSpecsItem, setAudioSpecsItem] = useState<MediaItem | null>(null);
@@ -745,6 +755,19 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             if (res.ok) {
                 const data = await res.json();
                 setLyricsData(data);
+
+                // If verified metadata was matched in LRCLib/database, update playingAudio
+                if (data && data.artist && data.title && data.title !== 'Track' && data.artist !== 'Artist') {
+                    setPlayingAudio(prev => {
+                        if (!prev) return null;
+                        return {
+                            ...prev,
+                            artist: data.artist,
+                            title: data.title,
+                            album: data.album || prev.album
+                        };
+                    });
+                }
             } else {
                 setLyricsData(null);
             }
@@ -1237,14 +1260,75 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
     // Track Selection & Audio Playback Handlers
     const playTrack = (track: MediaItem, queue?: MediaItem[], index?: number) => {
-        setPlayingAudio(track);
+        const { cleanArtist, cleanTitle } = sanitizeSongMetadata(track.title || track.name || '', track.artist);
+        const cleanTrack: MediaItem = {
+            ...track,
+            title: cleanTitle || track.title || track.name || 'Track',
+            artist: cleanArtist || track.artist || 'Artist',
+            uploader: track.artist !== cleanArtist ? track.artist : (track as any).uploader
+        };
+
+        setPlayingAudio(cleanTrack);
         setIsAudioPlaying(true);
         if (queue && queue.length > 0) {
             setAudioQueue(queue);
             setQueueIndex(index !== undefined ? index : 0);
         } else {
-            setAudioQueue([track]);
+            setAudioQueue([cleanTrack]);
             setQueueIndex(0);
+        }
+    };
+
+    // ── Fix Match & Metadata Override Handlers ──
+    const openFixMatchModal = (track?: MediaItem) => {
+        const target = track || playingAudio;
+        if (!target) return;
+        const initialQ = `${target.artist || ''} ${target.title || ''}`.trim();
+        setFixMatchQuery(initialQ);
+        setCustomMatchArtist(target.artist || '');
+        setCustomMatchTitle(target.title || '');
+        setCustomMatchAlbum(target.album || '');
+        setIsFixMatchOpen(true);
+        handleSearchFixMatch(initialQ);
+    };
+
+    const handleSearchFixMatch = async (queryStr: string) => {
+        if (!queryStr.trim()) return;
+        setFixMatchLoading(true);
+        try {
+            const res = await fetch(`/api/theater/music/match?q=${encodeURIComponent(queryStr.trim())}`);
+            if (res.ok) {
+                const data = await res.json();
+                setFixMatchResults(data.results || []);
+            } else {
+                setFixMatchResults([]);
+            }
+        } catch {
+            setFixMatchResults([]);
+        } finally {
+            setFixMatchLoading(false);
+        }
+    };
+
+    const applyFixMatch = async (matched: { artist: string; title: string; album?: string; coverUrl?: string }) => {
+        if (!playingAudio) return;
+        const updated: MediaItem = {
+            ...playingAudio,
+            artist: matched.artist,
+            title: matched.title,
+            album: matched.album || playingAudio.album,
+            posterUrl: matched.coverUrl || playingAudio.posterUrl
+        };
+
+        setPlayingAudio(updated);
+        setIsFixMatchOpen(false);
+        toast.success(`Metadata matched to "${matched.title}" by ${matched.artist}!`);
+
+        // Re-fetch lyrics & chords & artist info for the new verified metadata
+        fetchLyrics(updated);
+        fetchChords(updated);
+        if (expandedSidePanel === 'artist') {
+            fetchArtistInfo(matched.artist);
         }
     };
 
@@ -2191,6 +2275,16 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                         </div>
 
                         <div className="flex items-center gap-1 shrink-0">
+                            {/* Fix Match Verified Metadata Quick Button */}
+                            <button
+                                onClick={() => openFixMatchModal()}
+                                className="p-2 sm:px-2.5 sm:py-1.5 rounded-2xl border text-xs font-black uppercase tracking-wider flex items-center gap-1.5 bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-amber-400 border-zinc-800 transition-all"
+                                title="Fix Match & Edit Song Metadata"
+                            >
+                                <Wrench size={14} className="text-amber-400" />
+                                <span className="hidden md:inline">Fix Match</span>
+                            </button>
+
                             {/* In-Player Search Quick Button */}
                             <button
                                 onClick={() => {
@@ -2308,15 +2402,25 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         {/* Turntable Plinth Inset */}
                                         <div className="absolute inset-2 rounded-[1.5rem] bg-gradient-to-b from-[#18181b] to-[#0c0c0e] border border-white/5 pointer-events-none shadow-inner" />
 
-                                        {/* Top-Left: Direct Drive Specs & Power LED */}
-                                        <div className="absolute top-3 left-4 z-20 flex items-center gap-1.5 pointer-events-none">
-                                            <span className={`w-2 h-2 rounded-full transition-all duration-300 ${
+                                        {/* Top-Left: Vintage Green Jewel Pilot Lamp */}
+                                        <div className="absolute top-3.5 left-4 z-20 flex items-center pointer-events-none" title={isAudioPlaying ? "Amplifier & Drive Active" : "Standby"}>
+                                            <div className={`relative w-4 h-4 rounded-full border border-zinc-700 bg-zinc-950 flex items-center justify-center p-0.5 shadow-inner transition-all duration-700 ${
                                                 isAudioPlaying
-                                                    ? 'bg-emerald-400 shadow-[0_0_8px_#34d399] ring-2 ring-emerald-500/30'
-                                                    : 'bg-zinc-600'
-                                            }`} />
-                                            <div className="text-[8px] font-black uppercase tracking-widest text-zinc-400">
-                                                <span className="text-amber-400">33⅓ RPM</span>
+                                                    ? 'border-emerald-500/50 shadow-[0_0_12px_rgba(52,211,153,0.8)] ring-1 ring-emerald-500/30'
+                                                    : 'border-zinc-800 opacity-50'
+                                            }`}>
+                                                {/* Brass / Chrome Outer Bezel */}
+                                                <div className="absolute inset-0 rounded-full border border-amber-500/20 pointer-events-none" />
+                                                
+                                                {/* Faceted Jewel Glass Lens */}
+                                                <div className={`w-full h-full rounded-full transition-all duration-500 relative overflow-hidden flex items-center justify-center ${
+                                                    isAudioPlaying
+                                                        ? 'bg-gradient-to-tr from-emerald-600 via-emerald-400 to-green-300 shadow-[inset_0_0_4px_rgba(255,255,255,0.7),0_0_10px_#34d399] animate-pulse'
+                                                        : 'bg-emerald-950/60 border border-emerald-900/30'
+                                                }`}>
+                                                    {/* Glass Facet Specular Highlight */}
+                                                    <div className="absolute top-0.5 left-0.5 w-1 h-0.5 rounded-full bg-white/70 pointer-events-none" />
+                                                </div>
                                             </div>
                                         </div>
 
@@ -2419,12 +2523,21 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                     )}
                                 </div>
 
-                                <h2 className="text-lg sm:text-2xl font-black text-white leading-tight truncate">
-                                    {playingAudio.title}
-                                </h2>
+                                <div className="flex items-center justify-center gap-2 max-w-full">
+                                    <h2 className="text-lg sm:text-2xl font-black text-white leading-tight truncate">
+                                        {playingAudio.title}
+                                    </h2>
+                                    <button
+                                        onClick={() => openFixMatchModal()}
+                                        className="p-1 rounded-lg text-zinc-500 hover:text-amber-400 hover:bg-zinc-900 transition-all shrink-0"
+                                        title="Fix Match / Correct Song Metadata"
+                                    >
+                                        <Wrench size={14} />
+                                    </button>
+                                </div>
                                 
-                                {/* Clickable Artist Name to view Bio & Discography */}
-                                <div>
+                                {/* Clickable Artist Name & Uploader Info */}
+                                <div className="flex items-center justify-center gap-1.5 flex-wrap">
                                     <button
                                         onClick={() => openArtistDetails(playingAudio.artist)}
                                         className="text-sm sm:text-base font-bold text-amber-300 hover:text-amber-200 hover:underline transition-colors max-w-full truncate inline-flex items-center gap-1 cursor-pointer"
@@ -2433,6 +2546,11 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         <User size={13} className="text-amber-400 shrink-0" />
                                         <span>{playingAudio.artist || playingAudio.folder || 'Artist'}</span>
                                     </button>
+                                    {((playingAudio as any).uploader && (playingAudio as any).uploader !== playingAudio.artist) && (
+                                        <span className="text-[11px] text-zinc-500 font-medium truncate">
+                                            (via {(playingAudio as any).uploader})
+                                        </span>
+                                    )}
                                 </div>
 
                                 {/* 5-Star Rating & Playlist Action */}
@@ -3522,6 +3640,165 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 )}
                             </div>
                         )}
+                    </div>
+                </div>
+            )}
+
+            {/* ══════════════════════════════════════════════════════════════
+               FIX MATCH & VERIFIED METADATA MODAL
+               ══════════════════════════════════════════════════════════════ */}
+            {isFixMatchOpen && (
+                <div className="fixed inset-0 z-[320] flex items-center justify-center p-4 sm:p-6 bg-black/90 backdrop-blur-2xl animate-in fade-in duration-200">
+                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-2xl p-6 sm:p-8 shadow-2xl relative max-h-[90vh] flex flex-col space-y-5 overflow-hidden">
+                        <button
+                            onClick={() => setIsFixMatchOpen(false)}
+                            className="absolute top-6 right-6 p-2.5 rounded-2xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all z-20"
+                        >
+                            <X size={20} />
+                        </button>
+
+                        <div className="flex items-center gap-2 pb-2 border-b border-zinc-900">
+                            <span className="px-3 py-1 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20 text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
+                                <Wrench size={14} /> Fix Match &amp; Song Metadata
+                            </span>
+                        </div>
+
+                        {/* Search Input for Verified Match */}
+                        <div className="space-y-2">
+                            <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">
+                                Search Verified Metadata (Apple Music, Deezer, LRCLib)
+                            </label>
+                            <div className="flex items-center gap-2">
+                                <div className="relative flex-1">
+                                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
+                                    <input
+                                        type="text"
+                                        value={fixMatchQuery}
+                                        onChange={(e) => setFixMatchQuery(e.target.value)}
+                                        onKeyDown={(e) => e.key === 'Enter' && handleSearchFixMatch(fixMatchQuery)}
+                                        placeholder="Search Artist and Song title..."
+                                        className="w-full bg-zinc-900/90 border border-zinc-700/80 rounded-2xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500 font-medium"
+                                    />
+                                </div>
+                                <button
+                                    onClick={() => handleSearchFixMatch(fixMatchQuery)}
+                                    disabled={fixMatchLoading || !fixMatchQuery.trim()}
+                                    className="px-4 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider transition-all disabled:opacity-50 shrink-0"
+                                >
+                                    {fixMatchLoading ? 'Searching...' : 'Search'}
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Search Results List */}
+                        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar space-y-2.5 pr-1">
+                            {fixMatchLoading ? (
+                                <div className="flex flex-col items-center justify-center py-10 gap-2">
+                                    <div className="w-8 h-8 border-2 border-amber-500/20 border-t-amber-500 rounded-full animate-spin" />
+                                    <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">Searching Music Databases...</p>
+                                </div>
+                            ) : fixMatchResults.length > 0 ? (
+                                <div className="space-y-2">
+                                    <p className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">
+                                        Verified Matches Found ({fixMatchResults.length}):
+                                    </p>
+                                    {fixMatchResults.map((result) => (
+                                        <div
+                                            key={result.id}
+                                            className="p-3 rounded-2xl bg-zinc-900/60 hover:bg-zinc-800/80 border border-zinc-800/80 hover:border-amber-500/30 transition-all flex items-center justify-between gap-3 group"
+                                        >
+                                            <div className="flex items-center gap-3 min-w-0 flex-1">
+                                                {result.coverUrl ? (
+                                                    <img
+                                                        src={result.coverUrl}
+                                                        alt=""
+                                                        className="w-12 h-12 rounded-xl object-cover border border-zinc-700 shrink-0"
+                                                    />
+                                                ) : (
+                                                    <div className="w-12 h-12 rounded-xl bg-zinc-800 flex items-center justify-center text-zinc-500 shrink-0">
+                                                        <Music size={20} />
+                                                    </div>
+                                                )}
+                                                <div className="min-w-0 flex-1">
+                                                    <h4 className="font-bold text-sm text-white truncate group-hover:text-amber-300 transition-colors">
+                                                        {result.title}
+                                                    </h4>
+                                                    <p className="text-xs text-amber-400 font-medium truncate">
+                                                        {result.artist}
+                                                    </p>
+                                                    <p className="text-[11px] text-zinc-500 truncate">
+                                                        {result.album} {result.releaseYear ? `(${result.releaseYear})` : ''} • <span className="text-emerald-400">{result.source}</span>
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <button
+                                                onClick={() => applyFixMatch(result)}
+                                                className="px-3.5 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-black font-black text-xs uppercase tracking-wider border border-amber-500/30 hover:border-amber-400 transition-all shrink-0 flex items-center gap-1.5"
+                                            >
+                                                <Check size={14} /> Match This
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : fixMatchQuery ? (
+                                <p className="text-xs text-zinc-500 text-center py-6">No matching song found in catalog. You can manually enter the accurate tags below.</p>
+                            ) : null}
+
+                            {/* Manual Metadata Entry Option */}
+                            <div className="pt-3 border-t border-zinc-900 space-y-3">
+                                <p className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">
+                                    Or Manually Set Custom Tags:
+                                </p>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="text-[10px] text-zinc-500 uppercase font-black">Artist Name</label>
+                                        <input
+                                            type="text"
+                                            value={customMatchArtist}
+                                            onChange={(e) => setCustomMatchArtist(e.target.value)}
+                                            placeholder="e.g. Queen"
+                                            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-amber-500"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] text-zinc-500 uppercase font-black">Song Title</label>
+                                        <input
+                                            type="text"
+                                            value={customMatchTitle}
+                                            onChange={(e) => setCustomMatchTitle(e.target.value)}
+                                            placeholder="e.g. Bohemian Rhapsody"
+                                            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-amber-500"
+                                        />
+                                    </div>
+                                    <div className="sm:col-span-2">
+                                        <label className="text-[10px] text-zinc-500 uppercase font-black">Album (Optional)</label>
+                                        <input
+                                            type="text"
+                                            value={customMatchAlbum}
+                                            onChange={(e) => setCustomMatchAlbum(e.target.value)}
+                                            placeholder="e.g. A Night at the Opera"
+                                            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-amber-500"
+                                        />
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        if (!customMatchArtist.trim() || !customMatchTitle.trim()) {
+                                            toast.error('Artist and Song Title are required');
+                                            return;
+                                        }
+                                        applyFixMatch({
+                                            artist: customMatchArtist.trim(),
+                                            title: customMatchTitle.trim(),
+                                            album: customMatchAlbum.trim() || undefined
+                                        });
+                                    }}
+                                    className="w-full py-2.5 rounded-2xl bg-zinc-800 hover:bg-amber-500 text-zinc-200 hover:text-black font-black text-xs uppercase tracking-wider transition-all border border-zinc-700 hover:border-amber-400"
+                                >
+                                    Apply Custom Metadata Override
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}

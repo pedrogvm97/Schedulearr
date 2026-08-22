@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import axios from 'axios';
 
+import { sanitizeSongMetadata } from '@/lib/songSanitizer';
+
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
@@ -35,16 +37,18 @@ export async function GET(req: Request) {
                 for (const item of contents) {
                     const video = item.videoRenderer;
                     if (video && video.videoId) {
-                        const title = video.title?.runs?.[0]?.text || 'Track';
-                        const artist = video.ownerText?.runs?.[0]?.text || video.channelTitle || 'Artist';
+                        const rawTitle = video.title?.runs?.[0]?.text || 'Track';
+                        const rawUploader = video.ownerText?.runs?.[0]?.text || video.channelTitle || 'Artist';
+                        const { cleanArtist, cleanTitle } = sanitizeSongMetadata(rawTitle, rawUploader);
                         const duration = video.lengthText?.simpleText || '3:30';
                         const thumbnail = video.thumbnail?.thumbnails?.[video.thumbnail.thumbnails.length - 1]?.url || '';
 
                         results.push({
                             id: `yt-${video.videoId}`,
-                            name: title,
-                            title,
-                            artist,
+                            name: cleanTitle || rawTitle,
+                            title: cleanTitle || rawTitle,
+                            artist: cleanArtist || rawUploader,
+                            uploader: rawUploader,
                             album: 'YouTube Music',
                             duration,
                             category: 'audio',
