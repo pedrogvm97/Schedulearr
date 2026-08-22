@@ -34,6 +34,10 @@ export interface MediaItem {
     folder: string;
     artist?: string;
     album?: string;
+    albumId?: string | number;
+    releaseYear?: string;
+    genre?: string;
+    uploader?: string;
     trackNumber?: number;
     durationMs?: number;
     duration?: string;
@@ -96,6 +100,7 @@ interface MusicPlayerContextType {
     openExpandedPlayer: () => void;
     closeExpandedPlayer: () => void;
     openArtistDetails: (artistName?: string) => void;
+    openAlbumDetails: (albumName?: string, artistName?: string, albumId?: string | number) => void;
     handleDownloadTrack: (track: MediaItem | null) => void;
     handleDownloadAlbum: (tracks: MediaItem[], albumName?: string) => void;
     addToQueue: (track: MediaItem) => void;
@@ -449,7 +454,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     // UI Drawer & Modal States
     const [showQueueDrawer, setShowQueueDrawer] = useState(false);
     const [isExpandedPlayerOpen, setIsExpandedPlayerOpen] = useState(false);
-    const [expandedSidePanel, setExpandedSidePanel] = useState<'karaoke' | 'guitar' | 'bass' | 'sing' | 'artist' | 'queue' | 'playlists' | 'specs' | 'search'>('karaoke');
+    const [expandedSidePanel, setExpandedSidePanel] = useState<'karaoke' | 'guitar' | 'bass' | 'sing' | 'artist' | 'album' | 'queue' | 'playlists' | 'specs' | 'search'>('karaoke');
     const [showExpandedSidePanel, setShowExpandedSidePanel] = useState(true);
     const [isVinylView, setIsVinylView] = useState(true);
 
@@ -558,6 +563,13 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     const [selectedArtistName, setSelectedArtistName] = useState<string | null>(null);
     const [artistData, setArtistData] = useState<any | null>(null);
     const [artistLoading, setArtistLoading] = useState(false);
+
+    // Album Page & Tracklist States
+    const [showAlbumModal, setShowAlbumModal] = useState(false);
+    const [selectedAlbumTitle, setSelectedAlbumTitle] = useState<string | null>(null);
+    const [albumData, setAlbumData] = useState<any | null>(null);
+    const [albumTracks, setAlbumTracks] = useState<any[]>([]);
+    const [albumLoading, setAlbumLoading] = useState(false);
 
     // Vinyl Interactive DJ Scratch & Tonearm Controls (Gimmick)
     const [tonearmCustomAngle, setTonearmCustomAngle] = useState<number | null>(null);
@@ -1265,6 +1277,44 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             setAudioQueue([cleanTrack]);
             setQueueIndex(0);
         }
+
+        // Automatic background album & metadata enrichment for YouTube and online tracks
+        const isYtOrOnline = Boolean(
+            !cleanTrack.album ||
+            cleanTrack.album === 'YouTube Music' ||
+            cleanTrack.album === 'Singles' ||
+            cleanTrack.album === 'Single' ||
+            cleanTrack.album === 'Track' ||
+            cleanTrack.youtubeId ||
+            cleanTrack.id?.startsWith('yt-') ||
+            cleanTrack.source?.includes('YouTube')
+        );
+
+        if (isYtOrOnline && cleanTrack.artist && cleanTrack.title) {
+            fetch(`/api/theater/music/match?artist=${encodeURIComponent(cleanTrack.artist)}&title=${encodeURIComponent(cleanTrack.title)}`)
+                .then(r => r.ok ? r.json() : null)
+                .then(data => {
+                    if (data && Array.isArray(data.results) && data.results.length > 0) {
+                        const match = data.results[0];
+                        if (match && match.album) {
+                            setPlayingAudio(prev => {
+                                if (!prev || prev.id !== cleanTrack.id) return prev;
+                                return {
+                                    ...prev,
+                                    album: match.album,
+                                    albumId: match.collectionId || prev.albumId,
+                                    releaseYear: match.releaseYear || prev.releaseYear,
+                                    genre: match.genre || prev.genre,
+                                    posterUrl: (prev.posterUrl && !prev.posterUrl.includes('ytimg') && !prev.posterUrl.includes('default')) 
+                                        ? prev.posterUrl 
+                                        : (match.coverUrl || prev.posterUrl)
+                                };
+                            });
+                        }
+                    }
+                })
+                .catch(() => {});
+        }
     };
 
     // ── Fix Match & Metadata Override Handlers ──
@@ -1832,6 +1882,59 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         }
     };
 
+    const fetchAlbumInfo = async (albumName?: string, artistName?: string, albumId?: string | number) => {
+        const aName = (albumName || playingAudio?.album || '').trim();
+        const artName = (artistName || playingAudio?.artist || '').trim();
+        const id = albumId || (playingAudio as any)?.albumId;
+
+        if (!aName && !id && !artName) return;
+
+        setAlbumLoading(true);
+        setSelectedAlbumTitle(aName || 'Album');
+        try {
+            const params = new URLSearchParams();
+            if (id) params.set('id', String(id));
+            if (artName) params.set('artist', artName);
+            if (aName) params.set('album', aName);
+
+            const res = await fetch(`/api/theater/music/album?${params.toString()}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.album) {
+                    setAlbumData(data.album);
+                    setAlbumTracks(Array.isArray(data.tracks) ? data.tracks : []);
+                    addAudioNerdLog('info', `Fetched album details for "${data.album.title}" by ${data.album.artist}`, { tracksCount: data.tracks?.length });
+                } else {
+                    setAlbumData({ title: aName || 'Album', artist: artName || 'Artist', tracks: [] });
+                    setAlbumTracks([]);
+                }
+            } else {
+                setAlbumData({ title: aName || 'Album', artist: artName || 'Artist', tracks: [] });
+                setAlbumTracks([]);
+            }
+        } catch (e: any) {
+            console.error('Failed to fetch album info:', e);
+            setAlbumData({ title: aName || 'Album', artist: artName || 'Artist', tracks: [] });
+            setAlbumTracks([]);
+        } finally {
+            setAlbumLoading(false);
+        }
+    };
+
+    const openAlbumDetails = (albumName?: string, artistName?: string, albumId?: string | number) => {
+        const aName = (albumName || playingAudio?.album || '').trim();
+        const artName = (artistName || playingAudio?.artist || '').trim();
+        const id = albumId || (playingAudio as any)?.albumId;
+
+        fetchAlbumInfo(aName, artName, id);
+        if (isExpandedPlayerOpen) {
+            setShowExpandedSidePanel(true);
+            setExpandedSidePanel('album');
+        } else {
+            setShowAlbumModal(true);
+        }
+    };
+
     return (
         <MusicPlayerContext.Provider
             value={{
@@ -1860,6 +1963,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                 openExpandedPlayer: () => setIsExpandedPlayerOpen(true),
                 closeExpandedPlayer: () => setIsExpandedPlayerOpen(false),
                 openArtistDetails,
+                openAlbumDetails,
                 handleDownloadTrack,
                 handleDownloadAlbum,
                 addToQueue
@@ -2014,16 +2118,34 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         </span>
                                     )}
                                 </div>
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        openArtistDetails(playingAudio.artist);
-                                    }}
-                                    className="text-[11px] sm:text-xs text-zinc-400 hover:text-amber-300 hover:underline truncate text-left transition-colors block"
-                                    title={`View artist biography & albums for ${playingAudio.artist || 'Artist'}`}
-                                >
-                                    {playingAudio.artist || playingAudio.folder || 'Artist'}
-                                </button>
+                                <div className="flex items-center gap-1.5 truncate">
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            openArtistDetails(playingAudio.artist);
+                                        }}
+                                        className="text-[11px] sm:text-xs text-zinc-400 hover:text-amber-300 hover:underline truncate text-left transition-colors"
+                                        title={`View artist biography & albums for ${playingAudio.artist || 'Artist'}`}
+                                    >
+                                        {playingAudio.artist || playingAudio.folder || 'Artist'}
+                                    </button>
+                                    {playingAudio.album && (
+                                        <>
+                                            <span className="text-[10px] text-zinc-600">•</span>
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    openAlbumDetails(playingAudio.album, playingAudio.artist, (playingAudio as any).albumId);
+                                                }}
+                                                className="text-[11px] sm:text-xs text-zinc-400 hover:text-amber-300 hover:underline truncate text-left transition-colors inline-flex items-center gap-1"
+                                                title={`View album "${playingAudio.album}"`}
+                                            >
+                                                <Disc size={11} className="text-amber-400/80 shrink-0" />
+                                                <span className="truncate">{playingAudio.album}</span>
+                                            </button>
+                                        </>
+                                    )}
+                                </div>
                             </div>
                         </div>
 
@@ -2556,9 +2678,14 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         {playingAudio.extension?.toUpperCase() === 'FLAC' ? 'FLAC 24-bit' : `${playingAudio.extension?.toUpperCase() || 'Audio'}`}
                                     </span>
                                     {playingAudio.album && (
-                                        <span className="px-2 py-0.5 rounded-md bg-zinc-900 text-zinc-400 border border-zinc-800 text-[9px] font-black uppercase truncate max-w-[180px]">
-                                            {playingAudio.album}
-                                        </span>
+                                        <button
+                                            onClick={() => openAlbumDetails(playingAudio.album, playingAudio.artist, (playingAudio as any).albumId)}
+                                            className="px-2.5 py-0.5 rounded-md bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-amber-300 border border-zinc-800 hover:border-amber-500/40 text-[9px] font-black uppercase truncate max-w-[200px] inline-flex items-center gap-1 transition-all cursor-pointer shadow-sm"
+                                            title={`Click to view full album tracklist & page for "${playingAudio.album}"`}
+                                        >
+                                            <Disc size={10} className="text-amber-400 shrink-0" />
+                                            <span className="truncate">{playingAudio.album}</span>
+                                        </button>
                                     )}
                                 </div>
 
@@ -2764,6 +2891,17 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                             }`}
                                         >
                                             <User size={13} /> Artist Bio
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                setExpandedSidePanel('album');
+                                                fetchAlbumInfo(playingAudio.album, playingAudio.artist, (playingAudio as any).albumId);
+                                            }}
+                                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
+                                                expandedSidePanel === 'album' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
+                                            }`}
+                                        >
+                                            <Disc size={13} /> Album
                                         </button>
                                         <button
                                             onClick={() => setExpandedSidePanel('queue')}
@@ -3198,9 +3336,9 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                 return (
                                                                     <div
                                                                         key={ai}
-                                                                        onClick={() => handlePlayAlbumCard(album)}
+                                                                        onClick={() => openAlbumDetails(album.title, artistData.artistName, album.id)}
                                                                         className="p-2.5 bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-800/80 hover:border-amber-500/60 rounded-2xl transition-all space-y-2 group flex flex-col justify-between cursor-pointer hover:scale-[1.02] shadow-lg"
-                                                                        title={`Click to play album "${album.title}"`}
+                                                                        title={`Click to view album "${album.title}" tracklist & details`}
                                                                     >
                                                                         <div className="aspect-square w-full rounded-xl overflow-hidden bg-zinc-950 flex items-center justify-center relative shadow-md">
                                                                             {coverImg ? (
@@ -3209,7 +3347,14 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                                 <Disc size={28} className="text-zinc-700" />
                                                                             )}
                                                                             {/* Play Overlay */}
-                                                                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                                                            <div 
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    handlePlayAlbumCard(album);
+                                                                                }}
+                                                                                className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"
+                                                                                title="Play Album"
+                                                                            >
                                                                                 <div className="w-9 h-9 rounded-full bg-amber-500 text-black flex items-center justify-center shadow-lg transform group-hover:scale-110 transition-transform">
                                                                                     <Play size={16} className="ml-0.5 fill-black" />
                                                                                 </div>
@@ -3260,6 +3405,165 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         ) : (
                                             <div className="p-8 text-center text-xs text-zinc-500">
                                                 No artist information available.
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* 3. Album Tab Content */}
+                                {expandedSidePanel === 'album' && (
+                                    <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-2 space-y-4">
+                                        {albumLoading ? (
+                                            <div className="flex flex-col items-center justify-center py-20 gap-3 m-auto">
+                                                <div className="w-9 h-9 border-3 border-amber-500/20 border-t-amber-500 rounded-full animate-spin" />
+                                                <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">Loading Album Details &amp; Tracklist...</p>
+                                            </div>
+                                        ) : albumData ? (
+                                            <div className="space-y-4">
+                                                {/* Album Header Card */}
+                                                <div className="p-4 sm:p-5 bg-zinc-900/60 rounded-2xl border border-zinc-800 flex flex-col sm:flex-row items-center sm:items-start gap-4">
+                                                    {albumData.coverUrl ? (
+                                                        <img
+                                                            src={albumData.coverUrl}
+                                                            alt=""
+                                                            className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl object-cover border border-zinc-700 shadow-xl shrink-0"
+                                                        />
+                                                    ) : (
+                                                        <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl bg-zinc-800 flex items-center justify-center text-amber-400 shrink-0 border border-zinc-700">
+                                                            <Disc size={36} />
+                                                        </div>
+                                                    )}
+                                                    <div className="min-w-0 flex-1 text-center sm:text-left space-y-1.5">
+                                                        <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 text-[9px] font-black uppercase tracking-wider">
+                                                            Album
+                                                        </span>
+                                                        <h2 className="text-xl sm:text-2xl font-black text-white leading-tight">{albumData.title}</h2>
+                                                        <button
+                                                            onClick={() => {
+                                                                setExpandedSidePanel('artist');
+                                                                fetchArtistInfo(albumData.artist);
+                                                            }}
+                                                            className="text-sm sm:text-base font-bold text-amber-300 hover:text-amber-200 hover:underline transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+                                                        >
+                                                            <User size={13} className="text-amber-400 shrink-0" />
+                                                            <span>{albumData.artist}</span>
+                                                        </button>
+                                                        <div className="flex items-center justify-center sm:justify-start gap-2 flex-wrap text-xs text-zinc-400 font-medium pt-1">
+                                                            {albumData.releaseYear && (
+                                                                <span className="flex items-center gap-1">
+                                                                    <Calendar size={12} className="text-zinc-500" /> {albumData.releaseYear}
+                                                                </span>
+                                                            )}
+                                                            {albumData.genre && (
+                                                                <span className="px-2 py-0.5 rounded-md bg-zinc-800 text-zinc-300 text-[10px] font-bold">
+                                                                    {albumData.genre}
+                                                                </span>
+                                                            )}
+                                                            <span>•</span>
+                                                            <span>{albumTracks.length > 0 ? `${albumTracks.length} Songs` : (albumData.trackCount ? `${albumData.trackCount} Tracks` : '')}</span>
+                                                        </div>
+                                                        {/* Action Buttons */}
+                                                        <div className="flex items-center justify-center sm:justify-start gap-2 pt-2 flex-wrap">
+                                                            <button
+                                                                onClick={() => {
+                                                                    if (albumTracks.length > 0) {
+                                                                        playAlbum(albumTracks);
+                                                                        toast.success(`Playing album "${albumData.title}"!`);
+                                                                    } else {
+                                                                        handlePlayAlbumCard(albumData);
+                                                                    }
+                                                                }}
+                                                                className="px-4 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-md shadow-amber-500/20 transition-all cursor-pointer"
+                                                            >
+                                                                <Play size={13} className="fill-black" /> Play Album
+                                                            </button>
+                                                            <button
+                                                                onClick={() => {
+                                                                    if (albumTracks.length > 0) {
+                                                                        handleDownloadAlbum(albumTracks, albumData.title);
+                                                                    } else {
+                                                                        handleDownloadTrack({
+                                                                            id: albumData.id,
+                                                                            title: albumData.title,
+                                                                            artist: albumData.artist,
+                                                                            album: albumData.title,
+                                                                            posterUrl: albumData.coverUrl
+                                                                        } as any);
+                                                                    }
+                                                                }}
+                                                                className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs uppercase tracking-wider flex items-center gap-1.5 border border-zinc-700 transition-all cursor-pointer"
+                                                            >
+                                                                <Download size={12} /> Download
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {/* Album Tracklist */}
+                                                <div className="space-y-2">
+                                                    <h3 className="text-xs font-black uppercase tracking-wider text-white flex items-center gap-1.5">
+                                                        <ListMusic size={14} className="text-amber-400" /> Tracklist ({albumTracks.length})
+                                                    </h3>
+
+                                                    {albumTracks.length > 0 ? (
+                                                        <div className="divide-y divide-zinc-800/60 bg-zinc-900/40 rounded-xl border border-zinc-800/80 overflow-hidden">
+                                                            {albumTracks.map((t: any, ti: number) => {
+                                                                const isCurrentPlaying = playingAudio?.title?.toLowerCase() === t.title?.toLowerCase() || playingAudio?.id === t.id;
+                                                                return (
+                                                                    <div
+                                                                        key={t.id || ti}
+                                                                        onClick={() => playTrack(t, albumTracks, ti)}
+                                                                        className={`p-3 flex items-center justify-between gap-3 hover:bg-zinc-800/50 transition-colors cursor-pointer group ${
+                                                                            isCurrentPlaying ? 'bg-amber-500/10' : ''
+                                                                        }`}
+                                                                    >
+                                                                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                                                                            <span className="w-5 text-center text-xs font-mono font-bold text-zinc-500 group-hover:hidden">
+                                                                                {isCurrentPlaying ? (
+                                                                                    <Activity size={13} className="text-amber-400 animate-pulse mx-auto" />
+                                                                                ) : (
+                                                                                    t.trackNumber || ti + 1
+                                                                                )}
+                                                                            </span>
+                                                                            <Play size={13} className="w-5 text-amber-400 hidden group-hover:block shrink-0 fill-amber-400" />
+                                                                            <div className="min-w-0 flex-1">
+                                                                                <p className={`text-xs font-bold truncate leading-snug ${isCurrentPlaying ? 'text-amber-400 font-black' : 'text-white group-hover:text-amber-300'}`}>
+                                                                                    {t.title}
+                                                                                </p>
+                                                                                <p className="text-[11px] text-zinc-400 truncate">
+                                                                                    {t.artist}
+                                                                                </p>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-2.5 shrink-0">
+                                                                            <span className="text-[11px] font-mono text-zinc-500 font-semibold">
+                                                                                {t.duration || '3:30'}
+                                                                            </span>
+                                                                            <button
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    handleDownloadTrack(t);
+                                                                                }}
+                                                                                className="p-1 rounded-lg text-zinc-500 hover:text-amber-300 hover:bg-zinc-800 transition-colors opacity-0 group-hover:opacity-100"
+                                                                                title="Download Track"
+                                                                            >
+                                                                                <Download size={12} />
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="p-6 text-center bg-zinc-900/30 rounded-2xl border border-zinc-800/60 text-xs text-zinc-500">
+                                                            No track listing found for this album.
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="p-8 text-center text-xs text-zinc-500">
+                                                No album selected. Click an album badge or search an album.
                                             </div>
                                         )}
                                     </div>
@@ -3934,9 +4238,9 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                     return (
                                                         <div
                                                             key={ai}
-                                                            onClick={() => handlePlayAlbumCard(album)}
+                                                            onClick={() => openAlbumDetails(album.title, artistData.artistName, album.id)}
                                                             className="p-3 bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-800/80 hover:border-amber-500/60 rounded-2xl transition-all space-y-2 group flex flex-col justify-between cursor-pointer hover:scale-[1.02] shadow-xl"
-                                                            title={`Click to play album "${album.title}"`}
+                                                            title={`Click to view album "${album.title}" tracklist & details`}
                                                         >
                                                             <div className="aspect-square w-full rounded-xl overflow-hidden bg-zinc-950 flex items-center justify-center relative shadow-md">
                                                                 {coverImg ? (
@@ -3945,7 +4249,14 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                     <Disc size={32} className="text-zinc-700" />
                                                                 )}
                                                                 {/* Play Overlay */}
-                                                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                                                <div 
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handlePlayAlbumCard(album);
+                                                                    }}
+                                                                    className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"
+                                                                    title="Play Album"
+                                                                >
                                                                     <div className="w-11 h-11 rounded-full bg-amber-500 text-black flex items-center justify-center shadow-lg transform group-hover:scale-110 transition-transform">
                                                                         <Play size={20} className="ml-0.5 fill-black" />
                                                                     </div>
@@ -3996,6 +4307,188 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             ) : (
                                 <div className="p-12 text-center text-zinc-500 text-xs">
                                     Could not find details for &quot;{selectedArtistName}&quot;.
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ══════════════════════════════════════════════════════════════
+               STANDALONE ALBUM DETAILS & TRACKLIST MODAL
+               ══════════════════════════════════════════════════════════════ */}
+            {showAlbumModal && (
+                <div className="fixed inset-0 z-[315] flex items-center justify-center p-4 sm:p-6 bg-black/90 backdrop-blur-2xl animate-in fade-in duration-200">
+                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-4xl p-6 sm:p-8 shadow-2xl relative max-h-[88vh] flex flex-col space-y-5 overflow-hidden">
+                        <button
+                            onClick={() => setShowAlbumModal(false)}
+                            className="absolute top-6 right-6 p-2.5 rounded-2xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all z-20"
+                        >
+                            <X size={20} />
+                        </button>
+
+                        <div className="flex items-center gap-2 pb-2 border-b border-zinc-900">
+                            <span className="px-2.5 py-0.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-black uppercase flex items-center gap-1">
+                                <Disc size={12} /> Album Details &amp; Tracklist
+                            </span>
+                        </div>
+
+                        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar space-y-5 pr-1">
+                            {albumLoading ? (
+                                <div className="flex flex-col items-center justify-center py-20 gap-3">
+                                    <div className="w-10 h-10 border-3 border-amber-500/20 border-t-amber-500 rounded-full animate-spin" />
+                                    <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">Loading Album Details &amp; Tracklist...</p>
+                                </div>
+                            ) : albumData ? (
+                                <div className="space-y-5">
+                                    {/* Album Header */}
+                                    <div className="p-5 bg-zinc-900/60 rounded-3xl border border-zinc-800 flex flex-col sm:flex-row items-center sm:items-start gap-5">
+                                        {albumData.coverUrl ? (
+                                            <img
+                                                src={albumData.coverUrl}
+                                                alt=""
+                                                className="w-32 h-32 sm:w-44 sm:h-44 rounded-2xl object-cover border border-zinc-700 shadow-2xl shrink-0"
+                                            />
+                                        ) : (
+                                            <div className="w-32 h-32 sm:w-44 sm:h-44 rounded-2xl bg-zinc-800 flex items-center justify-center text-amber-400 shrink-0 border border-zinc-700">
+                                                <Disc size={56} />
+                                            </div>
+                                        )}
+                                        <div className="min-w-0 flex-1 text-center sm:text-left space-y-3">
+                                            <div className="space-y-1">
+                                                <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 text-[10px] font-black uppercase tracking-wider">
+                                                    Album
+                                                </span>
+                                                <h1 className="text-2xl sm:text-3xl font-black text-white leading-tight">{albumData.title}</h1>
+                                                <button
+                                                    onClick={() => {
+                                                        setShowAlbumModal(false);
+                                                        openArtistDetails(albumData.artist);
+                                                    }}
+                                                    className="text-base sm:text-lg font-bold text-amber-300 hover:text-amber-200 hover:underline transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+                                                >
+                                                    <User size={15} className="text-amber-400 shrink-0" />
+                                                    <span>{albumData.artist}</span>
+                                                </button>
+                                            </div>
+
+                                            <div className="flex items-center justify-center sm:justify-start gap-2 flex-wrap text-xs text-zinc-400 font-medium">
+                                                {albumData.releaseYear && (
+                                                    <span className="flex items-center gap-1">
+                                                        <Calendar size={13} className="text-zinc-500" /> {albumData.releaseYear}
+                                                    </span>
+                                                )}
+                                                {albumData.genre && (
+                                                    <span className="px-2 py-0.5 rounded-lg bg-zinc-800 text-zinc-300 text-xs font-bold">
+                                                        {albumData.genre}
+                                                    </span>
+                                                )}
+                                                <span>•</span>
+                                                <span>{albumTracks.length > 0 ? `${albumTracks.length} Songs` : (albumData.trackCount ? `${albumData.trackCount} Tracks` : '')}</span>
+                                            </div>
+
+                                            {/* Action Buttons */}
+                                            <div className="flex items-center justify-center sm:justify-start gap-3 pt-2 flex-wrap">
+                                                <button
+                                                    onClick={() => {
+                                                        if (albumTracks.length > 0) {
+                                                            playAlbum(albumTracks);
+                                                            toast.success(`Playing album "${albumData.title}"!`);
+                                                        } else {
+                                                            handlePlayAlbumCard(albumData);
+                                                        }
+                                                    }}
+                                                    className="px-5 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-2 shadow-lg shadow-amber-500/20 transition-all cursor-pointer"
+                                                >
+                                                    <Play size={15} className="fill-black" /> Play Album
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        if (albumTracks.length > 0) {
+                                                            handleDownloadAlbum(albumTracks, albumData.title);
+                                                        } else {
+                                                            handleDownloadTrack({
+                                                                id: albumData.id,
+                                                                title: albumData.title,
+                                                                artist: albumData.artist,
+                                                                album: albumData.title,
+                                                                posterUrl: albumData.coverUrl
+                                                            } as any);
+                                                        }
+                                                    }}
+                                                    className="px-4 py-2.5 rounded-2xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs uppercase tracking-wider flex items-center gap-2 border border-zinc-700 transition-all cursor-pointer"
+                                                >
+                                                    <Download size={14} /> Download Album
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Tracklist */}
+                                    <div className="space-y-3">
+                                        <h3 className="text-sm font-black uppercase tracking-wider text-white flex items-center gap-2">
+                                            <ListMusic size={16} className="text-amber-400" /> Tracklist ({albumTracks.length})
+                                        </h3>
+
+                                        {albumTracks.length > 0 ? (
+                                            <div className="divide-y divide-zinc-800/60 bg-zinc-900/30 rounded-2xl border border-zinc-800/80 overflow-hidden">
+                                                {albumTracks.map((t: any, ti: number) => {
+                                                    const isCurrentPlaying = playingAudio?.title?.toLowerCase() === t.title?.toLowerCase() || playingAudio?.id === t.id;
+                                                    return (
+                                                        <div
+                                                            key={t.id || ti}
+                                                            onClick={() => playTrack(t, albumTracks, ti)}
+                                                            className={`p-3.5 flex items-center justify-between gap-3 hover:bg-zinc-800/50 transition-colors cursor-pointer group ${
+                                                                isCurrentPlaying ? 'bg-amber-500/10' : ''
+                                                            }`}
+                                                        >
+                                                            <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                                                                <span className="w-6 text-center text-xs font-mono font-bold text-zinc-500 group-hover:hidden">
+                                                                    {isCurrentPlaying ? (
+                                                                        <Activity size={14} className="text-amber-400 animate-pulse mx-auto" />
+                                                                    ) : (
+                                                                        t.trackNumber || ti + 1
+                                                                    )}
+                                                                </span>
+                                                                <Play size={14} className="w-6 text-amber-400 hidden group-hover:block shrink-0 fill-amber-400" />
+                                                                <div className="min-w-0 flex-1">
+                                                                    <p className={`text-sm font-bold truncate leading-snug ${isCurrentPlaying ? 'text-amber-400 font-black' : 'text-white group-hover:text-amber-300'}`}>
+                                                                        {t.title}
+                                                                    </p>
+                                                                    <p className="text-xs text-zinc-400 truncate">
+                                                                        {t.artist}
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex items-center gap-3 shrink-0">
+                                                                <span className="text-xs font-mono text-zinc-500 font-semibold">
+                                                                    {t.duration || '3:30'}
+                                                                </span>
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleDownloadTrack(t);
+                                                                    }}
+                                                                    className="p-1.5 rounded-lg text-zinc-500 hover:text-amber-300 hover:bg-zinc-800 transition-colors opacity-0 group-hover:opacity-100"
+                                                                    title="Download Track"
+                                                                >
+                                                                    <Download size={13} />
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        ) : (
+                                            <div className="p-8 text-center bg-zinc-900/30 rounded-2xl border border-zinc-800/60 text-xs text-zinc-500">
+                                                No individual track listing found for this album.
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="p-12 text-center text-zinc-500 text-xs">
+                                    No album selected.
                                 </div>
                             )}
                         </div>

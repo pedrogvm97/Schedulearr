@@ -41,12 +41,16 @@ export async function GET(req: Request) {
                     const cover = item.artworkUrl100 ? item.artworkUrl100.replace('100x100bb', '600x600bb') : undefined;
                     results.push({
                         id: `itunes-${item.trackId}`,
+                        trackId: item.trackId,
+                        collectionId: item.collectionId,
                         title: item.trackName,
                         artist: item.artistName,
                         album: item.collectionName,
                         releaseYear: item.releaseDate ? item.releaseDate.slice(0, 4) : undefined,
                         coverUrl: cover,
                         durationMs: item.trackTimeMillis,
+                        genre: item.primaryGenreName,
+                        trackCount: item.trackCount,
                         source: 'Apple Music / iTunes'
                     });
                 }
@@ -63,6 +67,8 @@ export async function GET(req: Request) {
                     for (const item of deezerRes.data.data) {
                         results.push({
                             id: `deezer-${item.id}`,
+                            trackId: item.id,
+                            collectionId: item.album?.id,
                             title: item.title,
                             artist: item.artist?.name || 'Artist',
                             album: item.album?.title || 'Album',

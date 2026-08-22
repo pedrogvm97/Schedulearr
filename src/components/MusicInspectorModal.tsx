@@ -106,6 +106,25 @@ export function MusicInspectorModal({
                         });
                     });
                     setTracks(allTracks);
+                } else {
+                    const artist = album.artistName || album.artist || '';
+                    const title = album.title || album.name || '';
+                    if (artist || title) {
+                        const res = await fetch(`/api/theater/music/album?artist=${encodeURIComponent(artist)}&album=${encodeURIComponent(title)}`);
+                        if (res.ok) {
+                            const data = await res.json();
+                            if (Array.isArray(data.tracks)) {
+                                setTracks(data.tracks.map((t: any) => ({
+                                    trackName: t.title || t.name,
+                                    trackNumber: t.trackNumber,
+                                    trackTimeMillis: t.durationMs,
+                                    albumTitle: data.album?.title || title,
+                                    id: t.id,
+                                    previewUrl: t.previewUrl
+                                })));
+                            }
+                        }
+                    }
                 }
             } catch {
                 setTracks([]);
