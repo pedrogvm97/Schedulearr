@@ -293,15 +293,15 @@ export async function GET(req: NextRequest) {
             return new NextResponse('File not found', { status: 404 });
         }
 
-        const ext = path.extname(filePath).toLowerCase();
+        const ext = path.extname(targetLocalFile).toLowerCase();
         const isVideo = ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.m4v', '.ts', '.wmv'].includes(ext);
 
         // 2A. Universal Server-Side Optimized Conversion (Default for Video unless direct requested)
-        if (isVideo && (transcode === 'universal' || transcode === 'full')) {
+        if (isVideo && (transcode === 'universal' || transcode === 'full' || transcode === 'audio')) {
             try {
                 const hwConfig = await detectHardwareEncoder();
                 const ffmpegArgs = buildFFmpegArgs({
-                    filePath,
+                    filePath: targetLocalFile,
                     startTime,
                     quality,
                     mode: 'universal',
@@ -333,58 +333,17 @@ export async function GET(req: NextRequest) {
                     }
                 });
             } catch (ffmpegErr: any) {
-                console.warn('FFmpeg hardware transcode failed, falling back to direct stream:', ffmpegErr.message);
+                console.warn('FFmpeg transcode failed, falling back to direct stream:', ffmpegErr.message);
             }
         }
 
-        // 2B. Audio Transcoding for Video Files (Copy video + AAC audio)
-        if (isVideo && (transcode === 'audio' || transcode === 'true')) {
-            try {
-                const hwConfig = await detectHardwareEncoder();
-                const ffmpegArgs = buildFFmpegArgs({
-                    filePath,
-                    startTime,
-                    quality,
-                    mode: 'audio',
-                    config: hwConfig
-                });
-
-                const ffmpeg = spawn(ffmpegBin, ffmpegArgs);
-
-                ffmpeg.stderr.on('data', (d) => {
-                    const str = d.toString();
-                    if (str.includes('Error') || str.includes('Invalid')) {
-                        console.warn('[FFmpeg Audio Transcode Error]:', str);
-                    }
-                });
-
-                req.signal.addEventListener('abort', () => {
-                    ffmpeg.kill('SIGKILL');
-                });
-
-                // @ts-ignore
-                const webStream = Readable.toWeb(ffmpeg.stdout);
-
-                return new Response(webStream as any, {
-                    status: 200,
-                    headers: {
-                        'Content-Type': 'video/mp4',
-                        'Cache-Control': 'no-cache, no-store, must-revalidate',
-                        'X-Stream-Mode': 'Audio Transcode AAC'
-                    }
-                });
-            } catch (ffmpegErr: any) {
-                console.warn('FFmpeg audio transcode failed, falling back to direct stream:', ffmpegErr.message);
-            }
-        }
-
-        // 2C. Audio Transcoding for Music Files (FLAC / WAV / ALAC / DSF -> High-Res MP3 320k)
+        // 2B. Audio Transcoding for Music Files (FLAC / WAV / ALAC / DSF -> High-Res MP3 320k)
         const isAudio = ['.flac', '.wav', '.m4a', '.aac', '.ogg', '.opus', '.ape', '.dsf', '.wma', '.mp3', '.aiff'].includes(ext);
         if (isAudio && (transcode === 'audio' || transcode === 'aac' || transcode === 'mp3' || transcode === 'true')) {
             try {
                 const ffmpegArgs = [
                     ...(parseFloat(startTime) > 0 ? ['-ss', startTime] : []),
-                    '-i', filePath,
+                    '-i', targetLocalFile,
                     '-c:a', 'libmp3lame',
                     '-b:a', '320k',
                     '-id3v2_version', '3',
@@ -421,10 +380,10 @@ export async function GET(req: NextRequest) {
             }
         }
 
-        // 2B. Direct Play Stream (With byte ranges)
-        const stat = fs.statSync(filePath);
+        // 2C. Direct Play Stream (With byte ranges)
+        const stat = fs.statSync(targetLocalFile);
         const fileSize = stat.size;
-        const mimeType = getMimeType(filePath);
+        const mimeType = getMimeType(targetLocalFile);
         const range = req.headers.get('range');
 
         // Handle HTTP Range request for video & audio seeking
@@ -441,7 +400,7 @@ export async function GET(req: NextRequest) {
             }
 
             const chunksize = (end - start) + 1;
-            const fileStream = fs.createReadStream(filePath, { start, end });
+            const fileStream = fs.createReadStream(targetLocalFile, { start, end });
 
             // @ts-ignore
             return new Response(fileStream as any, {
@@ -455,7 +414,7 @@ export async function GET(req: NextRequest) {
                 }
             });
         } else {
-            const fileStream = fs.createReadStream(filePath);
+            const fileStream = fs.createReadStream(targetLocalFile);
             // @ts-ignore
             return new Response(fileStream as any, {
                 status: 200,
@@ -463,7 +422,7 @@ export async function GET(req: NextRequest) {
                     'Content-Length': String(fileSize),
                     'Content-Type': mimeType,
                     'Accept-Ranges': 'bytes',
-                    'Cache-Control': 'public, max-age=3600'
+                    'Cache-Control': 'no-cache'
                 }
             });
         }
