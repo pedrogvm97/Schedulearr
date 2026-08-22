@@ -1326,7 +1326,6 @@ export default function TheaterPage() {
                 const title = (i.title || i.name || '').toLowerCase();
                 const artist = (i.artist || '').toLowerCase();
                 const album = (i.album || '').toLowerCase();
-                const folder = (i.folder || '').toLowerCase();
 
                 let score = 0;
 
@@ -1360,10 +1359,6 @@ export default function TheaterPage() {
                 else if (album.includes(q)) {
                     score += 80;
                 }
-                // 7. Substring in Folder path (lowest fallback)
-                else if (folder.includes(q)) {
-                    score += 10;
-                }
 
                 if (score > 0) {
                     scoredList.push({ item: i, score });
@@ -1396,47 +1391,90 @@ export default function TheaterPage() {
         return list;
     }, [items, searchQuery, sortBy, sortOrder]);
 
-    // Music: Derived Albums and Artists
+    // Music: Derived Albums and Artists with Search Relevance Ranking
     const musicAlbums = useMemo(() => {
-        const map = new Map<string, { name: string; artist: string; posterUrl?: string; tracks: MediaItem[] }>();
+        const map = new Map<string, { name: string; artist: string; posterUrl?: string; tracks: MediaItem[]; score: number }>();
+        const q = searchQuery.toLowerCase().trim();
+        const escapedQ = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const wordBoundaryRegex = new RegExp(`(^|\\b|\\s)${escapedQ}(\\b|\\s|$)`, 'i');
+
         for (const item of filteredItems) {
             const albumName = item.album || 'Single / Unknown Album';
             const artistName = item.artist || 'Various Artists';
             const key = `${artistName} - ${albumName}`;
 
             if (!map.has(key)) {
+                let score = 0;
+                if (q) {
+                    const albLower = albumName.toLowerCase();
+                    const artLower = artistName.toLowerCase();
+                    if (albLower === q) score += 2000;
+                    else if (artLower === q) score += 1500;
+                    else if (albLower.startsWith(q)) score += 1000;
+                    else if (artLower.startsWith(q)) score += 700;
+                    else if (wordBoundaryRegex.test(albLower)) score += 500;
+                    else if (wordBoundaryRegex.test(artLower)) score += 300;
+                    else if (albLower.includes(q)) score += 200;
+                    else if (artLower.includes(q)) score += 100;
+                    else score += 50; // tracks matched
+                }
                 map.set(key, {
                     name: albumName,
                     artist: artistName,
                     posterUrl: item.posterUrl,
-                    tracks: []
+                    tracks: [],
+                    score
                 });
             }
             const alb = map.get(key)!;
             if (!alb.posterUrl && item.posterUrl) alb.posterUrl = item.posterUrl;
             alb.tracks.push(item);
         }
-        return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
-    }, [filteredItems]);
+
+        const albumsList = Array.from(map.values());
+        if (q) {
+            return albumsList.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+        }
+        return albumsList.sort((a, b) => a.name.localeCompare(b.name));
+    }, [filteredItems, searchQuery]);
 
     const musicArtists = useMemo(() => {
-        const map = new Map<string, { name: string; posterUrl?: string; albums: any[]; tracks: MediaItem[] }>();
+        const map = new Map<string, { name: string; posterUrl?: string; albums: any[]; tracks: MediaItem[]; score: number }>();
+        const q = searchQuery.toLowerCase().trim();
+        const escapedQ = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const wordBoundaryRegex = new RegExp(`(^|\\b|\\s)${escapedQ}(\\b|\\s|$)`, 'i');
+
         for (const item of filteredItems) {
             const artistName = item.artist || 'Unknown Artist';
             if (!map.has(artistName)) {
+                let score = 0;
+                if (q) {
+                    const artLower = artistName.toLowerCase();
+                    if (artLower === q) score += 2000;
+                    else if (artLower.startsWith(q)) score += 1000;
+                    else if (wordBoundaryRegex.test(artLower)) score += 500;
+                    else if (artLower.includes(q)) score += 200;
+                    else score += 50; // track matched
+                }
                 map.set(artistName, {
                     name: artistName,
                     posterUrl: item.posterUrl,
                     albums: [],
-                    tracks: []
+                    tracks: [],
+                    score
                 });
             }
             const art = map.get(artistName)!;
             if (!art.posterUrl && item.posterUrl) art.posterUrl = item.posterUrl;
             art.tracks.push(item);
         }
-        return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
-    }, [filteredItems]);
+
+        const artistsList = Array.from(map.values());
+        if (q) {
+            return artistsList.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+        }
+        return artistsList.sort((a, b) => a.name.localeCompare(b.name));
+    }, [filteredItems, searchQuery]);
 
     // Filtered IPTV Channels by Shortlist and Group
     const filteredIptvChannels = useMemo(() => {
