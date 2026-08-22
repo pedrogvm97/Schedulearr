@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
     Film, Tv, Music, Image as ImageIcon, Folder, Plus,
-    Play, Pause, Volume2, VolumeX, Maximize, X,
+    Play, Pause, Volume2, VolumeX, Maximize, X, Minimize2, Maximize2, Minus,
     Search, Trash2, ArrowRight, ChevronRight, ChevronLeft,
     HardDrive, RefreshCw, LayoutGrid, List as Rows,
     FileVideo, FileAudio, FileImage, Sparkles, FolderPlus,
@@ -232,6 +232,7 @@ export default function TheaterPage() {
     } = useMusicPlayer();
 
     const [playingVideo, setPlayingVideo] = useState<MediaItem | null>(null);
+    const [isVideoMinimized, setIsVideoMinimized] = useState(false);
     const [videoAudioMode, setVideoAudioMode] = useState<'universal' | 'transcode' | 'direct'>('universal');
     const [videoQuality, setVideoQuality] = useState<'auto' | '1080p-high' | '1080p' | '720p' | '480p'>('auto');
     const [viewingPhotoIndex, setViewingPhotoIndex] = useState<number | null>(null);
@@ -248,6 +249,9 @@ export default function TheaterPage() {
         if (videoJustStarted || channelJustStarted) {
             closePlayer();
         }
+        if (videoJustStarted) {
+            setIsVideoMinimized(false);
+        }
         prevVideoRef.current = playingVideo;
         prevChannelRef.current = playingChannel;
     }, [playingVideo, playingChannel]);
@@ -256,8 +260,10 @@ export default function TheaterPage() {
     useEffect(() => {
         try {
             const savedMode = localStorage.getItem('schedulearr_video_mode');
-            if (savedMode && (savedMode === 'universal' || savedMode === 'transcode' || savedMode === 'direct')) {
+            if (savedMode && (savedMode === 'universal' || savedMode === 'direct')) {
                 setVideoAudioMode(savedMode as any);
+            } else {
+                setVideoAudioMode('universal');
             }
             const savedQ = localStorage.getItem('schedulearr_video_quality');
             if (savedQ) {
@@ -2634,23 +2640,93 @@ export default function TheaterPage() {
                 </div>
             )}
 
-            {/* ── Advanced Video Player Modal with Nerd Tools, Debug Logs & Universal Transcode ── */}
-            {playingVideo && (
+            {/* ── Picture-in-Picture Floating Mini-Player when Minimized (like Plex & YouTube) ── */}
+            {playingVideo && isVideoMinimized && (
+                <div className="fixed bottom-6 right-6 z-[250] w-96 max-w-[calc(100vw-2rem)] bg-[#0e0e10] border-2 border-zinc-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom-6 duration-200">
+                    <div className="px-3.5 py-2.5 bg-zinc-900/95 border-b border-zinc-800 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                            <span className="text-xs font-bold text-white truncate">{playingVideo.title}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                            <button
+                                onClick={() => setIsVideoMinimized(false)}
+                                className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+                                title="Expand / Maximize Video Player"
+                            >
+                                <Maximize2 size={15} />
+                            </button>
+                            <button
+                                onClick={() => { setPlayingVideo(null); setIsVideoMinimized(false); }}
+                                className="p-1.5 rounded-lg text-zinc-400 hover:text-red-400 hover:bg-red-500/15 transition-colors"
+                                title="Close Video"
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+                    </div>
+                    <div className="relative aspect-video bg-black flex items-center justify-center overflow-hidden">
+                        <video
+                            ref={videoRef}
+                            controls
+                            autoPlay
+                            className="w-full h-full object-contain"
+                            onLoadStart={() => {
+                                addDebugLog('info', 'Video event: loadstart');
+                                setPlaybackError(null);
+                            }}
+                            onLoadedMetadata={(e) => {
+                                const v = e.currentTarget;
+                                addDebugLog('success', `Video event: loadedmetadata (${v.videoWidth}x${v.videoHeight}, duration: ${Math.round(v.duration || 0)}s)`);
+                            }}
+                            onCanPlay={() => addDebugLog('success', 'Video event: canplay (Ready for playback)')}
+                            onPlaying={() => {
+                                if (stallTimeoutRef.current) {
+                                    clearTimeout(stallTimeoutRef.current);
+                                    stallTimeoutRef.current = null;
+                                }
+                                if (playbackError?.codeName === 'STREAM_STALLED_CODEC_INCOMPATIBLE') {
+                                    setPlaybackError(null);
+                                }
+                                addDebugLog('info', 'Video event: playing');
+                            }}
+                            onTimeUpdate={(e) => {
+                                const v = e.currentTarget;
+                                if (v.currentTime > 0) {
+                                    if (stallTimeoutRef.current) {
+                                        clearTimeout(stallTimeoutRef.current);
+                                        stallTimeoutRef.current = null;
+                                    }
+                                    if (playbackError?.codeName === 'STREAM_STALLED_CODEC_INCOMPATIBLE') {
+                                        setPlaybackError(null);
+                                    }
+                                }
+                            }}
+                            onError={(e) => {
+                                const v = e.currentTarget;
+                                const err = v.error;
+                                addDebugLog('error', `Mini Player HTMLVideoElement Error: (Code ${err?.code || '?'})`);
+                            }}
+                        />
+                    </div>
+                </div>
+            )}
+
+            {/* ── Advanced Video Player Full Modal ── */}
+            {playingVideo && !isVideoMinimized && (
                 <div className="fixed inset-0 z-[200] flex items-center justify-center p-2 sm:p-4 bg-black/95 backdrop-blur-xl animate-in fade-in duration-200">
                     <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-5xl overflow-hidden shadow-2xl relative flex flex-col max-h-[95vh]">
                         {/* Player Header */}
-                        <div className="p-4 sm:p-5 px-6 border-b border-zinc-900 flex flex-wrap items-center justify-between gap-3">
+                        <div className="p-4 sm:p-5 px-6 border-b border-zinc-900 flex flex-wrap items-center justify-between gap-4 bg-zinc-950/60 backdrop-blur-md">
+                            {/* Left: Title & Path */}
                             <div className="min-w-0 flex-1">
-                                <h2 className="text-base sm:text-lg font-black text-white truncate max-w-xl flex items-center gap-2">
-                                    {playingVideo.title}
+                                <div className="flex items-center gap-2.5 flex-wrap">
+                                    <h2 className="text-base sm:text-lg font-black text-white truncate max-w-xl">
+                                        {playingVideo.title}
+                                    </h2>
                                     {videoAudioMode === 'universal' && (
                                         <span className="px-2.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 text-[11px] font-bold border border-emerald-500/30 uppercase flex items-center gap-1">
-                                            <Zap size={11} className="animate-pulse" /> Server Optimized
-                                        </span>
-                                    )}
-                                    {videoAudioMode === 'transcode' && (
-                                        <span className="px-2.5 py-0.5 rounded-md bg-amber-500/20 text-amber-400 text-[11px] font-bold border border-amber-500/30 uppercase flex items-center gap-1">
-                                            <Headphones size={11} /> Audio AAC
+                                            <Zap size={11} className="animate-pulse" /> Server Stream
                                         </span>
                                     )}
                                     {videoAudioMode === 'direct' && (
@@ -2658,12 +2734,13 @@ export default function TheaterPage() {
                                             <Film size={11} /> Direct Play
                                         </span>
                                     )}
-                                </h2>
-                                <p className="text-xs text-zinc-500 font-mono truncate">{playingVideo.path}</p>
+                                </div>
+                                <p className="text-xs text-zinc-500 font-mono truncate mt-0.5">{playingVideo.path}</p>
                             </div>
 
-                            <div className="flex items-center flex-wrap gap-2">
-                                {/* Stream Mode Selector Pills */}
+                            {/* Right: Controls & Actions */}
+                            <div className="flex items-center flex-wrap gap-2.5">
+                                {/* Stream Mode Selector */}
                                 <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800">
                                     <button
                                         onClick={() => handleSetVideoMode('universal')}
@@ -2672,20 +2749,9 @@ export default function TheaterPage() {
                                                 ? 'bg-emerald-500 text-black shadow-sm'
                                                 : 'text-zinc-400 hover:text-white'
                                         }`}
-                                        title="Server-Side Optimized: Universal H.264 + AAC 2.0 with Hardware Acceleration (QuickSync/NVENC/CPU)"
+                                        title="Server-Side Stream: Universal H.264 + AAC 2.0 (Zero buffering, 100% device compatibility)"
                                     >
                                         <Zap size={12} /> Server Stream
-                                    </button>
-                                    <button
-                                        onClick={() => handleSetVideoMode('transcode')}
-                                        className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1 ${
-                                            videoAudioMode === 'transcode'
-                                                ? 'bg-amber-500 text-black shadow-sm'
-                                                : 'text-zinc-400 hover:text-white'
-                                        }`}
-                                        title="Audio Transcode Only: Direct video bitstream + AAC audio transcode"
-                                    >
-                                        <Headphones size={12} /> Audio AAC
                                     </button>
                                     <button
                                         onClick={() => handleSetVideoMode('direct')}
@@ -2694,15 +2760,15 @@ export default function TheaterPage() {
                                                 ? 'bg-sky-500 text-black shadow-sm'
                                                 : 'text-zinc-400 hover:text-white'
                                         }`}
-                                        title="Direct Play: Raw original file bitstream"
+                                        title="Direct Play: Raw uncompressed file bitstream"
                                     >
                                         <Film size={12} /> Direct
                                     </button>
                                 </div>
 
-                                {/* Quality Preset Selector (when in Server Optimized mode) */}
+                                {/* Quality Selector */}
                                 {videoAudioMode === 'universal' && (
-                                    <div className="flex items-center bg-zinc-950 px-2 py-1 rounded-xl border border-zinc-800 text-xs font-bold">
+                                    <div className="flex items-center bg-zinc-950 px-2.5 py-1 rounded-xl border border-zinc-800 text-xs font-bold">
                                         <span className="text-zinc-500 mr-1.5 text-[11px] uppercase font-black">Quality:</span>
                                         <select
                                             value={videoQuality}
@@ -2717,62 +2783,74 @@ export default function TheaterPage() {
                                     </div>
                                 )}
 
-                                {/* Nerd Tools & Debug Logs Drawer Toggle */}
+                                {/* Subtitles */}
+                                <button
+                                    onClick={() => setShowSubtitlesDrawer(!showSubtitlesDrawer)}
+                                    className={`p-2 sm:px-3 sm:py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
+                                        showSubtitlesDrawer || selectedSubtitle ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/40' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+                                    }`}
+                                    title="Subtitles & Timing Sync"
+                                >
+                                    <Subtitles size={15} />
+                                    <span className="hidden sm:inline">Subtitles</span>
+                                </button>
+
+                                {/* Cast */}
+                                <button
+                                    onClick={() => openCastPicker(playingVideo)}
+                                    className="p-2 sm:px-3 sm:py-2 rounded-xl bg-purple-500/15 hover:bg-purple-500 text-purple-400 hover:text-white border border-purple-500/30 text-xs font-bold flex items-center gap-1.5 transition-all"
+                                    title="Cast Stream directly to Smart TV (/tv)"
+                                >
+                                    <Cast size={15} />
+                                    <span className="hidden sm:inline">Cast</span>
+                                </button>
+
+                                {/* VLC */}
+                                <button
+                                    onClick={() => handleOpenInVlc(playingVideo)}
+                                    className="p-2 sm:px-3 sm:py-2 rounded-xl bg-orange-500/15 hover:bg-orange-500 text-orange-400 hover:text-black border border-orange-500/30 text-xs font-bold flex items-center gap-1.5 transition-all"
+                                    title="Open Stream in VLC Media Player"
+                                >
+                                    <ExternalLink size={15} />
+                                    <span className="hidden sm:inline">VLC</span>
+                                </button>
+
+                                {/* Nerd Tools */}
                                 <button
                                     onClick={() => setShowNerdToolsModal(true)}
-                                    className={`p-2 sm:p-2.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
+                                    className={`p-2 sm:px-3 sm:py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
                                         playbackError
                                             ? 'bg-red-500/20 text-red-400 border-red-500/40 animate-pulse'
                                             : showNerdToolsModal
                                                 ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
                                                 : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
                                     }`}
-                                    title="Stats for Nerds & Debug Logs (Copyable report)"
+                                    title="Stats for Nerds & Debug Logs"
                                 >
                                     <Terminal size={15} />
-                                    <span>Nerd Tools</span>
-                                    {debugLogs.length > 0 && (
-                                        <span className="ml-0.5 px-1.5 py-0.2 rounded-full bg-zinc-800 text-[10px] text-zinc-400">
-                                            {debugLogs.length}
-                                        </span>
-                                    )}
+                                    <span className="hidden sm:inline">Logs</span>
                                 </button>
 
-                                {/* Subtitles Drawer Toggle */}
-                                <button
-                                    onClick={() => setShowSubtitlesDrawer(!showSubtitlesDrawer)}
-                                    className={`p-2 sm:p-2.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
-                                        showSubtitlesDrawer || selectedSubtitle ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/40' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
-                                    }`}
-                                    title="Subtitles & Timing Sync"
-                                >
-                                    <Subtitles size={15} /> Subtitles
-                                </button>
+                                {/* Window Action Group (Minimize & Close) */}
+                                <div className="flex items-center gap-1 pl-2 border-l border-zinc-800 ml-1">
+                                    {/* Minimize / PiP button */}
+                                    <button
+                                        onClick={() => setIsVideoMinimized(true)}
+                                        className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all"
+                                        title="Minimize player to corner mini-player"
+                                    >
+                                        <Minus size={18} />
+                                    </button>
 
-                                {/* Cast to Smart TV */}
-                                <button
-                                    onClick={() => openCastPicker(playingVideo)}
-                                    className="p-2 sm:p-2.5 rounded-xl bg-purple-500/15 hover:bg-purple-500 text-purple-400 hover:text-white border border-purple-500/30 text-xs font-bold flex items-center gap-1.5 transition-all"
-                                    title="Cast Stream directly to Smart TV (/tv)"
-                                >
-                                    <Cast size={15} /> Cast to TV
-                                </button>
-
-                                {/* Open in VLC */}
-                                <button
-                                    onClick={() => handleOpenInVlc(playingVideo)}
-                                    className="p-2 sm:p-2.5 rounded-xl bg-orange-500/15 hover:bg-orange-500 text-orange-400 hover:text-black border border-orange-500/30 text-xs font-bold flex items-center gap-1.5 transition-all"
-                                    title="Open Stream in VLC Media Player (.m3u playlist download & stream links)"
-                                >
-                                    <ExternalLink size={15} /> Open in VLC
-                                </button>
-
-                                <button
-                                    onClick={() => setPlayingVideo(null)}
-                                    className="p-2 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all ml-1"
-                                >
-                                    <X size={20} />
-                                </button>
+                                    {/* Prominent Close button */}
+                                    <button
+                                        onClick={() => { setPlayingVideo(null); setIsVideoMinimized(false); }}
+                                        className="p-2 rounded-xl text-zinc-400 hover:text-red-400 hover:bg-red-500/15 transition-all"
+                                        title="Close video"
+                                    >
+                                        <X size={20} />
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
@@ -2894,7 +2972,7 @@ export default function TheaterPage() {
                                                 setVideoAudioMode('universal');
                                                 setPlaybackError(null);
                                                 addDebugLog('info', 'User triggered switch to Full Universal Transcode');
-                                                toast.info('Starting Full Universal Transcode (H.264 + AAC)...');
+                                                toast.info('Starting Universal Server Stream (H.264 + AAC)...');
                                                 if (videoRef.current && playingVideo) {
                                                     const base = playingVideo.streamUrl;
                                                     videoRef.current.src = `${base}${base.includes('?') ? '&' : '?'}transcode=universal&quality=${videoQuality}&_t=${Date.now()}`;
@@ -2904,25 +2982,7 @@ export default function TheaterPage() {
                                             }}
                                             className="px-5 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-2 shadow-xl shadow-emerald-500/20 transition-all cursor-pointer"
                                         >
-                                            <RefreshCcw size={15} /> Universal Transcode (H.264 + AAC)
-                                        </button>
-
-                                        <button
-                                            onClick={() => {
-                                                setVideoAudioMode('transcode');
-                                                setPlaybackError(null);
-                                                addDebugLog('info', 'User triggered switch to Audio AAC Transcode');
-                                                toast.info('Starting Audio AAC Transcode...');
-                                                if (videoRef.current && playingVideo) {
-                                                    const base = playingVideo.streamUrl;
-                                                    videoRef.current.src = `${base}${base.includes('?') ? '&' : '?'}transcode=audio&_t=${Date.now()}`;
-                                                    videoRef.current.load();
-                                                    videoRef.current.play().catch(() => {});
-                                                }
-                                            }}
-                                            className="px-5 py-3 rounded-2xl bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/40 font-bold text-xs uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer"
-                                        >
-                                            <Headphones size={15} /> Audio AAC Transcode
+                                            <RefreshCcw size={15} /> Reload Stream (Server H.264)
                                         </button>
 
                                         <button
