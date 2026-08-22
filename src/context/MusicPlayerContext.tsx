@@ -2093,137 +2093,39 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                     )}
 
                     {/* Top Bar: Minimize, Title, Header Actions */}
-                    <div className="relative z-10 flex items-center justify-between gap-3 pb-3 border-b border-zinc-900/80 shrink-0 h-12">
+                    <div className="relative z-10 flex items-center justify-between gap-2 pb-2.5 border-b border-zinc-900/80 shrink-0 h-12">
                         <button
                             onClick={() => setIsExpandedPlayerOpen(false)}
-                            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-2xl bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs font-black uppercase tracking-wider transition-all"
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs font-black uppercase tracking-wider transition-all shrink-0"
                         >
-                            <ChevronDown size={16} /> Minimize
+                            <ChevronDown size={16} /> <span className="hidden sm:inline">Minimize</span>
                         </button>
 
-                        <div className="text-center truncate px-2">
+                        <div className="text-center truncate px-2 min-w-0 flex-1">
                             <span className="text-[10px] font-black uppercase tracking-widest text-amber-400 block">
-                                Now Playing Studio
+                                Schedulearr Vinyl Studio
                             </span>
-                            <h3 className="text-xs sm:text-sm font-bold text-white max-w-xs sm:max-w-md truncate">
-                                {playingAudio.album || playingAudio.folder || 'Theater Audio'}
+                            <h3 className="text-xs sm:text-sm font-bold text-white truncate">
+                                {playingAudio.title} — {playingAudio.artist || 'Artist'}
                             </h3>
                         </div>
 
-                        <div className="flex items-center gap-1.5">
-                            {/* Karaoke Mode Quick Switch */}
-                            <button
-                                onClick={() => {
-                                    setShowExpandedSidePanel(true);
-                                    setExpandedSidePanel('karaoke');
-                                }}
-                                className={`px-2.5 py-1.5 rounded-2xl border text-xs font-black uppercase tracking-wider flex items-center gap-1 transition-all ${
-                                    showExpandedSidePanel && expandedSidePanel === 'karaoke'
-                                        ? 'bg-amber-500 text-black border-amber-400 shadow-md'
-                                        : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
-                                }`}
-                                title="Open Karaoke Lyrics"
-                            >
-                                <Mic2 size={13} className={showExpandedSidePanel && expandedSidePanel === 'karaoke' ? 'text-black' : 'text-amber-400'} />
-                                <span className="hidden lg:inline">Karaoke</span>
-                            </button>
-
-                            {/* Guitar Mode Quick Switch */}
-                            <button
-                                onClick={() => {
-                                    setShowExpandedSidePanel(true);
-                                    setJamInstrument('guitar');
-                                    setExpandedSidePanel('guitar');
-                                }}
-                                className={`px-2.5 py-1.5 rounded-2xl border text-xs font-black uppercase tracking-wider flex items-center gap-1 transition-all ${
-                                    showExpandedSidePanel && expandedSidePanel === 'guitar'
-                                        ? 'bg-amber-500 text-black border-amber-400 shadow-md'
-                                        : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
-                                }`}
-                                title="Open 6-String Guitar Chords & Lyrics"
-                            >
-                                <Guitar size={13} className={showExpandedSidePanel && expandedSidePanel === 'guitar' ? 'text-black' : 'text-amber-400'} />
-                                <span className="hidden lg:inline">Guitar</span>
-                            </button>
-
-                            {/* Bass Mode Quick Switch */}
-                            <button
-                                onClick={() => {
-                                    setShowExpandedSidePanel(true);
-                                    setJamInstrument('bass');
-                                    setExpandedSidePanel('bass');
-                                }}
-                                className={`px-2.5 py-1.5 rounded-2xl border text-xs font-black uppercase tracking-wider flex items-center gap-1 transition-all ${
-                                    showExpandedSidePanel && expandedSidePanel === 'bass'
-                                        ? 'bg-purple-500 text-white border-purple-400 shadow-md'
-                                        : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
-                                }`}
-                                title="Open 4-String Bass Fretboard & Lyrics"
-                            >
-                                <Activity size={13} className={showExpandedSidePanel && expandedSidePanel === 'bass' ? 'text-white' : 'text-purple-400'} />
-                                <span className="hidden lg:inline">Bass</span>
-                            </button>
-
-                            {/* Sing Mode Quick Switch */}
-                            <button
-                                onClick={() => {
-                                    setShowExpandedSidePanel(true);
-                                    setExpandedSidePanel('sing');
-                                }}
-                                className={`px-2.5 py-1.5 rounded-2xl border text-xs font-black uppercase tracking-wider flex items-center gap-1 transition-all ${
-                                    showExpandedSidePanel && expandedSidePanel === 'sing'
-                                        ? 'bg-pink-500 text-black border-pink-400 shadow-md'
-                                        : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
-                                }`}
-                                title="Open Sing Vocal Hero & Mic Tracking"
-                            >
-                                <Sparkles size={13} className={showExpandedSidePanel && expandedSidePanel === 'sing' ? 'text-black' : 'text-pink-400'} />
-                                <span className="hidden lg:inline">Sing</span>
-                            </button>
-
-                            {/* Artist Bio & Discography Button */}
-                            <button
-                                onClick={() => {
-                                    setShowExpandedSidePanel(true);
-                                    setExpandedSidePanel('artist');
-                                    fetchArtistInfo(playingAudio.artist);
-                                }}
-                                className={`px-2.5 py-1.5 rounded-2xl border text-xs font-black uppercase tracking-wider flex items-center gap-1 transition-all ${
-                                    showExpandedSidePanel && expandedSidePanel === 'artist'
-                                        ? 'bg-amber-500 text-black border-amber-400 shadow-md'
-                                        : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
-                                }`}
-                                title="View Artist Biography & Discography"
-                            >
-                                <User size={13} className={showExpandedSidePanel && expandedSidePanel === 'artist' ? 'text-black' : 'text-amber-400'} />
-                                <span className="hidden lg:inline">Bio & Discog</span>
-                            </button>
-
+                        <div className="flex items-center gap-1 shrink-0">
                             {/* In-Player Search Quick Button */}
                             <button
                                 onClick={() => {
                                     setShowExpandedSidePanel(true);
                                     setExpandedSidePanel('search');
                                 }}
-                                className={`px-2.5 py-1.5 rounded-2xl border text-xs font-black uppercase tracking-wider flex items-center gap-1 transition-all ${
+                                className={`p-2 sm:px-2.5 sm:py-1.5 rounded-2xl border text-xs font-black uppercase tracking-wider flex items-center gap-1 transition-all ${
                                     showExpandedSidePanel && expandedSidePanel === 'search'
                                         ? 'bg-amber-500 text-black border-amber-400 shadow-md'
                                         : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
                                 }`}
-                                title="Search Libraries & YouTube Without Exiting Player"
+                                title="Search Libraries & YouTube"
                             >
-                                <Search size={13} className={showExpandedSidePanel && expandedSidePanel === 'search' ? 'text-black' : 'text-amber-400'} />
-                                <span className="hidden lg:inline">Search</span>
-                            </button>
-
-                            {/* Force Server Transcode Button */}
-                            <button
-                                onClick={handleForceAudioTranscode}
-                                className="px-2.5 py-1.5 rounded-2xl bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-amber-400 border border-zinc-800 text-xs font-black uppercase tracking-wider flex items-center gap-1 transition-all hidden sm:flex"
-                                title="Force Server-Side Audio Transcoding (MP3 320k)"
-                            >
-                                <Zap size={13} className="text-amber-400" />
-                                <span className="hidden lg:inline">Transcode</span>
+                                <Search size={14} className={showExpandedSidePanel && expandedSidePanel === 'search' ? 'text-black' : 'text-amber-400'} />
+                                <span className="hidden md:inline">Search</span>
                             </button>
 
                             {/* Nerd Tools Button */}
@@ -2239,33 +2141,45 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 <Terminal size={14} />
                             </button>
 
-                            {/* Toggle Right Side Panel Button */}
-                            <button
-                                onClick={() => setShowExpandedSidePanel(!showExpandedSidePanel)}
-                                className={`px-3 py-1.5 rounded-2xl border text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all ${
-                                    showExpandedSidePanel
-                                        ? 'bg-amber-500 text-black border-amber-400 shadow-md'
-                                        : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
-                                }`}
-                                title={showExpandedSidePanel ? 'Hide side panel' : 'Show side panel'}
-                            >
-                                <Sliders size={13} />
-                                <span className="hidden sm:inline">{showExpandedSidePanel ? 'Hide' : 'Panel'}</span>
-                            </button>
-
                             <button
                                 onClick={() => setIsExpandedPlayerOpen(false)}
-                                className="p-1.5 rounded-2xl text-zinc-400 hover:text-white hover:bg-zinc-900 transition-colors"
+                                className="p-1.5 rounded-2xl text-zinc-400 hover:text-white hover:bg-zinc-900 transition-colors shrink-0"
                             >
                                 <X size={18} />
                             </button>
                         </div>
                     </div>
 
-                    {/* Main Stage: Fixed viewport grid */}
-                    <div className="relative z-10 flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch pt-3 overflow-hidden">
+                    {/* Mobile Segmented Deck vs Studio Switch (< lg only) */}
+                    <div className="lg:hidden flex items-center gap-2 pt-2 px-1 shrink-0">
+                        <div className="flex-1 bg-zinc-950 p-1 rounded-2xl border border-zinc-800 flex items-center gap-1">
+                            <button
+                                onClick={() => setShowExpandedSidePanel(false)}
+                                className={`flex-1 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all ${
+                                    !showExpandedSidePanel
+                                        ? 'bg-amber-500 text-black shadow-md'
+                                        : 'text-zinc-400 hover:text-white'
+                                }`}
+                            >
+                                <Disc size={13} /> Turntable Deck
+                            </button>
+                            <button
+                                onClick={() => setShowExpandedSidePanel(true)}
+                                className={`flex-1 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all ${
+                                    showExpandedSidePanel
+                                        ? 'bg-amber-500 text-black shadow-md'
+                                        : 'text-zinc-400 hover:text-white'
+                                }`}
+                            >
+                                <Mic2 size={13} /> Lyrics &amp; Studio
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Main Stage: Fixed viewport grid on desktop, single view on mobile */}
+                    <div className="relative z-10 flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch pt-2 sm:pt-3 overflow-hidden">
                         {/* Left / Center: Artwork & Full Controls - Scaled to fit viewport without parent scroll */}
-                        <div className={`${showExpandedSidePanel ? 'lg:col-span-5 xl:col-span-5' : 'lg:col-span-8 lg:col-start-3'} flex flex-col justify-between items-center h-full max-h-full mx-auto w-full max-w-md overflow-hidden py-1`}>
+                        <div className={`${showExpandedSidePanel ? 'hidden lg:flex lg:col-span-5 xl:col-span-5' : 'flex col-span-1 lg:col-span-8 lg:col-start-3'} flex-col justify-between items-center h-full max-h-full mx-auto w-full max-w-md overflow-hidden py-1`}>
                             {/* View Mode Toggle: Vinyl Turntable vs Normal Cover Art */}
                             <div className="flex items-center gap-1 bg-zinc-950/80 p-1 rounded-xl border border-zinc-800/80 shadow-inner backdrop-blur-md shrink-0">
                                 <button
@@ -2526,9 +2440,9 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 </button>
                             </div>
 
-                            {/* Volume Slider & Quick Actions */}
+                            {/* Bottom Controls Row: Volume (Desktop), Download, Specs, Cast */}
                             <div className="flex items-center justify-between gap-3 w-full pt-1.5 border-t border-zinc-900/90 px-1 shrink-0">
-                                <div className="flex items-center gap-1.5">
+                                <div className="hidden sm:flex items-center gap-1.5">
                                     <button
                                         onClick={toggleMute}
                                         className="text-zinc-500 hover:text-white transition-colors"
@@ -2547,110 +2461,112 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                     />
                                 </div>
 
-                                <div className="flex items-center gap-1.5">
+                                <div className="flex items-center gap-1.5 w-full sm:w-auto justify-between sm:justify-end">
                                     <button
                                         onClick={() => handleDownloadTrack(playingAudio)}
-                                        className="px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-emerald-400 border border-zinc-800 text-[11px] font-bold transition-all flex items-center gap-1"
-                                        title="Download Track"
+                                        className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-emerald-400 border border-zinc-800 text-xs font-bold transition-all flex items-center gap-1.5"
+                                        title="Download Track / Add to Library"
                                     >
-                                        <Download size={12} /> Download
+                                        <Download size={13} /> Download
                                     </button>
-                                    <button
-                                        onClick={() => fetchAudioSpecs(playingAudio)}
-                                        className="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-amber-400 border border-zinc-800 transition-all"
-                                        title="Stats for Audiophiles"
-                                    >
-                                        <Info size={14} />
-                                    </button>
-                                    <button
-                                        onClick={() => openCastPicker(playingAudio)}
-                                        className="p-1.5 rounded-lg bg-purple-500/15 hover:bg-purple-500 text-purple-400 hover:text-white border border-purple-500/30 transition-all"
-                                        title="Cast to Smart TV"
-                                    >
-                                        <Cast size={14} />
-                                    </button>
+                                    <div className="flex items-center gap-1.5">
+                                        <button
+                                            onClick={() => fetchAudioSpecs(playingAudio)}
+                                            className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-amber-400 border border-zinc-800 transition-all"
+                                            title="Stats for Audiophiles"
+                                        >
+                                            <Info size={15} />
+                                        </button>
+                                        <button
+                                            onClick={() => openCastPicker(playingAudio)}
+                                            className="p-2 rounded-xl bg-purple-500/15 hover:bg-purple-500 text-purple-400 hover:text-white border border-purple-500/30 transition-all"
+                                            title="Cast to Smart TV"
+                                        >
+                                            <Cast size={15} />
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
 
                         {/* Right Side: Toggleable Panel (Karaoke / Guitar / Bass / Sing / Artist / Queue / Specs) */}
                         {showExpandedSidePanel && (
-                            <div className="lg:col-span-7 xl:col-span-7 h-full max-h-full flex flex-col bg-zinc-950/80 border border-zinc-900 rounded-[2rem] p-4 sm:p-5 shadow-2xl space-y-3 min-h-0 overflow-hidden">
-                                {/* Panel Tab Selectors */}
-                                <div className="flex items-center justify-between pb-2.5 border-b border-zinc-900 shrink-0">
-                                    <div className="flex bg-zinc-900/90 p-1 rounded-xl border border-zinc-800 flex-wrap gap-1">
+                            <div className="col-span-1 lg:col-span-7 xl:col-span-7 h-full max-h-full flex flex-col bg-zinc-950/80 border border-zinc-900 rounded-[2rem] p-3 sm:p-5 shadow-2xl space-y-3 min-h-0 overflow-hidden">
+                                {/* Panel Tab Selectors - Smooth horizontal scrollable chips */}
+                                <div className="flex items-center justify-between gap-2 pb-2 border-b border-zinc-900 shrink-0">
+                                    <div className="flex items-center gap-1 overflow-x-auto no-scrollbar scrollbar-none py-1 px-1 bg-zinc-900/90 rounded-2xl border border-zinc-800 shrink-0 max-w-full">
                                         <button
                                             onClick={() => setExpandedSidePanel('karaoke')}
-                                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
-                                                expandedSidePanel === 'karaoke' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                            className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
+                                                expandedSidePanel === 'karaoke' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
                                             }`}
                                         >
-                                            <Mic2 size={12} /> Karaoke
+                                            <Mic2 size={13} /> Karaoke
                                         </button>
                                         <button
                                             onClick={() => {
                                                 setJamInstrument('guitar');
                                                 setExpandedSidePanel('guitar');
                                             }}
-                                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
-                                                expandedSidePanel === 'guitar' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                            className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
+                                                expandedSidePanel === 'guitar' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
                                             }`}
                                         >
-                                            <Guitar size={12} /> Guitar
+                                            <Guitar size={13} /> Guitar
                                         </button>
                                         <button
                                             onClick={() => {
                                                 setJamInstrument('bass');
                                                 setExpandedSidePanel('bass');
                                             }}
-                                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
-                                                expandedSidePanel === 'bass' ? 'bg-purple-500 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                            className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
+                                                expandedSidePanel === 'bass' ? 'bg-purple-500 text-white shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
                                             }`}
                                         >
-                                            <Activity size={12} /> Bass
+                                            <Activity size={13} /> Bass
                                         </button>
                                         <button
                                             onClick={() => setExpandedSidePanel('sing')}
-                                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
-                                                expandedSidePanel === 'sing' ? 'bg-pink-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                            className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
+                                                expandedSidePanel === 'sing' ? 'bg-pink-500 text-black shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
                                             }`}
                                         >
-                                            <Sparkles size={12} /> Sing Hero
+                                            <Sparkles size={13} /> Sing Hero
                                         </button>
                                         <button
                                             onClick={() => {
                                                 setExpandedSidePanel('artist');
                                                 fetchArtistInfo(playingAudio.artist);
                                             }}
-                                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
-                                                expandedSidePanel === 'artist' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                            className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
+                                                expandedSidePanel === 'artist' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
                                             }`}
                                         >
-                                            <User size={12} /> Artist Bio
+                                            <User size={13} /> Artist Bio
                                         </button>
                                         <button
                                             onClick={() => setExpandedSidePanel('queue')}
-                                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
-                                                expandedSidePanel === 'queue' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                            className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
+                                                expandedSidePanel === 'queue' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
                                             }`}
                                         >
-                                            <ListMusic size={12} /> Queue ({audioQueue.length})
+                                            <ListMusic size={13} /> Queue ({audioQueue.length})
                                         </button>
                                         <button
                                             onClick={() => setExpandedSidePanel('search')}
-                                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
-                                                expandedSidePanel === 'search' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                            className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
+                                                expandedSidePanel === 'search' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
                                             }`}
                                         >
-                                            <Search size={12} /> Search
+                                            <Search size={13} /> Search
                                         </button>
                                         <button
                                             onClick={() => setExpandedSidePanel('specs')}
-                                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
-                                                expandedSidePanel === 'specs' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                            className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
+                                                expandedSidePanel === 'specs' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
                                             }`}
                                         >
-                                            <Info size={12} /> Specs
+                                            <Info size={13} /> Specs
                                         </button>
                                     </div>
 
