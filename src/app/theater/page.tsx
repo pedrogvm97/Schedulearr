@@ -155,7 +155,7 @@ export default function TheaterPage() {
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
     // Content-type tab system
-    const [activeContentTab, setActiveContentTab] = useState<'movie' | 'show' | 'live' | 'music'>('movie');
+    const [activeContentTab, setActiveContentTab] = useState<'movie' | 'show' | 'live' | 'music' | 'photos'>('movie');
     // Per-tab enabled library IDs (empty Set = all enabled)
     const [enabledLibsByTab, setEnabledLibsByTab] = useState<Record<string, Set<string>>>({});
 
@@ -1449,18 +1449,82 @@ export default function TheaterPage() {
                     TOP HEADER — Title left, Search + Actions right
                     ══════════════════════════════════════════════════════════════ */}
                 <div className="bg-[#09090b]/80 border border-zinc-800/80 backdrop-blur-2xl p-5 sm:p-6 rounded-[2.5rem] shadow-2xl space-y-4">
-                    {/* Row 1: Title + Search */}
+                    {/* Row 1: Title + Action controls */}
                     <div className="flex flex-wrap items-center justify-between gap-4">
                         <div>
                             <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white flex items-center gap-3">
                                 <Film size={26} className="text-emerald-400" /> Theater
                             </h1>
                             <p className="text-sm text-zinc-500 mt-0.5 font-medium">
-                                Movies, Series, Live TV, and Music Studio
+                                Movies, Series, Live TV, Music Studio, and Photos
                             </p>
                         </div>
 
-                        <div className="flex items-center gap-2 flex-1 lg:flex-none lg:w-[420px]">
+                        <div className="flex items-center gap-2">
+                            {/* Rescan */}
+                            {activeLibrary && (
+                                <button
+                                    onClick={() => fetchLibraryItems(activeLibrary)}
+                                    title="Rescan Library"
+                                    className="p-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white transition-colors shrink-0"
+                                >
+                                    <RefreshCw size={16} className={loadingItems ? 'animate-spin text-emerald-400' : ''} />
+                                </button>
+                            )}
+
+                            {/* Pair Smart TV */}
+                            <button
+                                onClick={() => setIsPairTvModalOpen(true)}
+                                className="p-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-indigo-400 hover:text-indigo-300 transition-colors shrink-0 relative"
+                                title="Pair a Smart TV"
+                            >
+                                <Tv size={16} />
+                                {pairedTvCount > 0 && <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border border-zinc-950 animate-pulse" />}
+                            </button>
+
+                            {/* Add Library button */}
+                            <button
+                                onClick={() => setIsAddLibModalOpen(true)}
+                                className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-black rounded-2xl text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 border border-dashed border-emerald-500/30 transition-all shadow-sm"
+                            >
+                                <Plus size={14} /> Add Library
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Row 2: Content-type tabs (Left) + Search Bar (Right) */}
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                        <div className="flex items-center gap-1.5 bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner flex-wrap">
+                            {([
+                                { id: 'movie', label: 'Movies', icon: <Film size={15} />, color: 'text-indigo-400', activeBg: 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40' },
+                                { id: 'show', label: 'Series', icon: <Tv size={15} />, color: 'text-emerald-400', activeBg: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' },
+                                { id: 'live', label: 'Live TV', icon: <RadioTower size={15} />, color: 'text-red-400', activeBg: 'bg-red-500/20 text-red-300 border border-red-500/40' },
+                                { id: 'music', label: 'Music', icon: <Music size={15} />, color: 'text-amber-400', activeBg: 'bg-amber-500/20 text-amber-300 border border-amber-500/40' },
+                                { id: 'photos', label: 'Photos', icon: <ImageIcon size={15} />, color: 'text-sky-400', activeBg: 'bg-sky-500/20 text-sky-300 border border-sky-500/40' },
+                            ] as const).map(tab => {
+                                const isActive = activeContentTab === tab.id;
+                                const count = libraries.filter(l => l.type === tab.id).length;
+                                return (
+                                    <button
+                                        key={tab.id}
+                                        onClick={() => setActiveContentTab(tab.id as any)}
+                                        className={`flex items-center gap-2 px-4 py-2.5 text-sm font-black rounded-xl transition-all ${
+                                            isActive ? tab.activeBg : 'text-zinc-500 hover:text-zinc-300'
+                                        }`}
+                                    >
+                                        {tab.icon}
+                                        <span>{tab.label}</span>
+                                        {count > 0 && (
+                                            <span className={`text-[10px] px-1.5 py-0.5 rounded-lg font-bold ${isActive ? 'bg-white/10' : 'bg-zinc-900'}`}>
+                                                {count}
+                                            </span>
+                                        )}
+                                    </button>
+                                );
+                            })}
+                        </div>
+
+                        <div className="relative flex-1 min-w-[280px] max-w-md">
                             {/* Global Search */}
                             <div className="relative flex-1">
                                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
@@ -1627,68 +1691,7 @@ export default function TheaterPage() {
                                     </div>
                                 )}
                             </div>
-
-                            {/* Rescan */}
-                            {activeLibrary && (
-                                <button
-                                    onClick={() => fetchLibraryItems(activeLibrary)}
-                                    title="Rescan Library"
-                                    className="p-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white transition-colors shrink-0"
-                                >
-                                    <RefreshCw size={16} className={loadingItems ? 'animate-spin text-emerald-400' : ''} />
-                                </button>
-                            )}
-
-                            {/* Pair Smart TV */}
-                            <button
-                                onClick={() => setIsPairTvModalOpen(true)}
-                                className="p-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-indigo-400 hover:text-indigo-300 transition-colors shrink-0 relative"
-                                title="Pair a Smart TV"
-                            >
-                                <Tv size={16} />
-                                {pairedTvCount > 0 && <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border border-zinc-950 animate-pulse" />}
-                            </button>
                         </div>
-                    </div>
-
-                    {/* Row 2: Content-type tabs */}
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="flex items-center gap-1.5 bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner flex-wrap">
-                            {([
-                                { id: 'movie', label: 'Movies', icon: <Film size={15} />, color: 'text-indigo-400', activeBg: 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40' },
-                                { id: 'show', label: 'Series', icon: <Tv size={15} />, color: 'text-emerald-400', activeBg: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' },
-                                { id: 'live', label: 'Live TV', icon: <RadioTower size={15} />, color: 'text-red-400', activeBg: 'bg-red-500/20 text-red-300 border border-red-500/40' },
-                                { id: 'music', label: 'Music', icon: <Music size={15} />, color: 'text-amber-400', activeBg: 'bg-amber-500/20 text-amber-300 border border-amber-500/40' },
-                            ] as const).map(tab => {
-                                const isActive = activeContentTab === tab.id;
-                                const count = libraries.filter(l => l.type === tab.id).length;
-                                return (
-                                    <button
-                                        key={tab.id}
-                                        onClick={() => setActiveContentTab(tab.id)}
-                                        className={`flex items-center gap-2 px-4 py-2 text-sm font-black rounded-xl transition-all ${
-                                            isActive ? tab.activeBg : 'text-zinc-500 hover:text-zinc-300'
-                                        }`}
-                                    >
-                                        {tab.icon}
-                                        <span>{tab.label}</span>
-                                        {count > 0 && (
-                                            <span className={`text-[10px] px-1.5 py-0.5 rounded-lg font-bold ${isActive ? 'bg-white/10' : 'bg-zinc-900'}`}>
-                                                {count}
-                                            </span>
-                                        )}
-                                    </button>
-                                );
-                            })}
-                        </div>
-
-                        {/* Add Library button */}
-                        <button
-                            onClick={() => setIsAddLibModalOpen(true)}
-                            className="flex items-center gap-1.5 px-3.5 py-2 text-sm font-black rounded-xl text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 border border-dashed border-emerald-500/30 transition-all shadow-sm"
-                        >
-                            <Plus size={14} /> Add Library
-                        </button>
                     </div>
 
                     {/* Row 3: Per-tab library toggles (only when there are multiple libraries for this tab) */}
@@ -2200,19 +2203,8 @@ export default function TheaterPage() {
                                                                     e.stopPropagation();
                                                                     handleDownloadTrack(song);
                                                                 }}
-                                                                className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs font-bold transition-all flex items-center gap-1.5"
-                                                                title="Download / Choose Format & Library"
-                                                            >
-                                                                <Download size={14} /> Download
-                                                            </button>
-
-                                                            <button
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    handleDownloadTrack(song);
-                                                                }}
-                                                                className="px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 text-xs font-bold transition-all flex items-center gap-1.5"
-                                                                title="Download & Organize to Music Library Folder"
+                                                                className="px-3.5 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 text-xs font-bold transition-all flex items-center gap-1.5"
+                                                                title="Download / Save to Library or Device"
                                                             >
                                                                 <Download size={14} /> Download / Add
                                                             </button>
@@ -2344,26 +2336,13 @@ export default function TheaterPage() {
                                                         </div>
 
                                                         <div className="flex items-center gap-2">
-                                                            {/* Download Modal Trigger */}
                                                             <button
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
                                                                     handleDownloadTrack(song);
                                                                 }}
-                                                                className="px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs font-bold transition-all flex items-center gap-1.5"
-                                                                title="Download with Quality / Folder Options"
-                                                            >
-                                                                <Download size={14} /> Download
-                                                            </button>
-
-                                                            {/* Grab to Library Button */}
-                                                            <button
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    handleDownloadTrack(song);
-                                                                }}
-                                                                className="px-3 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 text-xs font-bold transition-all flex items-center gap-1.5"
-                                                                title="Download & Organize to Music Library Folder"
+                                                                className="px-3.5 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 text-xs font-bold transition-all flex items-center gap-1.5"
+                                                                title="Download / Save to Library or Device"
                                                             >
                                                                 <Download size={14} /> Download / Add
                                                             </button>

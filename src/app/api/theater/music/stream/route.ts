@@ -82,14 +82,46 @@ export async function GET(req: Request) {
             return new NextResponse('Could not extract direct audio stream for this track', { status: 404 });
         }
 
-        // Fetch and proxy the audio stream directly or redirect
+        const isDownload = searchParams.get('download') === 'true';
+        const downloadFilename = searchParams.get('filename') || 'track.mp3';
+
+        // 4. Handle Direct Browser File Download (100% reliable single response buffer)
+        if (isDownload) {
+            try {
+                const dlRes = await axios.get(directAudioUrl, {
+                    responseType: 'arraybuffer',
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                    },
+                    timeout: 45000
+                });
+
+                const rawBuffer = Buffer.from(dlRes.data);
+                const safeFilename = downloadFilename.replace(/[/\\?%*:|"<>]/g, '').trim() || 'track.mp3';
+
+                return new NextResponse(rawBuffer, {
+                    status: 200,
+                    headers: {
+                        'Content-Type': dlRes.headers['content-type'] || 'audio/mpeg',
+                        'Content-Disposition': `attachment; filename="${encodeURIComponent(safeFilename)}"`,
+                        'Content-Length': String(rawBuffer.length),
+                        'Cache-Control': 'no-cache, no-store'
+                    }
+                });
+            } catch (dlErr: any) {
+                console.error('Download buffer fetch error:', dlErr.message);
+                return new NextResponse(`Download error: ${dlErr.message}`, { status: 500 });
+            }
+        }
+
+        // 5. Proxy live playback stream
         const audioRes = await axios.get(directAudioUrl, {
             responseType: 'stream',
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 ...(req.headers.get('range') ? { Range: req.headers.get('range')! } : {})
             },
-            timeout: 15000
+            timeout: 20000
         });
 
         const headers: Record<string, string> = {
@@ -97,12 +129,6 @@ export async function GET(req: Request) {
             'Accept-Ranges': 'bytes',
             'Cache-Control': 'public, max-age=3600'
         };
-
-        const isDownload = searchParams.get('download') === 'true';
-        const downloadFilename = searchParams.get('filename') || 'track.mp3';
-        if (isDownload) {
-            headers['Content-Disposition'] = `attachment; filename="${downloadFilename.replace(/"/g, '')}"`;
-        }
 
         if (audioRes.headers['content-length']) {
             headers['Content-Length'] = audioRes.headers['content-length'];

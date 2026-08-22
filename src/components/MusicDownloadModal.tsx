@@ -2,9 +2,9 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-    X, Download, Disc, Music, HardDrive, Check,
-    AlertCircle, Sparkles, Folder, CheckCircle2, RefreshCw,
-    User, ArrowDownToLine, Monitor, Laptop, Radio
+    X, Download, Disc, Music, HardDrive,
+    Sparkles, Folder, CheckCircle2, RefreshCw,
+    Laptop, Radio, ChevronDown
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -20,7 +20,7 @@ interface DestinationOption {
     id: string;
     name: string;
     path: string;
-    type: 'theater' | 'lidarr' | 'custom' | 'device';
+    type: 'theater' | 'lidarr' | 'device';
     badge: string;
 }
 
@@ -36,16 +36,15 @@ export function MusicDownloadModal({
     const initialArtist = artistName || track?.artist || 'Unknown Artist';
     const initialPosterUrl = defaultIsAlbum ? (albumTracks?.[0]?.posterUrl || '') : (track?.posterUrl || '');
 
-    const [downloadScope, setDownloadScope] = useState<'track' | 'album' | 'artist'>(defaultIsAlbum ? 'album' : 'track');
+    const [downloadScope, setDownloadScope] = useState<'track' | 'album'>(defaultIsAlbum ? 'album' : 'track');
     const [destinations, setDestinations] = useState<DestinationOption[]>([]);
     const [selectedDestId, setSelectedDestId] = useState<string>('device');
-    const [customFolder, setCustomFolder] = useState<string>('');
-    const [audioFormat, setAudioFormat] = useState<'flac' | 'mp3' | 'aac' | 'opus'>('mp3');
+    const [audioFormat, setAudioFormat] = useState<'mp3' | 'aac' | 'opus'>('mp3');
     const [isDownloading, setIsDownloading] = useState(false);
     const [downloadSuccess, setDownloadSuccess] = useState(false);
     const [downloadProgress, setDownloadProgress] = useState(0);
 
-    const activeTitle = downloadScope === 'artist' ? `${initialArtist} (All Releases)` : downloadScope === 'album' ? (albumName || track?.album || 'Album') : initialTitle;
+    const activeTitle = downloadScope === 'album' ? (albumName || track?.album || 'Album') : initialTitle;
     const activeArtist = initialArtist;
 
     // Fetch existing music libraries & instances to populate destination choices
@@ -53,11 +52,11 @@ export function MusicDownloadModal({
         const fetchDestinations = async () => {
             const list: DestinationOption[] = [];
 
-            // 1. Option for Direct Device Download
+            // 1. Direct Local Device Download (Browser download)
             list.push({
                 id: 'device',
-                name: 'Local Device (This Browser / PC)',
-                path: 'Direct File Download',
+                name: 'Local Device (Direct Download to this Computer)',
+                path: 'Browser Direct File Download',
                 type: 'device',
                 badge: 'Local Device'
             });
@@ -77,10 +76,10 @@ export function MusicDownloadModal({
                         folders.forEach((f, fi) => {
                             list.push({
                                 id: `theater-${lib.id}-${fi}`,
-                                name: `${lib.name || 'Theater Music Library'}`,
+                                name: `Theater Library: ${lib.name}`,
                                 path: f,
                                 type: 'theater',
-                                badge: 'Theater Library'
+                                badge: 'Server Library'
                             });
                         });
                     }
@@ -103,7 +102,7 @@ export function MusicDownloadModal({
                                 rfs.forEach((rf: any, rfi: number) => {
                                     list.push({
                                         id: `lidarr-${l.id}-${rfi}`,
-                                        name: `Lidarr: ${l.name}`,
+                                        name: `Lidarr Instance: ${l.name}`,
                                         path: rf.path || '/music',
                                         type: 'lidarr',
                                         badge: 'Lidarr Instance'
@@ -115,14 +114,17 @@ export function MusicDownloadModal({
                 }
             } catch {}
 
-            // 4. Custom Folder Option
-            list.push({
-                id: 'custom',
-                name: 'Custom Server Folder',
-                path: './data/music',
-                type: 'custom',
-                badge: 'Custom Path'
-            });
+            // If no server libraries exist at all, add default server music folder option
+            const serverLibs = list.filter(d => d.type !== 'device');
+            if (serverLibs.length === 0) {
+                list.push({
+                    id: 'theater-default',
+                    name: 'Server Music Storage',
+                    path: './data/music',
+                    type: 'theater',
+                    badge: 'Server Library'
+                });
+            }
 
             setDestinations(list);
             // Default to first server library if available, otherwise device
@@ -137,9 +139,9 @@ export function MusicDownloadModal({
 
     const selectedDest = destinations.find(d => d.id === selectedDestId) || destinations[0];
 
-    // 1. Save directly into server library folder
+    // 1. Save directly into selected server library folder
     const handleSaveToServerLibrary = async () => {
-        const targetDirectory = selectedDestId === 'custom' ? (customFolder.trim() || './data/music') : selectedDest?.path;
+        const targetDirectory = selectedDest?.path || './data/music';
 
         setIsDownloading(true);
         setDownloadProgress(20);
@@ -158,7 +160,7 @@ export function MusicDownloadModal({
                             title: t.title || t.name,
                             artist: t.artist || activeArtist,
                             album: albumName || t.album || 'Album',
-                            targetFolder: targetDirectory || undefined,
+                            targetFolder: targetDirectory,
                             audioFormat,
                             coverUrl: t.posterUrl || initialPosterUrl
                         })
@@ -167,7 +169,7 @@ export function MusicDownloadModal({
                     setDownloadProgress(Math.round((downloadedCount / albumTracks.length) * 100));
                 }
                 setDownloadSuccess(true);
-                toast.success(`Saved ${downloadedCount} tracks of "${activeTitle}" into ${targetDirectory}!`);
+                toast.success(`Saved ${downloadedCount} tracks into ${selectedDest.name}!`);
             } else {
                 setDownloadProgress(50);
                 const ytId = track?.youtubeId || (track?.id?.startsWith('yt-') ? track.id.replace('yt-', '') : undefined);
@@ -180,7 +182,7 @@ export function MusicDownloadModal({
                         title: track?.title || track?.name || initialTitle,
                         artist: track?.artist || activeArtist,
                         album: track?.album || (downloadScope === 'album' ? albumName : 'Singles'),
-                        targetFolder: targetDirectory || undefined,
+                        targetFolder: targetDirectory,
                         audioFormat,
                         coverUrl: track?.posterUrl || initialPosterUrl
                     })
@@ -189,14 +191,14 @@ export function MusicDownloadModal({
                 if (res.ok) {
                     setDownloadProgress(100);
                     setDownloadSuccess(true);
-                    toast.success(`Successfully saved "${initialTitle}" into ${targetDirectory}!`);
+                    toast.success(`Successfully saved "${initialTitle}" into ${selectedDest.name}!`);
                 } else {
                     const err = await res.json().catch(() => ({}));
                     toast.error(err.error || 'Failed to download track');
                 }
             }
         } catch (e: any) {
-            toast.error(e.message || 'Error occurred while downloading');
+            toast.error(e.message || 'Error occurred while saving to library');
         } finally {
             setIsDownloading(false);
         }
@@ -205,39 +207,31 @@ export function MusicDownloadModal({
     // 2. Direct Browser / Device Download
     const handleDownloadToDevice = () => {
         const ytId = track?.youtubeId || (track?.id?.startsWith('yt-') ? track.id.replace('yt-', '') : undefined);
-        const filename = `${activeArtist} - ${initialTitle}.${audioFormat}`;
-        
+        const safeArtist = activeArtist.replace(/[/\\?%*:|"<>]/g, '').trim();
+        const safeTitle = initialTitle.replace(/[/\\?%*:|"<>]/g, '').trim();
+        const ext = audioFormat === 'aac' ? 'm4a' : audioFormat;
+        const filename = `${safeArtist} - ${safeTitle}.${ext}`;
+
+        let downloadUrl = '';
         if (ytId) {
-            const url = `/api/theater/music/stream?ytId=${encodeURIComponent(ytId)}&download=true&filename=${encodeURIComponent(filename)}`;
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = filename;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            toast.success(`Started browser download for "${filename}"`);
-            onClose();
+            downloadUrl = `/api/theater/music/stream?ytId=${encodeURIComponent(ytId)}&download=true&filename=${encodeURIComponent(filename)}`;
+        } else if (track?.streamUrl && track.streamUrl.includes('ytId=')) {
+            downloadUrl = `${track.streamUrl}&download=true&filename=${encodeURIComponent(filename)}`;
         } else if (track?.streamUrl) {
-            const link = document.createElement('a');
-            link.href = track.streamUrl;
-            link.download = filename;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            toast.success(`Started browser download for "${filename}"`);
-            onClose();
+            downloadUrl = track.streamUrl;
         } else {
-            // Search & stream fallback
-            const searchUrl = `/api/theater/music/stream?q=${encodeURIComponent(`${activeArtist} ${initialTitle}`)}&download=true&filename=${encodeURIComponent(filename)}`;
-            const link = document.createElement('a');
-            link.href = searchUrl;
-            link.download = filename;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            toast.success(`Started browser download for "${filename}"`);
-            onClose();
+            downloadUrl = `/api/theater/music/stream?q=${encodeURIComponent(`${safeArtist} ${safeTitle}`)}&download=true&filename=${encodeURIComponent(filename)}`;
         }
+
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.setAttribute('download', filename);
+        link.target = '_blank';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        toast.success(`Downloading "${filename}" to your device`);
+        onClose();
     };
 
     const handleExecuteAction = () => {
@@ -250,19 +244,19 @@ export function MusicDownloadModal({
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200">
-            <div className="relative w-full max-w-lg bg-zinc-950 border border-zinc-800 rounded-3xl p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto custom-scrollbar">
+            <div className="relative w-full max-w-lg bg-zinc-950 border border-zinc-800 rounded-3xl p-6 sm:p-7 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto custom-scrollbar">
                 {/* Header */}
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                        <div className="p-3 bg-amber-500/10 text-amber-400 rounded-2xl border border-amber-500/20 shrink-0">
-                            <Download size={22} />
+                        <div className="p-3 bg-amber-500/15 text-amber-400 rounded-2xl border border-amber-500/30 shrink-0">
+                            <Download size={24} />
                         </div>
                         <div>
-                            <h2 className="text-lg font-black text-white">
+                            <h2 className="text-xl font-black text-white">
                                 Music Download &amp; Organization
                             </h2>
-                            <p className="text-xs text-zinc-400 font-medium">
-                                Pick destination library, audio format, and download scope
+                            <p className="text-xs sm:text-sm text-zinc-400 font-medium">
+                                Choose destination library and audio quality
                             </p>
                         </div>
                     </div>
@@ -270,104 +264,90 @@ export function MusicDownloadModal({
                         onClick={onClose}
                         className="p-2 text-zinc-400 hover:text-white rounded-xl hover:bg-zinc-900 transition-colors shrink-0"
                     >
-                        <X size={18} />
+                        <X size={20} />
                     </button>
                 </div>
 
                 {/* Scope Selector */}
-                <div className="space-y-1.5">
-                    <label className="text-[11px] font-black uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
-                        <Disc size={13} className="text-amber-400" /> Download What?
+                <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+                        <Disc size={14} className="text-amber-400" /> Download What?
                     </label>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-2 gap-2.5">
                         <button
                             type="button"
                             onClick={() => setDownloadScope('track')}
-                            className={`p-2.5 rounded-2xl border flex flex-col items-center justify-center gap-1 transition-all ${
+                            className={`p-3 rounded-2xl border flex flex-col items-center justify-center gap-1 transition-all ${
                                 downloadScope === 'track'
                                     ? 'bg-amber-500/20 border-amber-500/60 text-white shadow-md'
                                     : 'bg-zinc-900/60 border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-900'
                             }`}
                         >
-                            <Music size={16} className={downloadScope === 'track' ? 'text-amber-400' : 'text-zinc-500'} />
-                            <span className="text-xs font-black uppercase">Single Song</span>
-                            <span className="text-[9px] text-zinc-500 truncate max-w-[100px]">{initialTitle}</span>
+                            <Music size={18} className={downloadScope === 'track' ? 'text-amber-400' : 'text-zinc-500'} />
+                            <span className="text-sm font-black uppercase">Single Song</span>
+                            <span className="text-xs text-zinc-500 truncate max-w-[150px]">{initialTitle}</span>
                         </button>
 
                         <button
                             type="button"
                             onClick={() => setDownloadScope('album')}
-                            className={`p-2.5 rounded-2xl border flex flex-col items-center justify-center gap-1 transition-all ${
+                            className={`p-3 rounded-2xl border flex flex-col items-center justify-center gap-1 transition-all ${
                                 downloadScope === 'album'
                                     ? 'bg-amber-500/20 border-amber-500/60 text-white shadow-md'
                                     : 'bg-zinc-900/60 border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-900'
                             }`}
                         >
-                            <Disc size={16} className={downloadScope === 'album' ? 'text-amber-400' : 'text-zinc-500'} />
-                            <span className="text-xs font-black uppercase">Full Album</span>
-                            <span className="text-[9px] text-zinc-500 truncate max-w-[100px]">{albumName || track?.album || 'Album'}</span>
-                        </button>
-
-                        <button
-                            type="button"
-                            onClick={() => setDownloadScope('artist')}
-                            className={`p-2.5 rounded-2xl border flex flex-col items-center justify-center gap-1 transition-all ${
-                                downloadScope === 'artist'
-                                    ? 'bg-amber-500/20 border-amber-500/60 text-white shadow-md'
-                                    : 'bg-zinc-900/60 border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-900'
-                            }`}
-                        >
-                            <User size={16} className={downloadScope === 'artist' ? 'text-amber-400' : 'text-zinc-500'} />
-                            <span className="text-xs font-black uppercase">Artist All</span>
-                            <span className="text-[9px] text-zinc-500 truncate max-w-[100px]">{activeArtist}</span>
+                            <Disc size={18} className={downloadScope === 'album' ? 'text-amber-400' : 'text-zinc-500'} />
+                            <span className="text-sm font-black uppercase">Full Album</span>
+                            <span className="text-xs text-zinc-500 truncate max-w-[150px]">{albumName || track?.album || 'Album'}</span>
                         </button>
                     </div>
                 </div>
 
-                {/* Where to Save / Download Target (Explicit Destination List) */}
-                <div className="space-y-1.5">
-                    <label className="text-[11px] font-black uppercase tracking-wider text-zinc-400 flex items-center justify-between">
+                {/* Where to Save (Pure Dropdown & Selector - No path typing) */}
+                <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-wider text-zinc-400 flex items-center justify-between">
                         <span className="flex items-center gap-1.5">
-                            <Folder size={13} className="text-amber-400" /> Save Where? (Select Library or Device)
+                            <Folder size={14} className="text-amber-400" /> Destination (Audio Library or Local Device)
                         </span>
-                        <span className="text-[10px] text-zinc-500">{destinations.length} Targets</span>
+                        <span className="text-xs font-mono text-zinc-500 font-bold">{destinations.length} Options</span>
                     </label>
 
-                    <div className="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+                    <div className="space-y-2">
                         {destinations.map((dest) => {
                             const isSelected = selectedDestId === dest.id;
                             return (
                                 <div
                                     key={dest.id}
                                     onClick={() => setSelectedDestId(dest.id)}
-                                    className={`p-2.5 rounded-2xl border cursor-pointer transition-all flex items-center justify-between gap-2.5 ${
+                                    className={`p-3 rounded-2xl border cursor-pointer transition-all flex items-center justify-between gap-3 ${
                                         isSelected
-                                            ? 'bg-amber-500/15 border-amber-500/60 shadow-lg text-white'
+                                            ? 'bg-amber-500/15 border-amber-500/60 shadow-lg text-white ring-1 ring-amber-400/40'
                                             : 'bg-zinc-900/60 border-zinc-800/80 hover:bg-zinc-900 text-zinc-400 hover:text-white'
                                     }`}
                                 >
-                                    <div className="flex items-center gap-2.5 min-w-0">
-                                        <div className={`p-2 rounded-xl shrink-0 ${
+                                    <div className="flex items-center gap-3 min-w-0">
+                                        <div className={`p-2.5 rounded-xl shrink-0 ${
                                             isSelected ? 'bg-amber-500 text-black' : 'bg-zinc-800 text-zinc-400'
                                         }`}>
                                             {dest.type === 'device' ? (
-                                                <Laptop size={15} />
+                                                <Laptop size={18} />
                                             ) : dest.type === 'lidarr' ? (
-                                                <Radio size={15} />
+                                                <Radio size={18} />
                                             ) : (
-                                                <Folder size={15} />
+                                                <Folder size={18} />
                                             )}
                                         </div>
                                         <div className="min-w-0">
-                                            <h4 className="text-xs font-bold truncate text-white">
+                                            <h4 className="text-sm font-bold truncate text-white">
                                                 {dest.name}
                                             </h4>
-                                            <p className="text-[10px] font-mono text-zinc-400 truncate">
+                                            <p className="text-xs font-mono text-zinc-400 truncate">
                                                 {dest.path}
                                             </p>
                                         </div>
                                     </div>
-                                    <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase shrink-0 ${
+                                    <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase shrink-0 ${
                                         dest.type === 'device'
                                             ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
                                             : dest.type === 'lidarr'
@@ -380,67 +360,42 @@ export function MusicDownloadModal({
                             );
                         })}
                     </div>
-
-                    {selectedDestId === 'custom' && (
-                        <div className="pt-1.5">
-                            <input
-                                type="text"
-                                placeholder="Enter custom path (e.g. /media/music or C:\Music)"
-                                value={customFolder}
-                                onChange={(e) => setCustomFolder(e.target.value)}
-                                className="w-full bg-zinc-900 border border-zinc-800 text-xs text-zinc-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:border-amber-500 font-mono"
-                            />
-                        </div>
-                    )}
                 </div>
 
-                {/* Audio Format Selection */}
-                <div className="space-y-1.5">
-                    <label className="text-[11px] font-black uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
-                        <Sparkles size={13} className="text-amber-400" /> Audio Encoding &amp; Quality
+                {/* Audio Format / Quality Selection (Realistic YouTube Profiles) */}
+                <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+                        <Sparkles size={14} className="text-amber-400" /> Audio Quality Profile
                     </label>
-                    <div className="grid grid-cols-4 gap-2">
+                    <div className="grid grid-cols-3 gap-2">
                         {[
-                            { id: 'mp3', label: 'MP3', desc: '320 kbps' },
-                            { id: 'flac', label: 'FLAC', desc: 'Lossless' },
-                            { id: 'aac', label: 'AAC', desc: '256 kbps' },
-                            { id: 'opus', label: 'Opus', desc: 'High-Res' }
+                            { id: 'mp3', label: 'MP3 320k', desc: 'High Quality MP3' },
+                            { id: 'aac', label: 'AAC 256k', desc: 'Standard M4A' },
+                            { id: 'opus', label: 'Opus 160k', desc: 'Native Stream' }
                         ].map((fmt) => (
                             <button
                                 key={fmt.id}
                                 type="button"
                                 onClick={() => setAudioFormat(fmt.id as any)}
-                                className={`p-2 rounded-2xl border flex flex-col items-center justify-center transition-all ${
+                                className={`p-2.5 rounded-2xl border flex flex-col items-center justify-center transition-all ${
                                     audioFormat === fmt.id
                                         ? 'bg-amber-500/15 border-amber-500/50 text-white shadow-lg ring-1 ring-amber-400/40'
                                         : 'bg-zinc-900/60 border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-900'
                                 }`}
                             >
-                                <span className="text-xs font-black uppercase">{fmt.label}</span>
-                                <span className="text-[9px] text-zinc-500">{fmt.desc}</span>
+                                <span className="text-sm font-black uppercase">{fmt.label}</span>
+                                <span className="text-[10px] text-zinc-500">{fmt.desc}</span>
                             </button>
                         ))}
                     </div>
                 </div>
 
-                {/* Storage Path Structure Preview */}
-                <div className="p-2.5 bg-zinc-900/50 rounded-xl border border-zinc-800/60 text-[10px] text-zinc-400 space-y-1 font-mono">
-                    <div className="text-zinc-500 uppercase tracking-widest text-[9px] font-bold">Auto-Organized Structure:</div>
-                    <div className="truncate text-amber-300">
-                        {selectedDestId === 'device' ? (
-                            <span>Direct Download: <strong className="text-white">{activeArtist} - {initialTitle}.{audioFormat}</strong></span>
-                        ) : (
-                            <span>{selectedDestId === 'custom' ? (customFolder || './data/music') : selectedDest?.path}/{activeArtist}/{downloadScope === 'album' ? (albumName || 'Album') : (track?.album || 'Singles')}/{initialTitle}.{audioFormat}</span>
-                        )}
-                    </div>
-                </div>
-
                 {/* Master Action Button */}
-                <div className="flex items-center justify-between gap-2 pt-2 border-t border-zinc-900">
+                <div className="flex items-center justify-between gap-3 pt-2 border-t border-zinc-900">
                     <button
                         onClick={onClose}
                         disabled={isDownloading}
-                        className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 font-bold text-xs border border-zinc-800 transition-all disabled:opacity-50"
+                        className="px-4 py-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 font-bold text-xs sm:text-sm border border-zinc-800 transition-all disabled:opacity-50"
                     >
                         {downloadSuccess ? 'Close' : 'Cancel'}
                     </button>
@@ -448,7 +403,7 @@ export function MusicDownloadModal({
                     <button
                         onClick={handleExecuteAction}
                         disabled={isDownloading || downloadSuccess}
-                        className={`flex-1 px-5 py-2.5 rounded-xl font-black text-xs flex items-center justify-center gap-2 transition-all shadow-xl ${
+                        className={`flex-1 px-5 py-3 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-xl ${
                             selectedDestId === 'device'
                                 ? 'bg-purple-600 hover:bg-purple-500 text-white shadow-purple-950/50'
                                 : downloadSuccess
@@ -458,19 +413,19 @@ export function MusicDownloadModal({
                     >
                         {isDownloading ? (
                             <>
-                                <RefreshCw size={14} className="animate-spin" /> Downloading ({downloadProgress}%)
+                                <RefreshCw size={16} className="animate-spin" /> Saving ({downloadProgress}%)
                             </>
                         ) : downloadSuccess ? (
                             <>
-                                <CheckCircle2 size={14} /> Saved Successfully!
+                                <CheckCircle2 size={16} /> Saved Successfully!
                             </>
                         ) : selectedDestId === 'device' ? (
                             <>
-                                <Laptop size={14} /> Download to This Device ({audioFormat.toUpperCase()})
+                                <Laptop size={16} /> Download to This Device ({audioFormat.toUpperCase()})
                             </>
                         ) : (
                             <>
-                                <HardDrive size={14} /> Save to {selectedDest?.name || 'Library'}
+                                <HardDrive size={16} /> Save to {selectedDest?.name || 'Library'}
                             </>
                         )}
                     </button>
