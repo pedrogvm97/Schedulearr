@@ -638,6 +638,10 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     const expandedLyricsContainerRef = useRef<HTMLDivElement>(null);
     const standaloneLyricsContainerRef = useRef<HTMLDivElement>(null);
 
+    // Studio Subtab & Minimalist Display Modes
+    const [karaokeSubTab, setKaraokeSubTab] = useState<'lyrics' | 'guitar' | 'bass' | 'sing'>('lyrics');
+    const [isMinimalistVinylMode, setIsMinimalistVinylMode] = useState(false);
+
     // Specs & Diagnostics Modal States
     const [isAudioSpecsOpen, setIsAudioSpecsOpen] = useState(false);
     const [audioSpecsItem, setAudioSpecsItem] = useState<MediaItem | null>(null);
@@ -2204,6 +2208,20 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 <span className="hidden md:inline">Search</span>
                             </button>
 
+                            {/* Minimalist Vinyl Platter Display Mode Toggle */}
+                            <button
+                                onClick={() => setIsMinimalistVinylMode(prev => !prev)}
+                                className={`p-2 sm:px-2.5 sm:py-1.5 rounded-2xl border text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all ${
+                                    isMinimalistVinylMode
+                                        ? 'bg-amber-500 text-black border-amber-400 shadow-md ring-1 ring-amber-400'
+                                        : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
+                                }`}
+                                title={isMinimalistVinylMode ? "Restore Full Dashboard" : "Collapse to Minimalist Rotating Vinyl"}
+                            >
+                                {isMinimalistVinylMode ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
+                                <span className="hidden md:inline">{isMinimalistVinylMode ? "Full Studio" : "Minimalist Platter"}</span>
+                            </button>
+
                             {/* Nerd Tools Button */}
                             <button
                                 onClick={() => setShowAudioNerdModal(true)}
@@ -2565,15 +2583,15 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             </div>
                         </div>
 
-                        {/* Right Side: Toggleable Panel (Karaoke / Guitar / Bass / Sing / Artist / Queue / Specs) */}
+                        {/* Right Side: Toggleable Panel (Karaoke / Artist / Queue / Playlists / Search / Specs) */}
                         {showExpandedSidePanel && (
                             <div className="col-span-1 lg:col-span-7 xl:col-span-7 h-full max-h-full flex flex-col bg-zinc-950/80 border border-zinc-900 rounded-[2rem] p-3 sm:p-5 shadow-2xl space-y-3 min-h-0 overflow-hidden">
-                                {/* Panel Tab Selectors - Smooth horizontal scrollable chips */}
+                                {/* Panel Tab Selectors - Clean top bar */}
                                 <div className="flex items-center justify-between gap-2 pb-2 border-b border-zinc-900 shrink-0">
-                                    <div className="flex items-center gap-1 overflow-x-auto no-scrollbar scrollbar-none py-1 px-1 bg-zinc-900/90 rounded-2xl border border-zinc-800 shrink-0 max-w-full">
+                                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar scrollbar-none py-1 px-1 bg-zinc-900/90 rounded-2xl border border-zinc-800 shrink-0 max-w-full">
                                         <button
                                             onClick={() => setExpandedSidePanel('karaoke')}
-                                            className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
+                                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
                                                 expandedSidePanel === 'karaoke' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
                                             }`}
                                         >
@@ -2581,40 +2599,10 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         </button>
                                         <button
                                             onClick={() => {
-                                                setJamInstrument('guitar');
-                                                setExpandedSidePanel('guitar');
-                                            }}
-                                            className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
-                                                expandedSidePanel === 'guitar' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
-                                            }`}
-                                        >
-                                            <Guitar size={13} /> Guitar
-                                        </button>
-                                        <button
-                                            onClick={() => {
-                                                setJamInstrument('bass');
-                                                setExpandedSidePanel('bass');
-                                            }}
-                                            className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
-                                                expandedSidePanel === 'bass' ? 'bg-purple-500 text-white shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
-                                            }`}
-                                        >
-                                            <Activity size={13} /> Bass
-                                        </button>
-                                        <button
-                                            onClick={() => setExpandedSidePanel('sing')}
-                                            className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
-                                                expandedSidePanel === 'sing' ? 'bg-pink-500 text-black shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
-                                            }`}
-                                        >
-                                            <Sparkles size={13} /> Sing Hero
-                                        </button>
-                                        <button
-                                            onClick={() => {
                                                 setExpandedSidePanel('artist');
                                                 fetchArtistInfo(playingAudio.artist);
                                             }}
-                                            className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
+                                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
                                                 expandedSidePanel === 'artist' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
                                             }`}
                                         >
@@ -2622,7 +2610,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         </button>
                                         <button
                                             onClick={() => setExpandedSidePanel('queue')}
-                                            className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
+                                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
                                                 expandedSidePanel === 'queue' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
                                             }`}
                                         >
@@ -2633,7 +2621,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                 setExpandedSidePanel('playlists');
                                                 fetchInPlayerPlaylists();
                                             }}
-                                            className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
+                                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
                                                 expandedSidePanel === 'playlists' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
                                             }`}
                                         >
@@ -2641,7 +2629,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         </button>
                                         <button
                                             onClick={() => setExpandedSidePanel('search')}
-                                            className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
+                                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
                                                 expandedSidePanel === 'search' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
                                             }`}
                                         >
@@ -2649,325 +2637,334 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         </button>
                                         <button
                                             onClick={() => setExpandedSidePanel('specs')}
-                                            className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
+                                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
                                                 expandedSidePanel === 'specs' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
                                             }`}
                                         >
                                             <Info size={13} /> Specs
                                         </button>
                                     </div>
-
-                                    {expandedSidePanel === 'karaoke' && (
-                                        <div className="flex items-center gap-1.5">
-                                            {lyricsData?.isSynced && (
-                                                <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[9px] font-black uppercase flex items-center gap-1">
-                                                    <Sparkles size={10} /> Synced
-                                                </span>
-                                            )}
-                                            <button
-                                                onClick={() => {
-                                                    setLyricsSearchQuery(`${playingAudio.artist || ''} ${playingAudio.title || ''}`.trim());
-                                                    setCustomLrcText(lyricsData?.syncedLyrics || lyricsData?.plainLyrics || '');
-                                                    setIsLyricsEditorOpen(true);
-                                                }}
-                                                className="px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-[11px] font-bold flex items-center gap-1 transition-all"
-                                                title="Edit lyrics match"
-                                            >
-                                                <Edit3 size={11} /> Edit
-                                            </button>
-                                        </div>
-                                    )}
                                 </div>
 
-                                {/* 1. Karaoke Tab Content - Isolated Smooth Scroll */}
+                                {/* 1. Karaoke Tab with Subtabs (Landing page is Karaoke Lyrics) */}
                                 {expandedSidePanel === 'karaoke' && (
-                                    <div
-                                        ref={expandedLyricsContainerRef}
-                                        className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-2 flex flex-col"
-                                    >
-                                        {lyricsLoading ? (
-                                            <div className="flex flex-col items-center justify-center py-20 gap-3 m-auto">
-                                                <div className="w-9 h-9 border-3 border-amber-500/20 border-t-amber-500 rounded-full animate-spin" />
-                                                <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">Fetching Lyrics...</p>
-                                            </div>
-                                        ) : !lyricsData || (!lyricsData.lines?.length && !lyricsData.plainLyrics) ? (
-                                            <div className="flex flex-col items-center justify-center py-16 text-center space-y-4 m-auto">
-                                                <div className="p-4 bg-zinc-900/60 rounded-full text-zinc-600"><Mic2 size={32} /></div>
-                                                <div>
-                                                    <p className="text-sm font-bold text-white">No lyrics available for this song</p>
-                                                    <p className="text-xs text-zinc-500 mt-1">Search LRCLib or paste custom LRC timestamps.</p>
-                                                </div>
+                                    <div className="flex-1 min-h-0 flex flex-col space-y-2.5">
+                                        {/* Sub-tabs Header inside Karaoke */}
+                                        <div className="flex items-center justify-between gap-2 p-1 bg-zinc-900/90 rounded-2xl border border-zinc-800 shrink-0">
+                                            <div className="flex items-center gap-1 overflow-x-auto no-scrollbar scrollbar-none">
+                                                <button
+                                                    onClick={() => setKaraokeSubTab('lyrics')}
+                                                    className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                                                        karaokeSubTab === 'lyrics' ? 'bg-amber-500 text-black font-black shadow-sm' : 'text-zinc-400 hover:text-white'
+                                                    }`}
+                                                >
+                                                    <Mic2 size={12} /> Karaoke Lyrics
+                                                </button>
                                                 <button
                                                     onClick={() => {
-                                                        setLyricsSearchQuery(`${playingAudio.artist || ''} ${playingAudio.title || ''}`.trim());
-                                                        setIsLyricsEditorOpen(true);
+                                                        setJamInstrument('guitar');
+                                                        setKaraokeSubTab('guitar');
                                                     }}
-                                                    className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5"
+                                                    className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                                                        karaokeSubTab === 'guitar' ? 'bg-amber-500 text-black font-black shadow-sm' : 'text-zinc-400 hover:text-white'
+                                                    }`}
                                                 >
-                                                    <Search size={13} /> Search / Add Lyrics
+                                                    <Guitar size={12} /> Guitar
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        setJamInstrument('bass');
+                                                        setKaraokeSubTab('bass');
+                                                    }}
+                                                    className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                                                        karaokeSubTab === 'bass' ? 'bg-purple-500 text-white font-black shadow-sm' : 'text-zinc-400 hover:text-white'
+                                                    }`}
+                                                >
+                                                    <Activity size={12} /> Bass
+                                                </button>
+                                                <button
+                                                    onClick={() => setKaraokeSubTab('sing')}
+                                                    className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                                                        karaokeSubTab === 'sing' ? 'bg-pink-500 text-black font-black shadow-sm' : 'text-zinc-400 hover:text-white'
+                                                    }`}
+                                                >
+                                                    <Sparkles size={12} /> Sing Hero
                                                 </button>
                                             </div>
-                                        ) : lyricsData.isSynced ? (
-                                            <div className="space-y-4 py-16 text-center">
-                                                {lyricsData.lines.map((line, idx) => {
-                                                    const isActive = idx === currentLyricIndex;
-                                                    const isPast = currentLyricIndex !== -1 && idx < currentLyricIndex;
-                                                    return (
-                                                        <div
-                                                            key={idx}
-                                                            ref={isActive ? expandedActiveLyricRef : null}
-                                                            onClick={() => seekTo(line.time)}
-                                                            className={`cursor-pointer transition-colors duration-200 py-1.5 px-3 rounded-xl inline-block max-w-xl ${
-                                                                isActive
-                                                                    ? 'text-xl sm:text-2xl font-black text-amber-300 drop-shadow-[0_0_20px_rgba(251,191,36,0.6)]'
-                                                                    : isPast
-                                                                    ? 'text-sm sm:text-base font-bold text-zinc-600 hover:text-zinc-400'
-                                                                    : 'text-sm sm:text-base font-bold text-zinc-400 hover:text-zinc-200'
-                                                            }`}
-                                                        >
-                                                            {line.text}
+
+                                            {karaokeSubTab === 'lyrics' && (
+                                                <div className="flex items-center gap-1.5 shrink-0 pr-1">
+                                                    {lyricsData?.isSynced && (
+                                                        <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[9px] font-black uppercase flex items-center gap-1">
+                                                            <Sparkles size={10} /> Synced
+                                                        </span>
+                                                    )}
+                                                    <button
+                                                        onClick={() => {
+                                                            setLyricsSearchQuery(`${playingAudio.artist || ''} ${playingAudio.title || ''}`.trim());
+                                                            setCustomLrcText(lyricsData?.syncedLyrics || lyricsData?.plainLyrics || '');
+                                                            setIsLyricsEditorOpen(true);
+                                                        }}
+                                                        className="px-2 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white text-[11px] font-bold flex items-center gap-1 transition-all"
+                                                        title="Edit lyrics match"
+                                                    >
+                                                        <Edit3 size={11} /> Edit
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Subtab 1: Karaoke Synced Lyrics View (Landing Page) */}
+                                        {karaokeSubTab === 'lyrics' && (
+                                            <div
+                                                ref={expandedLyricsContainerRef}
+                                                className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-2 flex flex-col"
+                                            >
+                                                {lyricsLoading ? (
+                                                    <div className="flex flex-col items-center justify-center py-20 gap-3 m-auto">
+                                                        <div className="w-9 h-9 border-3 border-amber-500/20 border-t-amber-500 rounded-full animate-spin" />
+                                                        <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">Fetching Lyrics...</p>
+                                                    </div>
+                                                ) : !lyricsData || (!lyricsData.lines?.length && !lyricsData.plainLyrics) ? (
+                                                    <div className="flex flex-col items-center justify-center py-16 text-center space-y-4 m-auto">
+                                                        <div className="p-4 bg-zinc-900/60 rounded-full text-zinc-600"><Mic2 size={32} /></div>
+                                                        <div>
+                                                            <p className="text-sm font-bold text-white">No lyrics available for this song</p>
+                                                            <p className="text-xs text-zinc-500 mt-1">Search LRCLib or paste custom LRC timestamps.</p>
                                                         </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        ) : (
-                                            <div className="p-4 text-center whitespace-pre-line text-sm sm:text-base font-semibold text-zinc-300 leading-relaxed max-w-lg mx-auto">
-                                                {lyricsData.plainLyrics || lyricsData.lines.map(l => l.text).join('\n')}
+                                                        <button
+                                                            onClick={() => {
+                                                                setLyricsSearchQuery(`${playingAudio.artist || ''} ${playingAudio.title || ''}`.trim());
+                                                                setIsLyricsEditorOpen(true);
+                                                            }}
+                                                            className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5"
+                                                        >
+                                                            <Search size={13} /> Search / Add Lyrics
+                                                        </button>
+                                                    </div>
+                                                ) : lyricsData.isSynced ? (
+                                                    <div className="space-y-4 py-8 text-center my-auto">
+                                                        {lyricsData.lines.map((line, idx) => {
+                                                            const isActive = idx === currentLyricIndex;
+                                                            return (
+                                                                <p
+                                                                    key={idx}
+                                                                    ref={isActive ? expandedActiveLyricRef : null}
+                                                                    onClick={() => seekTo(line.time)}
+                                                                    className={`cursor-pointer transition-all duration-300 select-none py-1.5 px-3 rounded-2xl ${
+                                                                        isActive
+                                                                            ? 'text-xl sm:text-2xl lg:text-3xl font-black text-amber-300 scale-105 drop-shadow-[0_0_20px_rgba(251,191,36,0.6)] bg-amber-500/15 border border-amber-500/30'
+                                                                            : 'text-sm sm:text-base font-bold text-zinc-500 hover:text-zinc-300'
+                                                                    }`}
+                                                                >
+                                                                    {line.text}
+                                                                </p>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                ) : (
+                                                    <div className="p-4 text-center whitespace-pre-line text-sm sm:text-base font-semibold text-zinc-300 leading-relaxed max-w-lg mx-auto">
+                                                        {lyricsData.plainLyrics || lyricsData.lines.map(l => l.text).join('\n')}
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
-                                    </div>
-                                )}
 
-                                {/* 2. Guitar Mode (Chords + Retained Lyrics View) */}
-                                {expandedSidePanel === 'guitar' && (
-                                    <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-1 space-y-3 flex flex-col">
-                                        {/* Musician Controls Bar */}
-                                        <div className="p-2.5 bg-zinc-900/60 rounded-xl border border-zinc-800 flex flex-wrap items-center justify-between gap-2 shrink-0">
-                                            <div className="flex items-center gap-1.5 text-xs font-black text-amber-400">
-                                                <Guitar size={14} /> 6-String Guitar Chords
-                                            </div>
+                                        {/* Subtab 2: Guitar Chords View */}
+                                        {karaokeSubTab === 'guitar' && (
+                                            <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-1 space-y-3 flex flex-col">
+                                                <div className="p-2.5 bg-zinc-900/60 rounded-xl border border-zinc-800 flex flex-wrap items-center justify-between gap-2 shrink-0">
+                                                    <div className="flex items-center gap-1.5 text-xs font-black text-amber-400">
+                                                        <Guitar size={14} /> 6-String Guitar Chords
+                                                    </div>
 
-                                            <div className="flex items-center gap-2">
-                                                {/* Difficulty Selector */}
-                                                <div className="flex bg-zinc-950 p-0.5 rounded-lg border border-zinc-800 text-[10px] font-black uppercase">
-                                                    <button
-                                                        onClick={() => setJamDifficulty('beginner')}
-                                                        className={`px-1.5 py-0.5 rounded transition-all ${
-                                                            jamDifficulty === 'beginner' ? 'bg-emerald-500 text-black font-black' : 'text-zinc-500 hover:text-zinc-300'
-                                                        }`}
-                                                    >
-                                                        Beg
-                                                    </button>
-                                                    <button
-                                                        onClick={() => setJamDifficulty('intermediate')}
-                                                        className={`px-1.5 py-0.5 rounded transition-all ${
-                                                            jamDifficulty === 'intermediate' ? 'bg-amber-500 text-black font-black' : 'text-zinc-500 hover:text-zinc-300'
-                                                        }`}
-                                                    >
-                                                        Med
-                                                    </button>
-                                                    <button
-                                                        onClick={() => setJamDifficulty('advanced')}
-                                                        className={`px-1.5 py-0.5 rounded transition-all ${
-                                                            jamDifficulty === 'advanced' ? 'bg-purple-500 text-white font-black' : 'text-zinc-500 hover:text-zinc-300'
-                                                        }`}
-                                                    >
-                                                        Pro
-                                                    </button>
-                                                </div>
-
-                                                {/* Transpose Controls */}
-                                                <div className="flex items-center gap-1 bg-zinc-950 p-0.5 rounded-lg border border-zinc-800">
-                                                    <button
-                                                        onClick={() => setJamTranspose(prev => prev - 1)}
-                                                        className="w-4 h-4 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-black text-xs flex items-center justify-center"
-                                                    >
-                                                        -
-                                                    </button>
-                                                    <span className="text-[10px] font-mono font-bold text-amber-300 px-1">
-                                                        {jamTranspose > 0 ? `+${jamTranspose}` : jamTranspose}st
-                                                    </span>
-                                                    <button
-                                                        onClick={() => setJamTranspose(prev => prev + 1)}
-                                                        className="w-4 h-4 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-black text-xs flex items-center justify-center"
-                                                    >
-                                                        +
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        {/* Center Stage: Active Chord + Guitar Fretboard */}
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 items-stretch shrink-0">
-                                            <div className="p-3.5 bg-gradient-to-br from-zinc-900/90 to-zinc-950 border border-zinc-800 rounded-2xl flex flex-col justify-between space-y-2 relative overflow-hidden shadow-xl">
-                                                <span className="text-[10px] font-black uppercase text-zinc-500 tracking-wider flex items-center gap-1">
-                                                    <Activity size={12} className="text-amber-400 animate-pulse" /> Active Chord
-                                                </span>
-
-                                                <div className="text-center py-1">
-                                                    <h2 className="text-4xl sm:text-5xl font-black text-amber-300 tracking-tight drop-shadow-[0_0_20px_rgba(251,191,36,0.6)]">
-                                                        {activeChordEvent?.displayChord || 'C'}
-                                                    </h2>
-                                                </div>
-
-                                                <div className="p-1.5 bg-zinc-950/80 rounded-xl border border-zinc-800/80 flex items-center justify-between text-xs">
-                                                    <span className="text-zinc-500 font-bold text-[10px]">Next:</span>
-                                                    {activeChordEvent?.nextChord ? (
-                                                        <div className="flex items-center gap-1.5 font-mono">
-                                                            <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-black text-[11px]">
-                                                                {activeChordEvent.nextChord}
-                                                            </span>
-                                                            <span className="text-zinc-400 text-[10px]">in {activeChordEvent.nextInSeconds}s</span>
-                                                        </div>
-                                                    ) : (
-                                                        <span className="text-zinc-600 text-[10px]">Holding chord</span>
-                                                    )}
-                                                </div>
-                                            </div>
-
-                                            <FretboardDiagram
-                                                chordName={activeChordEvent?.displayChord || 'C'}
-                                                instrument="guitar"
-                                            />
-                                        </div>
-
-                                        {/* Synchronized Lyrics Retained Section for Guitarists */}
-                                        <div className="flex-1 min-h-[140px] bg-zinc-900/40 border border-zinc-800/70 rounded-2xl p-3 flex flex-col">
-                                            <div className="text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-1.5 flex items-center gap-1">
-                                                <Mic2 size={11} className="text-amber-400" /> Synced Lyrics (Sing along while playing)
-                                            </div>
-                                            <div ref={expandedLyricsContainerRef} className="flex-1 overflow-y-auto custom-scrollbar space-y-2 py-2 text-center">
-                                                {lyricsData?.lines && lyricsData.lines.length > 0 ? (
-                                                    lyricsData.lines.map((line, idx) => {
-                                                        const isActive = idx === currentLyricIndex;
-                                                        return (
-                                                            <p
-                                                                key={idx}
-                                                                ref={isActive ? expandedActiveLyricRef : null}
-                                                                onClick={() => seekTo(line.time)}
-                                                                className={`cursor-pointer transition-colors duration-150 rounded-lg py-1 px-2 text-xs sm:text-sm ${
-                                                                    isActive
-                                                                        ? 'font-black text-amber-300 bg-amber-500/10 border border-amber-500/30'
-                                                                        : 'font-semibold text-zinc-400 hover:text-zinc-200'
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="flex bg-zinc-950 p-0.5 rounded-lg border border-zinc-800 text-[10px] font-black uppercase">
+                                                            <button
+                                                                onClick={() => setJamDifficulty('beginner')}
+                                                                className={`px-1.5 py-0.5 rounded transition-all ${
+                                                                    jamDifficulty === 'beginner' ? 'bg-emerald-500 text-black font-black' : 'text-zinc-500 hover:text-zinc-300'
                                                                 }`}
                                                             >
-                                                                {line.text}
-                                                            </p>
-                                                        );
-                                                    })
-                                                ) : (
-                                                    <p className="text-xs text-zinc-500 py-4 font-medium">{lyricsData?.plainLyrics || 'No lyrics available'}</p>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* 3. Bass Mode (4-String Fretboard + Retained Lyrics View) */}
-                                {expandedSidePanel === 'bass' && (
-                                    <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-1 space-y-3 flex flex-col">
-                                        {/* Musician Controls Bar */}
-                                        <div className="p-2.5 bg-zinc-900/60 rounded-xl border border-zinc-800 flex flex-wrap items-center justify-between gap-2 shrink-0">
-                                            <div className="flex items-center gap-1.5 text-xs font-black text-purple-400">
-                                                <Activity size={14} /> 4-String Bass Fretboard
-                                            </div>
-
-                                            <div className="flex items-center gap-2">
-                                                {/* Transpose Controls */}
-                                                <div className="flex items-center gap-1 bg-zinc-950 p-0.5 rounded-lg border border-zinc-800">
-                                                    <button
-                                                        onClick={() => setJamTranspose(prev => prev - 1)}
-                                                        className="w-4 h-4 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-black text-xs flex items-center justify-center"
-                                                    >
-                                                        -
-                                                    </button>
-                                                    <span className="text-[10px] font-mono font-bold text-purple-300 px-1">
-                                                        {jamTranspose > 0 ? `+${jamTranspose}` : jamTranspose}st
-                                                    </span>
-                                                    <button
-                                                        onClick={() => setJamTranspose(prev => prev + 1)}
-                                                        className="w-4 h-4 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-black text-xs flex items-center justify-center"
-                                                    >
-                                                        +
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        {/* Center Stage: Active Bass Root + 4-String Fretboard */}
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 items-stretch shrink-0">
-                                            <div className="p-3.5 bg-gradient-to-br from-zinc-900/90 to-zinc-950 border border-zinc-800 rounded-2xl flex flex-col justify-between space-y-2 relative overflow-hidden shadow-xl">
-                                                <span className="text-[10px] font-black uppercase text-purple-400 tracking-wider flex items-center gap-1">
-                                                    <Activity size={12} className="animate-pulse" /> Active Bass Root
-                                                </span>
-
-                                                <div className="text-center py-1">
-                                                    <h2 className="text-4xl sm:text-5xl font-black text-purple-300 tracking-tight drop-shadow-[0_0_20px_rgba(168,85,247,0.6)]">
-                                                        {activeChordEvent?.displayChord || 'C'}
-                                                    </h2>
-                                                </div>
-
-                                                <div className="p-1.5 bg-zinc-950/80 rounded-xl border border-zinc-800/80 flex items-center justify-between text-xs">
-                                                    <span className="text-zinc-500 font-bold text-[10px]">Next:</span>
-                                                    {activeChordEvent?.nextChord ? (
-                                                        <div className="flex items-center gap-1.5 font-mono">
-                                                            <span className="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 font-black text-[11px]">
-                                                                {activeChordEvent.nextChord}
-                                                            </span>
-                                                            <span className="text-zinc-400 text-[10px]">in {activeChordEvent.nextInSeconds}s</span>
-                                                        </div>
-                                                    ) : (
-                                                        <span className="text-zinc-600 text-[10px]">Holding root</span>
-                                                    )}
-                                                </div>
-                                            </div>
-
-                                            <FretboardDiagram
-                                                chordName={activeChordEvent?.displayChord || 'C'}
-                                                instrument="bass"
-                                            />
-                                        </div>
-
-                                        {/* Synchronized Lyrics Retained Section for Bassists */}
-                                        <div className="flex-1 min-h-[140px] bg-zinc-900/40 border border-zinc-800/70 rounded-2xl p-3 flex flex-col">
-                                            <div className="text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-1.5 flex items-center gap-1">
-                                                <Mic2 size={11} className="text-purple-400" /> Synced Lyrics (Sing along while playing bass)
-                                            </div>
-                                            <div ref={expandedLyricsContainerRef} className="flex-1 overflow-y-auto custom-scrollbar space-y-2 py-2 text-center">
-                                                {lyricsData?.lines && lyricsData.lines.length > 0 ? (
-                                                    lyricsData.lines.map((line, idx) => {
-                                                        const isActive = idx === currentLyricIndex;
-                                                        return (
-                                                            <p
-                                                                key={idx}
-                                                                ref={isActive ? expandedActiveLyricRef : null}
-                                                                onClick={() => seekTo(line.time)}
-                                                                className={`cursor-pointer transition-colors duration-150 rounded-lg py-1 px-2 text-xs sm:text-sm ${
-                                                                    isActive
-                                                                        ? 'font-black text-purple-300 bg-purple-500/10 border border-purple-500/30'
-                                                                        : 'font-semibold text-zinc-400 hover:text-zinc-200'
+                                                                Beg
+                                                            </button>
+                                                            <button
+                                                                onClick={() => setJamDifficulty('intermediate')}
+                                                                className={`px-1.5 py-0.5 rounded transition-all ${
+                                                                    jamDifficulty === 'intermediate' ? 'bg-amber-500 text-black font-black' : 'text-zinc-500 hover:text-zinc-300'
                                                                 }`}
                                                             >
-                                                                {line.text}
-                                                            </p>
-                                                        );
-                                                    })
-                                                ) : (
-                                                    <p className="text-xs text-zinc-500 py-4 font-medium">{lyricsData?.plainLyrics || 'No lyrics available'}</p>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
+                                                                Med
+                                                            </button>
+                                                            <button
+                                                                onClick={() => setJamDifficulty('advanced')}
+                                                                className={`px-1.5 py-0.5 rounded transition-all ${
+                                                                    jamDifficulty === 'advanced' ? 'bg-purple-500 text-white font-black' : 'text-zinc-500 hover:text-zinc-300'
+                                                                }`}
+                                                            >
+                                                                Pro
+                                                            </button>
+                                                        </div>
 
-                                {/* 4. Sing Mode (Guitar Hero Vocal Pitch Lane & Live Mic Detection) */}
-                                {expandedSidePanel === 'sing' && (
-                                    <SingPitchHero
-                                        lyricsData={lyricsData}
-                                        currentTime={audioCurrentTime}
-                                        duration={audioDuration}
-                                        onSeek={seekTo}
-                                    />
+                                                        <div className="flex items-center gap-1 bg-zinc-950 p-0.5 rounded-lg border border-zinc-800">
+                                                            <button
+                                                                onClick={() => setJamTranspose(prev => prev - 1)}
+                                                                className="w-4 h-4 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-black text-xs flex items-center justify-center"
+                                                            >
+                                                                -
+                                                            </button>
+                                                            <span className="text-[10px] font-mono font-bold text-amber-300 px-1">
+                                                                {jamTranspose > 0 ? `+${jamTranspose}` : jamTranspose}st
+                                                            </span>
+                                                            <button
+                                                                onClick={() => setJamTranspose(prev => prev + 1)}
+                                                                className="w-4 h-4 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-black text-xs flex items-center justify-center"
+                                                            >
+                                                                +
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 items-stretch shrink-0">
+                                                    <div className="p-3.5 bg-gradient-to-br from-zinc-900/90 to-zinc-950 border border-zinc-800 rounded-2xl flex flex-col justify-between space-y-2 relative overflow-hidden shadow-xl">
+                                                        <span className="text-[10px] font-black uppercase text-zinc-500 tracking-wider flex items-center gap-1">
+                                                            <Activity size={12} className="text-amber-400 animate-pulse" /> Active Chord
+                                                        </span>
+
+                                                        <div className="text-center py-1">
+                                                            <h2 className="text-4xl sm:text-5xl font-black text-amber-300 tracking-tight drop-shadow-[0_0_20px_rgba(251,191,36,0.6)]">
+                                                                {activeChordEvent?.displayChord || 'C'}
+                                                            </h2>
+                                                        </div>
+
+                                                        <div className="p-1.5 bg-zinc-950/80 rounded-xl border border-zinc-800/80 flex items-center justify-between text-xs">
+                                                            <span className="text-zinc-500 font-bold text-[10px]">Next:</span>
+                                                            {activeChordEvent?.nextChord ? (
+                                                                <div className="flex items-center gap-1.5 font-mono">
+                                                                    <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-black text-[11px]">
+                                                                        {activeChordEvent.nextChord}
+                                                                    </span>
+                                                                    <span className="text-zinc-400 text-[10px]">in {activeChordEvent.nextInSeconds}s</span>
+                                                                </div>
+                                                            ) : (
+                                                                <span className="text-zinc-600 text-[10px]">Holding chord</span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    <FretboardDiagram
+                                                        chordName={activeChordEvent?.displayChord || 'C'}
+                                                        instrument="guitar"
+                                                    />
+                                                </div>
+
+                                                <div className="flex-1 min-h-[140px] bg-zinc-900/40 border border-zinc-800/70 rounded-2xl p-3 flex flex-col">
+                                                    <div className="text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-1.5 flex items-center gap-1">
+                                                        <Mic2 size={11} className="text-amber-400" /> Synced Lyrics (Sing along while playing)
+                                                    </div>
+                                                    <div ref={expandedLyricsContainerRef} className="flex-1 overflow-y-auto custom-scrollbar space-y-2 py-2 text-center">
+                                                        {lyricsData?.lines && lyricsData.lines.length > 0 ? (
+                                                            lyricsData.lines.map((line, idx) => {
+                                                                const isActive = idx === currentLyricIndex;
+                                                                return (
+                                                                    <p
+                                                                        key={idx}
+                                                                        ref={isActive ? expandedActiveLyricRef : null}
+                                                                        onClick={() => seekTo(line.time)}
+                                                                        className={`cursor-pointer transition-colors duration-150 rounded-lg py-1 px-2 text-xs sm:text-sm ${
+                                                                            isActive
+                                                                                ? 'font-black text-amber-300 bg-amber-500/10 border border-amber-500/30'
+                                                                                : 'font-semibold text-zinc-400 hover:text-zinc-200'
+                                                                        }`}
+                                                                    >
+                                                                        {line.text}
+                                                                    </p>
+                                                                );
+                                                            })
+                                                        ) : (
+                                                            <p className="text-xs text-zinc-500 py-4 font-medium">{lyricsData?.plainLyrics || 'No lyrics available'}</p>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Subtab 3: Bass Tabs View */}
+                                        {karaokeSubTab === 'bass' && (
+                                            <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-1 space-y-3 flex flex-col">
+                                                <div className="p-2.5 bg-zinc-900/60 rounded-xl border border-zinc-800 flex flex-wrap items-center justify-between gap-2 shrink-0">
+                                                    <div className="flex items-center gap-1.5 text-xs font-black text-purple-400">
+                                                        <Activity size={14} /> 4-String Bass Root Notes
+                                                    </div>
+                                                    <span className="text-[10px] font-mono text-zinc-400 font-bold">Tuning: E A D G</span>
+                                                </div>
+
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 items-stretch shrink-0">
+                                                    <div className="p-3.5 bg-gradient-to-br from-zinc-900/90 to-zinc-950 border border-zinc-800 rounded-2xl flex flex-col justify-between space-y-2 relative overflow-hidden shadow-xl">
+                                                        <span className="text-[10px] font-black uppercase text-purple-400 tracking-wider flex items-center gap-1">
+                                                            <Activity size={12} className="text-purple-400 animate-pulse" /> Bass Root Note
+                                                        </span>
+
+                                                        <div className="text-center py-1">
+                                                            <h2 className="text-4xl sm:text-5xl font-black text-purple-300 tracking-tight drop-shadow-[0_0_20px_rgba(168,85,247,0.6)]">
+                                                                {(activeChordEvent?.displayChord || 'C').replace(/m|maj|7|sus4|dim|aug/gi, '') || 'C'}
+                                                            </h2>
+                                                        </div>
+
+                                                        <div className="p-1.5 bg-zinc-950/80 rounded-xl border border-zinc-800/80 flex items-center justify-between text-xs font-mono">
+                                                            <span className="text-zinc-500 font-bold text-[10px]">Harmonic Context:</span>
+                                                            <span className="text-purple-300 font-bold text-[11px]">{activeChordEvent?.displayChord || 'C'}</span>
+                                                        </div>
+                                                    </div>
+
+                                                    <FretboardDiagram
+                                                        chordName={(activeChordEvent?.displayChord || 'C').replace(/m|maj|7|sus4|dim|aug/gi, '') || 'C'}
+                                                        instrument="bass"
+                                                    />
+                                                </div>
+
+                                                <div className="flex-1 min-h-[140px] bg-zinc-900/40 border border-zinc-800/70 rounded-2xl p-3 flex flex-col">
+                                                    <div className="text-[10px] font-black uppercase tracking-wider text-purple-400 mb-1.5 flex items-center gap-1">
+                                                        <Mic2 size={11} className="text-purple-400" /> Synced Lyrics (Bass Grooves)
+                                                    </div>
+                                                    <div ref={expandedLyricsContainerRef} className="flex-1 overflow-y-auto custom-scrollbar space-y-2 py-2 text-center">
+                                                        {lyricsData?.lines && lyricsData.lines.length > 0 ? (
+                                                            lyricsData.lines.map((line, idx) => {
+                                                                const isActive = idx === currentLyricIndex;
+                                                                return (
+                                                                    <p
+                                                                        key={idx}
+                                                                        ref={isActive ? expandedActiveLyricRef : null}
+                                                                        onClick={() => seekTo(line.time)}
+                                                                        className={`cursor-pointer transition-colors duration-150 rounded-lg py-1 px-2 text-xs sm:text-sm ${
+                                                                            isActive
+                                                                                ? 'font-black text-purple-300 bg-purple-500/10 border border-purple-500/30'
+                                                                                : 'font-semibold text-zinc-400 hover:text-zinc-200'
+                                                                        }`}
+                                                                    >
+                                                                        {line.text}
+                                                                    </p>
+                                                                );
+                                                            })
+                                                        ) : (
+                                                            <p className="text-xs text-zinc-500 py-4 font-medium">{lyricsData?.plainLyrics || 'No lyrics available'}</p>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Subtab 4: Sing Hero Game */}
+                                        {karaokeSubTab === 'sing' && (
+                                            <SingPitchHero
+                                                lyricsData={lyricsData}
+                                                currentTime={audioCurrentTime}
+                                                duration={audioDuration}
+                                                onSeek={seekTo}
+                                            />
+                                        )}
+                                    </div>
                                 )}
 
                                 {/* 5. Artist Bio & Discography Tab Content */}

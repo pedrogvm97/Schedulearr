@@ -231,11 +231,21 @@ export function MusicDownloadModal({
         if (ytId) {
             downloadUrl = `/api/theater/music/stream?ytId=${encodeURIComponent(ytId)}&sourceFormat=${sourceFormat}&saveFormat=${saveFormat}&download=true&filename=${encodeURIComponent(filename)}`;
         } else if (track?.streamUrl && track.streamUrl.includes('ytId=')) {
-            downloadUrl = `${track.streamUrl}&sourceFormat=${sourceFormat}&saveFormat=${saveFormat}&download=true&filename=${encodeURIComponent(filename)}`;
-        } else if (track?.streamUrl) {
-            downloadUrl = track.streamUrl;
-        } else {
-            downloadUrl = `/api/theater/music/stream?q=${encodeURIComponent(`${safeArtist} ${safeTitle}`)}&sourceFormat=${sourceFormat}&saveFormat=${saveFormat}&download=true&filename=${encodeURIComponent(filename)}`;
+            try {
+                const u = new URL(track.streamUrl, window.location.origin);
+                const extractedYtId = u.searchParams.get('ytId');
+                if (extractedYtId) {
+                    downloadUrl = `/api/theater/music/stream?ytId=${encodeURIComponent(extractedYtId)}&sourceFormat=${sourceFormat}&saveFormat=${saveFormat}&download=true&filename=${encodeURIComponent(filename)}`;
+                }
+            } catch {}
+        }
+
+        if (!downloadUrl) {
+            if (track?.streamUrl && track.streamUrl.startsWith('/api/theater/stream')) {
+                downloadUrl = `${track.streamUrl}&download=true&filename=${encodeURIComponent(filename)}`;
+            } else {
+                downloadUrl = `/api/theater/music/stream?q=${encodeURIComponent(`${safeArtist} ${safeTitle}`)}&sourceFormat=${sourceFormat}&saveFormat=${saveFormat}&download=true&filename=${encodeURIComponent(filename)}`;
+            }
         }
 
         setIsDownloading(true);

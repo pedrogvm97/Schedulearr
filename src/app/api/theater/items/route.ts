@@ -10,7 +10,7 @@ const VIDEO_EXTS = new Set(['.mp4', '.mkv', '.avi', '.mov', '.webm', '.m4v', '.t
 const AUDIO_EXTS = new Set(['.mp3', '.flac', '.wav', '.m4a', '.aac', '.ogg', '.opus', '.wma']);
 const PHOTO_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.svg']);
 
-function scanDirectory(dirPath: string, maxDepth = 4, currentDepth = 0): any[] {
+function scanDirectory(dirPath: string, maxDepth = 8, currentDepth = 0): any[] {
     if (currentDepth > maxDepth || !fs.existsSync(dirPath)) return [];
 
     let items: any[] = [];
@@ -139,11 +139,21 @@ export async function GET(req: Request) {
         }
 
         let allItems: any[] = [];
+        let folderList: string[] = [];
+        try {
+            if (typeof lib.folders === 'string') {
+                folderList = JSON.parse(lib.folders);
+            } else if (Array.isArray(lib.folders)) {
+                folderList = lib.folders;
+            }
+        } catch {
+            folderList = [];
+        }
 
         // A. Attempt local filesystem scan
-        for (const folder of lib.folders || []) {
+        for (const folder of folderList) {
             if (fs.existsSync(folder)) {
-                allItems.push(...scanDirectory(folder));
+                allItems.push(...scanDirectory(folder, 8));
             }
         }
 
@@ -166,7 +176,7 @@ export async function GET(req: Request) {
                         const match = dirs.find((d: any) => {
                             const nameMatch = d.title.toLowerCase() === lib.name.toLowerCase();
                             const locs = (d.Location || []).map((l: any) => l.path);
-                            const locMatch = (lib.folders || []).some((f: string) => locs.includes(f));
+                            const locMatch = folderList.some((f: string) => locs.includes(f));
                             return nameMatch || locMatch;
                         });
                         if (match) {
@@ -180,12 +190,22 @@ export async function GET(req: Request) {
                             ? `${plexUrl}/library/sections/${targetSectionId}/all?type=10`
                             : `${plexUrl}/library/sections/${targetSectionId}/all`;
 
-                        const itemsRes = await axios.get(endpoint, {
+                        let itemsRes = await axios.get(endpoint, {
                             headers: { 'X-Plex-Token': plex.api_key, 'Accept': 'application/json' },
                             timeout: 15000
                         });
 
-                        const metadata = itemsRes.data?.MediaContainer?.Metadata || [];
+                        let metadata = itemsRes.data?.MediaContainer?.Metadata || [];
+                        if (isMusic && metadata.length === 0) {
+                            // Try general fallback without type=10
+                            try {
+                                const fallbackRes = await axios.get(`${plexUrl}/library/sections/${targetSectionId}/all`, {
+                                    headers: { 'X-Plex-Token': plex.api_key, 'Accept': 'application/json' },
+                                    timeout: 10000
+                                });
+                                metadata = fallbackRes.data?.MediaContainer?.Metadata || [];
+                            } catch {}
+                        }
                         for (const item of metadata) {
                             const part = item.Media?.[0]?.Part?.[0];
                             const partKey = part?.key || '';
