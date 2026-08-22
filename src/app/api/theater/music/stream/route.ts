@@ -85,31 +85,35 @@ export async function GET(req: Request) {
         const isDownload = searchParams.get('download') === 'true';
         const downloadFilename = searchParams.get('filename') || 'track.mp3';
 
-        // 4. Handle Direct Browser File Download (100% reliable single response buffer)
+        // 4. Handle Direct Browser File Download (Immediate Streamed Attachment)
         if (isDownload) {
             try {
                 const dlRes = await axios.get(directAudioUrl, {
-                    responseType: 'arraybuffer',
+                    responseType: 'stream',
                     headers: {
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
                     },
                     timeout: 45000
                 });
 
-                const rawBuffer = Buffer.from(dlRes.data);
                 const safeFilename = downloadFilename.replace(/[/\\?%*:|"<>]/g, '').trim() || 'track.mp3';
+                const headers: Record<string, string> = {
+                    'Content-Type': dlRes.headers['content-type'] || 'audio/mpeg',
+                    'Content-Disposition': `attachment; filename="${encodeURIComponent(safeFilename)}"; filename*=UTF-8''${encodeURIComponent(safeFilename)}`,
+                    'Cache-Control': 'no-cache, no-store'
+                };
 
-                return new NextResponse(rawBuffer, {
+                if (dlRes.headers['content-length']) {
+                    headers['Content-Length'] = dlRes.headers['content-length'];
+                }
+
+                // @ts-ignore
+                return new NextResponse(dlRes.data, {
                     status: 200,
-                    headers: {
-                        'Content-Type': dlRes.headers['content-type'] || 'audio/mpeg',
-                        'Content-Disposition': `attachment; filename="${encodeURIComponent(safeFilename)}"`,
-                        'Content-Length': String(rawBuffer.length),
-                        'Cache-Control': 'no-cache, no-store'
-                    }
+                    headers
                 });
             } catch (dlErr: any) {
-                console.error('Download buffer fetch error:', dlErr.message);
+                console.error('Download stream fetch error:', dlErr.message);
                 return new NextResponse(`Download error: ${dlErr.message}`, { status: 500 });
             }
         }

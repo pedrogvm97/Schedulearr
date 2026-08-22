@@ -85,7 +85,7 @@ export async function POST(req: Request) {
             fs.mkdirSync(albumDir, { recursive: true });
         }
 
-        const ext = audioFormat === 'flac' ? 'flac' : audioFormat === 'aac' ? 'm4a' : audioFormat === 'opus' ? 'opus' : 'mp3';
+        const ext = audioFormat === 'aac' ? 'm4a' : audioFormat === 'opus' ? 'opus' : 'mp3';
         const finalAudioPath = path.join(albumDir, `${cleanTitle}.${ext}`);
         let cleanYtId = (youtubeId || '').replace(/^yt-/, '');
 

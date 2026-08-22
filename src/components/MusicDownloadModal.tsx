@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import {
     X, Download, Disc, Music, HardDrive,
     Sparkles, Folder, CheckCircle2, RefreshCw,
-    Laptop, Radio, ChevronDown
+    Laptop
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -20,7 +20,7 @@ interface DestinationOption {
     id: string;
     name: string;
     path: string;
-    type: 'theater' | 'lidarr' | 'device';
+    type: 'theater' | 'device';
     badge: string;
 }
 
@@ -47,21 +47,21 @@ export function MusicDownloadModal({
     const activeTitle = downloadScope === 'album' ? (albumName || track?.album || 'Album') : initialTitle;
     const activeArtist = initialArtist;
 
-    // Fetch existing music libraries & instances to populate destination choices
+    // Fetch existing real Theater music libraries to populate destination choices
     useEffect(() => {
         const fetchDestinations = async () => {
             const list: DestinationOption[] = [];
 
-            // 1. Direct Local Device Download (Browser download)
+            // 1. Direct Local Device Download (Browser download to user's phone / PC)
             list.push({
                 id: 'device',
-                name: 'Local Device (Direct Download to this Computer)',
-                path: 'Browser Direct File Download',
+                name: 'Local Device (Direct Download to this device)',
+                path: 'Browser Direct Audio File Download',
                 type: 'device',
                 badge: 'Local Device'
             });
 
-            // 2. Fetch Theater Music Libraries
+            // 2. Fetch Existing Server Audio Libraries
             try {
                 const res = await fetch('/api/theater/libraries');
                 if (res.ok) {
@@ -73,43 +73,25 @@ export function MusicDownloadModal({
                         try {
                             folders = typeof lib.folders === 'string' ? JSON.parse(lib.folders) : (lib.folders || []);
                         } catch {}
-                        folders.forEach((f, fi) => {
+                        if (folders.length > 0) {
+                            folders.forEach((f, fi) => {
+                                list.push({
+                                    id: `theater-${lib.id}-${fi}`,
+                                    name: `${lib.name} Library`,
+                                    path: f,
+                                    type: 'theater',
+                                    badge: 'Server Library'
+                                });
+                            });
+                        } else {
                             list.push({
-                                id: `theater-${lib.id}-${fi}`,
-                                name: `Theater Library: ${lib.name}`,
-                                path: f,
+                                id: `theater-${lib.id}-0`,
+                                name: `${lib.name} Library`,
+                                path: './data/music',
                                 type: 'theater',
                                 badge: 'Server Library'
                             });
-                        });
-                    }
-                }
-            } catch {}
-
-            // 3. Fetch Lidarr Instances
-            try {
-                const instRes = await fetch('/api/instances');
-                if (instRes.ok) {
-                    const instData = await instRes.json();
-                    const instances = Array.isArray(instData) ? instData : (instData.instances || []);
-                    const lidarrs = instances.filter((i: any) => i.type === 'lidarr' && i.enabled);
-                    for (const l of lidarrs) {
-                        try {
-                            const rfRes = await fetch(`/api/lidarr/rootfolder?instanceId=${l.id}`);
-                            if (rfRes.ok) {
-                                const rfData = await rfRes.json();
-                                const rfs = Array.isArray(rfData) ? rfData : (rfData.rootFolders || []);
-                                rfs.forEach((rf: any, rfi: number) => {
-                                    list.push({
-                                        id: `lidarr-${l.id}-${rfi}`,
-                                        name: `Lidarr Instance: ${l.name}`,
-                                        path: rf.path || '/music',
-                                        type: 'lidarr',
-                                        badge: 'Lidarr Instance'
-                                    });
-                                });
-                            }
-                        } catch {}
+                        }
                     }
                 }
             } catch {}
@@ -119,7 +101,7 @@ export function MusicDownloadModal({
             if (serverLibs.length === 0) {
                 list.push({
                     id: 'theater-default',
-                    name: 'Server Music Storage',
+                    name: 'Server Music Folder',
                     path: './data/music',
                     type: 'theater',
                     badge: 'Server Library'
@@ -127,11 +109,8 @@ export function MusicDownloadModal({
             }
 
             setDestinations(list);
-            // Default to first server library if available, otherwise device
-            const firstServer = list.find(d => d.type === 'theater' || d.type === 'lidarr');
-            if (firstServer) {
-                setSelectedDestId(firstServer.id);
-            }
+            // Default to device for instant single-click downloads
+            setSelectedDestId('device');
         };
 
         fetchDestinations();
@@ -223,15 +202,21 @@ export function MusicDownloadModal({
             downloadUrl = `/api/theater/music/stream?q=${encodeURIComponent(`${safeArtist} ${safeTitle}`)}&download=true&filename=${encodeURIComponent(filename)}`;
         }
 
-        const link = document.createElement('a');
-        link.href = downloadUrl;
-        link.setAttribute('download', filename);
-        link.target = '_blank';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        toast.success(`Downloading "${filename}" to your device`);
-        onClose();
+        try {
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.setAttribute('download', filename);
+            link.target = '_blank';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            toast.success(`Starting download of "${filename}"...`);
+            onClose();
+        } catch {
+            window.location.href = downloadUrl;
+            toast.success(`Starting download of "${filename}"...`);
+            onClose();
+        }
     };
 
     const handleExecuteAction = () => {
@@ -243,20 +228,20 @@ export function MusicDownloadModal({
     };
 
     return (
-        <div className="fixed inset-0 z-[350] flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200">
-            <div className="relative w-full max-w-lg bg-zinc-950 border border-zinc-800 rounded-3xl p-6 sm:p-7 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto custom-scrollbar">
+        <div className="fixed inset-0 z-[350] flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200">
+            <div className="relative w-full max-w-lg bg-zinc-950 border border-zinc-800 rounded-3xl p-5 sm:p-7 shadow-2xl space-y-4 sm:space-y-5 max-h-[92vh] overflow-y-auto custom-scrollbar">
                 {/* Header */}
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                         <div className="p-3 bg-amber-500/15 text-amber-400 rounded-2xl border border-amber-500/30 shrink-0">
-                            <Download size={24} />
+                            <Download size={22} />
                         </div>
                         <div>
-                            <h2 className="text-xl font-black text-white">
-                                Music Download &amp; Organization
+                            <h2 className="text-lg sm:text-xl font-black text-white">
+                                Save / Download Music
                             </h2>
                             <p className="text-xs sm:text-sm text-zinc-400 font-medium">
-                                Choose destination library and audio quality
+                                Choose destination &amp; format
                             </p>
                         </div>
                     </div>
@@ -268,10 +253,10 @@ export function MusicDownloadModal({
                     </button>
                 </div>
 
-                {/* Scope Selector */}
-                <div className="space-y-2">
+                {/* Scope Selector: Single Song vs Full Album */}
+                <div className="space-y-1.5">
                     <label className="text-xs font-black uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
-                        <Disc size={14} className="text-amber-400" /> Download What?
+                        <Disc size={14} className="text-amber-400" /> Save What?
                     </label>
                     <div className="grid grid-cols-2 gap-2.5">
                         <button
@@ -304,16 +289,16 @@ export function MusicDownloadModal({
                     </div>
                 </div>
 
-                {/* Where to Save (Pure Dropdown & Selector - No path typing) */}
-                <div className="space-y-2">
+                {/* Where to Save (Strictly Real Server Libraries or Local Device) */}
+                <div className="space-y-1.5">
                     <label className="text-xs font-black uppercase tracking-wider text-zinc-400 flex items-center justify-between">
                         <span className="flex items-center gap-1.5">
-                            <Folder size={14} className="text-amber-400" /> Destination (Audio Library or Local Device)
+                            <Folder size={14} className="text-amber-400" /> Destination
                         </span>
                         <span className="text-xs font-mono text-zinc-500 font-bold">{destinations.length} Options</span>
                     </label>
 
-                    <div className="space-y-2">
+                    <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-0.5">
                         {destinations.map((dest) => {
                             const isSelected = selectedDestId === dest.id;
                             return (
@@ -332,8 +317,6 @@ export function MusicDownloadModal({
                                         }`}>
                                             {dest.type === 'device' ? (
                                                 <Laptop size={18} />
-                                            ) : dest.type === 'lidarr' ? (
-                                                <Radio size={18} />
                                             ) : (
                                                 <Folder size={18} />
                                             )}
@@ -350,8 +333,6 @@ export function MusicDownloadModal({
                                     <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase shrink-0 ${
                                         dest.type === 'device'
                                             ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
-                                            : dest.type === 'lidarr'
-                                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                                             : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                                     }`}>
                                         {dest.badge}
@@ -362,16 +343,16 @@ export function MusicDownloadModal({
                     </div>
                 </div>
 
-                {/* Audio Format / Quality Selection (Realistic YouTube Profiles) */}
-                <div className="space-y-2">
+                {/* Audio Format Selection (Real YouTube Formats Only) */}
+                <div className="space-y-1.5">
                     <label className="text-xs font-black uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
-                        <Sparkles size={14} className="text-amber-400" /> Audio Quality Profile
+                        <Sparkles size={14} className="text-amber-400" /> Audio Quality (YouTube Source)
                     </label>
                     <div className="grid grid-cols-3 gap-2">
                         {[
-                            { id: 'mp3', label: 'MP3 320k', desc: 'High Quality MP3' },
-                            { id: 'aac', label: 'AAC 256k', desc: 'Standard M4A' },
-                            { id: 'opus', label: 'Opus 160k', desc: 'Native Stream' }
+                            { id: 'mp3', label: 'MP3', desc: 'Universal (~192-320k)' },
+                            { id: 'aac', label: 'AAC / M4A', desc: 'Best YouTube (~256k)' },
+                            { id: 'opus', label: 'Opus', desc: 'Native Stream (~160k)' }
                         ].map((fmt) => (
                             <button
                                 key={fmt.id}
