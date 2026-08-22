@@ -115,49 +115,53 @@ export const getCommands = async (url: string, apiKey: string): Promise<any[]> =
 export interface MissingEpisode extends SonarrEpisode {
     seriesTitle: string;
     seriesAdded: string;
+    seriesInfo?: SonarrSeries;
 }
 
 // Fetch all missing episodes and map them to their series titles
-export const getMissingEpisodes = async (url: string, apiKey: string): Promise<MissingEpisode[]> => {
+export const getMissingEpisodes = async (url: string, apiKey: string, pageSize: number = 2000): Promise<MissingEpisode[]> => {
     try {
-        // 1. Fetch missing episodes
-        // We use the wanted/missing endpoint to let Sonarr do the heavy lifting
-        const wantedResponse = await axios.get(`${url}/api/v3/wanted/missing`, {
-            headers: { 'X-Api-Key': apiKey },
-            params: {
-                page: 1,
-                pageSize: 1000,
-                sortKey: 'airDateUtc',
-                sortDir: 'desc'
-            }
-        });
+        const [wantedResponse, seriesResponse] = await Promise.all([
+            axios.get(`${url}/api/v3/wanted/missing`, {
+                headers: { 'X-Api-Key': apiKey },
+                params: {
+                    page: 1,
+                    pageSize: pageSize,
+                    sortKey: 'airDateUtc',
+                    sortDir: 'desc'
+                },
+                timeout: 10000
+            }).catch(e => {
+                console.error(`Error fetching wanted/missing from Sonarr (${url}):`, e.message);
+                return { data: { records: [] } };
+            }),
+            axios.get(`${url}/api/v3/series`, {
+                headers: { 'X-Api-Key': apiKey },
+                timeout: 10000
+            }).catch(e => {
+                console.error(`Error fetching series from Sonarr (${url}):`, e.message);
+                return { data: [] };
+            })
+        ]);
 
-        const episodes: SonarrEpisode[] = wantedResponse.data.records;
-
+        const episodes: SonarrEpisode[] = Array.isArray(wantedResponse.data?.records) ? wantedResponse.data.records : [];
         if (episodes.length === 0) return [];
 
-        // 2. Fetch series list to map IDs to Names and Added Dates
-        const seriesResponse = await axios.get(`${url}/api/v3/series`, {
-            headers: { 'X-Api-Key': apiKey }
-        });
-        const seriesList: SonarrSeries[] = seriesResponse.data;
-
-        // Create a dictionary for quick lookup O(1)
+        const seriesList: SonarrSeries[] = Array.isArray(seriesResponse.data) ? seriesResponse.data : [];
         const seriesMap = new Map<number, SonarrSeries>();
         seriesList.forEach(s => seriesMap.set(s.id, s));
 
-        // 3. Map episodes to include series info
         return episodes.map(ep => {
             const series = seriesMap.get(ep.seriesId);
             return {
                 ...ep,
                 seriesTitle: series ? series.title : 'Unknown Series',
-                seriesAdded: series ? series.added : new Date().toISOString()
+                seriesAdded: series ? series.added : new Date().toISOString(),
+                seriesInfo: series
             };
         });
-
-    } catch (error) {
-        console.error(`Error fetching from Sonarr (${url}):`, error);
+    } catch (error: any) {
+        console.error(`Error in getMissingEpisodes (${url}):`, error.message);
         return [];
     }
 };
@@ -383,7 +387,7 @@ export async function deleteSeason(url: string, apiKey: string, seriesId: number
         const files = filesRes.data || [];
         const seasonFiles = files.filter((f: any) => f.seasonNumber === seasonNumber);
         
-        await Promise.all(seasonFiles.map(file =>
+        await Promise.all(seasonFiles.map((file: any) =>
             axios.delete(`${url}/api/v3/episodefile/${file.id}`, {
                 headers: { 'X-Api-Key': apiKey }
             })

@@ -126,7 +126,7 @@ function LibraryExplorerPanelInner({ library, onClose }: LibraryExplorerPanelPro
     const fetchArrMedia = useCallback(() => {
         if (!selectedInstance) return;
         setLoadingArr(true);
-        const endpoint = selectedInstance.type === 'movie' ? '/api/radarr/all' : '/api/sonarr/all';
+        const endpoint = selectedInstance.type === 'radarr' ? '/api/radarr/all' : '/api/sonarr/all';
 
         fetch(endpoint)
             .then(res => res.ok ? res.json() : [])

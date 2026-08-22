@@ -1,6 +1,6 @@
 import { getInstances, getSetting, logSearchHistory, getSchedulerConfig, getSchedulerTracking, incrementSchedulerAttempt } from '@/lib/db';
 import { getAllMovies, triggerMovieSearch, RadarrMovie, getQueue as getRadarrQueue } from '@/lib/radarr';
-import { getAllSeries, triggerEpisodeSearch, SonarrSeries, getQueue as getSonarrQueue } from '@/lib/sonarr';
+import { getAllSeries, getMissingEpisodes, triggerEpisodeSearch, SonarrSeries, getQueue as getSonarrQueue } from '@/lib/sonarr';
 import { getIndexerHealth } from '@/lib/prowlarr';
 import { evaluateIndexerRules } from '@/lib/indexerAutomations';
 import { runAutoCleanup, runSmartCleanup } from '@/lib/autoCleanup';
@@ -182,13 +182,19 @@ export async function runBatchSearch(manualTrigger: boolean = false) {
 
             for (const m of missing) {
                 const tracking = getSchedulerTracking(m.id.toString(), r.id!, 'movie');
+                const relDate = m.digitalRelease || m.physicalRelease || m.inCinemas;
+                const relTime = relDate ? new Date(relDate).getTime() : 0;
+                const now = Date.now();
+                const isRecentlyReleased = relTime > 0 && relTime <= now && (now - relTime) <= (14 * 24 * 60 * 60 * 1000);
+
                 allMovieTargets.push({
                     id: m.id,
                     apiUrl: r.url,
                     apiKey: r.api_key,
                     instanceId: r.id,
                     movie: m,
-                    attempts: tracking?.attempts || 0
+                    attempts: tracking?.attempts || 0,
+                    isRecentlyReleased
                 });
             }
         } catch (err) {
@@ -199,37 +205,39 @@ export async function runBatchSearch(manualTrigger: boolean = false) {
     let allEpTargets: any[] = [];
 
     // Sonarr Episodes
-    // For episodes, getting missing directly is still efficient, but we need series data for priority sorting
     for (const s of sonarrs) {
         try {
-            const [allSeries, queue] = await Promise.all([
-                getAllSeries(s.url, s.api_key),
+            const [missingEpisodes, queue] = await Promise.all([
+                getMissingEpisodes(s.url, s.api_key),
                 getSonarrQueue(s.url, s.api_key)
             ]);
             const queuedEpisodeIds = new Set(queue.map(q => q.episodeId));
-            const seriesMap = new Map(allSeries.map(series => [series.id, series]));
 
-            for (const series of allSeries) {
-                if (series.monitored && series.statistics && series.episodes) {
-                    const missingEpisodes = series.episodes.filter(ep =>
-                        !ep.hasFile && ep.monitored && ep.episodeFileId === 0 && !queuedEpisodeIds.has(ep.id)
-                    );
-                    for (const ep of missingEpisodes) {
-                        const tracking = getSchedulerTracking(ep.id.toString(), s.id!, 'episode');
-                        allEpTargets.push({
-                            id: ep.id,
-                            apiUrl: s.url,
-                            apiKey: s.api_key,
-                            instanceId: s.id,
-                            seriesInfo: seriesMap.get(ep.seriesId),
-                            airDateUtc: ep.airDateUtc,
-                            attempts: tracking?.attempts || 0
-                        });
-                    }
+            for (const ep of missingEpisodes) {
+                if (ep.monitored && !ep.hasFile && !queuedEpisodeIds.has(ep.id)) {
+                    const tracking = getSchedulerTracking(ep.id.toString(), s.id!, 'episode');
+                    const airTime = ep.airDateUtc ? new Date(ep.airDateUtc).getTime() : 0;
+                    const now = Date.now();
+                    // Detect if newly aired or schedule release has arrived
+                    const isRecentlyAired = airTime > 0 && airTime <= now && (now - airTime) <= (14 * 24 * 60 * 60 * 1000);
+
+                    allEpTargets.push({
+                        id: ep.id,
+                        apiUrl: s.url,
+                        apiKey: s.api_key,
+                        instanceId: s.id,
+                        seriesInfo: ep.seriesInfo,
+                        seriesTitle: ep.seriesTitle,
+                        seasonNumber: ep.seasonNumber,
+                        episodeNumber: ep.episodeNumber,
+                        airDateUtc: ep.airDateUtc,
+                        attempts: tracking?.attempts || 0,
+                        isRecentlyAired
+                    });
                 }
             }
         } catch (err) {
-            console.error(`❌ [SCHEDULER] Error fetching from Sonarr instance ${s.url}:`, err);
+            console.error(`❌ [SCHEDULER] Error fetching missing episodes from Sonarr instance ${s.url}:`, err);
         }
     }
 
@@ -315,8 +323,14 @@ export async function runBatchSearch(manualTrigger: boolean = false) {
         console.error('❌ Scheduler UI filter parsing failed. Falling back to unprotected raw prioritization.', filterError);
     }
 
-    // 4. Priority Engine Sorting (Incorporating Rotate logic)
+    // 4. Priority Engine Sorting (Incorporating Rotate logic and Immediate Search for Newly Aired/Released)
     const sortWithRotation = (a: any, b: any, prioritySort: number) => {
+        // Newly aired episodes / newly released movies always jump to the front regardless of attempts
+        const aRecent = a.isRecentlyAired || a.isRecentlyReleased;
+        const bRecent = b.isRecentlyAired || b.isRecentlyReleased;
+        if (aRecent && !bRecent) return -1;
+        if (!aRecent && bRecent) return 1;
+
         if (batchBehavior === 'rotate') {
             const aExceeded = a.attempts >= maxAttempts;
             const bExceeded = b.attempts >= maxAttempts;
@@ -459,7 +473,7 @@ export async function runBatchSearch(manualTrigger: boolean = false) {
     }
 
     const mTitles = movieBatch.map(m => m.movie.title);
-    const eTitles = epBatch.map(e => e.seriesInfo ? `${e.seriesInfo.title} (Episode ID: ${e.id})` : `Episode ID: ${e.id}`);
+    const eTitles = epBatch.map(e => e.seriesInfo?.title ? `${e.seriesInfo.title} (S${e.seasonNumber || '?'}E${e.episodeNumber || '?'})` : e.seriesTitle ? `${e.seriesTitle} (Episode ID: ${e.id})` : `Episode ID: ${e.id}`);
     const muTitles = musicBatch.map(mu => mu.title);
 
     // Log the success to the interactive history ledger

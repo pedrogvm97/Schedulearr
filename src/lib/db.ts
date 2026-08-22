@@ -12,20 +12,105 @@ if (!fs.existsSync(dbDir)) {
 const dbPath = path.join(dbDir, 'schedulearr.db');
 
 let _db: any;
+
+function handleCorruptDatabase() {
+    console.warn('[DB RECOVERY] Attempting recovery of corrupted/malformed database...');
+    try {
+        if (_db) {
+            try { _db.close(); } catch {}
+            _db = null;
+        }
+        const timestamp = Date.now();
+        const corruptBackup = path.join(dbDir, `schedulearr.db.corrupt.${timestamp}`);
+        if (fs.existsSync(dbPath)) {
+            fs.renameSync(dbPath, corruptBackup);
+            console.log(`[DB RECOVERY] Corrupted database backed up to: ${corruptBackup}`);
+        }
+        // Remove stale WAL and SHM files
+        const walPath = `${dbPath}-wal`;
+        const shmPath = `${dbPath}-shm`;
+        if (fs.existsSync(walPath)) { try { fs.unlinkSync(walPath); } catch {} }
+        if (fs.existsSync(shmPath)) { try { fs.unlinkSync(shmPath); } catch {} }
+    } catch (e: any) {
+        console.error('[DB RECOVERY ERROR] Failed during backup of malformed db:', e.message);
+    }
+}
+
+function initDbConnection(isRetry: boolean = false): any {
+    try {
+        console.log('[DEBUG] INITIALIZING DB AT PATH:', dbPath, 'WITH NODE_ENV:', process.env.NODE_ENV);
+        const d = new Database(dbPath, { timeout: 10000 });
+        d.pragma('journal_mode = WAL');
+        d.pragma('busy_timeout = 10000');
+        d.pragma('synchronous = NORMAL');
+        d.pragma('wal_autocheckpoint = 1000');
+        
+        // Integrity check to catch malformed disk images before queries run
+        const integrity = d.pragma('integrity_check');
+        const isOk = Array.isArray(integrity) && integrity.length > 0 && integrity[0].integrity_check === 'ok';
+        if (!isOk) {
+            throw new Error(`Integrity check failed: ${JSON.stringify(integrity)}`);
+        }
+
+        initializeSchema(d);
+        return d;
+    } catch (err: any) {
+        console.error('[DB ERROR] Database initialization failed or malformed:', err.message);
+        if (!isRetry) {
+            handleCorruptDatabase();
+            return initDbConnection(true);
+        }
+        throw err;
+    }
+}
+
 function getDb() {
     if (!_db) {
-        console.log('[DEBUG] INITIALIZING DB AT PATH:', dbPath, 'WITH NODE_ENV:', process.env.NODE_ENV);
-        _db = new Database(dbPath);
-        _db.pragma('journal_mode = WAL');
-        initializeSchema(_db);
+        _db = initDbConnection();
     }
     return _db;
 }
 
 const db = {
-    prepare: (sql: string) => getDb().prepare(sql),
-    exec: (sql: string) => getDb().exec(sql),
-    pragma: (sql: string) => getDb().pragma(sql),
+    prepare: (sql: string) => {
+        try {
+            return getDb().prepare(sql);
+        } catch (err: any) {
+            if (err.message && (err.message.includes('malformed') || err.message.includes('corrupt') || err.message.includes('SQLITE_CORRUPT'))) {
+                console.error('[DB ERROR] Malformed disk image detected during prepare. Recovering...', err.message);
+                handleCorruptDatabase();
+                _db = null;
+                return getDb().prepare(sql);
+            }
+            throw err;
+        }
+    },
+    exec: (sql: string) => {
+        try {
+            return getDb().exec(sql);
+        } catch (err: any) {
+            if (err.message && (err.message.includes('malformed') || err.message.includes('corrupt') || err.message.includes('SQLITE_CORRUPT'))) {
+                console.error('[DB ERROR] Malformed disk image detected during exec. Recovering...', err.message);
+                handleCorruptDatabase();
+                _db = null;
+                return getDb().exec(sql);
+            }
+            throw err;
+        }
+    },
+    pragma: (sql: string) => {
+        try {
+            return getDb().pragma(sql);
+        } catch (err: any) {
+            if (err.message && (err.message.includes('malformed') || err.message.includes('corrupt') || err.message.includes('SQLITE_CORRUPT'))) {
+                console.error('[DB ERROR] Malformed disk image detected during pragma. Recovering...', err.message);
+                handleCorruptDatabase();
+                _db = null;
+                return getDb().pragma(sql);
+            }
+            throw err;
+        }
+    },
 };
 
 function initializeSchema(d: any) {
