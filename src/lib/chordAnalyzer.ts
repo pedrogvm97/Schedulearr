@@ -3,7 +3,7 @@
 // ══════════════════════════════════════════════════════════════
 
 export type DifficultyLevel = 'beginner' | 'intermediate' | 'advanced';
-export type InstrumentType = 'guitar' | 'ukulele' | 'piano';
+export type InstrumentType = 'guitar' | 'bass' | 'ukulele';
 
 export interface ChordEvent {
     time: number; // in seconds
@@ -16,11 +16,12 @@ export interface ChordEvent {
 export interface ChordDiagramData {
     instrument: InstrumentType;
     chord: string;
-    frets: (number | 'x' | 0)[]; // e.g. [-1, 0, 2, 2, 1, 0] for Am on guitar (-1 is x)
+    frets: (number | 'x' | 0)[]; // array of fret numbers or 'x' (muted) or 0 (open)
     fingers?: number[];
     barres?: number[];
     baseFret?: number;
-    pianoKeys?: number[]; // MIDI note numbers or 0-11 pitch classes
+    stringLabels?: string[];
+    rootNote?: string;
 }
 
 // ── 1. Musical Notes & Transposition ──
@@ -66,7 +67,6 @@ export function simplifyChordForDifficulty(chord: string, difficulty: Difficulty
     if (!chord) return '';
     if (difficulty === 'advanced') return chord;
 
-    // Split slash chords
     const mainPart = chord.split('/')[0];
     const match = mainPart.match(/^([A-G][#b]?)(.*)$/);
     if (!match) return chord;
@@ -75,21 +75,13 @@ export function simplifyChordForDifficulty(chord: string, difficulty: Difficulty
     const quality = match[2];
 
     if (difficulty === 'beginner') {
-        // Beginner: Reduce to simple Major, Minor, or standard Power chord
-        if (quality.includes('m') && !quality.includes('maj')) {
-            return `${root}m`;
-        }
-        if (quality.includes('dim') || quality.includes('m7b5')) {
-            return `${root}m`;
-        }
-        if (quality.includes('5')) {
-            return `${root}5`;
-        }
-        return root; // Root major
+        if (quality.includes('m') && !quality.includes('maj')) return `${root}m`;
+        if (quality.includes('dim') || quality.includes('m7b5')) return `${root}m`;
+        if (quality.includes('5')) return `${root}5`;
+        return root;
     }
 
     if (difficulty === 'intermediate') {
-        // Intermediate: Keep 7ths, sus, add9, but simplify complex altered tensions
         if (quality.includes('m7b5')) return `${root}m7`;
         if (quality.includes('7alt') || quality.includes('7#9') || quality.includes('7b9')) return `${root}7`;
         if (quality.includes('13') || quality.includes('11') || quality.includes('9')) {
@@ -101,86 +93,222 @@ export function simplifyChordForDifficulty(chord: string, difficulty: Difficulty
     return chord;
 }
 
-// ── 3. Guitar & Ukulele Chord Voicings Database ──
+// ── 3. Guitar, Bass & Ukulele Chord Voicings Database ──
 const GUITAR_CHORD_VOICINGS: Record<string, { frets: (number | 'x')[]; fingers?: number[]; baseFret?: number }> = {
-    // Open Majors
+    // Majors
     'C': { frets: ['x', 3, 2, 0, 1, 0], fingers: [0, 3, 2, 0, 1, 0] },
+    'C#': { frets: ['x', 4, 6, 6, 6, 4], fingers: [0, 1, 2, 3, 4, 1], baseFret: 4 },
+    'Db': { frets: ['x', 4, 6, 6, 6, 4], fingers: [0, 1, 2, 3, 4, 1], baseFret: 4 },
     'D': { frets: ['x', 'x', 0, 2, 3, 2], fingers: [0, 0, 0, 1, 3, 2] },
+    'D#': { frets: ['x', 6, 8, 8, 8, 6], fingers: [0, 1, 2, 3, 4, 1], baseFret: 6 },
+    'Eb': { frets: ['x', 6, 8, 8, 8, 6], fingers: [0, 1, 2, 3, 4, 1], baseFret: 6 },
     'E': { frets: [0, 2, 2, 1, 0, 0], fingers: [0, 2, 3, 1, 0, 0] },
     'F': { frets: [1, 3, 3, 2, 1, 1], fingers: [1, 3, 4, 2, 1, 1], baseFret: 1 },
+    'F#': { frets: [2, 4, 4, 3, 2, 2], fingers: [1, 3, 4, 2, 1, 1], baseFret: 2 },
+    'Gb': { frets: [2, 4, 4, 3, 2, 2], fingers: [1, 3, 4, 2, 1, 1], baseFret: 2 },
     'G': { frets: [3, 2, 0, 0, 3, 3], fingers: [2, 1, 0, 0, 3, 4] },
+    'G#': { frets: [4, 6, 6, 5, 4, 4], fingers: [1, 3, 4, 2, 1, 1], baseFret: 4 },
+    'Ab': { frets: [4, 6, 6, 5, 4, 4], fingers: [1, 3, 4, 2, 1, 1], baseFret: 4 },
     'A': { frets: ['x', 0, 2, 2, 2, 0], fingers: [0, 0, 1, 2, 3, 0] },
+    'A#': { frets: ['x', 1, 3, 3, 3, 1], fingers: [0, 1, 2, 3, 4, 1], baseFret: 1 },
+    'Bb': { frets: ['x', 1, 3, 3, 3, 1], fingers: [0, 1, 2, 3, 4, 1], baseFret: 1 },
     'B': { frets: ['x', 2, 4, 4, 4, 2], fingers: [0, 1, 2, 3, 4, 1], baseFret: 2 },
-    // Open Minors
-    'Am': { frets: ['x', 0, 2, 2, 1, 0], fingers: [0, 0, 2, 3, 1, 0] },
+    // Minors
+    'Cm': { frets: ['x', 3, 5, 5, 4, 3], fingers: [0, 1, 3, 4, 2, 1], baseFret: 3 },
+    'C#m': { frets: ['x', 4, 6, 6, 5, 4], fingers: [0, 1, 3, 4, 2, 1], baseFret: 4 },
+    'Dbm': { frets: ['x', 4, 6, 6, 5, 4], fingers: [0, 1, 3, 4, 2, 1], baseFret: 4 },
     'Dm': { frets: ['x', 'x', 0, 2, 3, 1], fingers: [0, 0, 0, 2, 3, 1] },
+    'D#m': { frets: ['x', 6, 8, 8, 7, 6], fingers: [0, 1, 3, 4, 2, 1], baseFret: 6 },
+    'Ebm': { frets: ['x', 6, 8, 8, 7, 6], fingers: [0, 1, 3, 4, 2, 1], baseFret: 6 },
     'Em': { frets: [0, 2, 2, 0, 0, 0], fingers: [0, 2, 3, 0, 0, 0] },
     'Fm': { frets: [1, 3, 3, 1, 1, 1], fingers: [1, 3, 4, 1, 1, 1], baseFret: 1 },
+    'F#m': { frets: [2, 4, 4, 2, 2, 2], fingers: [1, 3, 4, 1, 1, 1], baseFret: 2 },
+    'Gbm': { frets: [2, 4, 4, 2, 2, 2], fingers: [1, 3, 4, 1, 1, 1], baseFret: 2 },
     'Gm': { frets: [3, 5, 5, 3, 3, 3], fingers: [1, 3, 4, 1, 1, 1], baseFret: 3 },
+    'G#m': { frets: [4, 6, 6, 4, 4, 4], fingers: [1, 3, 4, 1, 1, 1], baseFret: 4 },
+    'Abm': { frets: [4, 6, 6, 4, 4, 4], fingers: [1, 3, 4, 1, 1, 1], baseFret: 4 },
+    'Am': { frets: ['x', 0, 2, 2, 1, 0], fingers: [0, 0, 2, 3, 1, 0] },
+    'A#m': { frets: ['x', 1, 3, 3, 2, 1], fingers: [0, 1, 3, 4, 2, 1], baseFret: 1 },
+    'Bbm': { frets: ['x', 1, 3, 3, 2, 1], fingers: [0, 1, 3, 4, 2, 1], baseFret: 1 },
     'Bm': { frets: ['x', 2, 4, 4, 3, 2], fingers: [0, 1, 3, 4, 2, 1], baseFret: 2 },
-    'Cm': { frets: ['x', 3, 5, 5, 4, 3], fingers: [0, 1, 3, 4, 2, 1], baseFret: 3 },
     // 7ths
     'C7': { frets: ['x', 3, 2, 3, 1, 0], fingers: [0, 3, 2, 4, 1, 0] },
     'D7': { frets: ['x', 'x', 0, 2, 1, 2], fingers: [0, 0, 0, 2, 1, 3] },
     'E7': { frets: [0, 2, 0, 1, 0, 0], fingers: [0, 2, 0, 1, 0, 0] },
+    'F7': { frets: [1, 3, 1, 2, 1, 1], fingers: [1, 3, 1, 2, 1, 1], baseFret: 1 },
     'G7': { frets: [3, 2, 0, 0, 0, 1], fingers: [3, 2, 0, 0, 0, 1] },
     'A7': { frets: ['x', 0, 2, 0, 2, 0], fingers: [0, 0, 2, 0, 3, 0] },
     'B7': { frets: ['x', 2, 1, 2, 0, 2], fingers: [0, 2, 1, 3, 0, 4] },
     'Am7': { frets: ['x', 0, 2, 0, 1, 0], fingers: [0, 0, 2, 0, 1, 0] },
     'Dm7': { frets: ['x', 'x', 0, 2, 1, 1], fingers: [0, 0, 0, 2, 1, 1] },
     'Em7': { frets: [0, 2, 0, 0, 0, 0], fingers: [0, 1, 0, 0, 0, 0] },
-    // Sus & Add
+    'Cmaj7': { frets: ['x', 3, 2, 0, 0, 0], fingers: [0, 3, 2, 0, 0, 0] },
+    'Fmaj7': { frets: ['x', 'x', 3, 2, 1, 0], fingers: [0, 0, 3, 2, 1, 0] },
+    'Gmaj7': { frets: [3, 2, 0, 0, 0, 2], fingers: [3, 2, 0, 0, 0, 1] },
     'Dsus4': { frets: ['x', 'x', 0, 2, 3, 3], fingers: [0, 0, 0, 1, 2, 4] },
     'Asus4': { frets: ['x', 0, 2, 2, 3, 0], fingers: [0, 0, 1, 2, 3, 0] },
-    'Cadd9': { frets: ['x', 3, 2, 0, 3, 3], fingers: [0, 2, 1, 0, 3, 4] },
-    'Fmaj7': { frets: ['x', 'x', 3, 2, 1, 0], fingers: [0, 0, 3, 2, 1, 0] },
-    'Cmaj7': { frets: ['x', 3, 2, 0, 0, 0], fingers: [0, 3, 2, 0, 0, 0] }
+    'Cadd9': { frets: ['x', 3, 2, 0, 3, 3], fingers: [0, 2, 1, 0, 3, 4] }
 };
 
-const UKULELE_CHORD_VOICINGS: Record<string, { frets: (number | 'x')[]; fingers?: number[]; baseFret?: number }> = {
-    'C': { frets: [0, 0, 0, 3], fingers: [0, 0, 0, 3] },
-    'G': { frets: [0, 2, 3, 2], fingers: [0, 1, 3, 2] },
-    'Am': { frets: [2, 0, 0, 0], fingers: [2, 0, 0, 0] },
-    'F': { frets: [2, 0, 1, 0], fingers: [2, 0, 1, 0] },
-    'Em': { frets: [0, 4, 3, 2], fingers: [0, 3, 2, 1] },
-    'Dm': { frets: [2, 2, 1, 0], fingers: [2, 3, 1, 0] },
-    'D': { frets: [2, 2, 2, 0], fingers: [1, 2, 3, 0] },
-    'A': { frets: [2, 1, 0, 0], fingers: [2, 1, 0, 0] },
-    'E': { frets: [4, 4, 4, 2], fingers: [2, 3, 4, 1] },
-    'C7': { frets: [0, 0, 0, 1], fingers: [0, 0, 0, 1] },
-    'G7': { frets: [0, 2, 1, 2], fingers: [0, 2, 1, 3] },
-    'Am7': { frets: [0, 0, 0, 0], fingers: [0, 0, 0, 0] }
+// 4-String Bass Guitar Patterns (E1, A1, D2, G2)
+// Array maps [E-string, A-string, D-string, G-string]
+const BASS_CHORD_VOICINGS: Record<string, { frets: (number | 'x')[]; rootNote: string; baseFret?: number }> = {
+    'C': { frets: ['x', 3, 2, 5], rootNote: 'C (A-3)', baseFret: 1 },
+    'C#': { frets: ['x', 4, 3, 6], rootNote: 'C# (A-4)', baseFret: 3 },
+    'Db': { frets: ['x', 4, 3, 6], rootNote: 'Db (A-4)', baseFret: 3 },
+    'D': { frets: ['x', 5, 4, 7], rootNote: 'D (A-5)', baseFret: 4 },
+    'D#': { frets: ['x', 6, 5, 8], rootNote: 'D# (A-6)', baseFret: 5 },
+    'Eb': { frets: ['x', 6, 5, 8], rootNote: 'Eb (A-6)', baseFret: 5 },
+    'E': { frets: [0, 2, 2, 'x'], rootNote: 'E (Open E)', baseFret: 1 },
+    'F': { frets: [1, 3, 3, 'x'], rootNote: 'F (E-1)', baseFret: 1 },
+    'F#': { frets: [2, 4, 4, 'x'], rootNote: 'F# (E-2)', baseFret: 1 },
+    'Gb': { frets: [2, 4, 4, 'x'], rootNote: 'Gb (E-2)', baseFret: 1 },
+    'G': { frets: [3, 5, 5, 'x'], rootNote: 'G (E-3)', baseFret: 1 },
+    'G#': { frets: [4, 6, 6, 'x'], rootNote: 'G# (E-4)', baseFret: 3 },
+    'Ab': { frets: [4, 6, 6, 'x'], rootNote: 'Ab (E-4)', baseFret: 3 },
+    'A': { frets: [5, 7, 7, 'x'], rootNote: 'A (E-5 / Open A)', baseFret: 4 },
+    'A#': { frets: [6, 8, 8, 'x'], rootNote: 'A# (E-6)', baseFret: 5 },
+    'Bb': { frets: [6, 8, 8, 'x'], rootNote: 'Bb (E-6)', baseFret: 5 },
+    'B': { frets: [7, 9, 9, 'x'], rootNote: 'B (E-7)', baseFret: 6 },
+    // Minors
+    'Cm': { frets: ['x', 3, 1, 5], rootNote: 'C (A-3)', baseFret: 1 },
+    'C#m': { frets: ['x', 4, 2, 6], rootNote: 'C# (A-4)', baseFret: 2 },
+    'Dbm': { frets: ['x', 4, 2, 6], rootNote: 'Db (A-4)', baseFret: 2 },
+    'Dm': { frets: ['x', 5, 3, 7], rootNote: 'D (A-5)', baseFret: 3 },
+    'D#m': { frets: ['x', 6, 4, 8], rootNote: 'D# (A-6)', baseFret: 4 },
+    'Ebm': { frets: ['x', 6, 4, 8], rootNote: 'Eb (A-6)', baseFret: 4 },
+    'Em': { frets: [0, 2, 2, 0], rootNote: 'E (Open E)', baseFret: 1 },
+    'Fm': { frets: [1, 3, 3, 1], rootNote: 'F (E-1)', baseFret: 1 },
+    'F#m': { frets: [2, 4, 4, 2], rootNote: 'F# (E-2)', baseFret: 1 },
+    'Gbm': { frets: [2, 4, 4, 2], rootNote: 'Gb (E-2)', baseFret: 1 },
+    'Gm': { frets: [3, 5, 5, 3], rootNote: 'G (E-3)', baseFret: 1 },
+    'G#m': { frets: [4, 6, 6, 4], rootNote: 'G# (E-4)', baseFret: 3 },
+    'Abm': { frets: [4, 6, 6, 4], rootNote: 'Ab (E-4)', baseFret: 3 },
+    'Am': { frets: ['x', 0, 2, 2], rootNote: 'A (Open A)', baseFret: 1 },
+    'A#m': { frets: ['x', 1, 3, 3], rootNote: 'A# (A-1)', baseFret: 1 },
+    'Bbm': { frets: ['x', 1, 3, 3], rootNote: 'Bb (A-1)', baseFret: 1 },
+    'Bm': { frets: ['x', 2, 4, 4], rootNote: 'B (A-2)', baseFret: 1 }
 };
 
 export function getChordDiagram(chordName: string, instrument: InstrumentType = 'guitar'): ChordDiagramData {
-    const cleanChord = chordName.replace(/[/\\].*$/, '').trim();
+    const cleanChord = (chordName || 'C').replace(/[/\\].*$/, '').trim();
 
-    if (instrument === 'ukulele') {
-        const uke = UKULELE_CHORD_VOICINGS[cleanChord] || UKULELE_CHORD_VOICINGS[cleanChord.replace(/[0-9].*$/, '')] || { frets: [0, 0, 0, 0] };
+    if (instrument === 'bass') {
+        const bass = BASS_CHORD_VOICINGS[cleanChord] || BASS_CHORD_VOICINGS[cleanChord.replace(/[0-9].*$/, '')] || {
+            frets: ['x', 3, 2, 5],
+            rootNote: cleanChord,
+            baseFret: 1
+        };
         return {
-            instrument: 'ukulele',
+            instrument: 'bass',
             chord: chordName,
-            frets: uke.frets,
-            fingers: uke.fingers,
-            baseFret: uke.baseFret || 1
+            frets: bass.frets,
+            baseFret: bass.baseFret || 1,
+            stringLabels: ['E', 'A', 'D', 'G'],
+            rootNote: bass.rootNote
         };
     }
 
-    // Default: Guitar
-    const gtr = GUITAR_CHORD_VOICINGS[cleanChord] || GUITAR_CHORD_VOICINGS[cleanChord.replace(/[0-9].*$/, '')] || { frets: ['x', 0, 2, 2, 2, 0] };
+    // Default: Guitar (6 strings)
+    const gtr = GUITAR_CHORD_VOICINGS[cleanChord] || GUITAR_CHORD_VOICINGS[cleanChord.replace(/[0-9].*$/, '')] || {
+        frets: ['x', 0, 2, 2, 2, 0],
+        fingers: [0, 0, 1, 2, 3, 0],
+        baseFret: 1
+    };
     return {
         instrument: 'guitar',
         chord: chordName,
         frets: gtr.frets,
         fingers: gtr.fingers,
-        baseFret: gtr.baseFret || 1
+        baseFret: gtr.baseFret || 1,
+        stringLabels: ['E', 'A', 'D', 'G', 'B', 'e']
     };
 }
 
-// ── 4. Web Audio Real-Time Chromagram & Harmonic Deconvolution ──
-// 12-bin Pitch Class Profile Chroma Template matching
+// ── 4. Web Audio Real-Time Vocal Pitch Detection (Autocorrelation / YIN) ──
+export function detectPitchFromAudioBuffer(
+    buffer: Float32Array,
+    sampleRate: number
+): { pitchHz: number; noteName: string; midiNote: number; clarity: number } | null {
+    const SIZE = buffer.length;
+    let rms = 0;
+    for (let i = 0; i < SIZE; i++) {
+        rms += buffer[i] * buffer[i];
+    }
+    rms = Math.sqrt(rms / SIZE);
+
+    // If signal is too quiet (noise floor)
+    if (rms < 0.015) {
+        return null;
+    }
+
+    // Autocorrelation
+    let r1 = 0;
+    let r2 = SIZE - 1;
+    const thres = 0.2;
+    for (let i = 0; i < SIZE / 2; i++) {
+        if (Math.abs(buffer[i]) < thres) {
+            r1 = i;
+            break;
+        }
+    }
+    for (let i = 1; i < SIZE / 2; i++) {
+        if (Math.abs(buffer[SIZE - i]) < thres) {
+            r2 = SIZE - i;
+            break;
+        }
+    }
+
+    const trimmed = buffer.slice(r1, r2);
+    const c = new Array(trimmed.length).fill(0);
+    for (let i = 0; i < trimmed.length; i++) {
+        for (let j = 0; j < trimmed.length - i; j++) {
+            c[i] = c[i] + trimmed[j] * trimmed[j + i];
+        }
+    }
+
+    let d = 0;
+    while (c[d] > c[d + 1]) d++;
+    let maxval = -1;
+    let maxpos = -1;
+    for (let i = d; i < trimmed.length; i++) {
+        if (c[i] > maxval) {
+            maxval = c[i];
+            maxpos = i;
+        }
+    }
+
+    let T0 = maxpos;
+    if (T0 <= 0) return null;
+
+    // Parabolic interpolation around peak
+    const x1 = c[T0 - 1] || 0;
+    const x2 = c[T0] || 0;
+    const x3 = c[T0 + 1] || 0;
+    const a = (x1 + x3 - 2 * x2) / 2;
+    const b = (x3 - x1) / 2;
+    if (a) T0 = T0 - b / (2 * a);
+
+    const pitchHz = sampleRate / T0;
+    if (pitchHz < 60 || pitchHz > 1200) return null; // Human vocal pitch range (C2 - D6)
+
+    const midiNote = 69 + 12 * Math.log2(pitchHz / 440);
+    const roundedMidi = Math.round(midiNote);
+    const pitchClass = (roundedMidi % 12 + 12) % 12;
+    const octave = Math.floor(roundedMidi / 12) - 1;
+    const noteName = `${CHROMATIC_SCALE_SHARP[pitchClass]}${octave}`;
+    const clarity = Math.min(Math.max(maxval / (c[0] || 1), 0), 1);
+
+    return {
+        pitchHz: Math.round(pitchHz * 10) / 10,
+        noteName,
+        midiNote: Math.round(midiNote * 10) / 10,
+        clarity
+    };
+}
+
+// ── 5. Real-Time Chromagram & Harmonic Deconvolution ──
 const CHORD_TEMPLATES: Record<string, number[]> = {
-    // Major (Root, Major 3rd, Perfect 5th)
     'C': [1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0],
     'C#': [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0],
     'D': [0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0],
@@ -193,7 +321,6 @@ const CHORD_TEMPLATES: Record<string, number[]> = {
     'A': [0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0],
     'A#': [0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0],
     'B': [0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1],
-    // Minor (Root, Minor 3rd, Perfect 5th)
     'Cm': [1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0],
     'C#m': [0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0],
     'Dm': [0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0],
@@ -216,7 +343,6 @@ export function computeChromagramFromFrequencies(
     const chroma = new Array(12).fill(0);
     const binWidth = sampleRate / fftSize;
 
-    // Iterate across musical octaves (A1 ~ 55Hz to B6 ~ 1975Hz)
     const minFreq = 55;
     const maxFreq = 2000;
     const minBin = Math.floor(minFreq / binWidth);
@@ -227,7 +353,6 @@ export function computeChromagramFromFrequencies(
         if (magnitude <= 0.05) continue;
 
         const freq = bin * binWidth;
-        // MIDI note number formula: 69 + 12 * log2(freq / 440)
         const midiNote = 69 + 12 * Math.log2(freq / 440);
         const pitchClass = Math.round(midiNote) % 12;
         const safePc = (pitchClass + 12) % 12;
@@ -235,7 +360,6 @@ export function computeChromagramFromFrequencies(
         chroma[safePc] += magnitude * magnitude;
     }
 
-    // Normalize chroma energy vector
     const total = Math.sqrt(chroma.reduce((acc, v) => acc + v * v, 0));
     if (total > 0.001) {
         for (let i = 0; i < 12; i++) {
@@ -251,7 +375,6 @@ export function matchChordFromChromagram(chroma: number[]): { chord: string; con
     let maxSimilarity = -1;
 
     for (const [chordName, template] of Object.entries(CHORD_TEMPLATES)) {
-        // Cosine similarity
         let dot = 0;
         let normTemplate = 0;
         for (let i = 0; i < 12; i++) {

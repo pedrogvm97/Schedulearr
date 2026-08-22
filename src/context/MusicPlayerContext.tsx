@@ -19,8 +19,10 @@ import {
     simplifyChordForDifficulty,
     getChordDiagram,
     computeChromagramFromFrequencies,
-    matchChordFromChromagram
+    matchChordFromChromagram,
+    detectPitchFromAudioBuffer
 } from '@/lib/chordAnalyzer';
+import { MusicDownloadModal } from '@/components/MusicDownloadModal';
 
 export interface MediaItem {
     id: string;
@@ -113,42 +115,47 @@ function formatTime(seconds: number): string {
     return `${m}:${s < 10 ? '0' : ''}${s}`;
 }
 
-// ── Interactive Fretboard Diagram for Guitar & Ukulele ──
+// ── Interactive Fretboard Diagram for Guitar & Bass ──
 function FretboardDiagram({ chordName, instrument = 'guitar' }: { chordName: string; instrument?: InstrumentType }) {
     const diagram = getChordDiagram(chordName, instrument);
-    const isUkulele = instrument === 'ukulele';
-    const numStrings = isUkulele ? 4 : 6;
-    const stringLabels = isUkulele ? ['G', 'C', 'E', 'A'] : ['E', 'A', 'D', 'G', 'B', 'e'];
+    const isBass = instrument === 'bass';
+    const numStrings = isBass ? 4 : 6;
+    const stringLabels = diagram.stringLabels || (isBass ? ['E', 'A', 'D', 'G'] : ['E', 'A', 'D', 'G', 'B', 'e']);
 
     return (
         <div className="flex flex-col items-center justify-center bg-zinc-900/90 border border-zinc-800 p-3 rounded-2xl shadow-xl space-y-1 select-none">
             <div className="flex items-center justify-between w-full px-2">
                 <span className="text-[11px] font-black uppercase text-zinc-400 tracking-wider flex items-center gap-1">
-                    {isUkulele ? '🪕 Ukulele' : '🎸 Guitar'}
+                    {isBass ? '🎸 Bass (4-String)' : '🎸 Guitar (6-String)'}
                 </span>
+                {isBass && diagram.rootNote && (
+                    <span className="text-[9px] font-bold bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded border border-purple-500/30">
+                        Root: {diagram.rootNote}
+                    </span>
+                )}
                 {diagram.baseFret && diagram.baseFret > 1 && (
                     <span className="text-[9px] font-bold bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded border border-amber-500/30">
                         Fret {diagram.baseFret}
                     </span>
                 )}
             </div>
-            <svg viewBox="0 0 160 140" className="w-32 h-28">
+            <svg viewBox="0 0 160 140" className="w-36 h-28">
                 {/* Nut */}
-                <rect x="25" y="20" width="110" height="4" fill="#f59e0b" rx="2" />
+                <rect x="20" y="20" width="120" height="4" fill="#f59e0b" rx="2" />
                 {/* Frets */}
                 {[0, 1, 2, 3, 4].map(fret => (
-                    <line key={fret} x1="25" y1={24 + fret * 24} x2="135" y2={24 + fret * 24} stroke="#3f3f46" strokeWidth="2" />
+                    <line key={fret} x1="20" y1={24 + fret * 24} x2="140" y2={24 + fret * 24} stroke="#3f3f46" strokeWidth="2" />
                 ))}
                 {/* Strings */}
                 {Array.from({ length: numStrings }).map((_, s) => {
-                    const x = 30 + s * (100 / (numStrings - 1));
+                    const x = 25 + s * (110 / (numStrings - 1));
                     return (
-                        <line key={s} x1={x} y1="24" x2={x} y2="120" stroke="#71717a" strokeWidth={isUkulele ? 2 : (s < 3 ? 2.5 : 1.5)} />
+                        <line key={s} x1={x} y1="24" x2={x} y2="120" stroke="#71717a" strokeWidth={isBass ? (3.5 - s * 0.6) : (s < 3 ? 2.5 : 1.5)} />
                     );
                 })}
                 {/* String open/mute markers & finger dots */}
                 {diagram.frets.map((fret, s) => {
-                    const x = 30 + s * (100 / (numStrings - 1));
+                    const x = 25 + s * (110 / (numStrings - 1));
                     if (fret === 'x' || fret === -1) {
                         return (
                             <text key={s} x={x} y="15" textAnchor="middle" fill="#ef4444" fontSize="11" fontWeight="bold">✕</text>
@@ -163,7 +170,7 @@ function FretboardDiagram({ chordName, instrument = 'guitar' }: { chordName: str
                         const y = 24 + (fret - 0.5) * 24;
                         return (
                             <g key={s}>
-                                <circle cx={x} cy={y} r="6.5" fill="#f59e0b" className="drop-shadow-[0_0_8px_rgba(245,158,11,0.8)]" />
+                                <circle cx={x} cy={y} r="6.5" fill={isBass ? "#a855f7" : "#f59e0b"} className="drop-shadow-[0_0_8px_rgba(245,158,11,0.8)]" />
                                 {diagram.fingers && diagram.fingers[s] ? (
                                     <text x={x} y={y + 3} textAnchor="middle" fill="#000" fontSize="8" fontWeight="black">{diagram.fingers[s]}</text>
                                 ) : null}
@@ -173,10 +180,209 @@ function FretboardDiagram({ chordName, instrument = 'guitar' }: { chordName: str
                     return null;
                 })}
             </svg>
-            <div className="flex justify-between w-28 px-1 text-[9px] font-mono font-bold text-zinc-500">
+            <div className="flex justify-between w-32 px-1 text-[9px] font-mono font-bold text-zinc-500">
                 {stringLabels.map((note, i) => (
                     <span key={i}>{note}</span>
                 ))}
+            </div>
+        </div>
+    );
+}
+
+// ── Sing Mode: Vocal Pitch Highway & Real-Time Mic Pitch Tracker ──
+function SingPitchHero({
+    lyricsData,
+    currentTime,
+    duration,
+    onSeek
+}: {
+    lyricsData: LyricsData | null;
+    currentTime: number;
+    duration: number;
+    onSeek: (t: number) => void;
+}) {
+    const [isMicActive, setIsMicActive] = useState(false);
+    const [livePitch, setLivePitch] = useState<{ pitchHz: number; noteName: string; midiNote: number; clarity: number } | null>(null);
+    const micStreamRef = useRef<MediaStream | null>(null);
+    const micAudioCtxRef = useRef<AudioContext | null>(null);
+    const micAnalyserRef = useRef<AnalyserNode | null>(null);
+    const micAnimRef = useRef<number | null>(null);
+
+    const toggleMic = async () => {
+        if (isMicActive) {
+            if (micAnimRef.current) cancelAnimationFrame(micAnimRef.current);
+            if (micStreamRef.current) micStreamRef.current.getTracks().forEach(t => t.stop());
+            if (micAudioCtxRef.current) micAudioCtxRef.current.close().catch(() => {});
+            setIsMicActive(false);
+            setLivePitch(null);
+            toast.info('Microphone deactivated');
+            return;
+        }
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+            const source = ctx.createMediaStreamSource(stream);
+            const analyser = ctx.createAnalyser();
+            analyser.fftSize = 2048;
+            source.connect(analyser);
+
+            micStreamRef.current = stream;
+            micAudioCtxRef.current = ctx;
+            micAnalyserRef.current = analyser;
+            setIsMicActive(true);
+            toast.success('Live Microphone Pitch Tracking Active!');
+
+            const buffer = new Float32Array(analyser.fftSize);
+            const checkPitch = () => {
+                if (!analyser) return;
+                analyser.getFloatTimeDomainData(buffer);
+                const detected = detectPitchFromAudioBuffer(buffer, ctx.sampleRate);
+                if (detected && detected.clarity > 0.4) {
+                    setLivePitch(detected);
+                } else {
+                    setLivePitch(null);
+                }
+                micAnimRef.current = requestAnimationFrame(checkPitch);
+            };
+            micAnimRef.current = requestAnimationFrame(checkPitch);
+        } catch (e: any) {
+            toast.error('Microphone access denied: ' + e.message);
+        }
+    };
+
+    useEffect(() => {
+        return () => {
+            if (micAnimRef.current) cancelAnimationFrame(micAnimRef.current);
+            if (micStreamRef.current) micStreamRef.current.getTracks().forEach(t => t.stop());
+            if (micAudioCtxRef.current) micAudioCtxRef.current.close().catch(() => {});
+        };
+    }, []);
+
+    const vocalNotes = useMemo(() => {
+        if (!lyricsData || !lyricsData.lines || lyricsData.lines.length === 0) return [];
+        return lyricsData.lines.map((line, i) => {
+            const nextTime = lyricsData.lines[i + 1]?.time || (line.time + 4.0);
+            const lineDur = Math.max(1.5, Math.min(6.0, nextTime - line.time));
+            const baseMidi = 60 + ((line.text.length * 7 + i * 5) % 16);
+            return {
+                index: i,
+                time: line.time,
+                duration: lineDur,
+                text: line.text,
+                midiNote: baseMidi,
+                noteName: ['C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4', 'C5', 'D5', 'E5'][baseMidi % 10] || 'C4'
+            };
+        });
+    }, [lyricsData]);
+
+    const activeVocalNote = vocalNotes.find(n => currentTime >= n.time && currentTime < n.time + n.duration);
+    const windowStart = Math.max(0, currentTime - 2);
+    const windowEnd = windowStart + 10;
+
+    return (
+        <div className="flex-1 flex flex-col space-y-3 min-h-0 select-none">
+            <div className="p-2.5 bg-zinc-900/70 border border-zinc-800 rounded-2xl flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                    <span className="p-1.5 rounded-lg bg-pink-500/10 text-pink-400 border border-pink-500/20">
+                        <Sparkles size={14} />
+                    </span>
+                    <div>
+                        <div className="text-xs font-black uppercase tracking-wider text-white">Sing Vocal Hero</div>
+                        <div className="text-[10px] text-zinc-400 font-medium">Match vocal melody bars & test pitch with your mic</div>
+                    </div>
+                </div>
+
+                <button
+                    onClick={toggleMic}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-lg ${
+                        isMicActive
+                            ? 'bg-pink-500 hover:bg-pink-400 text-black shadow-pink-950/40 ring-2 ring-pink-400/50'
+                            : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700'
+                    }`}
+                >
+                    <Mic2 size={13} className={isMicActive ? 'animate-bounce' : ''} />
+                    {isMicActive ? 'Mic Live (Active)' : 'Enable Live Mic'}
+                </button>
+            </div>
+
+            <div className="relative flex-1 min-h-[190px] sm:min-h-[230px] bg-zinc-950 border-2 border-zinc-800/80 rounded-2xl overflow-hidden p-2 flex flex-col justify-between shadow-inner">
+                <div className="absolute inset-0 flex flex-col justify-between pointer-events-none opacity-20 p-2">
+                    {['High (C5)', 'Mid-High (G4)', 'Mid (E4)', 'Mid-Low (C4)', 'Low (A3)'].map((p, idx) => (
+                        <div key={idx} className="flex items-center justify-between border-b border-pink-500/30 text-[8px] font-mono font-bold text-pink-300">
+                            <span>{p}</span>
+                            <span className="w-full mx-2 border-b border-dashed border-zinc-700" />
+                        </div>
+                    ))}
+                </div>
+
+                <div className="absolute top-0 bottom-0 left-[25%] w-0.5 bg-amber-400 shadow-[0_0_12px_#f59e0b] z-20 pointer-events-none">
+                    <div className="absolute -top-1 -left-1.5 w-3.5 h-3.5 rounded-full bg-amber-400 ring-2 ring-amber-300/50 shadow-md" />
+                </div>
+
+                <div className="relative w-full h-full">
+                    {vocalNotes
+                        .filter(n => n.time + n.duration >= windowStart && n.time <= windowEnd)
+                        .map(n => {
+                            const leftPct = ((n.time - windowStart) / (windowEnd - windowStart)) * 100;
+                            const widthPct = Math.max(5, (n.duration / (windowEnd - windowStart)) * 100);
+                            const topPct = 80 - ((n.midiNote - 55) / 25) * 70;
+                            const isCurrent = currentTime >= n.time && currentTime <= n.time + n.duration;
+
+                            return (
+                                <div
+                                    key={n.index}
+                                    onClick={() => onSeek(n.time)}
+                                    className={`absolute rounded-xl px-2.5 py-1 text-xs font-black cursor-pointer transition-transform duration-75 flex items-center justify-center shadow-lg truncate border ${
+                                        isCurrent
+                                            ? 'bg-gradient-to-r from-pink-500 to-amber-400 text-black border-white ring-2 ring-pink-400/60 shadow-[0_0_20px_rgba(236,72,153,0.8)] scale-105 z-10'
+                                            : 'bg-zinc-800/90 text-zinc-300 border-zinc-700 hover:border-pink-400/50 z-0'
+                                    }`}
+                                    style={{
+                                        left: `${leftPct}%`,
+                                        width: `${widthPct}%`,
+                                        top: `${Math.max(8, Math.min(75, topPct))}%`
+                                    }}
+                                >
+                                    <span className="truncate">{n.text}</span>
+                                </div>
+                            );
+                        })}
+
+                    {isMicActive && livePitch && (
+                        <div
+                            className="absolute left-[25%] z-30 transition-all duration-75 pointer-events-none -translate-x-1/2 -translate-y-1/2"
+                            style={{
+                                top: `${Math.max(8, Math.min(85, 80 - ((livePitch.midiNote - 55) / 25) * 70))}%`
+                            }}
+                        >
+                            <div className="w-5 h-5 rounded-full bg-cyan-400 shadow-[0_0_16px_#22d3ee] border-2 border-white ring-4 ring-cyan-400/40 animate-pulse flex items-center justify-center">
+                                <div className="w-1.5 h-1.5 rounded-full bg-black" />
+                            </div>
+                            <span className="absolute left-6 -top-1 px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-500/40 text-[9px] font-mono font-bold whitespace-nowrap shadow-md">
+                                🎤 {livePitch.noteName} ({Math.round(livePitch.pitchHz)}Hz)
+                            </span>
+                        </div>
+                    )}
+                </div>
+
+                <div className="p-3 bg-zinc-900/90 border border-zinc-800/90 rounded-xl flex items-center justify-between z-20">
+                    <div className="min-w-0 flex-1">
+                        <div className="text-[10px] font-black uppercase text-zinc-500 tracking-wider">Active Singing Line</div>
+                        <div className="text-base sm:text-lg font-black text-amber-300 truncate">
+                            {activeVocalNote ? activeVocalNote.text : '...'}
+                        </div>
+                    </div>
+
+                    {isMicActive && (
+                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-zinc-950 border border-zinc-800 shrink-0">
+                            <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_#22d3ee] animate-ping" />
+                            <span className="text-xs font-mono font-bold text-cyan-300">
+                                {livePitch ? `Pitch: ${livePitch.noteName}` : 'Listening for Voice...'}
+                            </span>
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     );
@@ -240,9 +446,15 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     // UI Drawer & Modal States
     const [showQueueDrawer, setShowQueueDrawer] = useState(false);
     const [isExpandedPlayerOpen, setIsExpandedPlayerOpen] = useState(false);
-    const [expandedSidePanel, setExpandedSidePanel] = useState<'lyrics' | 'chords' | 'queue' | 'specs' | 'artist'>('lyrics');
+    const [expandedSidePanel, setExpandedSidePanel] = useState<'karaoke' | 'guitar' | 'bass' | 'sing' | 'artist' | 'queue' | 'specs'>('karaoke');
     const [showExpandedSidePanel, setShowExpandedSidePanel] = useState(true);
     const [isVinylView, setIsVinylView] = useState(true);
+
+    // Download Modal States
+    const [showDownloadModal, setShowDownloadModal] = useState(false);
+    const [downloadTargetTrack, setDownloadTargetTrack] = useState<MediaItem | null>(null);
+    const [downloadTargetAlbumTracks, setDownloadTargetAlbumTracks] = useState<MediaItem[] | null>(null);
+    const [downloadTargetAlbumName, setDownloadTargetAlbumName] = useState<string | undefined>(undefined);
 
     // Artist Biography & Discography States
     const [showArtistModal, setShowArtistModal] = useState(false);
@@ -339,7 +551,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     }, [currentLyricIndex, showLyricsModal]);
 
     useEffect(() => {
-        if (isExpandedPlayerOpen && expandedSidePanel === 'lyrics' && expandedActiveLyricRef.current && expandedLyricsContainerRef.current) {
+        if (isExpandedPlayerOpen && (expandedSidePanel === 'karaoke' || expandedSidePanel === 'guitar' || expandedSidePanel === 'bass') && expandedActiveLyricRef.current && expandedLyricsContainerRef.current) {
             const container = expandedLyricsContainerRef.current;
             const el = expandedActiveLyricRef.current;
             const targetTop = el.offsetTop - container.offsetTop - container.clientHeight / 2 + el.clientHeight / 2;
@@ -647,45 +859,22 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     };
 
     // Download Helpers
-    const handleDownloadTrack = async (track: MediaItem | null) => {
+    // Download Helpers (Opens interactive MusicDownloadModal for quality & directory selection)
+    const handleDownloadTrack = (track: MediaItem | null) => {
         const t = track || playingAudio;
         if (!t) return;
-        toast.info(`Preparing download for "${t.title}"...`);
-
-        try {
-            const downloadUrl = `/api/theater/music/download?path=${encodeURIComponent(t.path || '')}&title=${encodeURIComponent(t.title || t.name)}&artist=${encodeURIComponent(t.artist || '')}&streamUrl=${encodeURIComponent(t.streamUrl || '')}&ext=${encodeURIComponent(t.extension || '')}&youtubeId=${encodeURIComponent(t.youtubeId || '')}`;
-            
-            const res = await fetch(downloadUrl);
-            if (!res.ok) {
-                const errData = await res.json().catch(() => ({}));
-                toast.error(errData.error || `Download failed (HTTP ${res.status})`);
-                return;
-            }
-
-            const blob = await res.blob();
-            const blobUrl = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = blobUrl;
-            const ext = (t.extension && t.extension !== 'STREAM' && t.extension !== 'AUDIO') ? t.extension.toLowerCase().replace('.', '') : 'mp3';
-            a.download = `${t.artist ? `${t.artist} - ` : ''}${t.title || t.name}.${ext}`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            window.URL.revokeObjectURL(blobUrl);
-            toast.success(`Downloaded "${t.title}"!`);
-        } catch (err: any) {
-            toast.error(`Download failed: ${err.message}`);
-        }
+        setDownloadTargetTrack(t);
+        setDownloadTargetAlbumTracks(null);
+        setDownloadTargetAlbumName(undefined);
+        setShowDownloadModal(true);
     };
 
     const handleDownloadAlbum = (tracks: MediaItem[], albumName?: string) => {
         if (!tracks.length) return;
-        toast.success(`Starting download of ${tracks.length} tracks for album "${albumName || 'Album'}"...`);
-        tracks.forEach((track, i) => {
-            setTimeout(() => {
-                handleDownloadTrack(track);
-            }, i * 600);
-        });
+        setDownloadTargetTrack(null);
+        setDownloadTargetAlbumTracks(tracks);
+        setDownloadTargetAlbumName(albumName || tracks[0]?.album || 'Album');
+        setShowDownloadModal(true);
     };
 
     // Grab Online Track to Local Music Library
@@ -953,34 +1142,38 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         }
     };
 
-    // ── Vinyl DJ Scratch & Tonearm Interaction Handlers (Gimmick) ──
+    // ── Vinyl DJ Scratch & Tonearm Interaction Handlers (Fixed & Solid) ──
     const effectiveTonearmAngle = tonearmCustomAngle !== null
         ? tonearmCustomAngle
         : isAudioPlaying
             ? 18 + (audioDuration > 0 ? Math.min(16, (audioCurrentTime / audioDuration) * 16) : 6)
             : 0;
 
-    const handleTonearmClick = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        togglePlayPause();
-    };
+    const tonearmPointerStartRef = useRef<{ x: number; y: number } | null>(null);
+    const discPointerStartRef = useRef<{ x: number; y: number } | null>(null);
+    const hasDraggedTonearmRef = useRef(false);
+    const hasDraggedDiscRef = useRef(false);
 
     const handleTonearmPointerDown = (e: React.PointerEvent) => {
         e.preventDefault();
         e.stopPropagation();
+        tonearmPointerStartRef.current = { x: e.clientX, y: e.clientY };
+        hasDraggedTonearmRef.current = false;
         isDraggingTonearmRef.current = true;
         wasPlayingBeforeDragRef.current = isAudioPlaying;
-        const ytId = getYtId(playingAudio);
-        if (ytId && ytPlayerRef.current && ytPlayerReadyRef.current) {
-            try { ytPlayerRef.current.pauseVideo(); } catch {}
-        } else if (isAudioPlaying && audioRef.current) {
-            audioRef.current.pause();
-        }
         (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     };
 
     const handleTonearmPointerMove = (e: React.PointerEvent) => {
         if (!isDraggingTonearmRef.current || !tonearmGimbalRef.current) return;
+        if (tonearmPointerStartRef.current) {
+            const dist = Math.hypot(e.clientX - tonearmPointerStartRef.current.x, e.clientY - tonearmPointerStartRef.current.y);
+            if (dist > 6) {
+                hasDraggedTonearmRef.current = true;
+            }
+        }
+        if (!hasDraggedTonearmRef.current) return;
+
         const rect = tonearmGimbalRef.current.getBoundingClientRect();
         const pivotX = rect.left + rect.width / 2;
         const pivotY = rect.top + rect.height / 2;
@@ -997,26 +1190,42 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             setScratchFeedback(`🎵 Cue: ${formatTime(cueTime)}`);
             seekTo(cueTime);
         } else {
-            setScratchFeedback('⏹️ Resting Needle (Off)');
+            setScratchFeedback('⏹️ Resting Needle (Parked Off)');
         }
     };
 
     const handleTonearmPointerUp = (e: React.PointerEvent) => {
         if (!isDraggingTonearmRef.current) return;
         isDraggingTonearmRef.current = false;
+        const wasDrag = hasDraggedTonearmRef.current;
+        hasDraggedTonearmRef.current = false;
+        tonearmPointerStartRef.current = null;
+
+        if (!wasDrag) {
+            // Pure click/tap on tonearm: cleanly toggle play/pause
+            togglePlayPause();
+            setTonearmCustomAngle(null);
+            setScratchFeedback(null);
+            return;
+        }
+
+        // Handle end of drag
         const finalAngle = tonearmCustomAngle ?? 0;
         setTonearmCustomAngle(null);
 
         const ytId = getYtId(playingAudio);
-        if (finalAngle < 12) {
+        if (finalAngle < 14) {
+            // Needle parked off platter
             setIsAudioPlaying(false);
             if (ytId && ytPlayerRef.current && ytPlayerReadyRef.current) {
                 try { ytPlayerRef.current.pauseVideo(); } catch {}
             } else if (audioRef.current) {
                 audioRef.current.pause();
             }
-            setScratchFeedback(null);
+            setScratchFeedback('⏹️ Needle Parked (Paused)');
+            setTimeout(() => setScratchFeedback(null), 1200);
         } else {
+            // Needle dropped on platter
             if (audioDuration > 0) {
                 const cueRatio = Math.max(0, Math.min(1, (finalAngle - 18) / 16));
                 const cueTime = cueRatio * audioDuration;
@@ -1040,22 +1249,32 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         const centerX = rect.left + rect.width / 2;
         const centerY = rect.top + rect.height / 2;
 
+        discPointerStartRef.current = { x: e.clientX, y: e.clientY };
+        hasDraggedDiscRef.current = false;
         isDraggingDiscRef.current = true;
-        setIsScratchingDisc(true);
         wasPlayingBeforeDragRef.current = isAudioPlaying;
         lastPointerAngleRef.current = Math.atan2(e.clientY - centerY, e.clientX - centerX) * (180 / Math.PI);
 
-        const ytId = getYtId(playingAudio);
-        if (ytId && ytPlayerRef.current && ytPlayerReadyRef.current) {
-            try { ytPlayerRef.current.pauseVideo(); } catch {}
-        } else if (isAudioPlaying && audioRef.current) {
-            audioRef.current.pause();
-        }
         (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     };
 
     const handleDiscPointerMove = (e: React.PointerEvent) => {
         if (!isDraggingDiscRef.current || !discPlatterRef.current) return;
+        if (discPointerStartRef.current) {
+            const dist = Math.hypot(e.clientX - discPointerStartRef.current.x, e.clientY - discPointerStartRef.current.y);
+            if (dist > 6) {
+                hasDraggedDiscRef.current = true;
+                setIsScratchingDisc(true);
+                const ytId = getYtId(playingAudio);
+                if (ytId && ytPlayerRef.current && ytPlayerReadyRef.current) {
+                    try { ytPlayerRef.current.pauseVideo(); } catch {}
+                } else if (isAudioPlaying && audioRef.current) {
+                    audioRef.current.pause();
+                }
+            }
+        }
+        if (!hasDraggedDiscRef.current) return;
+
         const rect = discPlatterRef.current.getBoundingClientRect();
         const centerX = rect.left + rect.width / 2;
         const centerY = rect.top + rect.height / 2;
@@ -1078,7 +1297,18 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         if (!isDraggingDiscRef.current) return;
         isDraggingDiscRef.current = false;
         setIsScratchingDisc(false);
+        const wasDrag = hasDraggedDiscRef.current;
+        hasDraggedDiscRef.current = false;
+        discPointerStartRef.current = null;
 
+        if (!wasDrag) {
+            // Pure click/tap on vinyl platter: toggle play/pause
+            togglePlayPause();
+            setScratchFeedback(null);
+            return;
+        }
+
+        // Resume playback after scratching only if was playing before
         if (wasPlayingBeforeDragRef.current) {
             setIsAudioPlaying(true);
             const ytId = getYtId(playingAudio);
@@ -1761,21 +1991,74 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                         </div>
 
                         <div className="flex items-center gap-1.5">
-                            {/* Chords / Musical Jam Stage Quick Switch */}
+                            {/* Karaoke Mode Quick Switch */}
                             <button
                                 onClick={() => {
                                     setShowExpandedSidePanel(true);
-                                    setExpandedSidePanel('chords');
+                                    setExpandedSidePanel('karaoke');
                                 }}
-                                className={`px-3 py-1.5 rounded-2xl border text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all ${
-                                    showExpandedSidePanel && expandedSidePanel === 'chords'
+                                className={`px-2.5 py-1.5 rounded-2xl border text-xs font-black uppercase tracking-wider flex items-center gap-1 transition-all ${
+                                    showExpandedSidePanel && expandedSidePanel === 'karaoke'
                                         ? 'bg-amber-500 text-black border-amber-400 shadow-md'
                                         : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
                                 }`}
-                                title="Open Guitar & Ukulele Chords Jam Stage"
+                                title="Open Karaoke Lyrics"
                             >
-                                <Guitar size={13} className={showExpandedSidePanel && expandedSidePanel === 'chords' ? 'text-black' : 'text-amber-400'} />
-                                <span className="hidden md:inline">Chords 🎸</span>
+                                <Mic2 size={13} className={showExpandedSidePanel && expandedSidePanel === 'karaoke' ? 'text-black' : 'text-amber-400'} />
+                                <span className="hidden lg:inline">Karaoke</span>
+                            </button>
+
+                            {/* Guitar Mode Quick Switch */}
+                            <button
+                                onClick={() => {
+                                    setShowExpandedSidePanel(true);
+                                    setJamInstrument('guitar');
+                                    setExpandedSidePanel('guitar');
+                                }}
+                                className={`px-2.5 py-1.5 rounded-2xl border text-xs font-black uppercase tracking-wider flex items-center gap-1 transition-all ${
+                                    showExpandedSidePanel && expandedSidePanel === 'guitar'
+                                        ? 'bg-amber-500 text-black border-amber-400 shadow-md'
+                                        : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
+                                }`}
+                                title="Open 6-String Guitar Chords & Lyrics"
+                            >
+                                <Guitar size={13} className={showExpandedSidePanel && expandedSidePanel === 'guitar' ? 'text-black' : 'text-amber-400'} />
+                                <span className="hidden lg:inline">Guitar</span>
+                            </button>
+
+                            {/* Bass Mode Quick Switch */}
+                            <button
+                                onClick={() => {
+                                    setShowExpandedSidePanel(true);
+                                    setJamInstrument('bass');
+                                    setExpandedSidePanel('bass');
+                                }}
+                                className={`px-2.5 py-1.5 rounded-2xl border text-xs font-black uppercase tracking-wider flex items-center gap-1 transition-all ${
+                                    showExpandedSidePanel && expandedSidePanel === 'bass'
+                                        ? 'bg-purple-500 text-white border-purple-400 shadow-md'
+                                        : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
+                                }`}
+                                title="Open 4-String Bass Fretboard & Lyrics"
+                            >
+                                <Activity size={13} className={showExpandedSidePanel && expandedSidePanel === 'bass' ? 'text-white' : 'text-purple-400'} />
+                                <span className="hidden lg:inline">Bass</span>
+                            </button>
+
+                            {/* Sing Mode Quick Switch */}
+                            <button
+                                onClick={() => {
+                                    setShowExpandedSidePanel(true);
+                                    setExpandedSidePanel('sing');
+                                }}
+                                className={`px-2.5 py-1.5 rounded-2xl border text-xs font-black uppercase tracking-wider flex items-center gap-1 transition-all ${
+                                    showExpandedSidePanel && expandedSidePanel === 'sing'
+                                        ? 'bg-pink-500 text-black border-pink-400 shadow-md'
+                                        : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
+                                }`}
+                                title="Open Sing Vocal Hero & Mic Tracking"
+                            >
+                                <Sparkles size={13} className={showExpandedSidePanel && expandedSidePanel === 'sing' ? 'text-black' : 'text-pink-400'} />
+                                <span className="hidden lg:inline">Sing</span>
                             </button>
 
                             {/* Artist Bio & Discography Button */}
@@ -1785,15 +2068,15 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                     setExpandedSidePanel('artist');
                                     fetchArtistInfo(playingAudio.artist);
                                 }}
-                                className={`px-3 py-1.5 rounded-2xl border text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all ${
+                                className={`px-2.5 py-1.5 rounded-2xl border text-xs font-black uppercase tracking-wider flex items-center gap-1 transition-all ${
                                     showExpandedSidePanel && expandedSidePanel === 'artist'
                                         ? 'bg-amber-500 text-black border-amber-400 shadow-md'
                                         : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
                                 }`}
-                                title="View Artist Bio & Discography"
+                                title="View Artist Biography & Discography"
                             >
                                 <User size={13} className={showExpandedSidePanel && expandedSidePanel === 'artist' ? 'text-black' : 'text-amber-400'} />
-                                <span className="hidden md:inline">Artist</span>
+                                <span className="hidden lg:inline">Bio & Discog</span>
                             </button>
 
                             {/* Force Server Transcode Button */}
@@ -2128,19 +2411,49 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             </div>
                         </div>
 
-                        {/* Right Side: Toggleable Panel (Lyrics / Jam / Artist / Queue / Specs) */}
+                        {/* Right Side: Toggleable Panel (Karaoke / Guitar / Bass / Sing / Artist / Queue / Specs) */}
                         {showExpandedSidePanel && (
                             <div className="lg:col-span-7 xl:col-span-7 h-full max-h-full flex flex-col bg-zinc-950/80 border border-zinc-900 rounded-[2rem] p-4 sm:p-5 shadow-2xl space-y-3 min-h-0 overflow-hidden">
                                 {/* Panel Tab Selectors */}
                                 <div className="flex items-center justify-between pb-2.5 border-b border-zinc-900 shrink-0">
                                     <div className="flex bg-zinc-900/90 p-1 rounded-xl border border-zinc-800 flex-wrap gap-1">
                                         <button
-                                            onClick={() => setExpandedSidePanel('lyrics')}
+                                            onClick={() => setExpandedSidePanel('karaoke')}
                                             className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
-                                                expandedSidePanel === 'lyrics' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                                expandedSidePanel === 'karaoke' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
                                             }`}
                                         >
-                                            <Mic2 size={12} /> Lyrics
+                                            <Mic2 size={12} /> Karaoke
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                setJamInstrument('guitar');
+                                                setExpandedSidePanel('guitar');
+                                            }}
+                                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
+                                                expandedSidePanel === 'guitar' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                            }`}
+                                        >
+                                            <Guitar size={12} /> Guitar
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                setJamInstrument('bass');
+                                                setExpandedSidePanel('bass');
+                                            }}
+                                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
+                                                expandedSidePanel === 'bass' ? 'bg-purple-500 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                            }`}
+                                        >
+                                            <Activity size={12} /> Bass
+                                        </button>
+                                        <button
+                                            onClick={() => setExpandedSidePanel('sing')}
+                                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
+                                                expandedSidePanel === 'sing' ? 'bg-pink-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                            }`}
+                                        >
+                                            <Sparkles size={12} /> Sing Hero
                                         </button>
                                         <button
                                             onClick={() => {
@@ -2152,14 +2465,6 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                             }`}
                                         >
                                             <User size={12} /> Artist Bio
-                                        </button>
-                                        <button
-                                            onClick={() => setExpandedSidePanel('chords')}
-                                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
-                                                expandedSidePanel === 'chords' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
-                                            }`}
-                                        >
-                                            <Guitar size={12} /> Jam Stage
                                         </button>
                                         <button
                                             onClick={() => setExpandedSidePanel('queue')}
@@ -2179,7 +2484,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         </button>
                                     </div>
 
-                                    {expandedSidePanel === 'lyrics' && (
+                                    {expandedSidePanel === 'karaoke' && (
                                         <div className="flex items-center gap-1.5">
                                             {lyricsData?.isSynced && (
                                                 <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[9px] font-black uppercase flex items-center gap-1">
@@ -2201,8 +2506,8 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                     )}
                                 </div>
 
-                                {/* 1. Lyrics Tab Content - Isolated Smooth Scroll */}
-                                {expandedSidePanel === 'lyrics' && (
+                                {/* 1. Karaoke Tab Content - Isolated Smooth Scroll */}
+                                {expandedSidePanel === 'karaoke' && (
                                     <div
                                         ref={expandedLyricsContainerRef}
                                         className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-2 flex flex-col"
@@ -2260,7 +2565,239 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                     </div>
                                 )}
 
-                                {/* 2. Artist Bio & Discography Tab Content */}
+                                {/* 2. Guitar Mode (Chords + Retained Lyrics View) */}
+                                {expandedSidePanel === 'guitar' && (
+                                    <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-1 space-y-3 flex flex-col">
+                                        {/* Musician Controls Bar */}
+                                        <div className="p-2.5 bg-zinc-900/60 rounded-xl border border-zinc-800 flex flex-wrap items-center justify-between gap-2 shrink-0">
+                                            <div className="flex items-center gap-1.5 text-xs font-black text-amber-400">
+                                                <Guitar size={14} /> 6-String Guitar Chords
+                                            </div>
+
+                                            <div className="flex items-center gap-2">
+                                                {/* Difficulty Selector */}
+                                                <div className="flex bg-zinc-950 p-0.5 rounded-lg border border-zinc-800 text-[10px] font-black uppercase">
+                                                    <button
+                                                        onClick={() => setJamDifficulty('beginner')}
+                                                        className={`px-1.5 py-0.5 rounded transition-all ${
+                                                            jamDifficulty === 'beginner' ? 'bg-emerald-500 text-black font-black' : 'text-zinc-500 hover:text-zinc-300'
+                                                        }`}
+                                                    >
+                                                        Beg
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setJamDifficulty('intermediate')}
+                                                        className={`px-1.5 py-0.5 rounded transition-all ${
+                                                            jamDifficulty === 'intermediate' ? 'bg-amber-500 text-black font-black' : 'text-zinc-500 hover:text-zinc-300'
+                                                        }`}
+                                                    >
+                                                        Med
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setJamDifficulty('advanced')}
+                                                        className={`px-1.5 py-0.5 rounded transition-all ${
+                                                            jamDifficulty === 'advanced' ? 'bg-purple-500 text-white font-black' : 'text-zinc-500 hover:text-zinc-300'
+                                                        }`}
+                                                    >
+                                                        Pro
+                                                    </button>
+                                                </div>
+
+                                                {/* Transpose Controls */}
+                                                <div className="flex items-center gap-1 bg-zinc-950 p-0.5 rounded-lg border border-zinc-800">
+                                                    <button
+                                                        onClick={() => setJamTranspose(prev => prev - 1)}
+                                                        className="w-4 h-4 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-black text-xs flex items-center justify-center"
+                                                    >
+                                                        -
+                                                    </button>
+                                                    <span className="text-[10px] font-mono font-bold text-amber-300 px-1">
+                                                        {jamTranspose > 0 ? `+${jamTranspose}` : jamTranspose}st
+                                                    </span>
+                                                    <button
+                                                        onClick={() => setJamTranspose(prev => prev + 1)}
+                                                        className="w-4 h-4 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-black text-xs flex items-center justify-center"
+                                                    >
+                                                        +
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Center Stage: Active Chord + Guitar Fretboard */}
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 items-stretch shrink-0">
+                                            <div className="p-3.5 bg-gradient-to-br from-zinc-900/90 to-zinc-950 border border-zinc-800 rounded-2xl flex flex-col justify-between space-y-2 relative overflow-hidden shadow-xl">
+                                                <span className="text-[10px] font-black uppercase text-zinc-500 tracking-wider flex items-center gap-1">
+                                                    <Activity size={12} className="text-amber-400 animate-pulse" /> Active Chord
+                                                </span>
+
+                                                <div className="text-center py-1">
+                                                    <h2 className="text-4xl sm:text-5xl font-black text-amber-300 tracking-tight drop-shadow-[0_0_20px_rgba(251,191,36,0.6)]">
+                                                        {activeChordEvent?.displayChord || 'C'}
+                                                    </h2>
+                                                </div>
+
+                                                <div className="p-1.5 bg-zinc-950/80 rounded-xl border border-zinc-800/80 flex items-center justify-between text-xs">
+                                                    <span className="text-zinc-500 font-bold text-[10px]">Next:</span>
+                                                    {activeChordEvent?.nextChord ? (
+                                                        <div className="flex items-center gap-1.5 font-mono">
+                                                            <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-black text-[11px]">
+                                                                {activeChordEvent.nextChord}
+                                                            </span>
+                                                            <span className="text-zinc-400 text-[10px]">in {activeChordEvent.nextInSeconds}s</span>
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-zinc-600 text-[10px]">Holding chord</span>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            <FretboardDiagram
+                                                chordName={activeChordEvent?.displayChord || 'C'}
+                                                instrument="guitar"
+                                            />
+                                        </div>
+
+                                        {/* Synchronized Lyrics Retained Section for Guitarists */}
+                                        <div className="flex-1 min-h-[140px] bg-zinc-900/40 border border-zinc-800/70 rounded-2xl p-3 flex flex-col">
+                                            <div className="text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-1.5 flex items-center gap-1">
+                                                <Mic2 size={11} className="text-amber-400" /> Synced Lyrics (Sing along while playing)
+                                            </div>
+                                            <div ref={expandedLyricsContainerRef} className="flex-1 overflow-y-auto custom-scrollbar space-y-2 py-2 text-center">
+                                                {lyricsData?.lines && lyricsData.lines.length > 0 ? (
+                                                    lyricsData.lines.map((line, idx) => {
+                                                        const isActive = idx === currentLyricIndex;
+                                                        return (
+                                                            <p
+                                                                key={idx}
+                                                                ref={isActive ? expandedActiveLyricRef : null}
+                                                                onClick={() => seekTo(line.time)}
+                                                                className={`cursor-pointer transition-colors duration-150 rounded-lg py-1 px-2 text-xs sm:text-sm ${
+                                                                    isActive
+                                                                        ? 'font-black text-amber-300 bg-amber-500/10 border border-amber-500/30'
+                                                                        : 'font-semibold text-zinc-400 hover:text-zinc-200'
+                                                                }`}
+                                                            >
+                                                                {line.text}
+                                                            </p>
+                                                        );
+                                                    })
+                                                ) : (
+                                                    <p className="text-xs text-zinc-500 py-4 font-medium">{lyricsData?.plainLyrics || 'No lyrics available'}</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* 3. Bass Mode (4-String Fretboard + Retained Lyrics View) */}
+                                {expandedSidePanel === 'bass' && (
+                                    <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-1 space-y-3 flex flex-col">
+                                        {/* Musician Controls Bar */}
+                                        <div className="p-2.5 bg-zinc-900/60 rounded-xl border border-zinc-800 flex flex-wrap items-center justify-between gap-2 shrink-0">
+                                            <div className="flex items-center gap-1.5 text-xs font-black text-purple-400">
+                                                <Activity size={14} /> 4-String Bass Fretboard
+                                            </div>
+
+                                            <div className="flex items-center gap-2">
+                                                {/* Transpose Controls */}
+                                                <div className="flex items-center gap-1 bg-zinc-950 p-0.5 rounded-lg border border-zinc-800">
+                                                    <button
+                                                        onClick={() => setJamTranspose(prev => prev - 1)}
+                                                        className="w-4 h-4 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-black text-xs flex items-center justify-center"
+                                                    >
+                                                        -
+                                                    </button>
+                                                    <span className="text-[10px] font-mono font-bold text-purple-300 px-1">
+                                                        {jamTranspose > 0 ? `+${jamTranspose}` : jamTranspose}st
+                                                    </span>
+                                                    <button
+                                                        onClick={() => setJamTranspose(prev => prev + 1)}
+                                                        className="w-4 h-4 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-black text-xs flex items-center justify-center"
+                                                    >
+                                                        +
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Center Stage: Active Bass Root + 4-String Fretboard */}
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 items-stretch shrink-0">
+                                            <div className="p-3.5 bg-gradient-to-br from-zinc-900/90 to-zinc-950 border border-zinc-800 rounded-2xl flex flex-col justify-between space-y-2 relative overflow-hidden shadow-xl">
+                                                <span className="text-[10px] font-black uppercase text-purple-400 tracking-wider flex items-center gap-1">
+                                                    <Activity size={12} className="animate-pulse" /> Active Bass Root
+                                                </span>
+
+                                                <div className="text-center py-1">
+                                                    <h2 className="text-4xl sm:text-5xl font-black text-purple-300 tracking-tight drop-shadow-[0_0_20px_rgba(168,85,247,0.6)]">
+                                                        {activeChordEvent?.displayChord || 'C'}
+                                                    </h2>
+                                                </div>
+
+                                                <div className="p-1.5 bg-zinc-950/80 rounded-xl border border-zinc-800/80 flex items-center justify-between text-xs">
+                                                    <span className="text-zinc-500 font-bold text-[10px]">Next:</span>
+                                                    {activeChordEvent?.nextChord ? (
+                                                        <div className="flex items-center gap-1.5 font-mono">
+                                                            <span className="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 font-black text-[11px]">
+                                                                {activeChordEvent.nextChord}
+                                                            </span>
+                                                            <span className="text-zinc-400 text-[10px]">in {activeChordEvent.nextInSeconds}s</span>
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-zinc-600 text-[10px]">Holding root</span>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            <FretboardDiagram
+                                                chordName={activeChordEvent?.displayChord || 'C'}
+                                                instrument="bass"
+                                            />
+                                        </div>
+
+                                        {/* Synchronized Lyrics Retained Section for Bassists */}
+                                        <div className="flex-1 min-h-[140px] bg-zinc-900/40 border border-zinc-800/70 rounded-2xl p-3 flex flex-col">
+                                            <div className="text-[10px] font-black uppercase tracking-wider text-zinc-400 mb-1.5 flex items-center gap-1">
+                                                <Mic2 size={11} className="text-purple-400" /> Synced Lyrics (Sing along while playing bass)
+                                            </div>
+                                            <div ref={expandedLyricsContainerRef} className="flex-1 overflow-y-auto custom-scrollbar space-y-2 py-2 text-center">
+                                                {lyricsData?.lines && lyricsData.lines.length > 0 ? (
+                                                    lyricsData.lines.map((line, idx) => {
+                                                        const isActive = idx === currentLyricIndex;
+                                                        return (
+                                                            <p
+                                                                key={idx}
+                                                                ref={isActive ? expandedActiveLyricRef : null}
+                                                                onClick={() => seekTo(line.time)}
+                                                                className={`cursor-pointer transition-colors duration-150 rounded-lg py-1 px-2 text-xs sm:text-sm ${
+                                                                    isActive
+                                                                        ? 'font-black text-purple-300 bg-purple-500/10 border border-purple-500/30'
+                                                                        : 'font-semibold text-zinc-400 hover:text-zinc-200'
+                                                                }`}
+                                                            >
+                                                                {line.text}
+                                                            </p>
+                                                        );
+                                                    })
+                                                ) : (
+                                                    <p className="text-xs text-zinc-500 py-4 font-medium">{lyricsData?.plainLyrics || 'No lyrics available'}</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* 4. Sing Mode (Guitar Hero Vocal Pitch Lane & Live Mic Detection) */}
+                                {expandedSidePanel === 'sing' && (
+                                    <SingPitchHero
+                                        lyricsData={lyricsData}
+                                        currentTime={audioCurrentTime}
+                                        duration={audioDuration}
+                                        onSeek={seekTo}
+                                    />
+                                )}
+
+                                {/* 5. Artist Bio & Discography Tab Content */}
                                 {expandedSidePanel === 'artist' && (
                                     <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-2 space-y-4">
                                         {artistLoading ? (
@@ -2374,122 +2911,6 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                 No artist information available.
                                             </div>
                                         )}
-                                    </div>
-                                )}
-
-                                {/* 3. Musical Jam Stage Tab Content */}
-                                {expandedSidePanel === 'chords' && (
-                                    <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-1 space-y-3 flex flex-col">
-                                        {/* Top Musician Controls Bar */}
-                                        <div className="p-2.5 bg-zinc-900/60 rounded-xl border border-zinc-800 flex flex-wrap items-center justify-between gap-2 shrink-0">
-                                            {/* Instrument Switcher */}
-                                            <div className="flex items-center gap-1 bg-zinc-950 p-0.5 rounded-lg border border-zinc-800">
-                                                <button
-                                                    onClick={() => setJamInstrument('guitar')}
-                                                    className={`px-2 py-1 rounded-md text-[10px] font-black uppercase transition-all flex items-center gap-1 ${
-                                                        jamInstrument === 'guitar' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-white'
-                                                    }`}
-                                                >
-                                                    <Guitar size={11} /> Guitar
-                                                </button>
-                                                <button
-                                                    onClick={() => setJamInstrument('ukulele')}
-                                                    className={`px-2 py-1 rounded-md text-[10px] font-black uppercase transition-all flex items-center gap-1 ${
-                                                        jamInstrument === 'ukulele' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-white'
-                                                    }`}
-                                                >
-                                                    <Music2 size={11} /> Ukulele
-                                                </button>
-                                            </div>
-
-                                            {/* Difficulty Selector */}
-                                            <div className="flex items-center gap-1">
-                                                <span className="text-[10px] font-black uppercase text-zinc-500">Mode:</span>
-                                                <div className="flex bg-zinc-950 p-0.5 rounded-lg border border-zinc-800 text-[10px] font-black uppercase">
-                                                    <button
-                                                        onClick={() => setJamDifficulty('beginner')}
-                                                        className={`px-1.5 py-0.5 rounded transition-all ${
-                                                            jamDifficulty === 'beginner' ? 'bg-emerald-500 text-black font-black' : 'text-zinc-500 hover:text-zinc-300'
-                                                        }`}
-                                                    >
-                                                        Beg
-                                                    </button>
-                                                    <button
-                                                        onClick={() => setJamDifficulty('intermediate')}
-                                                        className={`px-1.5 py-0.5 rounded transition-all ${
-                                                            jamDifficulty === 'intermediate' ? 'bg-amber-500 text-black font-black' : 'text-zinc-500 hover:text-zinc-300'
-                                                        }`}
-                                                    >
-                                                        Med
-                                                    </button>
-                                                    <button
-                                                        onClick={() => setJamDifficulty('advanced')}
-                                                        className={`px-1.5 py-0.5 rounded transition-all ${
-                                                            jamDifficulty === 'advanced' ? 'bg-purple-500 text-white font-black' : 'text-zinc-500 hover:text-zinc-300'
-                                                        }`}
-                                                    >
-                                                        Pro
-                                                    </button>
-                                                </div>
-                                            </div>
-
-                                            {/* Transpose Controls */}
-                                            <div className="flex items-center gap-1 bg-zinc-950 p-0.5 rounded-lg border border-zinc-800">
-                                                <button
-                                                    onClick={() => setJamTranspose(prev => prev - 1)}
-                                                    className="w-4 h-4 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-black text-xs flex items-center justify-center"
-                                                >
-                                                    -
-                                                </button>
-                                                <span className="text-[10px] font-mono font-bold text-amber-300 px-1">
-                                                    {jamTranspose > 0 ? `+${jamTranspose}` : jamTranspose}st
-                                                </span>
-                                                <button
-                                                    onClick={() => setJamTranspose(prev => prev + 1)}
-                                                    className="w-4 h-4 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-black text-xs flex items-center justify-center"
-                                                >
-                                                    +
-                                                </button>
-                                            </div>
-                                        </div>
-
-                                        {/* Center Stage Hero: Big Active Chord + Fretboard */}
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 items-stretch">
-                                            <div className="p-3.5 bg-gradient-to-br from-zinc-900/90 to-zinc-950 border border-zinc-800 rounded-2xl flex flex-col justify-between space-y-2 relative overflow-hidden shadow-xl">
-                                                <div className="flex items-center justify-between">
-                                                    <span className="text-[10px] font-black uppercase text-zinc-500 tracking-wider flex items-center gap-1">
-                                                        <Activity size={12} className="text-amber-400 animate-pulse" /> Active Chord
-                                                    </span>
-                                                </div>
-
-                                                <div className="text-center py-1">
-                                                    <h2 className="text-4xl sm:text-5xl font-black text-amber-300 tracking-tight drop-shadow-[0_0_20px_rgba(251,191,36,0.6)]">
-                                                        {activeChordEvent?.displayChord || 'C'}
-                                                    </h2>
-                                                </div>
-
-                                                <div className="p-1.5 bg-zinc-950/80 rounded-xl border border-zinc-800/80 flex items-center justify-between text-xs">
-                                                    <span className="text-zinc-500 font-bold text-[10px]">Next:</span>
-                                                    {activeChordEvent?.nextChord ? (
-                                                        <div className="flex items-center gap-1.5 font-mono">
-                                                            <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-black text-[11px]">
-                                                                {activeChordEvent.nextChord}
-                                                            </span>
-                                                            <span className="text-zinc-400 text-[10px]">in {activeChordEvent.nextInSeconds}s</span>
-                                                        </div>
-                                                    ) : (
-                                                        <span className="text-zinc-600 text-[10px]">Holding chord</span>
-                                                    )}
-                                                </div>
-                                            </div>
-
-                                            <FretboardDiagram
-                                                chordName={activeChordEvent?.displayChord || 'C'}
-                                                instrument={jamInstrument}
-                                            />
-                                        </div>
-
-                                        <ChromagramVisualizer chroma={liveChromaEnergy} />
                                     </div>
                                 )}
 
@@ -3331,6 +3752,21 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* Interactive Music Download & Library Organization Modal */}
+            {showDownloadModal && (
+                <MusicDownloadModal
+                    track={downloadTargetTrack}
+                    albumTracks={downloadTargetAlbumTracks || undefined}
+                    albumName={downloadTargetAlbumName}
+                    artistName={downloadTargetTrack?.artist || playingAudio?.artist}
+                    onClose={() => {
+                        setShowDownloadModal(false);
+                        setDownloadTargetTrack(null);
+                        setDownloadTargetAlbumTracks(null);
+                    }}
+                />
             )}
         </MusicPlayerContext.Provider>
     );

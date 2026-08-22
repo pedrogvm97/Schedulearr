@@ -35,26 +35,32 @@ function generateTrackKey(artist: string, title: string): string {
     return `${clean(artist)}_${clean(title)}`;
 }
 
+import { sanitizeSongMetadata } from '@/lib/songSanitizer';
+
 export async function GET(req: Request) {
     try {
         const { searchParams } = new URL(req.url);
-        const artist = searchParams.get('artist') || '';
-        const title = searchParams.get('title') || '';
+        const rawArtist = searchParams.get('artist') || '';
+        const rawTitle = searchParams.get('title') || '';
         const album = searchParams.get('album') || '';
         const duration = searchParams.get('duration'); // in seconds
         const searchQuery = searchParams.get('q'); // for manual search query
         const isSearch = searchParams.get('search') === 'true';
 
+        const { cleanArtist, cleanTitle, searchQueries } = sanitizeSongMetadata(rawTitle, rawArtist);
+        const artist = cleanArtist;
+        const title = cleanTitle;
+
         // 1. If explicit search mode requested (for lyrics matching modal)
         if (isSearch || searchQuery) {
-            const queryTerm = searchQuery || `${artist} ${title}`.trim();
+            const queryTerm = searchQuery || searchQueries[0] || `${rawArtist} ${rawTitle}`.trim();
             if (!queryTerm) {
                 return NextResponse.json({ results: [] });
             }
 
             try {
                 const searchRes = await axios.get(`https://lrclib.net/api/search?q=${encodeURIComponent(queryTerm)}`, {
-                    headers: { 'User-Agent': 'Schedulearr/0.3.72 (https://github.com/pedrogvm97/Schedulearr)' },
+                    headers: { 'User-Agent': 'Schedulearr/0.3.98 (https://github.com/pedrogvm97/Schedulearr)' },
                     timeout: 8000
                 });
 
@@ -79,14 +85,15 @@ export async function GET(req: Request) {
             }
         }
 
-        if (!title && !artist) {
+        if (!title && !artist && !rawTitle && !rawArtist) {
             return NextResponse.json({ error: 'Artist or Title required' }, { status: 400 });
         }
 
         const trackKey = generateTrackKey(artist, title);
+        const rawTrackKey = generateTrackKey(rawArtist, rawTitle);
 
-        // 2. Check local SQLite database for manual override or cached lyrics
-        const saved = getSavedLyrics(trackKey);
+        // 2. Check local SQLite database for manual override or cached lyrics (try both clean and raw keys)
+        const saved = getSavedLyrics(trackKey) || getSavedLyrics(rawTrackKey);
         if (saved && (saved.synced_lyrics || saved.plain_lyrics)) {
             return NextResponse.json({
                 trackKey,
@@ -100,7 +107,7 @@ export async function GET(req: Request) {
             });
         }
 
-        // 3. Query LRCLib API directly
+        // 3. Query LRCLib API directly using clean metadata
         let lrcData: any = null;
         try {
             const getParams = new URLSearchParams();
@@ -110,29 +117,36 @@ export async function GET(req: Request) {
             if (duration && !isNaN(Number(duration))) getParams.set('duration', String(Math.round(Number(duration))));
 
             const getRes = await axios.get(`https://lrclib.net/api/get?${getParams.toString()}`, {
-                headers: { 'User-Agent': 'Schedulearr/0.3.72 (https://github.com/pedrogvm97/Schedulearr)' },
+                headers: { 'User-Agent': 'Schedulearr/0.3.98 (https://github.com/pedrogvm97/Schedulearr)' },
                 timeout: 6000
             });
             lrcData = getRes.data;
         } catch {
-            // If exact get failed, try LRCLib search as fallback
-            try {
-                const searchRes = await axios.get(`https://lrclib.net/api/search?q=${encodeURIComponent(`${artist} ${title}`.trim())}`, {
-                    headers: { 'User-Agent': 'Schedulearr/0.3.72 (https://github.com/pedrogvm97/Schedulearr)' },
-                    timeout: 6000
-                });
-                if (Array.isArray(searchRes.data) && searchRes.data.length > 0) {
-                    lrcData = searchRes.data[0];
-                }
-            } catch {}
+            // If exact get failed, cascade through searchQueries variations
+            for (const q of searchQueries) {
+                try {
+                    const searchRes = await axios.get(`https://lrclib.net/api/search?q=${encodeURIComponent(q)}`, {
+                        headers: { 'User-Agent': 'Schedulearr/0.3.98' },
+                        timeout: 5000
+                    });
+                    if (Array.isArray(searchRes.data) && searchRes.data.length > 0) {
+                        // Prefer result with synced lyrics
+                        lrcData = searchRes.data.find((d: any) => d.syncedLyrics) || searchRes.data[0];
+                        break;
+                    }
+                } catch {}
+            }
         }
 
         if (lrcData && (lrcData.syncedLyrics || lrcData.plainLyrics)) {
             const syncedLyrics = lrcData.syncedLyrics || '';
             const plainLyrics = lrcData.plainLyrics || '';
 
-            // Auto-cache in SQLite
+            // Auto-cache in SQLite under both sanitized and original keys
             saveLyrics(trackKey, artist || lrcData.artistName || '', title || lrcData.trackName || '', syncedLyrics, plainLyrics, 'lrclib_auto');
+            if (rawTrackKey !== trackKey) {
+                saveLyrics(rawTrackKey, artist || lrcData.artistName || '', title || lrcData.trackName || '', syncedLyrics, plainLyrics, 'lrclib_auto');
+            }
 
             return NextResponse.json({
                 trackKey,

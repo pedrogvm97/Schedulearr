@@ -147,6 +147,9 @@ export default function TheaterPage() {
     const [loadingLibraries, setLoadingLibraries] = useState(true);
     const [loadingItems, setLoadingItems] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
+    const [globalSearchResults, setGlobalSearchResults] = useState<{ inLibraries: any[]; externalAvailable: any[] } | null>(null);
+    const [isSearchingGlobal, setIsSearchingGlobal] = useState(false);
+    const [showGlobalSearchDropdown, setShowGlobalSearchDropdown] = useState(false);
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
     const [sortBy, setSortBy] = useState<'added' | 'title' | 'date' | 'size'>('added');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -271,6 +274,35 @@ export default function TheaterPage() {
             }
         } catch {}
     }, []);
+
+    // Global Search Debounce Effect
+    useEffect(() => {
+        const query = searchQuery.trim();
+        if (query.length < 2) {
+            setGlobalSearchResults(null);
+            setIsSearchingGlobal(false);
+            setShowGlobalSearchDropdown(false);
+            return;
+        }
+
+        setShowGlobalSearchDropdown(true);
+        setIsSearchingGlobal(true);
+        const timer = setTimeout(async () => {
+            try {
+                const res = await fetch(`/api/search/global?q=${encodeURIComponent(query)}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    setGlobalSearchResults(data);
+                }
+            } catch (err) {
+                console.error('Global search error:', err);
+            } finally {
+                setIsSearchingGlobal(false);
+            }
+        }, 300);
+
+        return () => clearTimeout(timer);
+    }, [searchQuery]);
 
     const handleSetVideoMode = (mode: 'universal' | 'transcode' | 'direct') => {
         setVideoAudioMode(mode);
@@ -1422,15 +1454,150 @@ export default function TheaterPage() {
                                     placeholder="Search movies, series, music, channels..."
                                     value={searchQuery}
                                     onChange={e => setSearchQuery(e.target.value)}
+                                    onFocus={() => { if (searchQuery.trim().length >= 2) setShowGlobalSearchDropdown(true); }}
                                     className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl pl-10 pr-8 py-3 text-sm text-white placeholder-zinc-600 outline-none focus:border-emerald-500 transition-colors"
                                 />
                                 {searchQuery && (
                                     <button
-                                        onClick={() => setSearchQuery('')}
+                                        onClick={() => {
+                                            setSearchQuery('');
+                                            setShowGlobalSearchDropdown(false);
+                                        }}
                                         className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
                                     >
                                         <X size={14} />
                                     </button>
+                                )}
+
+                                {/* Categorized Global Search Shortlist Dropdown */}
+                                {showGlobalSearchDropdown && (
+                                    <div className="absolute left-0 right-0 top-full mt-2 bg-zinc-950/95 border border-zinc-800 rounded-2xl shadow-2xl z-50 max-h-96 overflow-y-auto custom-scrollbar p-3 space-y-3 backdrop-blur-xl">
+                                        <div className="flex items-center justify-between pb-2 border-b border-zinc-900">
+                                            <span className="text-[11px] font-black uppercase text-zinc-400 tracking-wider flex items-center gap-1.5">
+                                                <Search size={13} className="text-emerald-400" /> Global Search Match
+                                            </span>
+                                            {isSearchingGlobal ? (
+                                                <span className="text-[10px] text-amber-400 font-bold flex items-center gap-1">
+                                                    <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" /> Searching...
+                                                </span>
+                                            ) : (
+                                                <button
+                                                    onClick={() => setShowGlobalSearchDropdown(false)}
+                                                    className="text-[10px] text-zinc-500 hover:text-zinc-300 font-bold"
+                                                >
+                                                    Dismiss
+                                                </button>
+                                            )}
+                                        </div>
+
+                                        {/* In Your Libraries Section */}
+                                        <div>
+                                            <div className="text-[10px] font-black uppercase tracking-wider text-emerald-400 px-1 py-0.5 mb-1.5 flex items-center justify-between">
+                                                <span>📁 In Your Libraries ({globalSearchResults?.inLibraries?.length || 0})</span>
+                                                <span className="text-[9px] text-zinc-500 font-medium">Instant Play</span>
+                                            </div>
+                                            {globalSearchResults?.inLibraries && globalSearchResults.inLibraries.length > 0 ? (
+                                                <div className="space-y-1.5">
+                                                    {globalSearchResults.inLibraries.map((item: any, idx: number) => (
+                                                        <div
+                                                            key={`lib-${item.id || idx}`}
+                                                            onClick={() => {
+                                                                setShowGlobalSearchDropdown(false);
+                                                                if (item.type === 'music') {
+                                                                    playTrack(item);
+                                                                } else {
+                                                                    setPlayingVideo(item);
+                                                                }
+                                                            }}
+                                                            className="flex items-center gap-2.5 p-2 rounded-xl bg-zinc-900/60 hover:bg-zinc-800 border border-zinc-800/80 cursor-pointer transition-all group"
+                                                        >
+                                                            <div className="w-10 h-10 rounded-lg overflow-hidden bg-zinc-950 flex-shrink-0 flex items-center justify-center border border-zinc-800">
+                                                                {item.posterUrl ? (
+                                                                    <img src={item.posterUrl} alt="" className="w-full h-full object-cover" />
+                                                                ) : item.type === 'music' ? (
+                                                                    <Music size={16} className="text-amber-400" />
+                                                                ) : (
+                                                                    <Film size={16} className="text-emerald-400" />
+                                                                )}
+                                                            </div>
+                                                            <div className="min-w-0 flex-1">
+                                                                <h4 className="text-xs font-bold text-white truncate group-hover:text-emerald-300 transition-colors">
+                                                                    {item.title || item.name}
+                                                                </h4>
+                                                                <p className="text-[10px] text-zinc-400 truncate">
+                                                                    {item.artist || item.year || item.folder || 'Local Library'}
+                                                                </p>
+                                                            </div>
+                                                            <span className="px-2 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-black uppercase shrink-0">
+                                                                Play
+                                                            </span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ) : !isSearchingGlobal ? (
+                                                <p className="text-[11px] text-zinc-600 px-1 py-1 italic">No matches currently in your local libraries</p>
+                                            ) : null}
+                                        </div>
+
+                                        {/* External / Available Online Section */}
+                                        <div className="pt-2 border-t border-zinc-900">
+                                            <div className="text-[10px] font-black uppercase tracking-wider text-amber-400 px-1 py-0.5 mb-1.5 flex items-center justify-between">
+                                                <span>🌐 Available to Add / Stream ({globalSearchResults?.externalAvailable?.length || 0})</span>
+                                                <span className="text-[9px] text-zinc-500 font-medium">Radarr / Sonarr / Online</span>
+                                            </div>
+                                            {globalSearchResults?.externalAvailable && globalSearchResults.externalAvailable.length > 0 ? (
+                                                <div className="space-y-1.5">
+                                                    {globalSearchResults.externalAvailable.map((item: any, idx: number) => (
+                                                        <div
+                                                            key={`ext-${item.id || idx}`}
+                                                            className="flex items-center gap-2.5 p-2 rounded-xl bg-zinc-900/40 hover:bg-zinc-900 border border-zinc-800/80 transition-all group"
+                                                        >
+                                                            <div className="w-10 h-10 rounded-lg overflow-hidden bg-zinc-950 flex-shrink-0 flex items-center justify-center border border-zinc-800">
+                                                                {item.posterUrl ? (
+                                                                    <img src={item.posterUrl} alt="" className="w-full h-full object-cover" />
+                                                                ) : (
+                                                                    <Sparkles size={16} className="text-amber-400" />
+                                                                )}
+                                                            </div>
+                                                            <div className="min-w-0 flex-1">
+                                                                <h4 className="text-xs font-bold text-white truncate group-hover:text-amber-300 transition-colors">
+                                                                    {item.title || item.name}
+                                                                </h4>
+                                                                <p className="text-[10px] text-zinc-400 truncate">
+                                                                    {item.artist || item.year || item.provider || 'Online Search'}
+                                                                </p>
+                                                            </div>
+                                                            <div className="flex items-center gap-1 shrink-0">
+                                                                {item.streamUrl && (
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            setShowGlobalSearchDropdown(false);
+                                                                            playTrack(item);
+                                                                        }}
+                                                                        className="px-2 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-black text-[10px] font-black uppercase transition-all"
+                                                                    >
+                                                                        Listen
+                                                                    </button>
+                                                                )}
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setShowGlobalSearchDropdown(false);
+                                                                        handleDownloadTrack(item);
+                                                                    }}
+                                                                    className="px-2 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700 text-[10px] font-black uppercase transition-all"
+                                                                    title="Add to Library / Download"
+                                                                >
+                                                                    + Add / Grab
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ) : !isSearchingGlobal ? (
+                                                <p className="text-[11px] text-zinc-600 px-1 py-1 italic">No online results found</p>
+                                            ) : null}
+                                        </div>
+                                    </div>
                                 )}
                             </div>
 
