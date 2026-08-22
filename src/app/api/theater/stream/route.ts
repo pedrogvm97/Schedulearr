@@ -102,15 +102,26 @@ export async function GET(req: NextRequest) {
 
             const normalizedPlexPart = plexPart.startsWith('/') ? plexPart : `/${plexPart}`;
             const sep = normalizedPlexPart.includes('?') ? '&' : '?';
+            const fileExt = path.extname(normalizedPlexPart.split('?')[0]).toLowerCase();
+            const isAudioFile = ['.mp3', '.flac', '.wav', '.m4a', '.aac', '.ogg', '.opus', '.ape', '.dsf', '.wma', '.aiff', '.alac'].includes(fileExt);
 
-            if (transcode === 'direct') {
-                // Direct play stream from Plex
+            if (isAudioFile) {
+                // Audio file stream from Plex
+                if (transcode === 'audio' || transcode === 'mp3') {
+                    // Transcode audio via Plex universal music transcode endpoint
+                    plexStreamUrl = `${plexUrlBase}/music/:/transcode/universal/start.mp3?path=${encodeURIComponent(normalizedPlexPart)}&mediaIndex=0&partIndex=0&protocol=http&directPlay=0&directStream=1&directStreamAudio=1&fastSeek=1&copyts=1&X-Plex-Token=${plex.api_key}`;
+                } else {
+                    // Default to direct play stream for music
+                    plexStreamUrl = `${plexUrlBase}${normalizedPlexPart}${sep}X-Plex-Token=${plex.api_key}`;
+                }
+            } else if (transcode === 'direct') {
+                // Direct play stream for video from Plex
                 plexStreamUrl = `${plexUrlBase}${normalizedPlexPart}${sep}X-Plex-Token=${plex.api_key}`;
             } else if (transcode === 'audio') {
-                // Audio transcode only on Plex
+                // Audio-only transcode for video on Plex
                 plexStreamUrl = `${plexUrlBase}/video/:/transcode/universal/start.mp4?path=${encodeURIComponent(normalizedPlexPart)}&mediaIndex=0&partIndex=0&protocol=http&directPlay=0&directStream=1&directStreamAudio=0&fastSeek=1&copyts=1&X-Plex-Token=${plex.api_key}`;
             } else {
-                // Universal Server-Side Optimized Transcode on Plex (Default)
+                // Universal Server-Side Optimized Transcode for video on Plex (Default)
                 let maxBitrate = '12000';
                 let resolution = '1920x1080';
                 if (quality === '1080p-high') { maxBitrate = '16000'; resolution = '1920x1080'; }
@@ -135,17 +146,39 @@ export async function GET(req: NextRequest) {
                 validateStatus: () => true
             });
 
+            // If audio transcode failed on Plex, fallback to direct stream
+            if (isAudioFile && transcode === 'audio' && plexRes.status >= 400) {
+                const directPlexUrl = `${plexUrlBase}${normalizedPlexPart}${sep}X-Plex-Token=${plex.api_key}`;
+                const directRes = await axios.get(directPlexUrl, {
+                    headers: reqHeaders,
+                    responseType: 'stream',
+                    validateStatus: () => true
+                });
+                if (directRes.status < 400) {
+                    const resHeaders = new Headers();
+                    if (directRes.headers['content-range']) resHeaders.set('Content-Range', String(directRes.headers['content-range']));
+                    if (directRes.headers['content-length']) resHeaders.set('Content-Length', String(directRes.headers['content-length']));
+                    resHeaders.set('Content-Type', directRes.headers['content-type'] || getMimeType(fileExt || '.mp3'));
+                    resHeaders.set('Accept-Ranges', 'bytes');
+                    resHeaders.set('X-Stream-Engine', 'Plex Direct Stream');
+                    // @ts-ignore
+                    return new Response(directRes.data as any, {
+                        status: directRes.status,
+                        headers: resHeaders
+                    });
+                }
+            }
+
             const resHeaders = new Headers();
             if (plexRes.headers['content-range']) resHeaders.set('Content-Range', String(plexRes.headers['content-range']));
             if (plexRes.headers['content-length']) resHeaders.set('Content-Length', String(plexRes.headers['content-length']));
             
             // Accurate MIME type detection for Audio & Video
             const incomingMime = plexRes.headers['content-type'];
-            const fileExt = path.extname(normalizedPlexPart.split('?')[0]).toLowerCase();
-            const fallbackMime = getMimeType(fileExt || '.mp4');
+            const fallbackMime = getMimeType(fileExt || (isAudioFile ? '.mp3' : '.mp4'));
             resHeaders.set('Content-Type', incomingMime || fallbackMime);
             resHeaders.set('Accept-Ranges', 'bytes');
-            resHeaders.set('X-Stream-Engine', 'Plex Native Transcoder');
+            resHeaders.set('X-Stream-Engine', isAudioFile ? (transcode === 'audio' ? 'Plex Audio Transcode' : 'Plex Direct Audio') : 'Plex Native Transcoder');
 
             // @ts-ignore
             return new Response(plexRes.data as any, {
