@@ -173,47 +173,7 @@ export async function GET(req: NextRequest) {
                 });
             }
 
-            // Video from Plex: Try Plex native universal transcode endpoint first if ratingKey is present
-            if ((transcode === 'universal' || transcode === 'full' || transcode === 'audio') && ratingKey) {
-                try {
-                    let maxBitrate = '16000';
-                    let resolution = '1920x1080';
-                    if (quality === '1080p-high') { maxBitrate = '20000'; resolution = '1920x1080'; }
-                    else if (quality === '720p') { maxBitrate = '6000'; resolution = '1280x720'; }
-                    else if (quality === '480p') { maxBitrate = '2000'; resolution = '854x480'; }
-
-                    const plexNativeTranscodeUrl = `${plexUrlBase}/video/:/transcode/universal/start.mp4?path=${encodeURIComponent(`/library/metadata/${ratingKey}`)}&mediaIndex=0&partIndex=0&protocol=http&directPlay=0&directStream=1&directStreamAudio=1&fastSeek=1&copyts=1&maxVideoBitrate=${maxBitrate}&videoResolution=${resolution}&videoQuality=100&X-Plex-Token=${plex.api_key}`;
-
-                    const reqHeaders: Record<string, string> = { 'X-Plex-Token': plex.api_key };
-                    const clientRange = req.headers.get('range');
-                    if (clientRange) reqHeaders['Range'] = clientRange;
-
-                    const plexNativeRes = await axios.get(plexNativeTranscodeUrl, {
-                        headers: reqHeaders,
-                        responseType: 'stream',
-                        validateStatus: () => true
-                    });
-
-                    if (plexNativeRes.status < 400) {
-                        const resHeaders = new Headers();
-                        if (plexNativeRes.headers['content-range']) resHeaders.set('Content-Range', String(plexNativeRes.headers['content-range']));
-                        if (plexNativeRes.headers['content-length']) resHeaders.set('Content-Length', String(plexNativeRes.headers['content-length']));
-                        resHeaders.set('Content-Type', plexNativeRes.headers['content-type'] || 'video/mp4');
-                        resHeaders.set('Accept-Ranges', 'bytes');
-                        resHeaders.set('X-Stream-Engine', 'Plex Native Hardware Transcoder');
-
-                        // @ts-ignore
-                        return new Response(plexNativeRes.data as any, {
-                            status: plexNativeRes.status,
-                            headers: resHeaders
-                        });
-                    }
-                } catch (e) {
-                    // fallback to local ffmpeg transcode below
-                }
-            }
-
-            // Video from Plex: Local FFmpeg Universal Transcode
+            // Video from Plex: Local FFmpeg Universal Transcode (Rock-Solid libx264 + AAC)
             if (transcode === 'universal' || transcode === 'full' || transcode === 'audio') {
                 try {
                     const hwConfig = await detectHardwareEncoder();
@@ -221,7 +181,7 @@ export async function GET(req: NextRequest) {
                         filePath: directPlexUrl,
                         startTime,
                         quality,
-                        mode: transcode === 'audio' ? 'audio' : 'universal',
+                        mode: 'universal',
                         config: hwConfig
                     });
 

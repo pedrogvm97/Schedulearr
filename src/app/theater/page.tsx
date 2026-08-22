@@ -2716,139 +2716,147 @@ export default function TheaterPage() {
             {playingVideo && !isVideoMinimized && (
                 <div className="fixed inset-0 z-[200] flex items-center justify-center p-2 sm:p-4 bg-black/95 backdrop-blur-xl animate-in fade-in duration-200">
                     <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-5xl overflow-hidden shadow-2xl relative flex flex-col max-h-[95vh]">
-                        {/* Player Header */}
-                        <div className="p-4 sm:p-5 px-6 border-b border-zinc-900 flex flex-wrap items-center justify-between gap-4 bg-zinc-950/60 backdrop-blur-md">
-                            {/* Left: Title & Path */}
-                            <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-2.5 flex-wrap">
-                                    <h2 className="text-base sm:text-lg font-black text-white truncate max-w-xl">
-                                        {playingVideo.title}
-                                    </h2>
-                                    {videoAudioMode === 'universal' && (
-                                        <span className="px-2.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 text-[11px] font-bold border border-emerald-500/30 uppercase flex items-center gap-1">
-                                            <Zap size={11} className="animate-pulse" /> Server Stream
-                                        </span>
-                                    )}
-                                    {videoAudioMode === 'direct' && (
-                                        <span className="px-2.5 py-0.5 rounded-md bg-sky-500/20 text-sky-400 text-[11px] font-bold border border-sky-500/30 uppercase flex items-center gap-1">
-                                            <Film size={11} /> Direct Play
-                                        </span>
-                                    )}
-                                </div>
-                                <p className="text-xs text-zinc-500 font-mono truncate mt-0.5">{playingVideo.path}</p>
-                            </div>
-
-                            {/* Right: Controls & Actions */}
-                            <div className="flex items-center flex-wrap gap-2.5">
-                                {/* Stream Mode Selector */}
-                                <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800">
-                                    <button
-                                        onClick={() => handleSetVideoMode('universal')}
-                                        className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1 ${
-                                            videoAudioMode === 'universal'
-                                                ? 'bg-emerald-500 text-black shadow-sm'
-                                                : 'text-zinc-400 hover:text-white'
-                                        }`}
-                                        title="Server-Side Stream: Universal H.264 + AAC 2.0 (Zero buffering, 100% device compatibility)"
-                                    >
-                                        <Zap size={12} /> Server Stream
-                                    </button>
-                                    <button
-                                        onClick={() => handleSetVideoMode('direct')}
-                                        className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1 ${
-                                            videoAudioMode === 'direct'
-                                                ? 'bg-sky-500 text-black shadow-sm'
-                                                : 'text-zinc-400 hover:text-white'
-                                        }`}
-                                        title="Direct Play: Raw uncompressed file bitstream"
-                                    >
-                                        <Film size={12} /> Direct
-                                    </button>
-                                </div>
-
-                                {/* Quality Selector */}
-                                {videoAudioMode === 'universal' && (
-                                    <div className="flex items-center bg-zinc-950 px-2.5 py-1 rounded-xl border border-zinc-800 text-xs font-bold">
-                                        <span className="text-zinc-500 mr-1.5 text-[11px] uppercase font-black">Quality:</span>
-                                        <select
-                                            value={videoQuality}
-                                            onChange={(e) => handleSetVideoQuality(e.target.value as any)}
-                                            className="bg-transparent text-amber-300 font-black outline-none cursor-pointer text-xs uppercase"
-                                        >
-                                            <option value="auto" className="bg-zinc-900 text-white">Auto (1080p Standard)</option>
-                                            <option value="1080p-high" className="bg-zinc-900 text-white">1080p High (14 Mbps)</option>
-                                            <option value="720p" className="bg-zinc-900 text-white">720p Fast (4.5 Mbps)</option>
-                                            <option value="480p" className="bg-zinc-900 text-white">480p Mobile (1.8 Mbps)</option>
-                                        </select>
+                        {/* Player Header - Spacious 2-tier Layout */}
+                        <div className="p-4 sm:p-5 px-6 border-b border-zinc-900 bg-zinc-950/80 backdrop-blur-md flex flex-col gap-3">
+                            {/* Tier 1: Title & Window Controls */}
+                            <div className="flex items-center justify-between gap-4">
+                                <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-2.5 flex-wrap">
+                                        <h2 className="text-base sm:text-xl font-black text-white truncate max-w-2xl tracking-tight">
+                                            {playingVideo.title}
+                                        </h2>
+                                        {videoAudioMode === 'universal' && (
+                                            <span className="px-2.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 text-[11px] font-bold border border-emerald-500/30 uppercase flex items-center gap-1">
+                                                <Zap size={11} className="animate-pulse" /> Server Stream
+                                            </span>
+                                        )}
+                                        {videoAudioMode === 'direct' && (
+                                            <span className="px-2.5 py-0.5 rounded-md bg-sky-500/20 text-sky-400 text-[11px] font-bold border border-sky-500/30 uppercase flex items-center gap-1">
+                                                <Film size={11} /> Direct Play
+                                            </span>
+                                        )}
                                     </div>
-                                )}
+                                    <p className="text-xs text-zinc-500 font-mono truncate mt-0.5">{playingVideo.path}</p>
+                                </div>
 
-                                {/* Subtitles */}
-                                <button
-                                    onClick={() => setShowSubtitlesDrawer(!showSubtitlesDrawer)}
-                                    className={`p-2 sm:px-3 sm:py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
-                                        showSubtitlesDrawer || selectedSubtitle ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/40' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
-                                    }`}
-                                    title="Subtitles & Timing Sync"
-                                >
-                                    <Subtitles size={15} />
-                                    <span className="hidden sm:inline">Subtitles</span>
-                                </button>
-
-                                {/* Cast */}
-                                <button
-                                    onClick={() => openCastPicker(playingVideo)}
-                                    className="p-2 sm:px-3 sm:py-2 rounded-xl bg-purple-500/15 hover:bg-purple-500 text-purple-400 hover:text-white border border-purple-500/30 text-xs font-bold flex items-center gap-1.5 transition-all"
-                                    title="Cast Stream directly to Smart TV (/tv)"
-                                >
-                                    <Cast size={15} />
-                                    <span className="hidden sm:inline">Cast</span>
-                                </button>
-
-                                {/* VLC */}
-                                <button
-                                    onClick={() => handleOpenInVlc(playingVideo)}
-                                    className="p-2 sm:px-3 sm:py-2 rounded-xl bg-orange-500/15 hover:bg-orange-500 text-orange-400 hover:text-black border border-orange-500/30 text-xs font-bold flex items-center gap-1.5 transition-all"
-                                    title="Open Stream in VLC Media Player"
-                                >
-                                    <ExternalLink size={15} />
-                                    <span className="hidden sm:inline">VLC</span>
-                                </button>
-
-                                {/* Nerd Tools */}
-                                <button
-                                    onClick={() => setShowNerdToolsModal(true)}
-                                    className={`p-2 sm:px-3 sm:py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
-                                        playbackError
-                                            ? 'bg-red-500/20 text-red-400 border-red-500/40 animate-pulse'
-                                            : showNerdToolsModal
-                                                ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
-                                                : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
-                                    }`}
-                                    title="Stats for Nerds & Debug Logs"
-                                >
-                                    <Terminal size={15} />
-                                    <span className="hidden sm:inline">Logs</span>
-                                </button>
-
-                                {/* Window Action Group (Minimize & Close) */}
-                                <div className="flex items-center gap-1 pl-2 border-l border-zinc-800 ml-1">
-                                    {/* Minimize / PiP button */}
+                                {/* Window Controls: Minimize & Close */}
+                                <div className="flex items-center gap-2 shrink-0">
                                     <button
                                         onClick={() => setIsVideoMinimized(true)}
-                                        className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all"
-                                        title="Minimize player to corner mini-player"
+                                        className="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 transition-all flex items-center gap-1.5 text-xs font-bold"
+                                        title="Minimize to corner mini-player"
                                     >
-                                        <Minus size={18} />
+                                        <Minus size={16} />
+                                        <span className="hidden sm:inline">Minimize</span>
                                     </button>
 
-                                    {/* Prominent Close button */}
                                     <button
                                         onClick={() => { setPlayingVideo(null); setIsVideoMinimized(false); }}
-                                        className="p-2 rounded-xl text-zinc-400 hover:text-red-400 hover:bg-red-500/15 transition-all"
-                                        title="Close video"
+                                        className="p-2.5 rounded-xl bg-zinc-900 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 border border-zinc-800 hover:border-red-500/30 transition-all flex items-center gap-1.5 text-xs font-bold"
+                                        title="Close video player"
                                     >
-                                        <X size={20} />
+                                        <X size={16} />
+                                        <span className="hidden sm:inline">Close</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Tier 2: Stream Controls & Action Tools Toolbar */}
+                            <div className="flex items-center justify-between flex-wrap gap-2.5 pt-1 border-t border-zinc-900/60">
+                                {/* Left Toolbar: Stream Mode & Quality */}
+                                <div className="flex items-center flex-wrap gap-2">
+                                    {/* Stream Mode Toggle */}
+                                    <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800">
+                                        <button
+                                            onClick={() => handleSetVideoMode('universal')}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1 ${
+                                                videoAudioMode === 'universal'
+                                                    ? 'bg-emerald-500 text-black shadow-sm'
+                                                    : 'text-zinc-400 hover:text-white'
+                                            }`}
+                                            title="Server Stream: Multi-core ultrafast H.264 + AAC 2.0 (Zero buffering, 100% device compatibility)"
+                                        >
+                                            <Zap size={12} /> Server Stream
+                                        </button>
+                                        <button
+                                            onClick={() => handleSetVideoMode('direct')}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1 ${
+                                                videoAudioMode === 'direct'
+                                                    ? 'bg-sky-500 text-black shadow-sm'
+                                                    : 'text-zinc-400 hover:text-white'
+                                            }`}
+                                            title="Direct Play: Raw uncompressed file bitstream"
+                                        >
+                                            <Film size={12} /> Direct
+                                        </button>
+                                    </div>
+
+                                    {/* Quality Selector */}
+                                    {videoAudioMode === 'universal' && (
+                                        <div className="flex items-center bg-zinc-950 px-2.5 py-1.5 rounded-xl border border-zinc-800 text-xs font-bold">
+                                            <span className="text-zinc-500 mr-1.5 text-[11px] uppercase font-black">Quality:</span>
+                                            <select
+                                                value={videoQuality}
+                                                onChange={(e) => handleSetVideoQuality(e.target.value as any)}
+                                                className="bg-transparent text-amber-300 font-black outline-none cursor-pointer text-xs uppercase"
+                                            >
+                                                <option value="auto" className="bg-zinc-900 text-white">Auto (1080p Standard)</option>
+                                                <option value="1080p-high" className="bg-zinc-900 text-white">1080p High (14 Mbps)</option>
+                                                <option value="720p" className="bg-zinc-900 text-white">720p Fast (4.5 Mbps)</option>
+                                                <option value="480p" className="bg-zinc-900 text-white">480p Mobile (1.8 Mbps)</option>
+                                            </select>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Right Toolbar: Tools (Subtitles, Cast, VLC, Logs) */}
+                                <div className="flex items-center flex-wrap gap-2">
+                                    {/* Subtitles */}
+                                    <button
+                                        onClick={() => setShowSubtitlesDrawer(!showSubtitlesDrawer)}
+                                        className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
+                                            showSubtitlesDrawer || selectedSubtitle ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/40' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+                                        }`}
+                                        title="Subtitles & Timing Sync"
+                                    >
+                                        <Subtitles size={14} />
+                                        <span>Subtitles</span>
+                                    </button>
+
+                                    {/* Cast */}
+                                    <button
+                                        onClick={() => openCastPicker(playingVideo)}
+                                        className="px-3 py-1.5 rounded-xl bg-purple-500/15 hover:bg-purple-500 text-purple-400 hover:text-white border border-purple-500/30 text-xs font-bold flex items-center gap-1.5 transition-all"
+                                        title="Cast Stream directly to Smart TV (/tv)"
+                                    >
+                                        <Cast size={14} />
+                                        <span>Cast</span>
+                                    </button>
+
+                                    {/* VLC */}
+                                    <button
+                                        onClick={() => handleOpenInVlc(playingVideo)}
+                                        className="px-3 py-1.5 rounded-xl bg-orange-500/15 hover:bg-orange-500 text-orange-400 hover:text-black border border-orange-500/30 text-xs font-bold flex items-center gap-1.5 transition-all"
+                                        title="Open Stream in VLC Media Player"
+                                    >
+                                        <ExternalLink size={14} />
+                                        <span>VLC</span>
+                                    </button>
+
+                                    {/* Nerd Tools / Logs */}
+                                    <button
+                                        onClick={() => setShowNerdToolsModal(true)}
+                                        className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
+                                            playbackError
+                                                ? 'bg-red-500/20 text-red-400 border-red-500/40 animate-pulse'
+                                                : showNerdToolsModal
+                                                    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                                                    : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+                                        }`}
+                                        title="Stats for Nerds & Debug Logs"
+                                    >
+                                        <Terminal size={14} />
+                                        <span>Logs</span>
                                     </button>
                                 </div>
                             </div>

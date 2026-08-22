@@ -809,6 +809,51 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         }
     };
 
+    // YouTube IFrame Player refs and state
+    const ytPlayerRef = useRef<any>(null);
+    const ytPlayerReadyRef = useRef(false);
+
+    const getYtId = (track: MediaItem | null): string | null => {
+        if (!track) return null;
+        if (track.youtubeId) return track.youtubeId.replace(/^yt-/, '');
+        if (track.id && track.id.startsWith('yt-')) return track.id.replace(/^yt-/, '');
+        if (track.streamUrl) {
+            try {
+                const url = new URL(track.streamUrl, 'http://localhost');
+                const ytParam = url.searchParams.get('ytId');
+                if (ytParam) return ytParam.replace(/^yt-/, '');
+            } catch {}
+        }
+        return null;
+    };
+
+    // Load YouTube IFrame API script once
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        if (!(window as any).YT) {
+            const tag = document.createElement('script');
+            tag.src = 'https://www.youtube.com/iframe_api';
+            const firstScriptTag = document.getElementsByTagName('script')[0];
+            firstScriptTag?.parentNode?.insertBefore(tag, firstScriptTag);
+        }
+    }, []);
+
+    // Sync YouTube playback time and duration
+    useEffect(() => {
+        const timer = setInterval(() => {
+            const ytId = getYtId(playingAudio);
+            if (ytId && ytPlayerRef.current && ytPlayerReadyRef.current) {
+                try {
+                    const ct = ytPlayerRef.current.getCurrentTime?.();
+                    const dur = ytPlayerRef.current.getDuration?.();
+                    if (typeof ct === 'number' && !isNaN(ct)) setAudioCurrentTime(ct);
+                    if (typeof dur === 'number' && !isNaN(dur) && dur > 0) setAudioDuration(dur);
+                } catch {}
+            }
+        }, 300);
+        return () => clearInterval(timer);
+    }, [playingAudio]);
+
     // Track Selection & Audio Playback Handlers
     const playTrack = (track: MediaItem, queue?: MediaItem[], index?: number) => {
         setPlayingAudio(track);
@@ -831,6 +876,17 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     };
 
     const togglePlayPause = () => {
+        const ytId = getYtId(playingAudio);
+        if (ytId && ytPlayerRef.current && ytPlayerReadyRef.current) {
+            if (isAudioPlaying) {
+                try { ytPlayerRef.current.pauseVideo(); } catch {}
+                setIsAudioPlaying(false);
+            } else {
+                try { ytPlayerRef.current.playVideo(); } catch {}
+                setIsAudioPlaying(true);
+            }
+            return;
+        }
         if (!audioRef.current) return;
         if (isAudioPlaying) {
             audioRef.current.pause();
@@ -871,6 +927,11 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
     const seekTo = (time: number) => {
         setAudioCurrentTime(time);
+        const ytId = getYtId(playingAudio);
+        if (ytId && ytPlayerRef.current && ytPlayerReadyRef.current) {
+            try { ytPlayerRef.current.seekTo(time, true); } catch {}
+            return;
+        }
         if (audioRef.current) {
             audioRef.current.currentTime = time;
         }
@@ -893,7 +954,10 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         e.stopPropagation();
         isDraggingTonearmRef.current = true;
         wasPlayingBeforeDragRef.current = isAudioPlaying;
-        if (isAudioPlaying && audioRef.current) {
+        const ytId = getYtId(playingAudio);
+        if (ytId && ytPlayerRef.current && ytPlayerReadyRef.current) {
+            try { ytPlayerRef.current.pauseVideo(); } catch {}
+        } else if (isAudioPlaying && audioRef.current) {
             audioRef.current.pause();
         }
         (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
@@ -927,9 +991,14 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         const finalAngle = tonearmCustomAngle ?? 0;
         setTonearmCustomAngle(null);
 
+        const ytId = getYtId(playingAudio);
         if (finalAngle < 12) {
             setIsAudioPlaying(false);
-            if (audioRef.current) audioRef.current.pause();
+            if (ytId && ytPlayerRef.current && ytPlayerReadyRef.current) {
+                try { ytPlayerRef.current.pauseVideo(); } catch {}
+            } else if (audioRef.current) {
+                audioRef.current.pause();
+            }
             setScratchFeedback(null);
         } else {
             if (audioDuration > 0) {
@@ -938,7 +1007,11 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                 seekTo(cueTime);
             }
             setIsAudioPlaying(true);
-            if (audioRef.current) audioRef.current.play().catch(() => {});
+            if (ytId && ytPlayerRef.current && ytPlayerReadyRef.current) {
+                try { ytPlayerRef.current.playVideo(); } catch {}
+            } else if (audioRef.current) {
+                audioRef.current.play().catch(() => {});
+            }
             setTimeout(() => setScratchFeedback(null), 1200);
         }
     };
@@ -956,7 +1029,10 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         wasPlayingBeforeDragRef.current = isAudioPlaying;
         lastPointerAngleRef.current = Math.atan2(e.clientY - centerY, e.clientX - centerX) * (180 / Math.PI);
 
-        if (isAudioPlaying && audioRef.current) {
+        const ytId = getYtId(playingAudio);
+        if (ytId && ytPlayerRef.current && ytPlayerReadyRef.current) {
+            try { ytPlayerRef.current.pauseVideo(); } catch {}
+        } else if (isAudioPlaying && audioRef.current) {
             audioRef.current.pause();
         }
         (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
@@ -989,7 +1065,12 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
         if (wasPlayingBeforeDragRef.current) {
             setIsAudioPlaying(true);
-            if (audioRef.current) audioRef.current.play().catch(() => {});
+            const ytId = getYtId(playingAudio);
+            if (ytId && ytPlayerRef.current && ytPlayerReadyRef.current) {
+                try { ytPlayerRef.current.playVideo(); } catch {}
+            } else if (audioRef.current) {
+                audioRef.current.play().catch(() => {});
+            }
         }
         setTimeout(() => setScratchFeedback(null), 1000);
     };
@@ -1001,24 +1082,37 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             audioRef.current.volume = v;
             audioRef.current.muted = v === 0;
         }
+        if (ytPlayerRef.current && ytPlayerReadyRef.current) {
+            try {
+                ytPlayerRef.current.setVolume(v * 100);
+                if (v === 0) ytPlayerRef.current.mute(); else ytPlayerRef.current.unMute();
+            } catch {}
+        }
     };
 
     const toggleMute = () => {
-        if (!audioRef.current) return;
-        if (isAudioMuted) {
-            const nextVol = audioVolume > 0 ? audioVolume : 0.8;
-            audioRef.current.muted = false;
-            audioRef.current.volume = nextVol;
-            setIsAudioMuted(false);
-            setAudioVolume(nextVol);
-        } else {
-            audioRef.current.muted = true;
-            setIsAudioMuted(true);
+        const nextMuted = !isAudioMuted;
+        setIsAudioMuted(nextMuted);
+        if (audioRef.current) {
+            audioRef.current.muted = nextMuted;
+            if (!nextMuted && audioVolume === 0) {
+                audioRef.current.volume = 0.8;
+                setAudioVolume(0.8);
+            }
+        }
+        if (ytPlayerRef.current && ytPlayerReadyRef.current) {
+            try {
+                if (nextMuted) ytPlayerRef.current.mute();
+                else ytPlayerRef.current.unMute();
+            } catch {}
         }
     };
 
     const closePlayer = () => {
         if (audioRef.current) audioRef.current.pause();
+        if (ytPlayerRef.current && ytPlayerReadyRef.current) {
+            try { ytPlayerRef.current.stopVideo(); } catch {}
+        }
         try {
             fetch('/api/theater/session?sessionId=schedulearr-music-player', { method: 'DELETE' }).catch(() => {});
         } catch {}
@@ -1051,43 +1145,114 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
     // When playingAudio changes, load source, fetch lyrics and fetch chords
     useEffect(() => {
-        if (playingAudio && audioRef.current) {
-            hasRetriedTranscodeRef.current = false;
-            setAudioPlaybackStatus('loading');
-            setAudioPlaybackError(null);
-            addAudioNerdLog('info', `Loading track "${playingAudio.title}"`, {
+        if (!playingAudio) return;
+        const ytId = getYtId(playingAudio);
+        if (audioStallWatchdogRef.current) clearTimeout(audioStallWatchdogRef.current);
+        hasRetriedTranscodeRef.current = false;
+        setAudioPlaybackStatus('loading');
+        setAudioPlaybackError(null);
+        fetchLyrics(playingAudio);
+        fetchChords(playingAudio);
+
+        if (ytId) {
+            // YouTube Track Direct Playback via embedded IFrame Player
+            addAudioNerdLog('info', `Loading YouTube track "${playingAudio.title}" (${ytId})`);
+            if (audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current.removeAttribute('src');
+            }
+
+            const initOrLoadYt = () => {
+                if (ytPlayerRef.current && ytPlayerReadyRef.current) {
+                    try {
+                        ytPlayerRef.current.loadVideoById(ytId);
+                        ytPlayerRef.current.playVideo();
+                    } catch (e: any) {
+                        addAudioNerdLog('warn', `YT loadVideoById error: ${e.message}`);
+                    }
+                } else if (typeof window !== 'undefined' && (window as any).YT && (window as any).YT.Player) {
+                    try {
+                        ytPlayerRef.current = new (window as any).YT.Player('schedulearr-yt-iframe-player', {
+                            height: '1',
+                            width: '1',
+                            videoId: ytId,
+                            playerVars: {
+                                autoplay: 1,
+                                controls: 0,
+                                disablekb: 1,
+                                fs: 0,
+                                playsinline: 1,
+                                origin: typeof window !== 'undefined' ? window.location.origin : undefined
+                            },
+                            events: {
+                                onReady: (event: any) => {
+                                    ytPlayerReadyRef.current = true;
+                                    try {
+                                        event.target.setVolume(audioVolume * 100);
+                                        if (isAudioMuted) event.target.mute();
+                                        event.target.playVideo();
+                                    } catch {}
+                                },
+                                onStateChange: (event: any) => {
+                                    const state = event.data;
+                                    // YT.PlayerState: PLAYING (1), PAUSED (2), BUFFERING (3), ENDED (0)
+                                    if (state === 1) {
+                                        setIsAudioPlaying(true);
+                                        setAudioPlaybackStatus('playing');
+                                        setAudioPlaybackError(null);
+                                        addAudioNerdLog('success', 'YouTube audio stream playing');
+                                    } else if (state === 2) {
+                                        setIsAudioPlaying(false);
+                                        setAudioPlaybackStatus('paused');
+                                    } else if (state === 3) {
+                                        setAudioPlaybackStatus('buffering');
+                                    } else if (state === 0) {
+                                        nextTrack();
+                                    }
+                                },
+                                onError: (event: any) => {
+                                    addAudioNerdLog('error', `YouTube Player Error Code: ${event.data}`);
+                                    setAudioPlaybackStatus('error');
+                                    setAudioPlaybackError({
+                                        name: 'YOUTUBE_PLAYBACK_ERROR',
+                                        message: `Could not play YouTube track "${playingAudio.title}".`,
+                                        details: `YouTube error code: ${event.data}`,
+                                        suggestion: 'Try another search result or grab to local library.'
+                                    });
+                                }
+                            }
+                        });
+                    } catch (e: any) {
+                        addAudioNerdLog('error', `YT Player Init Exception: ${e.message}`);
+                    }
+                }
+            };
+
+            if (typeof window !== 'undefined' && (window as any).YT && (window as any).YT.Player) {
+                initOrLoadYt();
+            } else {
+                const checkInterval = setInterval(() => {
+                    if (typeof window !== 'undefined' && (window as any).YT && (window as any).YT.Player) {
+                        clearInterval(checkInterval);
+                        initOrLoadYt();
+                    }
+                }, 200);
+                setTimeout(() => clearInterval(checkInterval), 6000);
+            }
+        } else if (audioRef.current) {
+            // Local file / Plex audio stream
+            if (ytPlayerRef.current && ytPlayerReadyRef.current) {
+                try { ytPlayerRef.current.stopVideo(); } catch {}
+            }
+            addAudioNerdLog('info', `Loading local track "${playingAudio.title}"`, {
                 url: playingAudio.streamUrl,
-                path: playingAudio.path,
-                artist: playingAudio.artist
+                path: playingAudio.path
             });
             audioRef.current.src = playingAudio.streamUrl;
             audioRef.current.play().catch((e) => {
                 addAudioNerdLog('warn', `Direct play() error: ${e.message}`);
             });
-            fetchLyrics(playingAudio);
-            fetchChords(playingAudio);
-
-            // For YouTube/online streams: if no audio event fires within 12s, surface the error
-            if (audioStallWatchdogRef.current) clearTimeout(audioStallWatchdogRef.current);
-            if (playingAudio.youtubeId || playingAudio.streamUrl.includes('/api/theater/music/stream')) {
-                audioStallWatchdogRef.current = setTimeout(() => {
-                    if (audioRef.current && audioRef.current.currentTime === 0 && audioRef.current.readyState < 3) {
-                        setIsAudioPlaying(false);
-                        setAudioPlaybackStatus('error');
-                        setAudioPlaybackError({
-                            name: 'STREAM_UNAVAILABLE',
-                            message: `Cannot stream "${playingAudio?.title || 'Track'}" from YouTube.`,
-                            details: 'The server could not extract a direct audio URL from YouTube (yt-dlp/Invidious/Piped all failed or timed out). This is a server-side issue.',
-                            suggestion: 'Use "Grab to Library" to download this track permanently, or try a different result.'
-                        });
-                        addAudioNerdLog('error', 'YouTube audio stream stalled at 0:00 after 12s — server could not extract URL');
-                    }
-                }, 12000);
-            }
         }
-        return () => {
-            if (audioStallWatchdogRef.current) clearTimeout(audioStallWatchdogRef.current);
-        };
     }, [playingAudio]);
 
     return (
@@ -1121,7 +1286,12 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                 handleDownloadAlbum
             }}
         >
-            {/* Global Persistent Audio Element */}
+            {/* Embedded YouTube Player Container for direct lossless web audio */}
+            <div style={{ position: 'fixed', top: '-9999px', left: '-9999px', width: '1px', height: '1px', pointerEvents: 'none', opacity: 0 }}>
+                <div id="schedulearr-yt-iframe-player" />
+            </div>
+
+            {/* Global Persistent Audio Element for Local Files & Plex */}
             <audio
                 ref={audioRef}
                 preload="auto"
