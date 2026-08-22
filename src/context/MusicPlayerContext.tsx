@@ -2177,26 +2177,18 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
                                         {/* Rotating Turntable Platter & Vinyl Disc */}
                                         <div
-                                            ref={discPlatterRef}
-                                            onPointerDown={handleDiscPointerDown}
-                                            onPointerMove={handleDiscPointerMove}
-                                            onPointerUp={handleDiscPointerUp}
-                                            onPointerCancel={handleDiscPointerUp}
-                                            className="relative w-44 h-44 sm:w-52 sm:h-52 -translate-x-2.5 flex items-center justify-center cursor-grab active:cursor-grabbing touch-none select-none"
-                                            title="Grab and rotate the vinyl record to scrub time / scratch!"
+                                            onClick={togglePlayPause}
+                                            className="relative w-44 h-44 sm:w-52 sm:h-52 -translate-x-2.5 flex items-center justify-center cursor-pointer select-none group/disc"
+                                            title={isAudioPlaying ? "Click Vinyl Record to Pause" : "Click Vinyl Record to Play"}
                                         >
-                                            <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-zinc-700 via-zinc-800 to-zinc-600 p-1 shadow-2xl flex items-center justify-center border border-zinc-600/50 pointer-events-none">
+                                            <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-zinc-700 via-zinc-800 to-zinc-600 p-1 shadow-2xl flex items-center justify-center border border-zinc-600/50 pointer-events-none group-hover/disc:border-amber-500/40 transition-colors">
                                                 <div className="w-full h-full rounded-full bg-zinc-950 flex items-center justify-center shadow-inner">
                                                     <div
                                                         className="relative w-[96%] h-[96%] rounded-full bg-black shadow-2xl flex items-center justify-center overflow-hidden"
-                                                        style={
-                                                            isScratchingDisc
-                                                                ? { transform: `rotate(${discScratchAngle}deg)` }
-                                                                : {
-                                                                      animation: 'vinyl-spin 8s linear infinite',
-                                                                      animationPlayState: isAudioPlaying ? 'running' : 'paused'
-                                                                  }
-                                                        }
+                                                        style={{
+                                                            animation: 'vinyl-spin 8s linear infinite',
+                                                            animationPlayState: isAudioPlaying ? 'running' : 'paused'
+                                                        }}
                                                     >
                                                         <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,_#000000_30%,_#18181b_31%,_#09090b_45%,_#1f1f23_46%,_#000000_65%,_#18181b_66%,_#000000_100%)] opacity-90 pointer-events-none" />
                                                         <div className="absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,transparent_0deg,rgba(255,255,255,0.08)_45deg,transparent_90deg,transparent_180deg,rgba(255,255,255,0.08)_225deg,transparent_270deg)] pointer-events-none" />
@@ -2225,31 +2217,26 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
                                         {/* Tonearm */}
                                         <div
-                                            ref={tonearmGimbalRef}
-                                            className="absolute top-3 right-4 z-30 touch-none select-none"
+                                            onClick={togglePlayPause}
+                                            className="absolute top-3 right-4 z-30 select-none cursor-pointer group/arm-wrapper"
+                                            title={isAudioPlaying ? "Click Needle to Lift & Pause" : "Click Needle to Drop & Play"}
                                         >
                                             <div
-                                                onClick={handleTonearmClick}
-                                                className="relative w-9 h-9 rounded-full bg-gradient-to-b from-zinc-700 via-zinc-800 to-zinc-950 border-2 border-zinc-500 shadow-2xl flex items-center justify-center cursor-pointer hover:border-amber-400 transition-colors"
-                                                title="Click to lift / drop needle to pause or play"
+                                                className="relative w-9 h-9 rounded-full bg-gradient-to-b from-zinc-700 via-zinc-800 to-zinc-950 border-2 border-zinc-500 shadow-2xl flex items-center justify-center group-hover/arm-wrapper:border-amber-400 transition-colors"
                                             >
                                                 <div className="w-4 h-4 rounded-full bg-gradient-to-tr from-zinc-300 via-white to-zinc-400 border border-zinc-400 shadow-md flex items-center justify-center pointer-events-none">
                                                     <div className="w-1.5 h-1.5 rounded-full bg-zinc-900" />
                                                 </div>
                                                 <div
-                                                    onPointerDown={handleTonearmPointerDown}
-                                                    onPointerMove={handleTonearmPointerMove}
-                                                    onPointerUp={handleTonearmPointerUp}
-                                                    onPointerCancel={handleTonearmPointerUp}
-                                                    className="absolute top-4 left-4 w-6 origin-top cursor-grab active:cursor-grabbing hover:brightness-110 group/arm"
+                                                    className="absolute top-4 left-4 w-6 origin-top pointer-events-none"
                                                     style={{
-                                                        transform: `rotate(${effectiveTonearmAngle}deg)`,
-                                                        transition: isDraggingTonearmRef.current ? 'none' : 'transform 600ms cubic-bezier(0.34, 1.56, 0.64, 1)'
+                                                        transform: `rotate(${isAudioPlaying ? (18 + (audioDuration > 0 ? Math.min(16, (audioCurrentTime / audioDuration) * 16) : 6)) : 0}deg)`,
+                                                        transition: 'transform 600ms cubic-bezier(0.34, 1.56, 0.64, 1)'
                                                     }}
                                                 >
                                                     <div className="w-1 h-28 sm:h-34 bg-gradient-to-r from-zinc-400 via-zinc-200 to-zinc-500 rounded-full shadow-lg relative pointer-events-none">
                                                         <div className="absolute -bottom-1 -left-1.5 w-4 h-6 bg-gradient-to-b from-amber-400 to-amber-600 rounded-sm shadow-md flex items-center justify-center border border-amber-300 pointer-events-none">
-                                                            <div className="w-1 h-2 bg-white rounded-full shadow-sm animate-pulse" />
+                                                            <div className={`w-1 h-2 rounded-full shadow-sm ${isAudioPlaying ? 'bg-amber-300 animate-pulse' : 'bg-zinc-500'}`} />
                                                         </div>
                                                     </div>
                                                 </div>
@@ -2889,11 +2876,27 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                             <h4 className="font-bold text-white text-xs truncate group-hover:text-amber-400 transition-colors" title={album.title}>
                                                                                 {album.title}
                                                                             </h4>
-                                                                            {album.trackCount && (
+                                                                            <div className="flex items-center justify-between pt-1">
                                                                                 <span className="text-[10px] text-zinc-500 font-medium">
-                                                                                    {album.trackCount} Tracks
+                                                                                    {album.trackCount ? `${album.trackCount} Tracks` : 'Album'}
                                                                                 </span>
-                                                                            )}
+                                                                                <button
+                                                                                    onClick={(e) => {
+                                                                                        e.stopPropagation();
+                                                                                        handleDownloadTrack({
+                                                                                            id: `album-${album.id || ai}`,
+                                                                                            title: album.title,
+                                                                                            artist: artistData.artistName,
+                                                                                            album: album.title,
+                                                                                            posterUrl: coverImg
+                                                                                        } as any);
+                                                                                    }}
+                                                                                    className="px-2 py-0.5 rounded-md bg-zinc-800 hover:bg-amber-500 text-zinc-400 hover:text-black text-[9px] font-bold uppercase transition-all flex items-center gap-1"
+                                                                                    title="Download Album"
+                                                                                >
+                                                                                    <Download size={10} /> Download
+                                                                                </button>
+                                                                            </div>
                                                                         </div>
                                                                     </div>
                                                                 );
@@ -3090,11 +3093,27 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                 <h4 className="font-bold text-white text-xs truncate group-hover:text-amber-400 transition-colors" title={album.title}>
                                                                     {album.title}
                                                                 </h4>
-                                                                {album.trackCount && (
+                                                                <div className="flex items-center justify-between pt-1">
                                                                     <span className="text-[10px] text-zinc-500 font-medium">
-                                                                        {album.trackCount} Tracks
+                                                                        {album.trackCount ? `${album.trackCount} Tracks` : 'Album'}
                                                                     </span>
-                                                                )}
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            handleDownloadTrack({
+                                                                                id: `album-${album.id || ai}`,
+                                                                                title: album.title,
+                                                                                artist: artistData.artistName,
+                                                                                album: album.title,
+                                                                                posterUrl: coverImg
+                                                                            } as any);
+                                                                        }}
+                                                                        className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-amber-500 text-zinc-400 hover:text-black text-[10px] font-bold uppercase transition-all flex items-center gap-1"
+                                                                        title="Download Album"
+                                                                    >
+                                                                        <Download size={11} /> Download
+                                                                    </button>
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     );
