@@ -1518,7 +1518,7 @@ export default function TheaterPage() {
                                                             key={`lib-${item.id || idx}`}
                                                             onClick={() => {
                                                                 setShowGlobalSearchDropdown(false);
-                                                                if (item.type === 'music') {
+                                                                if (item.type === 'music' || item.category === 'audio' || item.artist || item.streamUrl || item.youtubeId) {
                                                                     playTrack(item);
                                                                 } else {
                                                                     setPlayingVideo(item);
@@ -1529,7 +1529,7 @@ export default function TheaterPage() {
                                                             <div className="w-10 h-10 rounded-lg overflow-hidden bg-zinc-950 flex-shrink-0 flex items-center justify-center border border-zinc-800">
                                                                 {item.posterUrl ? (
                                                                     <img src={item.posterUrl} alt="" className="w-full h-full object-cover" />
-                                                                ) : item.type === 'music' ? (
+                                                                ) : item.type === 'music' || item.category === 'audio' ? (
                                                                     <Music size={16} className="text-amber-400" />
                                                                 ) : (
                                                                     <Film size={16} className="text-emerald-400" />
@@ -1565,7 +1565,17 @@ export default function TheaterPage() {
                                                     {globalSearchResults.externalAvailable.map((item: any, idx: number) => (
                                                         <div
                                                             key={`ext-${item.id || idx}`}
-                                                            className="flex items-center gap-2.5 p-2 rounded-xl bg-zinc-900/40 hover:bg-zinc-900 border border-zinc-800/80 transition-all group"
+                                                            onClick={() => {
+                                                                setShowGlobalSearchDropdown(false);
+                                                                if (item.type === 'music' || item.category === 'audio' || item.streamUrl || item.youtubeId) {
+                                                                    playTrack(item);
+                                                                } else if (item.isLocal) {
+                                                                    setPlayingVideo(item);
+                                                                } else {
+                                                                    handleDownloadTrack(item);
+                                                                }
+                                                            }}
+                                                            className="flex items-center gap-2.5 p-2 rounded-xl bg-zinc-900/40 hover:bg-zinc-900 border border-zinc-800/80 cursor-pointer transition-all group"
                                                         >
                                                             <div className="w-10 h-10 rounded-lg overflow-hidden bg-zinc-950 flex-shrink-0 flex items-center justify-center border border-zinc-800">
                                                                 {item.posterUrl ? (
@@ -1585,7 +1595,8 @@ export default function TheaterPage() {
                                                             <div className="flex items-center gap-1 shrink-0">
                                                                 {item.streamUrl && (
                                                                     <button
-                                                                        onClick={() => {
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
                                                                             setShowGlobalSearchDropdown(false);
                                                                             playTrack(item);
                                                                         }}
@@ -1595,7 +1606,8 @@ export default function TheaterPage() {
                                                                     </button>
                                                                 )}
                                                                 <button
-                                                                    onClick={() => {
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
                                                                         setShowGlobalSearchDropdown(false);
                                                                         handleDownloadTrack(item);
                                                                     }}

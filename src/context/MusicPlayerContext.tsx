@@ -2304,12 +2304,12 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 <div className="flex items-center justify-center gap-3 pt-1">
                                     <div className="flex items-center gap-1 bg-zinc-900/80 px-2.5 py-1 rounded-xl border border-zinc-800/80">
                                         {[1, 2, 3, 4, 5].map((star) => {
-                                            const activeRating = trackRatings[playingAudio.id || playingAudio.title] || 0;
+                                            const activeRating = (trackRatings?.[playingAudio?.id || playingAudio?.title || ''] || 0);
                                             return (
                                                 <button
                                                     key={star}
                                                     type="button"
-                                                    onClick={() => setTrackRating(playingAudio.id || playingAudio.title, star)}
+                                                    onClick={() => playingAudio && setTrackRating(playingAudio.id || playingAudio.title, star)}
                                                     className="p-0.5 hover:scale-125 transition-transform"
                                                     title={`Rate ${star} Star${star > 1 ? 's' : ''}`}
                                                 >
@@ -2324,7 +2324,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                 </button>
                                             );
                                         })}
-                                        {(trackRatings[playingAudio.id || playingAudio.title] || 0) > 0 && (
+                                        {((trackRatings?.[playingAudio?.id || playingAudio?.title || ''] || 0) > 0) && (
                                             <span className="text-[10px] font-mono font-bold text-amber-300 ml-1">
                                                 {trackRatings[playingAudio.id || playingAudio.title]}/5
                                             </span>
@@ -2916,7 +2916,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                             )}
                                                                             {album.releaseDate && (
                                                                                 <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-black/80 backdrop-blur-sm text-[9px] font-mono font-bold text-amber-300">
-                                                                                    {new Date(album.releaseDate).getFullYear() || album.releaseDate.substring(0, 4)}
+                                                                                    {String(album.releaseDate).slice(0, 4)}
                                                                                 </span>
                                                                             )}
                                                                         </div>
@@ -3133,7 +3133,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                 )}
                                                                 {album.releaseDate && (
                                                                     <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded bg-black/80 backdrop-blur-sm text-[10px] font-mono font-bold text-amber-300">
-                                                                        {new Date(album.releaseDate).getFullYear() || album.releaseDate.substring(0, 4)}
+                                                                        {String(album.releaseDate).slice(0, 4)}
                                                                     </span>
                                                                 )}
                                                             </div>
