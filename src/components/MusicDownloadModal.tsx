@@ -39,7 +39,7 @@ export function MusicDownloadModal({
     const [downloadScope, setDownloadScope] = useState<'track' | 'album'>(defaultIsAlbum ? 'album' : 'track');
     const [destinations, setDestinations] = useState<DestinationOption[]>([]);
     const [selectedDestId, setSelectedDestId] = useState<string>('device');
-    const [audioFormat, setAudioFormat] = useState<'mp3' | 'aac' | 'opus'>('mp3');
+    const [audioFormat, setAudioFormat] = useState<'m4a' | 'opus'>('m4a');
     const [isDownloading, setIsDownloading] = useState(false);
     const [downloadSuccess, setDownloadSuccess] = useState(false);
     const [downloadProgress, setDownloadProgress] = useState(0);
@@ -188,18 +188,18 @@ export function MusicDownloadModal({
         const ytId = track?.youtubeId || (track?.id?.startsWith('yt-') ? track.id.replace('yt-', '') : undefined);
         const safeArtist = activeArtist.replace(/[/\\?%*:|"<>]/g, '').trim();
         const safeTitle = initialTitle.replace(/[/\\?%*:|"<>]/g, '').trim();
-        const ext = audioFormat === 'aac' ? 'm4a' : audioFormat;
+        const ext = audioFormat;
         const filename = `${safeArtist} - ${safeTitle}.${ext}`;
 
         let downloadUrl = '';
         if (ytId) {
-            downloadUrl = `/api/theater/music/stream?ytId=${encodeURIComponent(ytId)}&download=true&filename=${encodeURIComponent(filename)}`;
+            downloadUrl = `/api/theater/music/stream?ytId=${encodeURIComponent(ytId)}&format=${audioFormat}&download=true&filename=${encodeURIComponent(filename)}`;
         } else if (track?.streamUrl && track.streamUrl.includes('ytId=')) {
-            downloadUrl = `${track.streamUrl}&download=true&filename=${encodeURIComponent(filename)}`;
+            downloadUrl = `${track.streamUrl}&format=${audioFormat}&download=true&filename=${encodeURIComponent(filename)}`;
         } else if (track?.streamUrl) {
             downloadUrl = track.streamUrl;
         } else {
-            downloadUrl = `/api/theater/music/stream?q=${encodeURIComponent(`${safeArtist} ${safeTitle}`)}&download=true&filename=${encodeURIComponent(filename)}`;
+            downloadUrl = `/api/theater/music/stream?q=${encodeURIComponent(`${safeArtist} ${safeTitle}`)}&format=${audioFormat}&download=true&filename=${encodeURIComponent(filename)}`;
         }
 
         try {
@@ -343,29 +343,28 @@ export function MusicDownloadModal({
                     </div>
                 </div>
 
-                {/* Audio Format Selection (Real YouTube Formats Only) */}
+                {/* Audio Format Selection (Native YouTube Formats Only - Zero Conversions) */}
                 <div className="space-y-1.5">
                     <label className="text-xs font-black uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
-                        <Sparkles size={14} className="text-amber-400" /> Audio Quality (YouTube Source)
+                        <Sparkles size={14} className="text-amber-400" /> Native YouTube Audio Stream
                     </label>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-2 gap-2.5">
                         {[
-                            { id: 'mp3', label: 'MP3', desc: 'Universal (~192-320k)' },
-                            { id: 'aac', label: 'AAC / M4A', desc: 'Best YouTube (~256k)' },
-                            { id: 'opus', label: 'Opus', desc: 'Native Stream (~160k)' }
+                            { id: 'm4a', label: 'M4A / AAC', desc: 'Native YouTube AAC stream (~128k-256k)' },
+                            { id: 'opus', label: 'Opus / WebM', desc: 'Native YouTube Opus stream (~160k)' }
                         ].map((fmt) => (
                             <button
                                 key={fmt.id}
                                 type="button"
                                 onClick={() => setAudioFormat(fmt.id as any)}
-                                className={`p-2.5 rounded-2xl border flex flex-col items-center justify-center transition-all ${
+                                className={`p-3 rounded-2xl border flex flex-col items-center justify-center transition-all ${
                                     audioFormat === fmt.id
-                                        ? 'bg-amber-500/15 border-amber-500/50 text-white shadow-lg ring-1 ring-amber-400/40'
+                                        ? 'bg-amber-500/20 border-amber-500/70 text-white shadow-lg ring-1 ring-amber-400/40'
                                         : 'bg-zinc-900/60 border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-900'
                                 }`}
                             >
                                 <span className="text-sm font-black uppercase">{fmt.label}</span>
-                                <span className="text-[10px] text-zinc-500">{fmt.desc}</span>
+                                <span className="text-[11px] text-zinc-400 text-center mt-0.5">{fmt.desc}</span>
                             </button>
                         ))}
                     </div>

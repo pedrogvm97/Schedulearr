@@ -85,7 +85,7 @@ export async function POST(req: Request) {
             fs.mkdirSync(albumDir, { recursive: true });
         }
 
-        const ext = audioFormat === 'aac' ? 'm4a' : audioFormat === 'opus' ? 'opus' : 'mp3';
+        const ext = audioFormat === 'opus' ? 'opus' : 'm4a';
         const finalAudioPath = path.join(albumDir, `${cleanTitle}.${ext}`);
         let cleanYtId = (youtubeId || '').replace(/^yt-/, '');
 
@@ -116,13 +116,14 @@ export async function POST(req: Request) {
             }
         }
 
-        // 2. Download Track Audio
+        // 2. Download Track Audio (Native streams only, zero conversions)
         let downloaded = false;
 
         // Try yt-dlp first if available
         if (cleanYtId) {
             try {
-                const cmd = `yt-dlp -x --audio-format ${ext === 'm4a' ? 'aac' : ext} --audio-quality 0 --embed-metadata -o "${path.join(albumDir, `${cleanTitle}.%(ext)s`)}" "https://www.youtube.com/watch?v=${cleanYtId}"`;
+                const formatFilter = ext === 'm4a' ? 'bestaudio[ext=m4a]/bestaudio' : 'bestaudio[ext=webm]/bestaudio';
+                const cmd = `yt-dlp -f "${formatFilter}" --embed-metadata -o "${path.join(albumDir, `${cleanTitle}.%(ext)s`)}" "https://www.youtube.com/watch?v=${cleanYtId}"`;
                 await execPromise(cmd, { timeout: 45000 });
                 downloaded = true;
             } catch {}
