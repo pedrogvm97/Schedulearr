@@ -2311,7 +2311,99 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                         </div>
                     </div>
 
-                    {/* Main Stage: Fixed viewport grid on desktop, single view on mobile */}
+                    {/* Main Stage: Minimalist Vinyl Platter Mode vs Full Dashboard Grid */}
+                    {isMinimalistVinylMode ? (
+                        <div className="relative z-10 flex-1 min-h-0 flex flex-col items-center justify-between max-w-lg mx-auto w-full py-4 sm:py-8 select-none">
+                            {/* Minimalist Rotating Vinyl Disc */}
+                            <div
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    togglePlayPause();
+                                }}
+                                className="relative w-60 h-60 sm:w-80 sm:h-80 my-auto flex items-center justify-center cursor-pointer select-none group/disc"
+                                title={isAudioPlaying ? "Click Vinyl Record to Pause" : "Click Vinyl Record to Play"}
+                            >
+                                <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-zinc-700 via-zinc-800 to-zinc-600 p-1.5 shadow-2xl flex items-center justify-center border border-zinc-600/50 pointer-events-none group-hover/disc:border-amber-500/50 transition-colors">
+                                    <div className="w-full h-full rounded-full bg-zinc-950 flex items-center justify-center shadow-inner">
+                                        <div
+                                            className="relative w-[96%] h-[96%] rounded-full bg-black shadow-2xl flex items-center justify-center overflow-hidden"
+                                            style={{
+                                                animation: 'vinyl-spin 8s linear infinite',
+                                                animationPlayState: isAudioPlaying ? 'running' : 'paused'
+                                            }}
+                                        >
+                                            <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,_#000000_30%,_#18181b_31%,_#09090b_45%,_#1f1f23_46%,_#000000_65%,_#18181b_66%,_#000000_100%)] opacity-90 pointer-events-none" />
+                                            <div className="absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,transparent_0deg,rgba(255,255,255,0.08)_45deg,transparent_90deg,transparent_180deg,rgba(255,255,255,0.08)_225deg,transparent_270deg)] pointer-events-none" />
+
+                                            {/* Center Label */}
+                                            <div className="relative w-28 h-28 sm:w-36 sm:h-36 rounded-full overflow-hidden border-2 border-amber-500/60 shadow-2xl flex items-center justify-center z-10 pointer-events-none">
+                                                {playingAudio.posterUrl ? (
+                                                    <img
+                                                        src={playingAudio.posterUrl}
+                                                        alt=""
+                                                        className="w-full h-full object-cover pointer-events-none"
+                                                    />
+                                                ) : (
+                                                    <div className="w-full h-full bg-gradient-to-tr from-amber-600 to-amber-400 flex items-center justify-center text-black font-black text-xs text-center p-1 pointer-events-none">
+                                                        {playingAudio.title}
+                                                    </div>
+                                                )}
+                                                <div className="absolute w-8 h-8 rounded-full bg-zinc-950 border-2 border-zinc-400 flex items-center justify-center shadow-inner z-20">
+                                                    <div className="w-2.5 h-2.5 rounded-full bg-gradient-to-tr from-amber-400 to-amber-200 shadow-md" />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Track Details & Minimal Controls */}
+                            <div className="w-full space-y-4 text-center shrink-0">
+                                <div className="space-y-1">
+                                    <h2 className="text-xl sm:text-2xl font-black text-white truncate px-2">{playingAudio.title}</h2>
+                                    <p className="text-sm font-bold text-amber-400 truncate">{playingAudio.artist || 'Artist'}</p>
+                                </div>
+
+                                <div className="w-full space-y-1 px-2">
+                                    <input
+                                        type="range"
+                                        min={0}
+                                        max={audioDuration || 100}
+                                        value={audioCurrentTime}
+                                        onChange={e => seekTo(Number(e.target.value))}
+                                        className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                                    />
+                                    <div className="flex justify-between text-xs font-mono text-zinc-500 font-bold">
+                                        <span>{formatTime(audioCurrentTime)}</span>
+                                        <span>{formatTime(audioDuration)}</span>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center justify-center gap-6">
+                                    <button onClick={prevTrack} className="p-2 text-zinc-400 hover:text-white transition-colors" title="Previous Track">
+                                        <SkipBack size={22} />
+                                    </button>
+                                    <button
+                                        onClick={togglePlayPause}
+                                        disabled={audioPlaybackStatus === 'loading'}
+                                        className="w-14 h-14 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black flex items-center justify-center shadow-lg shadow-amber-500/30 transition-all scale-100 active:scale-95 disabled:opacity-75"
+                                        title={isAudioPlaying ? 'Pause' : 'Play'}
+                                    >
+                                        {audioPlaybackStatus === 'loading' || audioPlaybackStatus === 'buffering' ? (
+                                            <div className="w-6 h-6 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                                        ) : isAudioPlaying ? (
+                                            <Pause size={24} />
+                                        ) : (
+                                            <Play size={24} className="ml-0.5" />
+                                        )}
+                                    </button>
+                                    <button onClick={nextTrack} className="p-2 text-zinc-400 hover:text-white transition-colors" title="Next Track">
+                                        <SkipForward size={22} />
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
                     <div className="relative z-10 flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch pt-2 sm:pt-3 overflow-hidden">
                         {/* Left / Center: Artwork & Full Controls - Scaled to fit viewport without parent scroll */}
                         <div className={`${showExpandedSidePanel ? 'hidden lg:flex lg:col-span-5 xl:col-span-5' : 'flex col-span-1 lg:col-span-8 lg:col-start-3'} flex-col justify-between items-center h-full max-h-full mx-auto w-full max-w-md overflow-hidden py-1`}>
@@ -3588,6 +3680,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             </div>
                         )}
                     </div>
+                    )}
                 </div>
             )}
 
