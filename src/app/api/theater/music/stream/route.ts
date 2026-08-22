@@ -28,7 +28,8 @@ export async function GET(req: Request) {
         const { searchParams } = new URL(req.url);
         const ytId = searchParams.get('ytId');
         const directUrl = searchParams.get('url');
-        const formatParam = (searchParams.get('format') || 'm4a').toLowerCase(); // 'mp3', 'm4a', 'opus', 'flac'
+        const sourceFormat = (searchParams.get('sourceFormat') || searchParams.get('format') || 'm4a').toLowerCase(); // 'm4a' or 'opus'
+        const saveFormat = (searchParams.get('saveFormat') || searchParams.get('format') || 'original').toLowerCase(); // 'original', 'mp3', 'flac', 'wav', 'm4a', 'opus'
 
         if (directUrl) {
             return NextResponse.redirect(directUrl);
@@ -41,9 +42,10 @@ export async function GET(req: Request) {
         const cleanYtId = ytId.replace(/^yt-/, '');
         let directAudioUrl = '';
 
-        // 1. Try local yt-dlp first for the audio stream
+        // 1. Try local yt-dlp first for the specific requested source format
         try {
-            const { stdout } = await execPromise(`yt-dlp -g -f "bestaudio" "https://www.youtube.com/watch?v=${cleanYtId}"`, { timeout: 8000 });
+            const formatFilter = sourceFormat === 'opus' ? 'bestaudio[ext=webm]/bestaudio' : 'bestaudio[ext=m4a]/bestaudio';
+            const { stdout } = await execPromise(`yt-dlp -g -f "${formatFilter}" "https://www.youtube.com/watch?v=${cleanYtId}"`, { timeout: 8000 });
             if (stdout && stdout.trim().startsWith('http')) {
                 directAudioUrl = stdout.trim().split('\n')[0];
             }
@@ -55,7 +57,11 @@ export async function GET(req: Request) {
                 try {
                     const res = await axios.get(`${instance}/api/v1/videos/${cleanYtId}`, { timeout: 4000 });
                     if (res.data && Array.isArray(res.data.adaptiveFormats)) {
-                        const audioFormats = res.data.adaptiveFormats.filter((f: any) => f.type && f.type.startsWith('audio/'));
+                        const targetMime = sourceFormat === 'opus' ? 'audio/webm' : 'audio/mp4';
+                        let audioFormats = res.data.adaptiveFormats.filter((f: any) => f.type && f.type.startsWith(targetMime));
+                        if (audioFormats.length === 0) {
+                            audioFormats = res.data.adaptiveFormats.filter((f: any) => f.type && f.type.startsWith('audio/'));
+                        }
                         if (audioFormats.length > 0) {
                             audioFormats.sort((a: any, b: any) => (parseInt(b.bitrate) || 0) - (parseInt(a.bitrate) || 0));
                             directAudioUrl = audioFormats[0].url;
@@ -72,8 +78,11 @@ export async function GET(req: Request) {
                 try {
                     const res = await axios.get(`${instance}/streams/${cleanYtId}`, { timeout: 4000 });
                     if (res.data && Array.isArray(res.data.audioStreams) && res.data.audioStreams.length > 0) {
-                        res.data.audioStreams.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0));
-                        directAudioUrl = res.data.audioStreams[0].url;
+                        const targetMime = sourceFormat === 'opus' ? 'opus' : 'm4a';
+                        let matched = res.data.audioStreams.filter((s: any) => s.format === targetMime || (s.mimeType && s.mimeType.includes(targetMime)));
+                        if (matched.length === 0) matched = res.data.audioStreams;
+                        matched.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0));
+                        directAudioUrl = matched[0].url;
                         if (directAudioUrl) break;
                     }
                 } catch {}
@@ -85,21 +94,23 @@ export async function GET(req: Request) {
         }
 
         const isDownload = searchParams.get('download') === 'true';
-        const defaultExt = formatParam === 'mp3' ? 'mp3' : formatParam === 'flac' ? 'flac' : formatParam === 'opus' ? 'opus' : 'm4a';
-        const downloadFilename = searchParams.get('filename') || `track.${defaultExt}`;
-        const safeFilename = downloadFilename.replace(/[/\\?%*:|"<>]/g, '').trim() || `track.${defaultExt}`;
+        const effectiveExt = saveFormat === 'original'
+            ? (sourceFormat === 'opus' ? 'opus' : 'm4a')
+            : saveFormat;
+        const downloadFilename = searchParams.get('filename') || `track.${effectiveExt}`;
+        const safeFilename = downloadFilename.replace(/[/\\?%*:|"<>]/g, '').trim() || `track.${effectiveExt}`;
 
-        // 4. Handle Format Conversion via FFmpeg (MP3 320k or FLAC)
-        if (formatParam === 'mp3' || formatParam === 'flac') {
-            const mimeType = formatParam === 'mp3' ? 'audio/mpeg' : 'audio/flac';
+        // 4. Handle Format Conversion via FFmpeg when requested (MP3 320k, FLAC, WAV)
+        if (saveFormat === 'mp3' || saveFormat === 'flac' || saveFormat === 'wav') {
+            const mimeType = saveFormat === 'mp3' ? 'audio/mpeg' : saveFormat === 'flac' ? 'audio/flac' : 'audio/wav';
             const ffmpegArgs = [
                 '-reconnect', '1',
                 '-reconnect_streamed', '1',
                 '-reconnect_delay_max', '5',
                 '-i', directAudioUrl,
                 '-vn',
-                '-f', formatParam === 'flac' ? 'flac' : 'mp3',
-                ...(formatParam === 'mp3' ? ['-b:a', '320k', '-ar', '44100'] : []),
+                '-f', saveFormat,
+                ...(saveFormat === 'mp3' ? ['-b:a', '320k', '-ar', '44100'] : []),
                 'pipe:1'
             ];
 
@@ -131,8 +142,8 @@ export async function GET(req: Request) {
             });
         }
 
-        // 5. Handle Native Stream / Direct Attachment (M4A / Opus)
-        const contentType = formatParam === 'opus' ? 'audio/ogg; codecs=opus' : 'audio/mp4';
+        // 5. Handle Native Stream / Direct Attachment (Original M4A / Opus)
+        const contentType = effectiveExt === 'opus' ? 'audio/ogg; codecs=opus' : 'audio/mp4';
 
         const fetchHeaders: Record<string, string> = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'

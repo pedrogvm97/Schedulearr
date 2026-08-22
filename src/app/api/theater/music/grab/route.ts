@@ -5,8 +5,10 @@ import axios from 'axios';
 import { exec } from 'child_process';
 import util from 'util';
 import db from '@/lib/db';
+import ffmpegStatic from 'ffmpeg-static';
 
 const execPromise = util.promisify(exec);
+const ffmpegPath: string = ffmpegStatic || 'ffmpeg';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,7 +49,8 @@ export async function POST(req: Request) {
                 album: formData.get('album') as string,
                 targetFolder: formData.get('targetFolder') as string,
                 libraryId: formData.get('libraryId') as string,
-                audioFormat: formData.get('audioFormat') as string,
+                sourceFormat: formData.get('sourceFormat') as string,
+                saveFormat: (formData.get('saveFormat') || formData.get('audioFormat')) as string,
                 coverUrl: formData.get('coverUrl') as string,
                 youtubeId: formData.get('youtubeId') as string
             };
@@ -58,7 +61,17 @@ export async function POST(req: Request) {
             }
         }
 
-        const { youtubeId, title, artist, album, libraryId, coverUrl, targetFolder, audioFormat = 'm4a', directStreamUrl } = body;
+        const {
+            youtubeId,
+            title,
+            artist,
+            album,
+            libraryId,
+            coverUrl,
+            targetFolder,
+            sourceFormat = 'm4a',
+            saveFormat = (body.audioFormat || 'original')
+        } = body;
 
         if (!title) {
             return NextResponse.json({ error: 'title is required' }, { status: 400 });
@@ -112,12 +125,29 @@ export async function POST(req: Request) {
             fs.mkdirSync(albumDir, { recursive: true });
         }
 
-        const ext = audioFormat === 'opus' ? 'opus' : 'm4a';
-        const finalAudioPath = path.join(albumDir, `${cleanTitle}.${ext}`);
+        const effectiveExt = saveFormat === 'original'
+            ? (sourceFormat === 'opus' ? 'opus' : 'm4a')
+            : saveFormat;
+        const finalAudioPath = path.join(albumDir, `${cleanTitle}.${effectiveExt}`);
 
         // Direct uploaded audio payload (Client-assisted upload)
         if (uploadedBuffer && uploadedBuffer.length > 0) {
-            fs.writeFileSync(finalAudioPath, uploadedBuffer);
+            const tempUploadPath = path.join(albumDir, `temp_${Date.now()}.${sourceFormat === 'opus' ? 'opus' : 'm4a'}`);
+            fs.writeFileSync(tempUploadPath, uploadedBuffer);
+
+            if (saveFormat !== 'original' && saveFormat !== (sourceFormat === 'opus' ? 'opus' : 'm4a')) {
+                try {
+                    const convertCmd = `"${ffmpegPath}" -y -i "${tempUploadPath}" -vn ${saveFormat === 'mp3' ? '-b:a 320k' : ''} "${finalAudioPath}"`;
+                    await execPromise(convertCmd);
+                    if (fs.existsSync(tempUploadPath)) fs.unlinkSync(tempUploadPath);
+                } catch {
+                    // Fallback to rename temp if ffmpeg throws
+                    if (fs.existsSync(tempUploadPath)) fs.renameSync(tempUploadPath, finalAudioPath);
+                }
+            } else {
+                if (fs.existsSync(tempUploadPath)) fs.renameSync(tempUploadPath, finalAudioPath);
+            }
+
             if (coverUrl) {
                 const coverPath = path.join(albumDir, 'cover.jpg');
                 if (!fs.existsSync(coverPath)) {

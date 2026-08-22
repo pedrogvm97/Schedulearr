@@ -639,11 +639,7 @@ export default function TheaterPage() {
 
                 // If music, fetch playlists
                 if (lib.type === 'music') {
-                    const playRes = await fetch(`/api/theater/music/playlists?libraryId=${lib.id}`);
-                    if (playRes.ok) {
-                        const pData = await playRes.json();
-                        setPlaylists(Array.isArray(pData.playlists) ? pData.playlists : []);
-                    }
+                    fetchGlobalPlaylists(lib.id);
                 }
             }
         } catch {
@@ -654,6 +650,27 @@ export default function TheaterPage() {
             setLoadingItems(false);
         }
     };
+
+    const fetchGlobalPlaylists = async (libraryId?: string) => {
+        try {
+            const url = libraryId ? `/api/theater/music/playlists?libraryId=${libraryId}` : '/api/theater/music/playlists';
+            const playRes = await fetch(url);
+            if (playRes.ok) {
+                const pData = await playRes.json();
+                setPlaylists(Array.isArray(pData.playlists) ? pData.playlists : []);
+            }
+        } catch {}
+    };
+
+    useEffect(() => {
+        fetchGlobalPlaylists();
+    }, []);
+
+    useEffect(() => {
+        if (activeContentTab === 'music') {
+            fetchGlobalPlaylists(activeLibrary?.id);
+        }
+    }, [activeContentTab, activeLibraryId]);
 
     useEffect(() => {
         if (activeLibrary) {

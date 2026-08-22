@@ -2363,30 +2363,30 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                             </div>
                                         </div>
 
-                                        {/* Tonearm Needle */}
+                                        {/* Tonearm Assembly - Fully Interactive Touch & Click Needle */}
                                         <div
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 togglePlayPause();
                                             }}
-                                            className="absolute top-2 right-3 z-30 select-none cursor-pointer group/arm-wrapper p-2"
-                                            title={isAudioPlaying ? "Click Needle to Lift & Pause" : "Click Needle to Drop & Play"}
+                                            className="absolute top-1 right-2 w-28 h-48 z-30 select-none cursor-pointer group/tonearm"
+                                            title={isAudioPlaying ? "Click Needle to Lift & Pause" : "Click Needle to Drop on Record & Play"}
                                         >
-                                            <div
-                                                className="relative w-10 h-10 rounded-full bg-gradient-to-b from-zinc-700 via-zinc-800 to-zinc-950 border-2 border-zinc-500 shadow-2xl flex items-center justify-center group-hover/arm-wrapper:border-amber-400 transition-colors"
-                                            >
-                                                <div className="w-4 h-4 rounded-full bg-gradient-to-tr from-zinc-300 via-white to-zinc-400 border border-zinc-400 shadow-md flex items-center justify-center pointer-events-none">
+                                            {/* Pivot Gimbal Base */}
+                                            <div className="absolute top-2 right-2 w-11 h-11 rounded-full bg-gradient-to-b from-zinc-700 via-zinc-800 to-zinc-950 border-2 border-zinc-500 shadow-2xl flex items-center justify-center group-hover/tonearm:border-amber-400 transition-colors">
+                                                <div className="w-4 h-4 rounded-full bg-gradient-to-tr from-zinc-300 via-white to-zinc-400 border border-zinc-400 shadow-md flex items-center justify-center">
                                                     <div className="w-1.5 h-1.5 rounded-full bg-zinc-900" />
                                                 </div>
+                                                {/* Needle Arm & Cartridge */}
                                                 <div
-                                                    className="absolute top-4 left-4 w-6 origin-top pointer-events-none"
+                                                    className="absolute top-4 left-4 w-6 origin-top transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
                                                     style={{
-                                                        transform: `rotate(${isAudioPlaying ? 24 : 0}deg)`,
-                                                        transition: 'transform 500ms cubic-bezier(0.34, 1.56, 0.64, 1)'
+                                                        transform: `rotate(${isAudioPlaying ? 24 : 0}deg)`
                                                     }}
                                                 >
-                                                    <div className="w-1.5 h-30 sm:h-34 bg-gradient-to-r from-zinc-400 via-zinc-200 to-zinc-500 rounded-full shadow-lg relative pointer-events-none">
-                                                        <div className="absolute -bottom-1 -left-1.5 w-4 h-6 bg-gradient-to-b from-amber-400 to-amber-600 rounded-sm shadow-md flex items-center justify-center border border-amber-300 pointer-events-none">
+                                                    <div className="w-1.5 h-30 sm:h-34 bg-gradient-to-r from-zinc-400 via-zinc-200 to-zinc-500 rounded-full shadow-lg relative">
+                                                        {/* Cartridge & Stylus Light */}
+                                                        <div className="absolute -bottom-1 -left-1.5 w-4 h-6 bg-gradient-to-b from-amber-400 to-amber-600 rounded-sm shadow-md flex items-center justify-center border border-amber-300">
                                                             <div className={`w-1.5 h-2.5 rounded-full shadow-sm ${isAudioPlaying ? 'bg-amber-300 animate-pulse' : 'bg-zinc-500'}`} />
                                                         </div>
                                                     </div>

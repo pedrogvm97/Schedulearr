@@ -39,7 +39,8 @@ export function MusicDownloadModal({
     const [downloadScope, setDownloadScope] = useState<'track' | 'album'>(defaultIsAlbum ? 'album' : 'track');
     const [destinations, setDestinations] = useState<DestinationOption[]>([]);
     const [selectedDestId, setSelectedDestId] = useState<string>('device');
-    const [audioFormat, setAudioFormat] = useState<'mp3' | 'm4a' | 'opus' | 'flac'>('mp3');
+    const [sourceFormat, setSourceFormat] = useState<'m4a' | 'opus'>('m4a');
+    const [saveFormat, setSaveFormat] = useState<'original' | 'mp3' | 'flac' | 'wav' | 'm4a' | 'opus'>('original');
     const [isDownloading, setIsDownloading] = useState(false);
     const [downloadSuccess, setDownloadSuccess] = useState(false);
     const [downloadProgress, setDownloadProgress] = useState(0);
@@ -117,6 +118,9 @@ export function MusicDownloadModal({
     }, []);
 
     const selectedDest = destinations.find(d => d.id === selectedDestId) || destinations[0];
+    const effectiveExtension = saveFormat === 'original'
+        ? (sourceFormat === 'opus' ? 'opus' : 'm4a')
+        : saveFormat;
 
     // 1. Save directly into selected server library folder
     const handleSaveToServerLibrary = async () => {
@@ -133,7 +137,7 @@ export function MusicDownloadModal({
                 const album = targetTrack?.album || (downloadScope === 'album' ? albumName : 'Singles');
                 const coverUrl = targetTrack?.posterUrl || initialPosterUrl;
 
-                // Attempt 1: Direct Server Grab
+                // Attempt 1: Direct Server Grab with selected source and conversion formats
                 try {
                     const res = await fetch('/api/theater/music/grab', {
                         method: 'POST',
@@ -145,7 +149,8 @@ export function MusicDownloadModal({
                             artist,
                             album,
                             targetFolder: targetDirectory,
-                            audioFormat,
+                            sourceFormat,
+                            saveFormat,
                             coverUrl
                         })
                     });
@@ -159,19 +164,20 @@ export function MusicDownloadModal({
                 // If server IP was blocked by YouTube, browser fetches audio and uploads directly to server
                 try {
                     const streamEndpoint = ytId
-                        ? `/api/theater/music/stream?ytId=${encodeURIComponent(ytId)}&format=${audioFormat}`
-                        : (targetTrack?.streamUrl || `/api/theater/music/stream?q=${encodeURIComponent(`${artist} ${title}`)}&format=${audioFormat}`);
+                        ? `/api/theater/music/stream?ytId=${encodeURIComponent(ytId)}&sourceFormat=${sourceFormat}&saveFormat=${saveFormat}`
+                        : (targetTrack?.streamUrl || `/api/theater/music/stream?q=${encodeURIComponent(`${artist} ${title}`)}&sourceFormat=${sourceFormat}&saveFormat=${saveFormat}`);
 
                     const audioRes = await fetch(streamEndpoint);
                     if (audioRes.ok) {
                         const blob = await audioRes.blob();
                         const formData = new FormData();
-                        formData.append('file', blob, `${title}.${audioFormat}`);
+                        formData.append('file', blob, `${title}.${effectiveExtension}`);
                         formData.append('title', title);
                         formData.append('artist', artist);
                         formData.append('album', album);
                         if (targetDirectory) formData.append('targetFolder', targetDirectory);
-                        formData.append('audioFormat', audioFormat);
+                        formData.append('sourceFormat', sourceFormat);
+                        formData.append('saveFormat', saveFormat);
                         if (coverUrl) formData.append('coverUrl', coverUrl);
 
                         const uploadRes = await fetch('/api/theater/music/grab', {
@@ -218,18 +224,18 @@ export function MusicDownloadModal({
         const ytId = track?.youtubeId || (track?.id?.startsWith('yt-') ? track.id.replace('yt-', '') : undefined);
         const safeArtist = activeArtist.replace(/[/\\?%*:|"<>]/g, '').trim();
         const safeTitle = initialTitle.replace(/[/\\?%*:|"<>]/g, '').trim();
-        const ext = audioFormat;
+        const ext = effectiveExtension;
         const filename = `${safeArtist} - ${safeTitle}.${ext}`;
 
         let downloadUrl = '';
         if (ytId) {
-            downloadUrl = `/api/theater/music/stream?ytId=${encodeURIComponent(ytId)}&format=${audioFormat}&download=true&filename=${encodeURIComponent(filename)}`;
+            downloadUrl = `/api/theater/music/stream?ytId=${encodeURIComponent(ytId)}&sourceFormat=${sourceFormat}&saveFormat=${saveFormat}&download=true&filename=${encodeURIComponent(filename)}`;
         } else if (track?.streamUrl && track.streamUrl.includes('ytId=')) {
-            downloadUrl = `${track.streamUrl}&format=${audioFormat}&download=true&filename=${encodeURIComponent(filename)}`;
+            downloadUrl = `${track.streamUrl}&sourceFormat=${sourceFormat}&saveFormat=${saveFormat}&download=true&filename=${encodeURIComponent(filename)}`;
         } else if (track?.streamUrl) {
             downloadUrl = track.streamUrl;
         } else {
-            downloadUrl = `/api/theater/music/stream?q=${encodeURIComponent(`${safeArtist} ${safeTitle}`)}&format=${audioFormat}&download=true&filename=${encodeURIComponent(filename)}`;
+            downloadUrl = `/api/theater/music/stream?q=${encodeURIComponent(`${safeArtist} ${safeTitle}`)}&sourceFormat=${sourceFormat}&saveFormat=${saveFormat}&download=true&filename=${encodeURIComponent(filename)}`;
         }
 
         setIsDownloading(true);
@@ -285,7 +291,7 @@ export function MusicDownloadModal({
                                 Save / Download Music
                             </h2>
                             <p className="text-xs sm:text-sm text-zinc-400 font-medium">
-                                Choose destination &amp; format
+                                Configure source stream &amp; conversion format
                             </p>
                         </div>
                     </div>
@@ -300,7 +306,7 @@ export function MusicDownloadModal({
                 {/* Scope Selector: Single Song vs Full Album */}
                 <div className="space-y-1.5">
                     <label className="text-xs font-black uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
-                        <Disc size={14} className="text-amber-400" /> Save What?
+                        <Disc size={14} className="text-amber-400" /> 1. Save What?
                     </label>
                     <div className="grid grid-cols-2 gap-2.5">
                         <button
@@ -337,12 +343,12 @@ export function MusicDownloadModal({
                 <div className="space-y-1.5">
                     <label className="text-xs font-black uppercase tracking-wider text-zinc-400 flex items-center justify-between">
                         <span className="flex items-center gap-1.5">
-                            <Folder size={14} className="text-amber-400" /> Destination
+                            <Folder size={14} className="text-amber-400" /> 2. Destination
                         </span>
                         <span className="text-xs font-mono text-zinc-500 font-bold">{destinations.length} Options</span>
                     </label>
 
-                    <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-0.5">
+                    <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar pr-0.5">
                         {destinations.map((dest) => {
                             const isSelected = selectedDestId === dest.id;
                             return (
@@ -387,30 +393,65 @@ export function MusicDownloadModal({
                     </div>
                 </div>
 
-                {/* Audio Format Selection */}
+                {/* 3. YouTube Source Audio Stream Selection */}
                 <div className="space-y-1.5">
-                    <label className="text-xs font-black uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
-                        <Sparkles size={14} className="text-amber-400" /> Save / Download Format
-                    </label>
+                    <div className="flex items-center justify-between">
+                        <label className="text-xs font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                            <Sparkles size={14} /> 3. YouTube Source Audio Stream (Download Target)
+                        </label>
+                        <span className="text-[10px] text-zinc-500 font-mono">ONLY NATIVE YOUTUBE STREAMS</span>
+                    </div>
                     <div className="grid grid-cols-2 gap-2">
                         {[
-                            { id: 'mp3', label: 'MP3 (320k)', desc: 'Universal compatible MP3 (~320kbps)' },
-                            { id: 'm4a', label: 'AAC / M4A', desc: 'Native YouTube AAC stream (~128k-256k)' },
-                            { id: 'opus', label: 'Opus / WebM', desc: 'Native YouTube Opus stream (~160k)' },
-                            { id: 'flac', label: 'FLAC', desc: 'Lossless audio format' }
+                            { id: 'm4a', label: 'M4A / AAC Stream', desc: 'YouTube native AAC audio stream (~128k–256k)' },
+                            { id: 'opus', label: 'Opus / WebM Stream', desc: 'YouTube native Opus audio stream (~160k)' }
                         ].map((fmt) => (
                             <button
                                 key={fmt.id}
                                 type="button"
-                                onClick={() => setAudioFormat(fmt.id as any)}
+                                onClick={() => setSourceFormat(fmt.id as any)}
                                 className={`p-2.5 rounded-2xl border flex flex-col items-center justify-center transition-all ${
-                                    audioFormat === fmt.id
+                                    sourceFormat === fmt.id
                                         ? 'bg-amber-500/20 border-amber-500/70 text-white shadow-lg ring-1 ring-amber-400/40'
                                         : 'bg-zinc-900/60 border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-900'
                                 }`}
                             >
                                 <span className="text-xs sm:text-sm font-black uppercase">{fmt.label}</span>
                                 <span className="text-[10px] sm:text-[11px] text-zinc-400 text-center mt-0.5">{fmt.desc}</span>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                {/* 4. Save / Post-Download Conversion Format */}
+                <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                        <label className="text-xs font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                            <HardDrive size={14} /> 4. Save Format (Conversion After Download)
+                        </label>
+                        <span className="text-[10px] text-zinc-500 font-mono">OUTPUT CONVERSION</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                        {[
+                            { id: 'original', label: 'Original Container', desc: `Keep native .${sourceFormat}` },
+                            { id: 'mp3', label: 'MP3 (320k)', desc: 'Universal 320kbps' },
+                            { id: 'flac', label: 'FLAC', desc: 'Lossless Audio' },
+                            { id: 'wav', label: 'WAV', desc: 'Uncompressed PCM' },
+                            { id: 'm4a', label: 'AAC / M4A', desc: 'Apple M4A Container' },
+                            { id: 'opus', label: 'Opus', desc: 'WebM / Opus' }
+                        ].map((fmt) => (
+                            <button
+                                key={fmt.id}
+                                type="button"
+                                onClick={() => setSaveFormat(fmt.id as any)}
+                                className={`p-2 rounded-xl border flex flex-col items-center justify-center transition-all ${
+                                    saveFormat === fmt.id
+                                        ? 'bg-emerald-500/20 border-emerald-500/70 text-white shadow-lg ring-1 ring-emerald-400/40'
+                                        : 'bg-zinc-900/60 border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-900'
+                                }`}
+                            >
+                                <span className="text-xs font-black uppercase">{fmt.label}</span>
+                                <span className="text-[9px] text-zinc-400 text-center mt-0.5 truncate max-w-full">{fmt.desc}</span>
                             </button>
                         ))}
                     </div>
@@ -447,11 +488,11 @@ export function MusicDownloadModal({
                             </>
                         ) : selectedDestId === 'device' ? (
                             <>
-                                <Laptop size={16} /> Download to This Device ({audioFormat.toUpperCase()})
+                                <Laptop size={16} /> Download .{effectiveExtension.toUpperCase()} ({sourceFormat.toUpperCase()} → {saveFormat.toUpperCase()})
                             </>
                         ) : (
                             <>
-                                <HardDrive size={16} /> Save to {selectedDest?.name || 'Library'}
+                                <HardDrive size={16} /> Save .{effectiveExtension.toUpperCase()} to {selectedDest?.name || 'Library'}
                             </>
                         )}
                     </button>

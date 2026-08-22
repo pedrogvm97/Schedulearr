@@ -773,8 +773,8 @@ export const getMusicPlaylists = (libraryId?: string) => {
     try {
         let query = 'SELECT * FROM music_playlists ORDER BY created_at DESC';
         let params: any[] = [];
-        if (libraryId) {
-            query = 'SELECT * FROM music_playlists WHERE library_id = ? ORDER BY created_at DESC';
+        if (libraryId && libraryId !== 'all') {
+            query = "SELECT * FROM music_playlists WHERE library_id = ? OR library_id = 'global' OR library_id IS NULL ORDER BY created_at DESC";
             params = [libraryId];
         }
         const rows = db.prepare(query).all(...params) as any[];
