@@ -273,14 +273,14 @@ export default function TheaterPage() {
         prevChannelRef.current = playingChannel;
     }, [playingVideo, playingChannel]);
 
-    // Load saved streaming preferences from localStorage (default to universal for max compatibility)
+    // Load saved streaming preferences from localStorage (default to transcode for lossless video + AAC sound)
     useEffect(() => {
         try {
             const savedMode = localStorage.getItem('schedulearr_video_mode');
-            if (savedMode && (savedMode === 'universal' || savedMode === 'direct')) {
+            if (savedMode && (savedMode === 'universal' || savedMode === 'transcode' || savedMode === 'direct')) {
                 setVideoAudioMode(savedMode as any);
             } else {
-                setVideoAudioMode('universal');
+                setVideoAudioMode('transcode');
             }
             const savedQ = localStorage.getItem('schedulearr_video_quality');
             if (savedQ) {
@@ -2951,15 +2951,26 @@ export default function TheaterPage() {
                                     {/* Stream Mode Toggle */}
                                     <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800">
                                         <button
+                                            onClick={() => handleSetVideoMode('transcode')}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1 ${
+                                                videoAudioMode === 'transcode'
+                                                    ? 'bg-amber-500 text-black shadow-sm'
+                                                    : 'text-zinc-400 hover:text-white'
+                                            }`}
+                                            title="Audio Transcode: Lossless original video + AAC 2.0 sound (0% CPU, fixes browser no-sound issues with DTS/AC3)"
+                                        >
+                                            <Volume2 size={12} /> Direct + Sound
+                                        </button>
+                                        <button
                                             onClick={() => handleSetVideoMode('universal')}
                                             className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1 ${
                                                 videoAudioMode === 'universal'
                                                     ? 'bg-emerald-500 text-black shadow-sm'
                                                     : 'text-zinc-400 hover:text-white'
                                             }`}
-                                            title="Server Stream: Multi-core ultrafast H.264 + AAC 2.0 (Zero buffering, 100% device compatibility)"
+                                            title="Full Server Transcode: Multi-core ultrafast H.264 + AAC 2.0 (100% device compatibility)"
                                         >
-                                            <Zap size={12} /> Server Stream
+                                            <Zap size={12} /> Full Transcode
                                         </button>
                                         <button
                                             onClick={() => handleSetVideoMode('direct')}
@@ -2968,9 +2979,9 @@ export default function TheaterPage() {
                                                     ? 'bg-sky-500 text-black shadow-sm'
                                                     : 'text-zinc-400 hover:text-white'
                                             }`}
-                                            title="Direct Play: Raw uncompressed file bitstream"
+                                            title="Direct Raw: Original uncompressed bitstream with original DTS/Dolby tracks"
                                         >
-                                            <Film size={12} /> Direct
+                                            <Film size={12} /> Direct Raw
                                         </button>
                                     </div>
 
@@ -3160,6 +3171,24 @@ export default function TheaterPage() {
                                     <div className="flex flex-wrap items-center justify-center gap-3 max-w-xl">
                                         <button
                                             onClick={() => {
+                                                setVideoAudioMode('transcode');
+                                                setPlaybackError(null);
+                                                addDebugLog('info', 'User switched to Direct + Sound (AAC Audio Transcode)');
+                                                toast.info('Starting Direct Video + AAC Sound Stream...');
+                                                if (videoRef.current && playingVideo) {
+                                                    const base = playingVideo.streamUrl;
+                                                    videoRef.current.src = `${base}${base.includes('?') ? '&' : '?'}transcode=audio&_t=${Date.now()}`;
+                                                    videoRef.current.load();
+                                                    videoRef.current.play().catch(() => {});
+                                                }
+                                            }}
+                                            className="px-5 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-2 shadow-xl shadow-amber-500/20 transition-all cursor-pointer"
+                                        >
+                                            <Volume2 size={15} /> Play Direct + Sound (AAC)
+                                        </button>
+
+                                        <button
+                                            onClick={() => {
                                                 setVideoAudioMode('universal');
                                                 setPlaybackError(null);
                                                 addDebugLog('info', 'User triggered switch to Full Universal Transcode');
@@ -3173,7 +3202,7 @@ export default function TheaterPage() {
                                             }}
                                             className="px-5 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-2 shadow-xl shadow-emerald-500/20 transition-all cursor-pointer"
                                         >
-                                            <RefreshCcw size={15} /> Reload Stream (Server H.264)
+                                            <RefreshCcw size={15} /> Full Transcode (Server H.264)
                                         </button>
 
                                         <button

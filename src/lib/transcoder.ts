@@ -71,19 +71,41 @@ export function buildFFmpegArgs(params: {
         args.push('-ss', startSec.toString());
     }
 
+    // Input buffer & timestamp correction flags
+    args.push('-fflags', '+genpts+nobuffer+discardcorrupt');
+
     // Network input stream options (for Plex HTTPS / remote NAS URLs)
     if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
         args.push(
             '-reconnect', '1',
             '-reconnect_at_eof', '1',
             '-reconnect_streamed', '1',
-            '-reconnect_delay_max', '5'
+            '-reconnect_delay_max', '5',
+            '-timeout', '10000000'
         );
     }
 
     args.push('-i', filePath);
 
-    // Universal / Server-Side Optimized Conversion (H.264 + AAC Stereo)
+    // MODE 1: Audio-Only Transcode (Lossless Video Copy + AAC 2.0 Downmix)
+    // Instantaneous, 0% CPU load, 100% original video resolution & frame rate, fixes browser "no audio" issue.
+    if (mode === 'audio') {
+        args.push(
+            '-c:v', 'copy',
+            '-c:a', 'aac',
+            '-b:a', '256k',
+            '-ac', '2',
+            '-ar', '48000',
+            '-avoid_negative_ts', 'make_zero',
+            '-sn', // strip embedded subtitles that can break fragmented MP4 muxer
+            '-f', 'mp4',
+            '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+            'pipe:1'
+        );
+        return args;
+    }
+
+    // MODE 2: Universal Server-Side Video + Audio Transcode (H.264 + AAC Stereo)
     let maxRate = '8M';
     let bufSize = '16M';
     let crf = '22';
@@ -139,7 +161,8 @@ export function buildFFmpegArgs(params: {
         '-c:a', 'aac',
         '-b:a', audioBitrate,
         '-ac', '2',
-        '-ar', '44100',
+        '-ar', '48000',
+        '-avoid_negative_ts', 'make_zero',
         '-sn', // strip embedded subtitles that could break fragmented mp4 streaming
         '-f', 'mp4',
         '-movflags', 'frag_keyframe+empty_moov+default_base_moof',

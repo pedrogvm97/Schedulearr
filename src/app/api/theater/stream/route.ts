@@ -173,15 +173,16 @@ export async function GET(req: NextRequest) {
                 });
             }
 
-            // Video from Plex: Local FFmpeg Universal Transcode (Rock-Solid libx264 + AAC)
+            // Video from Plex: FFmpeg Transcode (Audio-Only Copy or Universal H.264 + AAC)
             if (transcode === 'universal' || transcode === 'full' || transcode === 'audio') {
                 try {
+                    const transcodeMode = transcode === 'audio' ? 'audio' : 'universal';
                     const hwConfig = await detectHardwareEncoder();
                     const ffmpegArgs = buildFFmpegArgs({
                         filePath: directPlexUrl,
                         startTime,
                         quality,
-                        mode: 'universal',
+                        mode: transcodeMode,
                         config: hwConfig
                     });
 
@@ -189,25 +190,44 @@ export async function GET(req: NextRequest) {
 
                     ffmpeg.stderr.on('data', (d) => {
                         const str = d.toString();
-                        if (str.includes('Error') || str.includes('Invalid')) {
-                            console.warn('[FFmpeg Plex Video Transcode]:', str);
+                        if (str.includes('Error') || str.includes('Invalid') || str.includes('fatal')) {
+                            console.warn(`[FFmpeg Plex Video Transcode ${transcodeMode}]:`, str);
                         }
                     });
 
                     req.signal.addEventListener('abort', () => {
-                        ffmpeg.kill('SIGKILL');
+                        try { ffmpeg.kill('SIGKILL'); } catch {}
                     });
 
-                    // @ts-ignore
-                    const webStream = Readable.toWeb(ffmpeg.stdout);
+                    const webStream = new ReadableStream({
+                        start(controller) {
+                            ffmpeg.stdout.on('data', (chunk) => {
+                                controller.enqueue(chunk);
+                            });
+                            ffmpeg.stdout.on('end', () => {
+                                controller.close();
+                            });
+                            ffmpeg.stdout.on('error', (err) => {
+                                controller.error(err);
+                            });
+                        },
+                        cancel() {
+                            try { ffmpeg.kill('SIGKILL'); } catch {}
+                        }
+                    });
 
                     return new Response(webStream as any, {
                         status: 200,
                         headers: {
                             'Content-Type': 'video/mp4',
                             'Cache-Control': 'no-cache, no-store, must-revalidate',
+                            'Accept-Ranges': 'none',
+                            'X-Content-Type-Options': 'nosniff',
+                            'Access-Control-Allow-Origin': '*',
                             'X-Hardware-Encoder': hwConfig.description,
-                            'X-Stream-Engine': 'Server-Side Universal H.264+AAC Transcode'
+                            'X-Stream-Engine': transcodeMode === 'audio'
+                                ? 'Plex Video Copy + AAC 2.0 Audio Transcode'
+                                : 'Plex Universal H.264 + AAC Transcode'
                         }
                     });
                 } catch (ffmpegErr: any) {
@@ -256,15 +276,16 @@ export async function GET(req: NextRequest) {
         const ext = path.extname(targetLocalFile).toLowerCase();
         const isVideo = ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.m4v', '.ts', '.wmv'].includes(ext);
 
-        // 2A. Universal Server-Side Optimized Conversion (Default for Video unless direct requested)
+        // 2A. Universal / Audio Server-Side Stream (Audio-Only Copy or Universal H.264+AAC)
         if (isVideo && (transcode === 'universal' || transcode === 'full' || transcode === 'audio')) {
             try {
+                const transcodeMode = transcode === 'audio' ? 'audio' : 'universal';
                 const hwConfig = await detectHardwareEncoder();
                 const ffmpegArgs = buildFFmpegArgs({
                     filePath: targetLocalFile,
                     startTime,
                     quality,
-                    mode: 'universal',
+                    mode: transcodeMode,
                     config: hwConfig
                 });
 
@@ -272,24 +293,44 @@ export async function GET(req: NextRequest) {
 
                 ffmpeg.stderr.on('data', (d) => {
                     const str = d.toString();
-                    if (str.includes('Error') || str.includes('Invalid')) {
-                        console.warn('[FFmpeg Full Transcode Error]:', str);
+                    if (str.includes('Error') || str.includes('Invalid') || str.includes('fatal')) {
+                        console.warn(`[FFmpeg Local Video Transcode ${transcodeMode}]:`, str);
                     }
                 });
 
                 req.signal.addEventListener('abort', () => {
-                    ffmpeg.kill('SIGKILL');
+                    try { ffmpeg.kill('SIGKILL'); } catch {}
                 });
 
-                // @ts-ignore
-                const webStream = Readable.toWeb(ffmpeg.stdout);
+                const webStream = new ReadableStream({
+                    start(controller) {
+                        ffmpeg.stdout.on('data', (chunk) => {
+                            controller.enqueue(chunk);
+                        });
+                        ffmpeg.stdout.on('end', () => {
+                            controller.close();
+                        });
+                        ffmpeg.stdout.on('error', (err) => {
+                            controller.error(err);
+                        });
+                    },
+                    cancel() {
+                        try { ffmpeg.kill('SIGKILL'); } catch {}
+                    }
+                });
 
                 return new Response(webStream as any, {
                     status: 200,
                     headers: {
                         'Content-Type': 'video/mp4',
                         'Cache-Control': 'no-cache, no-store, must-revalidate',
-                        'X-Hardware-Encoder': hwConfig.description
+                        'Accept-Ranges': 'none',
+                        'X-Content-Type-Options': 'nosniff',
+                        'Access-Control-Allow-Origin': '*',
+                        'X-Hardware-Encoder': hwConfig.description,
+                        'X-Stream-Engine': transcodeMode === 'audio'
+                            ? 'Lossless Video Copy + AAC 2.0 Audio Transcode'
+                            : 'Universal H.264 + AAC Transcode'
                     }
                 });
             } catch (ffmpegErr: any) {
@@ -315,23 +356,38 @@ export async function GET(req: NextRequest) {
 
                 ffmpeg.stderr.on('data', (d) => {
                     const str = d.toString();
-                    if (str.includes('Error') || str.includes('Invalid')) {
+                    if (str.includes('Error') || str.includes('Invalid') || str.includes('fatal')) {
                         console.warn('[FFmpeg Music Transcode Error]:', str);
                     }
                 });
 
                 req.signal.addEventListener('abort', () => {
-                    ffmpeg.kill('SIGKILL');
+                    try { ffmpeg.kill('SIGKILL'); } catch {}
                 });
 
-                // @ts-ignore
-                const webStream = Readable.toWeb(ffmpeg.stdout);
+                const webStream = new ReadableStream({
+                    start(controller) {
+                        ffmpeg.stdout.on('data', (chunk) => {
+                            controller.enqueue(chunk);
+                        });
+                        ffmpeg.stdout.on('end', () => {
+                            controller.close();
+                        });
+                        ffmpeg.stdout.on('error', (err) => {
+                            controller.error(err);
+                        });
+                    },
+                    cancel() {
+                        try { ffmpeg.kill('SIGKILL'); } catch {}
+                    }
+                });
 
                 return new Response(webStream as any, {
                     status: 200,
                     headers: {
                         'Content-Type': 'audio/mpeg',
                         'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Accept-Ranges': 'none',
                         'X-Stream-Engine': 'Server-Side MP3 Transcode (320 kbps)'
                     }
                 });
