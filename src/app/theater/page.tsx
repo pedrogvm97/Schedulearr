@@ -2069,14 +2069,14 @@ export default function TheaterPage() {
                                         <div
                                             key={track.id}
                                             onClick={() => handlePlayTrack(track, filteredItems, idx)}
-                                            className={`flex items-center justify-between p-3 sm:p-4 rounded-2xl border transition-all cursor-pointer group shadow-sm ${
+                                            className={`flex items-center justify-between p-2.5 sm:p-4 rounded-2xl border transition-all cursor-pointer group shadow-sm gap-2.5 sm:gap-4 ${
                                                 isCurrentPlaying
                                                     ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
                                                     : 'bg-zinc-950/60 border-zinc-900 hover:border-zinc-800 hover:bg-zinc-900/50 text-white'
                                             }`}
                                         >
-                                            <div className="flex items-center gap-4 min-w-0">
-                                                <div className="w-12 h-12 rounded-xl bg-zinc-900 overflow-hidden flex items-center justify-center text-zinc-400 shrink-0 relative">
+                                            <div className="flex items-center gap-2.5 sm:gap-4 flex-1 min-w-0">
+                                                <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-zinc-900 overflow-hidden flex items-center justify-center text-zinc-400 shrink-0 relative">
                                                     {track.posterUrl ? (
                                                         <img src={track.posterUrl} alt="" className="w-full h-full object-cover" />
                                                     ) : (
@@ -2089,11 +2089,11 @@ export default function TheaterPage() {
                                                     )}
                                                 </div>
 
-                                                <div className="min-w-0">
-                                                    <h4 className="font-bold text-sm sm:text-base truncate group-hover:text-amber-400 transition-colors">
+                                                <div className="flex-1 min-w-0">
+                                                    <h4 className="font-bold text-xs sm:text-base truncate group-hover:text-amber-400 transition-colors">
                                                         {track.title}
                                                     </h4>
-                                                    <p className="text-xs text-zinc-500 truncate">
+                                                    <p className="text-[11px] sm:text-xs text-zinc-500 truncate">
                                                         <span
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
@@ -2125,16 +2125,16 @@ export default function TheaterPage() {
                                                 </div>
                                             </div>
 
-                                            <div className="flex items-center gap-2">
+                                            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                                                 <button
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         handleDownloadTrack(track);
                                                     }}
-                                                    className="p-2 rounded-xl text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+                                                    className="p-1.5 sm:p-2 rounded-xl text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
                                                     title="Download Track to Local Machine"
                                                 >
-                                                    <Download size={16} />
+                                                    <Download size={15} />
                                                 </button>
 
                                                 <button
@@ -2143,14 +2143,14 @@ export default function TheaterPage() {
                                                         setAddToPlaylistTrack(track);
                                                         setIsCreatePlaylistModalOpen(true);
                                                     }}
-                                                    className="p-2 rounded-xl text-zinc-500 hover:text-amber-400 hover:bg-amber-500/10 transition-colors"
+                                                    className="p-1.5 sm:p-2 rounded-xl text-zinc-500 hover:text-amber-400 hover:bg-amber-500/10 transition-colors"
                                                     title="Add to Playlist"
                                                 >
-                                                    <ListPlus size={16} />
+                                                    <ListPlus size={15} />
                                                 </button>
 
-                                                <button className="w-10 h-10 rounded-xl bg-zinc-900 group-hover:bg-amber-500 text-zinc-400 group-hover:text-black flex items-center justify-center transition-all">
-                                                    <Play size={16} className="ml-0.5" />
+                                                <button className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-zinc-900 group-hover:bg-amber-500 text-zinc-400 group-hover:text-black flex items-center justify-center transition-all shrink-0">
+                                                    <Play size={14} className="ml-0.5" />
                                                 </button>
                                             </div>
                                         </div>
@@ -2177,40 +2177,42 @@ export default function TheaterPage() {
                                                     <div
                                                         key={song.id}
                                                         onClick={() => handlePlayTrack(song, onlineResults)}
-                                                        className="flex items-center justify-between p-3 sm:p-4 rounded-2xl bg-zinc-950/70 border border-zinc-900 hover:border-red-500/40 transition-all cursor-pointer group"
+                                                        className="flex items-center justify-between p-2.5 sm:p-4 rounded-2xl bg-zinc-950/70 border border-zinc-900 hover:border-red-500/40 transition-all cursor-pointer group gap-2.5 sm:gap-4"
                                                     >
-                                                        <div className="flex items-center gap-4 min-w-0">
-                                                            <div className="w-12 h-12 rounded-xl bg-zinc-900 overflow-hidden flex items-center justify-center text-zinc-400 shrink-0">
+                                                        <div className="flex items-center gap-2.5 sm:gap-4 flex-1 min-w-0">
+                                                            <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-xl bg-zinc-900 overflow-hidden flex items-center justify-center text-zinc-400 shrink-0">
                                                                 {song.posterUrl ? (
                                                                     <img src={song.posterUrl} alt="" className="w-full h-full object-cover" />
                                                                 ) : (
                                                                     <Youtube size={20} className="text-red-500" />
                                                                 )}
                                                             </div>
-                                                            <div className="min-w-0">
-                                                                <h4 className="font-bold text-sm sm:text-base text-white truncate group-hover:text-red-400 transition-colors">
+                                                            <div className="flex-1 min-w-0">
+                                                                <h4 className="font-bold text-xs sm:text-base text-white truncate group-hover:text-red-400 transition-colors">
                                                                     {song.title}
                                                                 </h4>
-                                                                <p className="text-xs text-zinc-500 truncate">
-                                                                    {song.artist} • <span className="text-red-400">{song.source}</span> • {song.duration}
+                                                                <p className="text-[11px] sm:text-xs text-zinc-500 truncate flex items-center gap-1">
+                                                                    <span className="truncate">{song.artist}</span> • <span className="text-red-400 shrink-0">{song.source}</span> • <span className="shrink-0">{song.duration}</span>
                                                                 </p>
                                                             </div>
                                                         </div>
 
-                                                        <div className="flex items-center gap-2">
+                                                        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                                                             <button
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
                                                                     handleDownloadTrack(song);
                                                                 }}
-                                                                className="px-3.5 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 text-xs font-bold transition-all flex items-center gap-1.5"
+                                                                className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 text-xs font-bold transition-all flex items-center gap-1"
                                                                 title="Download / Save to Library or Device"
                                                             >
-                                                                <Download size={14} /> Download / Add
+                                                                <Download size={13} />
+                                                                <span className="hidden sm:inline">Download / Add</span>
+                                                                <span className="sm:hidden text-[11px]">Add</span>
                                                             </button>
 
-                                                            <button className="w-9 h-9 rounded-xl bg-red-500/15 group-hover:bg-red-500 text-red-400 group-hover:text-white flex items-center justify-center transition-all">
-                                                                <Play size={15} className="ml-0.5" />
+                                                            <button className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-red-500/15 group-hover:bg-red-500 text-red-400 group-hover:text-white flex items-center justify-center transition-all shrink-0">
+                                                                <Play size={14} className="ml-0.5" />
                                                             </button>
                                                         </div>
                                                     </div>
@@ -2315,40 +2317,42 @@ export default function TheaterPage() {
                                                     <div
                                                         key={song.id}
                                                         onClick={() => handlePlayTrack(song, onlineResults)}
-                                                        className="flex items-center justify-between p-4 bg-zinc-950/70 border border-zinc-900 hover:border-red-500/40 rounded-2xl transition-all cursor-pointer group"
+                                                        className="flex items-center justify-between p-2.5 sm:p-4 bg-zinc-950/70 border border-zinc-900 hover:border-red-500/40 rounded-2xl transition-all cursor-pointer group gap-2.5 sm:gap-4"
                                                     >
-                                                        <div className="flex items-center gap-4 min-w-0">
-                                                            <div className="w-14 h-14 rounded-xl bg-zinc-900 overflow-hidden flex items-center justify-center text-zinc-400 shrink-0">
+                                                        <div className="flex items-center gap-2.5 sm:gap-4 flex-1 min-w-0">
+                                                            <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-xl bg-zinc-900 overflow-hidden flex items-center justify-center text-zinc-400 shrink-0">
                                                                 {song.posterUrl ? (
                                                                     <img src={song.posterUrl} alt="" className="w-full h-full object-cover" />
                                                                 ) : (
-                                                                    <Youtube size={22} className="text-red-500" />
+                                                                    <Youtube size={20} className="text-red-500" />
                                                                 )}
                                                             </div>
-                                                            <div className="min-w-0">
-                                                                <h4 className="font-bold text-white text-base truncate group-hover:text-red-400 transition-colors">
+                                                            <div className="flex-1 min-w-0">
+                                                                <h4 className="font-bold text-xs sm:text-base text-white truncate group-hover:text-red-400 transition-colors">
                                                                     {song.title}
                                                                 </h4>
-                                                                <p className="text-xs text-zinc-500">
-                                                                    {song.artist} • <span className="text-red-400">{song.source}</span> • {song.duration}
+                                                                <p className="text-[11px] sm:text-xs text-zinc-500 truncate flex items-center gap-1">
+                                                                    <span className="truncate">{song.artist}</span> • <span className="text-red-400 shrink-0">{song.source}</span> • <span className="shrink-0">{song.duration}</span>
                                                                 </p>
                                                             </div>
                                                         </div>
 
-                                                        <div className="flex items-center gap-2">
+                                                        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                                                             <button
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
                                                                     handleDownloadTrack(song);
                                                                 }}
-                                                                className="px-3.5 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 text-xs font-bold transition-all flex items-center gap-1.5"
+                                                                className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 text-xs font-bold transition-all flex items-center gap-1"
                                                                 title="Download / Save to Library or Device"
                                                             >
-                                                                <Download size={14} /> Download / Add
+                                                                <Download size={13} />
+                                                                <span className="hidden sm:inline">Download / Add</span>
+                                                                <span className="sm:hidden text-[11px]">Add</span>
                                                             </button>
 
-                                                            <button className="w-10 h-10 rounded-xl bg-red-500/15 group-hover:bg-red-500 text-red-400 group-hover:text-white flex items-center justify-center transition-all">
-                                                                <Play size={16} className="ml-0.5" />
+                                                            <button className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-red-500/15 group-hover:bg-red-500 text-red-400 group-hover:text-white flex items-center justify-center transition-all shrink-0">
+                                                                <Play size={14} className="ml-0.5" />
                                                             </button>
                                                         </div>
                                                     </div>

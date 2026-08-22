@@ -1815,48 +1815,39 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                GLOBAL PERSISTENT MUSIC STUDIO BOTTOM BAR (ACROSS ALL PAGES)
                ══════════════════════════════════════════════════════════════ */}
             {playingAudio && (
-                <div className="fixed bottom-20 sm:bottom-4 left-3 right-3 sm:left-6 sm:right-6 max-w-6xl mx-auto z-[180] bg-zinc-950/95 border border-zinc-800/90 backdrop-blur-2xl p-3 sm:p-4 px-4 sm:px-6 rounded-[2rem] sm:rounded-[2.5rem] shadow-2xl animate-in slide-in-from-bottom duration-300 select-none">
-                    <div className="flex items-center justify-between gap-3 sm:gap-6">
+                <div className="fixed bottom-[5.5rem] sm:bottom-4 left-3 right-3 sm:left-6 sm:right-6 max-w-6xl mx-auto z-[180] bg-zinc-950/95 border border-zinc-800/90 backdrop-blur-2xl p-2.5 sm:p-4 px-3.5 sm:px-6 rounded-[1.75rem] sm:rounded-[2.5rem] shadow-2xl animate-in slide-in-from-bottom duration-300 select-none overflow-hidden">
+                    {/* Mini Top Edge Progress Bar */}
+                    <div className="absolute top-0 left-0 right-0 h-1 bg-zinc-800/60">
+                        <div
+                            className="h-full bg-gradient-to-r from-amber-500 to-amber-400 transition-all duration-150"
+                            style={{ width: `${audioDuration > 0 ? (audioCurrentTime / audioDuration) * 100 : 0}%` }}
+                        />
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2.5 sm:gap-6">
                         {/* Track Artwork & Info (Click to Expand Studio Screen) */}
                         <div
                             onClick={() => setIsExpandedPlayerOpen(true)}
-                            className="flex items-center gap-3 min-w-0 flex-1 max-w-[240px] sm:max-w-[280px] cursor-pointer group/art shrink"
+                            className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1 max-w-[150px] sm:max-w-[280px] cursor-pointer group/art shrink"
                             title="Click to open Expanded Player with Big Art & Synced Lyrics"
                         >
-                            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-zinc-900 border border-zinc-800 overflow-hidden flex items-center justify-center text-amber-400 shrink-0 relative shadow-md group-hover/art:scale-105 group-hover/art:border-amber-500/50 transition-all">
+                            <div className="w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl bg-zinc-900 border border-zinc-800 overflow-hidden flex items-center justify-center text-amber-400 shrink-0 relative shadow-md group-hover/art:scale-105 group-hover/art:border-amber-500/50 transition-all">
                                 {playingAudio.posterUrl ? (
                                     <img src={playingAudio.posterUrl} alt="" className="w-full h-full object-cover" />
                                 ) : (
-                                    <Music size={22} />
+                                    <Music size={20} />
                                 )}
                                 <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/art:opacity-100 flex items-center justify-center transition-opacity">
-                                    <Maximize size={15} className="text-white" />
+                                    <Maximize size={14} className="text-white" />
                                 </div>
                             </div>
                             <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-1.5 min-w-0">
-                                    <h4 className="font-bold text-white text-sm sm:text-base truncate leading-snug group-hover/art:text-amber-400 transition-colors">{playingAudio.title}</h4>
+                                <div className="flex items-center gap-1 min-w-0">
+                                    <h4 className="font-bold text-white text-xs sm:text-base truncate leading-snug group-hover/art:text-amber-400 transition-colors">{playingAudio.title}</h4>
                                     {audioPlaybackStatus === 'loading' && (
-                                        <span className="shrink-0 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 animate-pulse border border-amber-500/30">
-                                            Loading
+                                        <span className="shrink-0 px-1 py-0.2 rounded text-[8px] sm:text-[9px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 animate-pulse border border-amber-500/30">
+                                            Load
                                         </span>
-                                    )}
-                                    {audioPlaybackStatus === 'buffering' && (
-                                        <span className="shrink-0 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 animate-pulse border border-amber-500/30">
-                                            Buffering
-                                        </span>
-                                    )}
-                                    {audioPlaybackError && (
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                setShowAudioNerdModal(true);
-                                            }}
-                                            className="shrink-0 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-red-500/20 text-red-300 border border-red-500/40 hover:bg-red-500/30 transition-all flex items-center gap-1"
-                                            title="Playback Error: Click to view Nerd Logs & Fix"
-                                        >
-                                            <AlertTriangle size={10} /> Error
-                                        </button>
                                     )}
                                 </div>
                                 <button
@@ -1864,7 +1855,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         e.stopPropagation();
                                         openArtistDetails(playingAudio.artist);
                                     }}
-                                    className="text-xs text-zinc-400 hover:text-amber-300 hover:underline truncate text-left transition-colors block"
+                                    className="text-[11px] sm:text-xs text-zinc-400 hover:text-amber-300 hover:underline truncate text-left transition-colors block"
                                     title={`View artist biography & albums for ${playingAudio.artist || 'Artist'}`}
                                 >
                                     {playingAudio.artist || playingAudio.folder || 'Artist'}
@@ -1873,11 +1864,11 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                         </div>
 
                         {/* Center Playback Controls & Seekbar */}
-                        <div className="flex-1 flex flex-col items-center space-y-1 max-w-sm sm:max-w-md px-2 shrink-0">
-                            <div className="flex items-center gap-3 sm:gap-4">
+                        <div className="flex-1 flex flex-col items-center space-y-1 max-w-xs sm:max-w-md px-1 sm:px-2 shrink-0">
+                            <div className="flex items-center gap-2 sm:gap-4">
                                 <button
                                     onClick={() => setIsShuffle(!isShuffle)}
-                                    className={`p-1.5 sm:p-2 rounded-xl transition-colors ${isShuffle ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-500 hover:text-white'}`}
+                                    className={`p-1.5 sm:p-2 rounded-xl transition-colors hidden sm:flex ${isShuffle ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-500 hover:text-white'}`}
                                     title="Shuffle Queue"
                                 >
                                     <Shuffle size={15} />
@@ -1885,46 +1876,46 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
                                 <button
                                     onClick={prevTrack}
-                                    className="p-1.5 sm:p-2 text-zinc-400 hover:text-white transition-colors"
+                                    className="p-1 sm:p-2 text-zinc-400 hover:text-white transition-colors"
                                     title="Previous Track"
                                 >
-                                    <SkipBack size={17} />
+                                    <SkipBack size={16} />
                                 </button>
 
                                 <button
                                     onClick={togglePlayPause}
                                     disabled={audioPlaybackStatus === 'loading'}
-                                    className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black flex items-center justify-center shadow-lg shadow-amber-500/20 transition-all scale-100 active:scale-95 disabled:opacity-75 shrink-0"
+                                    className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-amber-500 hover:bg-amber-400 text-black flex items-center justify-center shadow-lg shadow-amber-500/20 transition-all scale-100 active:scale-95 disabled:opacity-75 shrink-0"
                                     title={audioPlaybackStatus === 'loading' ? 'Loading Audio...' : isAudioPlaying ? 'Pause' : 'Play'}
                                 >
                                     {audioPlaybackStatus === 'loading' || audioPlaybackStatus === 'buffering' ? (
-                                        <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                                        <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
                                     ) : isAudioPlaying ? (
-                                        <Pause size={19} />
+                                        <Pause size={17} />
                                     ) : (
-                                        <Play size={19} className="ml-0.5" />
+                                        <Play size={17} className="ml-0.5" />
                                     )}
                                 </button>
 
                                 <button
                                     onClick={nextTrack}
-                                    className="p-1.5 sm:p-2 text-zinc-400 hover:text-white transition-colors"
+                                    className="p-1 sm:p-2 text-zinc-400 hover:text-white transition-colors"
                                     title="Next Track"
                                 >
-                                    <SkipForward size={17} />
+                                    <SkipForward size={16} />
                                 </button>
 
                                 <button
                                     onClick={() => setIsRepeat(!isRepeat)}
-                                    className={`p-1.5 sm:p-2 rounded-xl transition-colors ${isRepeat ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-500 hover:text-white'}`}
+                                    className={`p-1.5 sm:p-2 rounded-xl transition-colors hidden sm:flex ${isRepeat ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-500 hover:text-white'}`}
                                     title="Repeat Queue"
                                 >
                                     <Repeat size={15} />
                                 </button>
                             </div>
 
-                            {/* Seekbar */}
-                            <div className="w-full flex items-center gap-2 text-[11px] font-mono text-zinc-500">
+                            {/* Desktop Seekbar */}
+                            <div className="w-full hidden sm:flex items-center gap-2 text-[11px] font-mono text-zinc-500">
                                 <span className="w-8 text-right shrink-0">{formatTime(audioCurrentTime)}</span>
                                 <input
                                     type="range"
@@ -1938,13 +1929,13 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             </div>
                         </div>
 
-                        {/* Right Quick Actions: Grab, Lyrics, Download, Specs, Nerd Tools, Queue, Cast, Close */}
+                        {/* Right Quick Actions */}
                         <div className="flex items-center gap-1 sm:gap-1.5 justify-end shrink-0">
                             {playingAudio.youtubeId && (
                                 <button
                                     onClick={() => handleGrabTrackToLibrary(playingAudio)}
                                     disabled={isGrabbingTrack}
-                                    className="p-2 sm:p-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 text-xs font-bold transition-all"
+                                    className="p-2 sm:p-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 text-xs font-bold transition-all hidden md:flex"
                                     title="Grab Track to Local Music Library Folder"
                                 >
                                     <ArrowDownToLine size={15} />
@@ -1956,9 +1947,9 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 onClick={() => {
                                     setIsExpandedPlayerOpen(true);
                                     setShowExpandedSidePanel(true);
-                                    setExpandedSidePanel('chords');
+                                    setExpandedSidePanel('guitar');
                                 }}
-                                className="p-2 sm:p-2.5 rounded-xl bg-amber-500/15 hover:bg-amber-500 text-amber-400 hover:text-black border border-amber-500/30 text-xs font-bold transition-all"
+                                className="p-2 sm:p-2.5 rounded-xl bg-amber-500/15 hover:bg-amber-500 text-amber-400 hover:text-black border border-amber-500/30 text-xs font-bold transition-all hidden lg:flex"
                                 title="Open Guitar & Ukulele Chords Jam Stage"
                             >
                                 <Guitar size={15} />
@@ -1967,7 +1958,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             {/* Karaoke / Live Lyrics */}
                             <button
                                 onClick={() => setShowLyricsModal(true)}
-                                className={`p-2 sm:p-2.5 rounded-xl border text-xs font-bold transition-all ${
+                                className={`p-2 sm:p-2.5 rounded-xl border text-xs font-bold transition-all hidden md:flex ${
                                     showLyricsModal ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-amber-400 hover:border-amber-500/40'
                                 }`}
                                 title="Karaoke Live Lyrics & Match Editor"
@@ -1975,7 +1966,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 <Mic2 size={15} />
                             </button>
 
-                            {/* Download Track to Local Machine */}
+                            {/* Download Track */}
                             <button
                                 onClick={() => handleDownloadTrack(playingAudio)}
                                 className="p-2 sm:p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-emerald-400 hover:border-emerald-500/40 text-xs font-bold transition-all hidden md:flex"
@@ -1986,7 +1977,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
                             <button
                                 onClick={() => setShowAudioNerdModal(true)}
-                                className={`p-2 sm:p-2.5 rounded-xl border text-xs font-bold transition-all ${
+                                className={`p-2 sm:p-2.5 rounded-xl border text-xs font-bold transition-all hidden lg:flex ${
                                     showAudioNerdModal || audioPlaybackError
                                         ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
                                         : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
@@ -1998,7 +1989,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
                             <button
                                 onClick={() => fetchAudioSpecs(playingAudio)}
-                                className="p-2 sm:p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-amber-400 hover:border-amber-500/40 text-xs font-bold transition-all hidden sm:flex"
+                                className="p-2 sm:p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-amber-400 hover:border-amber-500/40 text-xs font-bold transition-all hidden lg:flex"
                                 title="Audio Specs & Metadata (Stats for Audiophiles)"
                             >
                                 <Info size={15} />
@@ -2006,7 +1997,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
                             <button
                                 onClick={() => setShowQueueDrawer(!showQueueDrawer)}
-                                className={`p-2 sm:p-2.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
+                                className={`p-2 sm:p-2.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all hidden sm:flex ${
                                     showQueueDrawer ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
                                 }`}
                                 title="Toggle Playback Queue"
@@ -2015,20 +2006,21 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 <span className="hidden xl:inline text-xs">({audioQueue.length})</span>
                             </button>
 
+                            {/* Mobile Expand Studio Button */}
                             <button
-                                onClick={() => openCastPicker(playingAudio)}
-                                className="p-2 sm:p-2.5 rounded-xl bg-purple-500/15 hover:bg-purple-500 text-purple-400 hover:text-white border border-purple-500/30 text-xs font-bold"
-                                title="Cast Audio to Smart TV"
+                                onClick={() => setIsExpandedPlayerOpen(true)}
+                                className="p-2 rounded-xl bg-amber-500/15 text-amber-400 border border-amber-500/30 text-xs font-bold transition-all sm:hidden"
+                                title="Open Full Studio"
                             >
-                                <Cast size={15} />
+                                <Maximize size={15} />
                             </button>
 
                             <button
                                 onClick={closePlayer}
-                                className="p-1.5 sm:p-2 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all ml-1"
+                                className="p-1.5 sm:p-2 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all ml-0.5"
                                 title="Dismiss Player"
                             >
-                                <X size={17} />
+                                <X size={16} />
                             </button>
                         </div>
                     </div>
@@ -3281,7 +3273,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                 key={track.id}
                                                                 className="p-2.5 bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-800/80 hover:border-zinc-700 rounded-2xl transition-all flex items-center justify-between gap-3 group"
                                                             >
-                                                                <div className="flex items-center gap-3 min-w-0">
+                                                                <div className="flex items-center gap-3 min-w-0 flex-1">
                                                                     <div className="w-10 h-10 rounded-xl bg-zinc-800 overflow-hidden flex items-center justify-center text-zinc-500 shrink-0">
                                                                         {track.posterUrl ? (
                                                                             <img src={track.posterUrl} alt="" className="w-full h-full object-cover" />
@@ -3289,7 +3281,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                             <Music size={16} />
                                                                         )}
                                                                     </div>
-                                                                    <div className="min-w-0">
+                                                                    <div className="min-w-0 flex-1">
                                                                         <h4 className="font-bold text-xs sm:text-sm text-white truncate group-hover:text-amber-300 transition-colors">
                                                                             {track.title}
                                                                         </h4>
@@ -3335,7 +3327,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                 key={track.id}
                                                                 className="p-2.5 bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-800/80 hover:border-zinc-700 rounded-2xl transition-all flex items-center justify-between gap-3 group"
                                                             >
-                                                                <div className="flex items-center gap-3 min-w-0">
+                                                                <div className="flex items-center gap-3 min-w-0 flex-1">
                                                                     <div className="w-10 h-10 rounded-xl bg-zinc-800 overflow-hidden flex items-center justify-center text-zinc-500 shrink-0">
                                                                         {track.posterUrl ? (
                                                                             <img src={track.posterUrl} alt="" className="w-full h-full object-cover" />
@@ -3343,7 +3335,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                             <Youtube size={16} className="text-red-500" />
                                                                         )}
                                                                     </div>
-                                                                    <div className="min-w-0">
+                                                                    <div className="min-w-0 flex-1">
                                                                         <h4 className="font-bold text-xs sm:text-sm text-white truncate group-hover:text-amber-300 transition-colors">
                                                                             {track.title}
                                                                         </h4>
