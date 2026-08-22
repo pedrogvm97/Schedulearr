@@ -42,10 +42,10 @@ export async function GET(req: Request) {
         const downloadFilename = searchParams.get('filename') || `track.${effectiveExt}`;
         const safeFilename = downloadFilename.replace(/[/\\?%*:|"<>]/g, '').trim() || `track.${effectiveExt}`;
 
-        // Format selector for YouTube extraction
+        // Format selector for YouTube extraction with robust fallback
         const formatFilter = sourceFormat === 'opus'
-            ? 'ba[ext=webm]/251/250/249/bestaudio'
-            : 'ba[ext=m4a]/140/139/bestaudio';
+            ? 'ba[ext=webm]/251/250/249/ba/b'
+            : 'ba[ext=m4a]/140/139/ba/b';
 
         const ytDlpBin = getYtDlpPath();
 
@@ -57,6 +57,7 @@ export async function GET(req: Request) {
                 '-f', formatFilter,
                 '--no-playlist',
                 '--no-check-certificates',
+                '--ffmpeg-location', ffmpegPath,
                 '-o', '-',
                 targetUrl
             ];
@@ -108,6 +109,7 @@ export async function GET(req: Request) {
             '-f', formatFilter,
             '--no-playlist',
             '--no-check-certificates',
+            '--ffmpeg-location', ffmpegPath,
             '-o', '-',
             targetUrl
         ];

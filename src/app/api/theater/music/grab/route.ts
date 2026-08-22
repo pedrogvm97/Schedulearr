@@ -7,6 +7,9 @@ import util from 'util';
 import db from '@/lib/db';
 import ffmpegStatic from 'ffmpeg-static';
 
+const execPromise = util.promisify(exec);
+const ffmpegPath: string = ffmpegStatic || 'ffmpeg';
+
 function getYtDlpPath(): string {
     const localBin = path.join(process.cwd(), 'bin', process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp');
     if (fs.existsSync(localBin)) return localBin;
@@ -208,18 +211,21 @@ export async function POST(req: Request) {
         // Try yt-dlp first if available
         if (cleanYtId) {
             try {
+                const ffmpegBin = ffmpegStatic || 'ffmpeg';
+                let cmd = '';
                 if (saveFormat === 'mp3' || saveFormat === 'flac' || saveFormat === 'wav') {
-                    const ffmpegBin = ffmpegStatic || 'ffmpeg';
-                    const cmd = `"${ytDlpBin}" -f "${formatFilter}" --extract-audio --audio-format ${saveFormat} ${saveFormat === 'mp3' ? '--audio-quality 320k' : ''} --ffmpeg-location "${ffmpegBin}" --embed-metadata -o "${finalAudioPath}" "https://www.youtube.com/watch?v=${cleanYtId}"`;
-                    await execPromise(cmd, { timeout: 60000 });
+                    cmd = `"${ytDlpBin}" -f "ba/b" --no-playlist --no-check-certificates --extract-audio --audio-format ${saveFormat} ${saveFormat === 'mp3' ? '--audio-quality 320k' : ''} --ffmpeg-location "${ffmpegBin}" --force-overwrites -o "${finalAudioPath}" "https://www.youtube.com/watch?v=${cleanYtId}"`;
                 } else {
-                    const cmd = `"${ytDlpBin}" -f "${formatFilter}" --embed-metadata -o "${finalAudioPath}" "https://www.youtube.com/watch?v=${cleanYtId}"`;
-                    await execPromise(cmd, { timeout: 60000 });
+                    cmd = `"${ytDlpBin}" -f "${formatFilter}" --no-playlist --no-check-certificates --ffmpeg-location "${ffmpegBin}" --force-overwrites -o "${finalAudioPath}" "https://www.youtube.com/watch?v=${cleanYtId}"`;
                 }
+                console.log(`[MUSIC GRAB] Downloading track with yt-dlp: ${cmd}`);
+                await execPromise(cmd, { timeout: 120000 });
                 if (fs.existsSync(finalAudioPath)) {
                     downloaded = true;
                 }
-            } catch {}
+            } catch (ytErr: any) {
+                console.warn('[MUSIC GRAB] yt-dlp failed, trying direct stream fallback:', ytErr.message);
+            }
         }
 
         // Direct stream extraction fallback (Invidious / Piped / internal stream proxy)
@@ -229,7 +235,7 @@ export async function POST(req: Request) {
             // Try Invidious API instances
             for (const instance of INVIDIOUS_INSTANCES) {
                 try {
-                    const res = await axios.get(`${instance}/api/v1/videos/${cleanYtId}`, { timeout: 4000 });
+                    const res = await axios.get(`${instance}/api/v1/videos/${cleanYtId}`, { timeout: 5000 });
                     if (res.data && Array.isArray(res.data.adaptiveFormats)) {
                         const audioFormats = res.data.adaptiveFormats.filter((f: any) => f.type && f.type.startsWith('audio/'));
                         if (audioFormats.length > 0) {
@@ -245,7 +251,7 @@ export async function POST(req: Request) {
             if (!directAudioUrl) {
                 for (const instance of PIPED_INSTANCES) {
                     try {
-                        const res = await axios.get(`${instance}/streams/${cleanYtId}`, { timeout: 4000 });
+                        const res = await axios.get(`${instance}/streams/${cleanYtId}`, { timeout: 5000 });
                         if (res.data && Array.isArray(res.data.audioStreams) && res.data.audioStreams.length > 0) {
                             res.data.audioStreams.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0));
                             directAudioUrl = res.data.audioStreams[0].url;
@@ -268,9 +274,9 @@ export async function POST(req: Request) {
                         timeout: 60000
                     });
                     response.data.pipe(writer);
-                    await new Promise((resolve, reject) => {
-                        writer.on('finish', resolve);
-                        writer.on('error', reject);
+                    await new Promise<void>((resolve, reject) => {
+                        writer.on('finish', () => resolve());
+                        writer.on('error', (err) => reject(err));
                     });
                     downloaded = true;
                 } catch (pipeErr: any) {

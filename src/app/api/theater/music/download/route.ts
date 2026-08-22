@@ -155,32 +155,14 @@ export async function GET(req: NextRequest) {
             }
         }
 
-        // 4. YouTube Audio Download via yt-dlp
+        // 4. YouTube Audio Download via stream pipe
         if (youtubeId) {
-            try {
-                const cleanYtId = youtubeId.replace(/^yt-/, '');
-                const { stdout } = await execPromise(`yt-dlp -g -f bestaudio/best "https://www.youtube.com/watch?v=${cleanYtId}"`, { timeout: 10000 });
-                if (stdout && stdout.trim().startsWith('http')) {
-                    const directYtAudioUrl = stdout.trim().split('\n')[0];
-                    const ytRes = await axios.get(directYtAudioUrl, { responseType: 'stream', timeout: 20000 });
-                    
-                    const downloadFilename = artist && customTitle 
-                        ? `${artist.replace(/[/\\?%*:|"<>]/g, '')} - ${customTitle.replace(/[/\\?%*:|"<>]/g, '')}.mp3`
-                        : `${customTitle.replace(/[/\\?%*:|"<>]/g, '')}.mp3`;
-
-                    const webStream = Readable.toWeb(ytRes.data);
-                    return new Response(webStream as any, {
-                        status: 200,
-                        headers: {
-                            'Content-Type': 'audio/mpeg',
-                            'Content-Disposition': `attachment; filename="${encodeURIComponent(downloadFilename)}"; filename*=UTF-8''${encodeURIComponent(downloadFilename)}`,
-                            'Cache-Control': 'public, max-age=86400'
-                        }
-                    });
-                }
-            } catch (e: any) {
-                console.error('YouTube audio download error:', e.message);
-            }
+            const cleanYtId = youtubeId.replace(/^yt-/, '');
+            const downloadFilename = artist && customTitle 
+                ? `${artist.replace(/[/\\?%*:|"<>]/g, '')} - ${customTitle.replace(/[/\\?%*:|"<>]/g, '')}.mp3`
+                : `${customTitle.replace(/[/\\?%*:|"<>]/g, '')}.mp3`;
+            const streamUrl = `/api/theater/music/stream?ytId=${encodeURIComponent(cleanYtId)}&saveFormat=mp3&download=true&filename=${encodeURIComponent(downloadFilename)}`;
+            return NextResponse.redirect(new URL(streamUrl, req.url));
         }
 
         return NextResponse.json({ error: 'Audio file not accessible on server or remote stream unavailable' }, { status: 404 });
