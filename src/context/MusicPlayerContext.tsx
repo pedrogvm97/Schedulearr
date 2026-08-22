@@ -448,9 +448,96 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     // UI Drawer & Modal States
     const [showQueueDrawer, setShowQueueDrawer] = useState(false);
     const [isExpandedPlayerOpen, setIsExpandedPlayerOpen] = useState(false);
-    const [expandedSidePanel, setExpandedSidePanel] = useState<'karaoke' | 'guitar' | 'bass' | 'sing' | 'artist' | 'queue' | 'specs' | 'search'>('karaoke');
+    const [expandedSidePanel, setExpandedSidePanel] = useState<'karaoke' | 'guitar' | 'bass' | 'sing' | 'artist' | 'queue' | 'playlists' | 'specs' | 'search'>('karaoke');
     const [showExpandedSidePanel, setShowExpandedSidePanel] = useState(true);
     const [isVinylView, setIsVinylView] = useState(true);
+
+    // In-Player Playlist States & Handlers
+    const [inPlayerPlaylists, setInPlayerPlaylists] = useState<any[]>([]);
+    const [inPlayerNewPlaylistName, setInPlayerNewPlaylistName] = useState('');
+    const [showInPlayerCreatePlaylist, setShowInPlayerCreatePlaylist] = useState(false);
+
+    const fetchInPlayerPlaylists = async () => {
+        try {
+            const res = await fetch('/api/theater/music/playlists');
+            if (res.ok) {
+                const data = await res.json();
+                setInPlayerPlaylists(Array.isArray(data.playlists) ? data.playlists : []);
+            }
+        } catch {}
+    };
+
+    const handleCreateInPlayerPlaylist = async () => {
+        if (!inPlayerNewPlaylistName.trim()) return;
+        try {
+            const initialItems = playingAudio ? [playingAudio] : [];
+            const res = await fetch('/api/theater/music/playlists', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: inPlayerNewPlaylistName.trim(),
+                    items: initialItems,
+                    coverUrl: playingAudio?.posterUrl
+                })
+            });
+            if (res.ok) {
+                toast.success(`Created playlist "${inPlayerNewPlaylistName.trim()}"!`);
+                setInPlayerNewPlaylistName('');
+                setShowInPlayerCreatePlaylist(false);
+                fetchInPlayerPlaylists();
+            } else {
+                toast.error('Failed to create playlist');
+            }
+        } catch {
+            toast.error('Failed to create playlist');
+        }
+    };
+
+    const handleAddCurrentSongToPlaylist = async (playlist: any) => {
+        if (!playingAudio) return;
+        try {
+            const existingItems = Array.isArray(playlist.items) ? playlist.items : [];
+            const updatedItems = [...existingItems.filter((i: any) => i.id !== playingAudio.id), playingAudio];
+            const res = await fetch('/api/theater/music/playlists', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id: playlist.id,
+                    name: playlist.name,
+                    items: updatedItems,
+                    coverUrl: playlist.cover_url || playingAudio.posterUrl
+                })
+            });
+            if (res.ok) {
+                toast.success(`Added "${playingAudio.title}" to ${playlist.name}!`);
+                fetchInPlayerPlaylists();
+            } else {
+                toast.error('Failed to add track to playlist');
+            }
+        } catch {
+            toast.error('Failed to add track to playlist');
+        }
+    };
+
+    const handlePlayWholePlaylist = (playlist: any) => {
+        const items = Array.isArray(playlist.items) ? playlist.items : [];
+        if (items.length === 0) {
+            toast.error('This playlist is empty');
+            return;
+        }
+        playAudioTrack(items[0], items);
+        toast.success(`Playing playlist "${playlist.name}" (${items.length} tracks)`);
+    };
+
+    const handleDeleteInPlayerPlaylist = async (playlistId: string, name: string) => {
+        try {
+            const res = await fetch(`/api/theater/music/playlists?id=${playlistId}`, { method: 'DELETE' });
+            if (res.ok) {
+                toast.success(`Deleted playlist "${name}"`);
+                fetchInPlayerPlaylists();
+            }
+        } catch {}
+    };
 
     // In-Player Live Search States (Search YouTube & Library without exiting player)
     const [inPlayerSearchQuery, setInPlayerSearchQuery] = useState('');
@@ -2553,6 +2640,17 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                             <ListMusic size={13} /> Queue ({audioQueue.length})
                                         </button>
                                         <button
+                                            onClick={() => {
+                                                setExpandedSidePanel('playlists');
+                                                fetchInPlayerPlaylists();
+                                            }}
+                                            className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
+                                                expandedSidePanel === 'playlists' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
+                                            }`}
+                                        >
+                                            <ListPlus size={13} /> Playlists ({inPlayerPlaylists.length})
+                                        </button>
+                                        <button
                                             onClick={() => setExpandedSidePanel('search')}
                                             className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
                                                 expandedSidePanel === 'search' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
@@ -3082,6 +3180,144 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         <div className="p-3 bg-zinc-900/40 rounded-xl border border-zinc-800 text-xs space-y-0.5">
                                             <span className="text-[10px] font-black uppercase text-zinc-500 block">Path / Source</span>
                                             <p className="font-mono text-[11px] text-zinc-400 break-all">{playingAudio.path || playingAudio.streamUrl}</p>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* 5.5 Playlists Tab Content */}
+                                {expandedSidePanel === 'playlists' && (
+                                    <div className="flex-1 min-h-0 flex flex-col space-y-3 overflow-hidden p-1">
+                                        {/* Playlists Header & Quick Create */}
+                                        <div className="flex items-center justify-between gap-2 shrink-0">
+                                            <div>
+                                                <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-1.5">
+                                                    <ListPlus size={15} className="text-amber-400" /> Saved Playlists ({inPlayerPlaylists.length})
+                                                </h3>
+                                                <p className="text-xs text-zinc-500">Tap to play, add current song, or create new playlist</p>
+                                            </div>
+                                            <button
+                                                onClick={() => setShowInPlayerCreatePlaylist(!showInPlayerCreatePlaylist)}
+                                                className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-black uppercase tracking-wider flex items-center gap-1 transition-all shadow-md shrink-0"
+                                            >
+                                                <Plus size={14} /> New
+                                            </button>
+                                        </div>
+
+                                        {/* Create Playlist Input */}
+                                        {showInPlayerCreatePlaylist && (
+                                            <div className="p-3 bg-zinc-900 border border-zinc-800 rounded-2xl flex items-center gap-2 shrink-0 animate-in fade-in duration-150">
+                                                <input
+                                                    type="text"
+                                                    value={inPlayerNewPlaylistName}
+                                                    onChange={e => setInPlayerNewPlaylistName(e.target.value)}
+                                                    onKeyDown={e => e.key === 'Enter' && handleCreateInPlayerPlaylist()}
+                                                    placeholder="Enter playlist name..."
+                                                    className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-400"
+                                                    autoFocus
+                                                />
+                                                <button
+                                                    onClick={handleCreateInPlayerPlaylist}
+                                                    disabled={!inPlayerNewPlaylistName.trim()}
+                                                    className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase disabled:opacity-50 transition-all"
+                                                >
+                                                    Create
+                                                </button>
+                                                <button
+                                                    onClick={() => setShowInPlayerCreatePlaylist(false)}
+                                                    className="p-2 text-zinc-500 hover:text-white rounded-xl"
+                                                >
+                                                    <X size={14} />
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        {/* Playlists List */}
+                                        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar space-y-2 pr-1">
+                                            {inPlayerPlaylists.length === 0 ? (
+                                                <div className="flex flex-col items-center justify-center py-16 text-center space-y-3 m-auto">
+                                                    <div className="p-4 bg-zinc-900/60 rounded-full text-zinc-600">
+                                                        <ListMusic size={32} />
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm font-bold text-white">No Playlists Created Yet</p>
+                                                        <p className="text-xs text-zinc-500 mt-1">Create your first playlist or save your favorite tracks!</p>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => setShowInPlayerCreatePlaylist(true)}
+                                                        className="px-4 py-2 rounded-xl bg-amber-500 text-black font-black text-xs uppercase"
+                                                    >
+                                                        + Create First Playlist
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                inPlayerPlaylists.map((pl: any) => {
+                                                    const items = Array.isArray(pl.items) ? pl.items : [];
+                                                    const isSongInPlaylist = items.some((i: any) => i.id === playingAudio?.id);
+                                                    return (
+                                                        <div
+                                                            key={pl.id}
+                                                            className="p-3 bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-800/80 rounded-2xl transition-all flex items-center justify-between gap-3 group"
+                                                        >
+                                                            <div className="flex items-center gap-3 min-w-0 flex-1">
+                                                                <div className="w-12 h-12 rounded-xl bg-zinc-950 border border-zinc-800 overflow-hidden shrink-0 flex items-center justify-center relative">
+                                                                    {pl.cover_url ? (
+                                                                        <img src={pl.cover_url} alt="" className="w-full h-full object-cover" />
+                                                                    ) : (
+                                                                        <Disc size={20} className="text-amber-500" />
+                                                                    )}
+                                                                </div>
+                                                                <div className="min-w-0 flex-1">
+                                                                    <h4 className="font-bold text-white text-xs sm:text-sm truncate">
+                                                                        {pl.name}
+                                                                    </h4>
+                                                                    <p className="text-xs text-zinc-500">
+                                                                        {items.length} track{items.length !== 1 ? 's' : ''}
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+
+                                                            <div className="flex items-center gap-1.5 shrink-0">
+                                                                <button
+                                                                    onClick={() => handleAddCurrentSongToPlaylist(pl)}
+                                                                    className={`px-2.5 py-1.5 rounded-xl border text-xs font-black uppercase tracking-wider flex items-center gap-1 transition-all ${
+                                                                        isSongInPlaylist
+                                                                            ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                                                                            : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border-zinc-700'
+                                                                    }`}
+                                                                    title={isSongInPlaylist ? 'Already in playlist' : 'Add currently playing song to playlist'}
+                                                                >
+                                                                    {isSongInPlaylist ? (
+                                                                        <>
+                                                                            <Check size={12} /> In List
+                                                                        </>
+                                                                    ) : (
+                                                                        <>
+                                                                            <Plus size={12} /> Add Song
+                                                                        </>
+                                                                    )}
+                                                                </button>
+
+                                                                <button
+                                                                    onClick={() => handlePlayWholePlaylist(pl)}
+                                                                    disabled={items.length === 0}
+                                                                    className="p-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold transition-all disabled:opacity-40"
+                                                                    title="Play Playlist"
+                                                                >
+                                                                    <Play size={14} className="ml-0.5 fill-black" />
+                                                                </button>
+
+                                                                <button
+                                                                    onClick={() => handleDeleteInPlayerPlaylist(pl.id, pl.name)}
+                                                                    className="p-2 rounded-xl bg-zinc-800/80 hover:bg-red-500/20 text-zinc-500 hover:text-red-400 transition-all opacity-0 group-hover:opacity-100"
+                                                                    title="Delete Playlist"
+                                                                >
+                                                                    <Trash2 size={13} />
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })
+                                            )}
                                         </div>
                                     </div>
                                 )}

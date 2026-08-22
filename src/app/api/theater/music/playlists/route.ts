@@ -20,6 +20,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
     try {
         const body = await req.json();
+        const { id, name, libraryId, items, coverUrl } = body || {};
         const targetLibId = libraryId || 'global';
         if (!name) {
             return NextResponse.json({ error: 'name is required' }, { status: 400 });
