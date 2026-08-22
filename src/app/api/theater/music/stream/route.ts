@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
 import axios from 'axios';
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import util from 'util';
+import ffmpegStatic from 'ffmpeg-static';
 
 const execPromise = util.promisify(exec);
+const ffmpegPath: string = ffmpegStatic || 'ffmpeg';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,7 +28,7 @@ export async function GET(req: Request) {
         const { searchParams } = new URL(req.url);
         const ytId = searchParams.get('ytId');
         const directUrl = searchParams.get('url');
-        const formatParam = searchParams.get('format') || 'm4a'; // 'm4a' or 'opus'
+        const formatParam = (searchParams.get('format') || 'm4a').toLowerCase(); // 'mp3', 'm4a', 'opus', 'flac'
 
         if (directUrl) {
             return NextResponse.redirect(directUrl);
@@ -39,10 +41,9 @@ export async function GET(req: Request) {
         const cleanYtId = ytId.replace(/^yt-/, '');
         let directAudioUrl = '';
 
-        // 1. Try local yt-dlp first for the exact requested format
+        // 1. Try local yt-dlp first for the audio stream
         try {
-            const formatFilter = formatParam === 'm4a' ? 'bestaudio[ext=m4a]/bestaudio' : 'bestaudio[ext=webm]/bestaudio';
-            const { stdout } = await execPromise(`yt-dlp -g -f "${formatFilter}" "https://www.youtube.com/watch?v=${cleanYtId}"`, { timeout: 8000 });
+            const { stdout } = await execPromise(`yt-dlp -g -f "bestaudio" "https://www.youtube.com/watch?v=${cleanYtId}"`, { timeout: 8000 });
             if (stdout && stdout.trim().startsWith('http')) {
                 directAudioUrl = stdout.trim().split('\n')[0];
             }
@@ -54,11 +55,7 @@ export async function GET(req: Request) {
                 try {
                     const res = await axios.get(`${instance}/api/v1/videos/${cleanYtId}`, { timeout: 4000 });
                     if (res.data && Array.isArray(res.data.adaptiveFormats)) {
-                        const targetMime = formatParam === 'm4a' ? 'audio/mp4' : 'audio/webm';
-                        let audioFormats = res.data.adaptiveFormats.filter((f: any) => f.type && f.type.startsWith(targetMime));
-                        if (audioFormats.length === 0) {
-                            audioFormats = res.data.adaptiveFormats.filter((f: any) => f.type && f.type.startsWith('audio/'));
-                        }
+                        const audioFormats = res.data.adaptiveFormats.filter((f: any) => f.type && f.type.startsWith('audio/'));
                         if (audioFormats.length > 0) {
                             audioFormats.sort((a: any, b: any) => (parseInt(b.bitrate) || 0) - (parseInt(a.bitrate) || 0));
                             directAudioUrl = audioFormats[0].url;
@@ -75,11 +72,8 @@ export async function GET(req: Request) {
                 try {
                     const res = await axios.get(`${instance}/streams/${cleanYtId}`, { timeout: 4000 });
                     if (res.data && Array.isArray(res.data.audioStreams) && res.data.audioStreams.length > 0) {
-                        const targetMime = formatParam === 'm4a' ? 'm4a' : 'opus';
-                        let matched = res.data.audioStreams.filter((s: any) => s.format === targetMime || (s.mimeType && s.mimeType.includes(targetMime)));
-                        if (matched.length === 0) matched = res.data.audioStreams;
-                        matched.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0));
-                        directAudioUrl = matched[0].url;
+                        res.data.audioStreams.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0));
+                        directAudioUrl = res.data.audioStreams[0].url;
                         if (directAudioUrl) break;
                     }
                 } catch {}
@@ -91,77 +85,86 @@ export async function GET(req: Request) {
         }
 
         const isDownload = searchParams.get('download') === 'true';
-        const defaultExt = formatParam === 'opus' ? 'opus' : 'm4a';
+        const defaultExt = formatParam === 'mp3' ? 'mp3' : formatParam === 'flac' ? 'flac' : formatParam === 'opus' ? 'opus' : 'm4a';
         const downloadFilename = searchParams.get('filename') || `track.${defaultExt}`;
         const safeFilename = downloadFilename.replace(/[/\\?%*:|"<>]/g, '').trim() || `track.${defaultExt}`;
-        const contentType = formatParam === 'opus' ? 'audio/ogg; codecs=opus' : 'audio/mp4';
 
-        // 4. Handle Direct Browser File Download (Native Streamed Attachment)
-        if (isDownload) {
-            try {
-                const fetchRes = await fetch(directAudioUrl, {
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                    }
-                });
+        // 4. Handle Format Conversion via FFmpeg (MP3 320k or FLAC)
+        if (formatParam === 'mp3' || formatParam === 'flac') {
+            const mimeType = formatParam === 'mp3' ? 'audio/mpeg' : 'audio/flac';
+            const ffmpegArgs = [
+                '-reconnect', '1',
+                '-reconnect_streamed', '1',
+                '-reconnect_delay_max', '5',
+                '-i', directAudioUrl,
+                '-vn',
+                '-f', formatParam === 'flac' ? 'flac' : 'mp3',
+                ...(formatParam === 'mp3' ? ['-b:a', '320k', '-ar', '44100'] : []),
+                'pipe:1'
+            ];
 
-                if (fetchRes.ok && fetchRes.body) {
-                    const headers: Record<string, string> = {
-                        'Content-Type': contentType,
-                        'Content-Disposition': `attachment; filename="${encodeURIComponent(safeFilename)}"; filename*=UTF-8''${encodeURIComponent(safeFilename)}`,
-                        'Cache-Control': 'no-cache, no-store'
-                    };
+            const ffmpegProc = spawn(ffmpegPath, ffmpegArgs);
 
-                    const cl = fetchRes.headers.get('content-length');
-                    if (cl) headers['Content-Length'] = cl;
-
-                    return new Response(fetchRes.body, {
-                        status: 200,
-                        headers
-                    });
-                } else {
-                    // Fallback to direct redirect if YouTube CDN IP blocks proxying
-                    return NextResponse.redirect(directAudioUrl);
+            const webStream = new ReadableStream({
+                start(controller) {
+                    ffmpegProc.stdout.on('data', chunk => controller.enqueue(chunk));
+                    ffmpegProc.stdout.on('end', () => controller.close());
+                    ffmpegProc.stdout.on('error', err => controller.error(err));
+                    ffmpegProc.on('error', err => controller.error(err));
+                },
+                cancel() {
+                    try { ffmpegProc.kill(); } catch {}
                 }
-            } catch (dlErr: any) {
-                // If proxy fetch fails, redirect directly to audio URL so browser downloads it
-                return NextResponse.redirect(directAudioUrl);
-            }
-        }
-
-        // 5. Proxy live playback stream
-        try {
-            const range = req.headers.get('range');
-            const streamHeaders: Record<string, string> = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            };
-            if (range) streamHeaders['Range'] = range;
-
-            const fetchRes = await fetch(directAudioUrl, {
-                headers: streamHeaders
             });
 
-            if (fetchRes.ok && fetchRes.body) {
-                const headers: Record<string, string> = {
-                    'Content-Type': contentType,
-                    'Accept-Ranges': 'bytes',
-                    'Cache-Control': 'public, max-age=3600'
-                };
-
-                const cl = fetchRes.headers.get('content-length');
-                if (cl) headers['Content-Length'] = cl;
-                const cr = fetchRes.headers.get('content-range');
-                if (cr) headers['Content-Range'] = cr;
-
-                return new Response(fetchRes.body, {
-                    status: fetchRes.status,
-                    headers
-                });
-            } else {
-                return NextResponse.redirect(directAudioUrl);
+            const headers: Record<string, string> = {
+                'Content-Type': mimeType,
+                'Cache-Control': 'no-cache, no-store'
+            };
+            if (isDownload) {
+                headers['Content-Disposition'] = `attachment; filename="${encodeURIComponent(safeFilename)}"; filename*=UTF-8''${encodeURIComponent(safeFilename)}`;
             }
-        } catch {
-            return NextResponse.redirect(directAudioUrl);
+
+            return new Response(webStream, {
+                status: 200,
+                headers
+            });
+        }
+
+        // 5. Handle Native Stream / Direct Attachment (M4A / Opus)
+        const contentType = formatParam === 'opus' ? 'audio/ogg; codecs=opus' : 'audio/mp4';
+
+        const fetchHeaders: Record<string, string> = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        };
+        const range = req.headers.get('range');
+        if (range && !isDownload) fetchHeaders['Range'] = range;
+
+        const fetchRes = await fetch(directAudioUrl, { headers: fetchHeaders });
+
+        if (fetchRes.ok && fetchRes.body) {
+            const headers: Record<string, string> = {
+                'Content-Type': contentType,
+                'Cache-Control': isDownload ? 'no-cache, no-store' : 'public, max-age=3600'
+            };
+
+            if (isDownload) {
+                headers['Content-Disposition'] = `attachment; filename="${encodeURIComponent(safeFilename)}"; filename*=UTF-8''${encodeURIComponent(safeFilename)}`;
+            } else {
+                headers['Accept-Ranges'] = 'bytes';
+            }
+
+            const cl = fetchRes.headers.get('content-length');
+            if (cl) headers['Content-Length'] = cl;
+            const cr = fetchRes.headers.get('content-range');
+            if (cr && !isDownload) headers['Content-Range'] = cr;
+
+            return new Response(fetchRes.body, {
+                status: fetchRes.status,
+                headers
+            });
+        } else {
+            return new NextResponse('Failed to proxy audio stream from media provider', { status: 502 });
         }
     } catch (error: any) {
         console.error('Audio Stream API Error:', error.message);

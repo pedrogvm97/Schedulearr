@@ -30,11 +30,38 @@ const PIPED_INSTANCES = [
 
 export async function POST(req: Request) {
     try {
-        const body = await req.json();
-        const { youtubeId, title, artist, album, libraryId, coverUrl, targetFolder, audioFormat = 'mp3' } = body;
+        const contentType = req.headers.get('content-type') || '';
+        let body: any = {};
+        let uploadedBuffer: Buffer | null = null;
 
-        if (!title || (!youtubeId && !body.streamUrl)) {
-            return NextResponse.json({ error: 'title and youtubeId (or streamUrl) are required' }, { status: 400 });
+        if (contentType.includes('multipart/form-data')) {
+            const formData = await req.formData();
+            const file = formData.get('file') as File | null;
+            if (file) {
+                const arrayBuffer = await file.arrayBuffer();
+                uploadedBuffer = Buffer.from(arrayBuffer);
+            }
+            body = {
+                title: formData.get('title') as string,
+                artist: formData.get('artist') as string,
+                album: formData.get('album') as string,
+                targetFolder: formData.get('targetFolder') as string,
+                libraryId: formData.get('libraryId') as string,
+                audioFormat: formData.get('audioFormat') as string,
+                coverUrl: formData.get('coverUrl') as string,
+                youtubeId: formData.get('youtubeId') as string
+            };
+        } else {
+            body = await req.json();
+            if (body.audioBase64) {
+                uploadedBuffer = Buffer.from(body.audioBase64, 'base64');
+            }
+        }
+
+        const { youtubeId, title, artist, album, libraryId, coverUrl, targetFolder, audioFormat = 'm4a', directStreamUrl } = body;
+
+        if (!title) {
+            return NextResponse.json({ error: 'title is required' }, { status: 400 });
         }
 
         // 1. Determine Music Library Root Folder
@@ -87,6 +114,30 @@ export async function POST(req: Request) {
 
         const ext = audioFormat === 'opus' ? 'opus' : 'm4a';
         const finalAudioPath = path.join(albumDir, `${cleanTitle}.${ext}`);
+
+        // Direct uploaded audio payload (Client-assisted upload)
+        if (uploadedBuffer && uploadedBuffer.length > 0) {
+            fs.writeFileSync(finalAudioPath, uploadedBuffer);
+            if (coverUrl) {
+                const coverPath = path.join(albumDir, 'cover.jpg');
+                if (!fs.existsSync(coverPath)) {
+                    try {
+                        const imgRes = await axios.get(coverUrl, { responseType: 'arraybuffer', timeout: 8000 });
+                        fs.writeFileSync(coverPath, Buffer.from(imgRes.data));
+                        fs.writeFileSync(path.join(albumDir, 'folder.jpg'), Buffer.from(imgRes.data));
+                    } catch {}
+                }
+            }
+            return NextResponse.json({
+                success: true,
+                message: `Successfully saved "${cleanTitle}" to ${cleanArtist} / ${cleanAlbum}`,
+                path: finalAudioPath,
+                artist: cleanArtist,
+                album: cleanAlbum,
+                title: cleanTitle
+            });
+        }
+
         let cleanYtId = (youtubeId || '').replace(/^yt-/, '');
 
         if (!cleanYtId && body.streamUrl) {

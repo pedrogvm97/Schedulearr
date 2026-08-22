@@ -39,7 +39,7 @@ export function MusicDownloadModal({
     const [downloadScope, setDownloadScope] = useState<'track' | 'album'>(defaultIsAlbum ? 'album' : 'track');
     const [destinations, setDestinations] = useState<DestinationOption[]>([]);
     const [selectedDestId, setSelectedDestId] = useState<string>('device');
-    const [audioFormat, setAudioFormat] = useState<'m4a' | 'opus'>('m4a');
+    const [audioFormat, setAudioFormat] = useState<'mp3' | 'm4a' | 'opus' | 'flac'>('mp3');
     const [isDownloading, setIsDownloading] = useState(false);
     const [downloadSuccess, setDownloadSuccess] = useState(false);
     const [downloadProgress, setDownloadProgress] = useState(0);
@@ -126,54 +126,84 @@ export function MusicDownloadModal({
         setDownloadProgress(20);
 
         try {
+            const saveSingleTrack = async (targetTrack: any) => {
+                const ytId = targetTrack?.youtubeId || (targetTrack?.id?.startsWith('yt-') ? targetTrack.id.replace('yt-', '') : undefined);
+                const title = targetTrack?.title || targetTrack?.name || initialTitle;
+                const artist = targetTrack?.artist || activeArtist;
+                const album = targetTrack?.album || (downloadScope === 'album' ? albumName : 'Singles');
+                const coverUrl = targetTrack?.posterUrl || initialPosterUrl;
+
+                // Attempt 1: Direct Server Grab
+                try {
+                    const res = await fetch('/api/theater/music/grab', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            youtubeId: ytId,
+                            streamUrl: targetTrack?.streamUrl,
+                            title,
+                            artist,
+                            album,
+                            targetFolder: targetDirectory,
+                            audioFormat,
+                            coverUrl
+                        })
+                    });
+
+                    if (res.ok) {
+                        return true;
+                    }
+                } catch {}
+
+                // Attempt 2: Client-Assisted Stream Proxy Upload
+                // If server IP was blocked by YouTube, browser fetches audio and uploads directly to server
+                try {
+                    const streamEndpoint = ytId
+                        ? `/api/theater/music/stream?ytId=${encodeURIComponent(ytId)}&format=${audioFormat}`
+                        : (targetTrack?.streamUrl || `/api/theater/music/stream?q=${encodeURIComponent(`${artist} ${title}`)}&format=${audioFormat}`);
+
+                    const audioRes = await fetch(streamEndpoint);
+                    if (audioRes.ok) {
+                        const blob = await audioRes.blob();
+                        const formData = new FormData();
+                        formData.append('file', blob, `${title}.${audioFormat}`);
+                        formData.append('title', title);
+                        formData.append('artist', artist);
+                        formData.append('album', album);
+                        if (targetDirectory) formData.append('targetFolder', targetDirectory);
+                        formData.append('audioFormat', audioFormat);
+                        if (coverUrl) formData.append('coverUrl', coverUrl);
+
+                        const uploadRes = await fetch('/api/theater/music/grab', {
+                            method: 'POST',
+                            body: formData
+                        });
+                        return uploadRes.ok;
+                    }
+                } catch {}
+
+                return false;
+            };
+
             if (downloadScope === 'album' && albumTracks && albumTracks.length > 0) {
                 let downloadedCount = 0;
                 for (let i = 0; i < albumTracks.length; i++) {
                     const t = albumTracks[i];
-                    await fetch('/api/theater/music/grab', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            youtubeId: t.youtubeId || (t.id?.startsWith('yt-') ? t.id.replace('yt-', '') : undefined),
-                            streamUrl: t.streamUrl,
-                            title: t.title || t.name,
-                            artist: t.artist || activeArtist,
-                            album: albumName || t.album || 'Album',
-                            targetFolder: targetDirectory,
-                            audioFormat,
-                            coverUrl: t.posterUrl || initialPosterUrl
-                        })
-                    });
-                    downloadedCount++;
-                    setDownloadProgress(Math.round((downloadedCount / albumTracks.length) * 100));
+                    const ok = await saveSingleTrack(t);
+                    if (ok) downloadedCount++;
+                    setDownloadProgress(Math.round(((i + 1) / albumTracks.length) * 100));
                 }
                 setDownloadSuccess(true);
                 toast.success(`Saved ${downloadedCount} tracks into ${selectedDest.name}!`);
             } else {
                 setDownloadProgress(50);
-                const ytId = track?.youtubeId || (track?.id?.startsWith('yt-') ? track.id.replace('yt-', '') : undefined);
-                const res = await fetch('/api/theater/music/grab', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        youtubeId: ytId,
-                        streamUrl: track?.streamUrl,
-                        title: track?.title || track?.name || initialTitle,
-                        artist: track?.artist || activeArtist,
-                        album: track?.album || (downloadScope === 'album' ? albumName : 'Singles'),
-                        targetFolder: targetDirectory,
-                        audioFormat,
-                        coverUrl: track?.posterUrl || initialPosterUrl
-                    })
-                });
-
-                if (res.ok) {
+                const ok = await saveSingleTrack(track);
+                if (ok) {
                     setDownloadProgress(100);
                     setDownloadSuccess(true);
                     toast.success(`Successfully saved "${initialTitle}" into ${selectedDest.name}!`);
                 } else {
-                    const err = await res.json().catch(() => ({}));
-                    toast.error(err.error || 'Failed to download track');
+                    toast.error('Failed to extract audio stream for this track. Please check network connection.');
                 }
             }
         } catch (e: any) {
@@ -343,28 +373,30 @@ export function MusicDownloadModal({
                     </div>
                 </div>
 
-                {/* Audio Format Selection (Native YouTube Formats Only - Zero Conversions) */}
+                {/* Audio Format Selection */}
                 <div className="space-y-1.5">
                     <label className="text-xs font-black uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
-                        <Sparkles size={14} className="text-amber-400" /> Native YouTube Audio Stream
+                        <Sparkles size={14} className="text-amber-400" /> Save / Download Format
                     </label>
-                    <div className="grid grid-cols-2 gap-2.5">
+                    <div className="grid grid-cols-2 gap-2">
                         {[
-                            { id: 'm4a', label: 'M4A / AAC', desc: 'Native YouTube AAC stream (~128k-256k)' },
-                            { id: 'opus', label: 'Opus / WebM', desc: 'Native YouTube Opus stream (~160k)' }
+                            { id: 'mp3', label: 'MP3 (320k)', desc: 'Universal compatible MP3 (~320kbps)' },
+                            { id: 'm4a', label: 'AAC / M4A', desc: 'Native YouTube AAC stream (~128k-256k)' },
+                            { id: 'opus', label: 'Opus / WebM', desc: 'Native YouTube Opus stream (~160k)' },
+                            { id: 'flac', label: 'FLAC', desc: 'Lossless audio format' }
                         ].map((fmt) => (
                             <button
                                 key={fmt.id}
                                 type="button"
                                 onClick={() => setAudioFormat(fmt.id as any)}
-                                className={`p-3 rounded-2xl border flex flex-col items-center justify-center transition-all ${
+                                className={`p-2.5 rounded-2xl border flex flex-col items-center justify-center transition-all ${
                                     audioFormat === fmt.id
                                         ? 'bg-amber-500/20 border-amber-500/70 text-white shadow-lg ring-1 ring-amber-400/40'
                                         : 'bg-zinc-900/60 border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-900'
                                 }`}
                             >
-                                <span className="text-sm font-black uppercase">{fmt.label}</span>
-                                <span className="text-[11px] text-zinc-400 text-center mt-0.5">{fmt.desc}</span>
+                                <span className="text-xs sm:text-sm font-black uppercase">{fmt.label}</span>
+                                <span className="text-[10px] sm:text-[11px] text-zinc-400 text-center mt-0.5">{fmt.desc}</span>
                             </button>
                         ))}
                     </div>
