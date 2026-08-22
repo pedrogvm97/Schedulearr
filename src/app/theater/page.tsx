@@ -374,32 +374,6 @@ export default function TheaterPage() {
     const liveVideoRef = useRef<HTMLVideoElement>(null);
     const hlsInstanceRef = useRef<Hls | null>(null);
 
-    // Smart TV Pairing & Remote Casting States
-    const [isPairTvModalOpen, setIsPairTvModalOpen] = useState(false);
-    const [isCastPickerModalOpen, setIsCastPickerModalOpen] = useState(false);
-    const [castingTargetMedia, setCastingTargetMedia] = useState<MediaItem | IptvChannel | null>(null);
-    const [pairedTvSessions, setPairedTvSessions] = useState<any[]>([]);
-    const [loadingPairedTvs, setLoadingPairedTvs] = useState(false);
-    const [tvPairPin, setTvPairPin] = useState('');
-    const [isPairingTv, setIsPairingTv] = useState(false);
-    const [pairedTvCount, setPairedTvCount] = useState(0);
-
-    const checkPairedTvs = async () => {
-        try {
-            const res = await fetch('/api/theater/tv?listSessions=true');
-            if (res.ok) {
-                const data = await res.json();
-                const list = Array.isArray(data.sessions) ? data.sessions : [];
-                setPairedTvSessions(list);
-                setPairedTvCount(list.length);
-            }
-        } catch {}
-    };
-
-    useEffect(() => {
-        checkPairedTvs();
-    }, []);
-
     const handleOpenInVlc = (video: VideoStreamItem) => {
         const streamOrigin = window.location.origin;
         const directStreamUrl = video.streamUrl.startsWith('http') ? video.streamUrl : `${streamOrigin}${video.streamUrl}`;
@@ -416,30 +390,6 @@ export default function TheaterPage() {
         setIsVlcModalOpen(true);
         addDebugLog('info', 'Opened VLC streaming modal for video', { title: video.title, directStreamUrl });
         toast.success('Stream URL copied! Opening VLC details...');
-    };
-
-    const handleApproveTv = async () => {
-        if (!tvPairPin.trim()) return;
-        setIsPairingTv(true);
-        try {
-            const res = await fetch('/api/theater/tv', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'approve_code', code: tvPairPin.trim() })
-            });
-            if (res.ok) {
-                toast.success('Smart TV Paired and Unlocked Successfully!');
-                setIsPairTvModalOpen(false);
-                setTvPairPin('');
-                checkPairedTvs();
-            } else {
-                toast.error('Invalid or expired TV pairing code');
-            }
-        } catch {
-            toast.error('Failed to pair TV');
-        } finally {
-            setIsPairingTv(false);
-        }
     };
 
     const openCastPicker = async (media?: MediaItem | IptvChannel) => {
@@ -510,45 +460,6 @@ export default function TheaterPage() {
         }
 
         toast.info('Searching for Chromecast and Cast devices on your network...');
-    };
-
-    const handleCastToDevice = async (sessionId: string, deviceName: string) => {
-        if (!castingTargetMedia) return;
-        try {
-            const res = await fetch('/api/theater/tv', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'cast', sessionId, media: castingTargetMedia })
-            });
-            if (res.ok) {
-                const mediaTitle = castingTargetMedia.name || (castingTargetMedia as any).title;
-                toast.success(`Casting "${mediaTitle}" to ${deviceName}!`);
-                setIsCastPickerModalOpen(false);
-            } else {
-                const err = await res.json().catch(() => ({}));
-                toast.error(err.error || 'Failed to cast to device');
-            }
-        } catch {
-            toast.error('Error sending cast command to TV');
-        }
-    };
-
-    const handleUnpairDevice = async (sessionId: string, deviceName: string) => {
-        if (!confirm(`Are you sure you want to unpair "${deviceName}"?`)) return;
-        try {
-            const res = await fetch('/api/theater/tv', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'unpair', sessionId })
-            });
-            if (res.ok) {
-                toast.success(`Unpaired "${deviceName}"`);
-                setPairedTvSessions(prev => prev.filter(s => s.id !== sessionId));
-                setPairedTvCount(prev => Math.max(0, prev - 1));
-            }
-        } catch {
-            toast.error('Failed to unpair device');
-        }
     };
 
     // 1. Fetch Theater Libraries
@@ -1510,16 +1421,6 @@ export default function TheaterPage() {
                                     <RefreshCw size={16} className={loadingItems ? 'animate-spin text-emerald-400' : ''} />
                                 </button>
                             )}
-
-                            {/* Pair Smart TV */}
-                            <button
-                                onClick={() => setIsPairTvModalOpen(true)}
-                                className="p-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-indigo-400 hover:text-indigo-300 transition-colors shrink-0 relative"
-                                title="Pair a Smart TV"
-                            >
-                                <Tv size={16} />
-                                {pairedTvCount > 0 && <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border border-zinc-950 animate-pulse" />}
-                            </button>
 
                             {/* Add Library button */}
                             <button
@@ -4273,59 +4174,6 @@ export default function TheaterPage() {
                     </div>
                 </div>
             )}
-
-            {/* ── Pair Smart TV Modal ── */}
-            {isPairTvModalOpen && (
-                <div className="fixed inset-0 z-[230] flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200">
-                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-md p-6 sm:p-8 space-y-6 shadow-2xl relative text-center">
-                        <button
-                            onClick={() => setIsPairTvModalOpen(false)}
-                            className="absolute top-6 right-6 p-2 rounded-xl text-zinc-400 hover:text-white"
-                        >
-                            <X size={20} />
-                        </button>
-
-                        <div className="w-16 h-16 rounded-3xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 mx-auto">
-                            <Tv size={32} />
-                        </div>
-
-                        <div className="space-y-1.5">
-                            <h3 className="text-xl font-black text-white">Pair Smart TV</h3>
-                            <p className="text-xs text-zinc-400">
-                                Open this link in any browser on your TV (at home or abroad):
-                            </p>
-                            <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-mono font-bold text-emerald-400 select-all truncate">
-                                {typeof window !== 'undefined' ? `${window.location.origin}/tv` : 'http://<your-domain-or-ip>/tv'}
-                            </div>
-                            <p className="text-[11px] text-zinc-500">
-                                No VPN or Tailscale needed on the TV. Enter the 6-digit code shown on the screen below:
-                            </p>
-                        </div>
-
-                        <div className="space-y-3">
-                            <input
-                                type="text"
-                                placeholder="e.g. 832-194"
-                                value={tvPairPin}
-                                onChange={e => setTvPairPin(e.target.value)}
-                                maxLength={8}
-                                className="w-full text-center text-3xl font-mono font-black tracking-widest bg-zinc-950 border border-zinc-800 focus:border-indigo-500 rounded-2xl py-4 text-white outline-none"
-                            />
-
-                            <button
-                                disabled={isPairingTv || !tvPairPin.trim()}
-                                onClick={handleApproveTv}
-                                className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-black uppercase text-xs tracking-widest rounded-2xl transition-all shadow-lg shadow-indigo-500/20 disabled:opacity-50 flex items-center justify-center gap-2"
-                            >
-                                {isPairingTv ? <RefreshCw size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
-                                Authorize & Link TV
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-
 
             {/* ── VLC Media Player & External Network Stream Modal ── */}
             {isVlcModalOpen && vlcModalInfo && (

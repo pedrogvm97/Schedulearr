@@ -120,16 +120,6 @@ function initializeSchema(d: any) {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
 
-      CREATE TABLE IF NOT EXISTS tv_sessions (
-        id TEXT PRIMARY KEY,
-        code TEXT NOT NULL,
-        device_name TEXT,
-        is_paired INTEGER DEFAULT 0,
-        paired_at DATETIME,
-        current_media TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
-
       CREATE TABLE IF NOT EXISTS music_playlists (
         id TEXT PRIMARY KEY,
         library_id TEXT NOT NULL,
@@ -211,7 +201,6 @@ function initializeSchema(d: any) {
     try { d.exec("ALTER TABLE search_history ADD COLUMN category TEXT DEFAULT 'search';"); } catch (e) { }
     try { d.exec("ALTER TABLE theater_libraries ADD COLUMN plex_section_id TEXT;"); } catch (e) { }
     try { d.exec("ALTER TABLE theater_libraries ADD COLUMN instance_id TEXT;"); } catch (e) { }
-    try { d.exec("ALTER TABLE tv_sessions ADD COLUMN current_media TEXT;"); } catch (e) { }
 }
 
 export interface Setting {
@@ -678,94 +667,6 @@ export const deleteIptvShortlist = (id: string) => {
     } catch (e) {
         console.error('Error deleting IPTV shortlist:', e);
         return false;
-    }
-};
-
-export const createTvSession = (id: string, code: string, deviceName = 'Smart TV') => {
-    try {
-        const stmt = db.prepare(`
-            INSERT INTO tv_sessions (id, code, device_name, is_paired)
-            VALUES (?, ?, ?, 0)
-        `);
-        stmt.run(id, code, deviceName);
-        return true;
-    } catch (e) {
-        console.error('Error creating TV session:', e);
-        return false;
-    }
-};
-
-export const getTvSession = (id: string) => {
-    try {
-        const row = db.prepare('SELECT * FROM tv_sessions WHERE id = ?').get(id) as any;
-        return row ? { ...row, is_paired: Boolean(row.is_paired), current_media: row.current_media ? JSON.parse(row.current_media) : null } : null;
-    } catch (e) {
-        return null;
-    }
-};
-
-export const approveTvSession = (code: string) => {
-    try {
-        const normalized = code.replace(/[^0-9]/g, '');
-        const stmt = db.prepare(`
-            UPDATE tv_sessions
-            SET is_paired = 1, paired_at = CURRENT_TIMESTAMP
-            WHERE REPLACE(code, '-', '') = ?
-        `);
-        const result = stmt.run(normalized);
-        return result.changes > 0;
-    } catch (e) {
-        console.error('Error approving TV session:', e);
-        return false;
-    }
-};
-
-export const castToTvSession = (sessionId: string, mediaPayload: any) => {
-    try {
-        let stmt;
-        let result;
-        if (sessionId === 'all') {
-            stmt = db.prepare(`
-                UPDATE tv_sessions
-                SET current_media = ?
-                WHERE is_paired = 1
-            `);
-            result = stmt.run(JSON.stringify(mediaPayload));
-        } else {
-            stmt = db.prepare(`
-                UPDATE tv_sessions
-                SET current_media = ?
-                WHERE id = ? AND is_paired = 1
-            `);
-            result = stmt.run(JSON.stringify(mediaPayload), sessionId);
-        }
-        return result.changes > 0;
-    } catch (e) {
-        console.error('Error casting to TV session:', e);
-        return false;
-    }
-};
-
-export const deleteTvSession = (sessionId: string) => {
-    try {
-        const stmt = db.prepare('DELETE FROM tv_sessions WHERE id = ?');
-        stmt.run(sessionId);
-        return true;
-    } catch (e) {
-        return false;
-    }
-};
-
-export const getPairedTvSessions = () => {
-    try {
-        const rows = db.prepare('SELECT * FROM tv_sessions WHERE is_paired = 1 ORDER BY paired_at DESC').all() as any[];
-        return (rows || []).map(r => ({
-            ...r,
-            is_paired: Boolean(r.is_paired),
-            current_media: r.current_media ? JSON.parse(r.current_media) : null
-        }));
-    } catch (e) {
-        return [];
     }
 };
 

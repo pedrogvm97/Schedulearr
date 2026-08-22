@@ -644,10 +644,8 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     const [audioSpecsData, setAudioSpecsData] = useState<any>(null);
     const [audioSpecsLoading, setAudioSpecsLoading] = useState(false);
 
-    // Smart TV Pairing & Casting States
+    // Native Casting States
     const [isCastPickerModalOpen, setIsCastPickerModalOpen] = useState(false);
-    const [pairedTvSessions, setPairedTvSessions] = useState<any[]>([]);
-    const [loadingPairedTvs, setLoadingPairedTvs] = useState(false);
     const [isGrabbingTrack, setIsGrabbingTrack] = useState(false);
 
     // Synchronize Audio Current Line
@@ -1116,22 +1114,6 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             setAudioSpecsData(null);
         } finally {
             setAudioSpecsLoading(false);
-        }
-    };
-
-    // Cast to Smart TV
-    const fetchPairedTvSessions = async () => {
-        setLoadingPairedTvs(true);
-        try {
-            const res = await fetch('/api/theater/tv');
-            if (res.ok) {
-                const data = await res.json();
-                setPairedTvSessions(data.sessions || []);
-            }
-        } catch {
-            // ignore
-        } finally {
-            setLoadingPairedTvs(false);
         }
     };
 
