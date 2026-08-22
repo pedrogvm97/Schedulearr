@@ -20,16 +20,15 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
     try {
         const body = await req.json();
-        const { id, libraryId, name, items, coverUrl } = body;
-
-        if (!name || !libraryId) {
-            return NextResponse.json({ error: 'name and libraryId are required' }, { status: 400 });
+        const targetLibId = libraryId || 'global';
+        if (!name) {
+            return NextResponse.json({ error: 'name is required' }, { status: 400 });
         }
 
         const playlistId = id || `playlist-${crypto.randomUUID()}`;
         const playlistItems = Array.isArray(items) ? items : [];
 
-        const success = saveMusicPlaylist(playlistId, libraryId, name, playlistItems, coverUrl);
+        const success = saveMusicPlaylist(playlistId, targetLibId, name, playlistItems, coverUrl);
         if (success) {
             return NextResponse.json({ success: true, id: playlistId });
         } else {

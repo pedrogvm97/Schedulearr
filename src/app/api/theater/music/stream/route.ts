@@ -98,6 +98,12 @@ export async function GET(req: Request) {
             'Cache-Control': 'public, max-age=3600'
         };
 
+        const isDownload = searchParams.get('download') === 'true';
+        const downloadFilename = searchParams.get('filename') || 'track.mp3';
+        if (isDownload) {
+            headers['Content-Disposition'] = `attachment; filename="${downloadFilename.replace(/"/g, '')}"`;
+        }
+
         if (audioRes.headers['content-length']) {
             headers['Content-Length'] = audioRes.headers['content-length'];
         }

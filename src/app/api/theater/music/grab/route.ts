@@ -14,10 +14,24 @@ function sanitizeFilename(name: string): string {
     return name.replace(/[<>:"/\\|?*]/g, '').trim();
 }
 
+const INVIDIOUS_INSTANCES = [
+    'https://invidious.nerdvpn.de',
+    'https://inv.tux.pizza',
+    'https://invidious.jing.rocks',
+    'https://invidious.drgns.space',
+    'https://yt.artemislena.eu'
+];
+
+const PIPED_INSTANCES = [
+    'https://pipedapi.kavin.rocks',
+    'https://api.piped.privacydev.net',
+    'https://piped-api.garudalinux.org'
+];
+
 export async function POST(req: Request) {
     try {
         const body = await req.json();
-        const { youtubeId, title, artist, album, libraryId, coverUrl, targetFolder } = body;
+        const { youtubeId, title, artist, album, libraryId, coverUrl, targetFolder, audioFormat = 'mp3' } = body;
 
         if (!title || (!youtubeId && !body.streamUrl)) {
             return NextResponse.json({ error: 'title and youtubeId (or streamUrl) are required' }, { status: 400 });
@@ -26,18 +40,31 @@ export async function POST(req: Request) {
         // 1. Determine Music Library Root Folder
         let musicRoot = targetFolder;
         if (!musicRoot && libraryId) {
-            const libRow: any = db.prepare('SELECT folders FROM theater_libraries WHERE id = ?').get(libraryId);
-            if (libRow && libRow.folders) {
-                const folders = JSON.parse(libRow.folders);
-                if (Array.isArray(folders) && folders.length > 0) {
-                    musicRoot = folders[0];
+            try {
+                const libRow: any = db.prepare('SELECT folders FROM theater_libraries WHERE id = ?').get(libraryId);
+                if (libRow && libRow.folders) {
+                    const folders = typeof libRow.folders === 'string' ? JSON.parse(libRow.folders) : libRow.folders;
+                    if (Array.isArray(folders) && folders.length > 0) {
+                        musicRoot = folders[0];
+                    }
                 }
-            }
+            } catch {}
         }
 
         if (!musicRoot) {
-            // Fallbacks for common mount points
-            for (const fallback of ['/music', '/media/music', '/mnt/user/data/media/music', 'C:\\music']) {
+            try {
+                const anyMusicLib: any = db.prepare("SELECT folders FROM theater_libraries WHERE type = 'music' LIMIT 1").get();
+                if (anyMusicLib && anyMusicLib.folders) {
+                    const folders = typeof anyMusicLib.folders === 'string' ? JSON.parse(anyMusicLib.folders) : anyMusicLib.folders;
+                    if (Array.isArray(folders) && folders.length > 0) {
+                        musicRoot = folders[0];
+                    }
+                }
+            } catch {}
+        }
+
+        if (!musicRoot) {
+            for (const fallback of ['/music', '/media/music', './data/music', './downloads/music', 'C:\\music']) {
                 if (fs.existsSync(fallback)) {
                     musicRoot = fallback;
                     break;
@@ -46,9 +73,7 @@ export async function POST(req: Request) {
         }
 
         if (!musicRoot) {
-            return NextResponse.json({
-                error: 'No target music directory found. Please ensure your Music Library has at least one valid folder configured.'
-            }, { status: 400 });
+            musicRoot = path.join(process.cwd(), 'data', 'music');
         }
 
         const cleanArtist = sanitizeFilename(artist || 'Unknown Artist');
@@ -60,38 +85,66 @@ export async function POST(req: Request) {
             fs.mkdirSync(albumDir, { recursive: true });
         }
 
-        const finalAudioPath = path.join(albumDir, `${cleanTitle}.mp3`);
+        const ext = audioFormat === 'flac' ? 'flac' : audioFormat === 'aac' ? 'm4a' : audioFormat === 'opus' ? 'opus' : 'mp3';
+        const finalAudioPath = path.join(albumDir, `${cleanTitle}.${ext}`);
         const cleanYtId = (youtubeId || '').replace(/^yt-/, '');
 
         // 2. Download Track Audio
         let downloaded = false;
 
-        // Try yt-dlp first
+        // Try yt-dlp first if available
         if (cleanYtId) {
             try {
-                const cmd = `yt-dlp -x --audio-format mp3 --audio-quality 0 --embed-metadata -o "${path.join(albumDir, `${cleanTitle}.%(ext)s`)}" "https://www.youtube.com/watch?v=${cleanYtId}"`;
-                await execPromise(cmd, { timeout: 60000 });
+                const cmd = `yt-dlp -x --audio-format ${ext === 'm4a' ? 'aac' : ext} --audio-quality 0 --embed-metadata -o "${path.join(albumDir, `${cleanTitle}.%(ext)s`)}" "https://www.youtube.com/watch?v=${cleanYtId}"`;
+                await execPromise(cmd, { timeout: 45000 });
                 downloaded = true;
-            } catch (ytErr: any) {
-                console.warn('yt-dlp command failed, trying stream download fallback:', ytErr.message);
-            }
+            } catch {}
         }
 
-        // Direct stream download fallback if yt-dlp failed
-        if (!downloaded) {
-            const streamEndpoint = `https://pipedapi.kavin.rocks/streams/${cleanYtId}`;
-            try {
-                const pipeRes = await axios.get(streamEndpoint, { timeout: 6000 });
-                const audioStreams = pipeRes.data?.audioStreams || [];
-                if (audioStreams.length > 0) {
-                    audioStreams.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0));
-                    const bestStreamUrl = audioStreams[0].url;
+        // Direct stream extraction fallback (Invidious / Piped / internal stream proxy)
+        if (!downloaded && cleanYtId) {
+            let directAudioUrl = '';
+
+            // Try Invidious API instances
+            for (const instance of INVIDIOUS_INSTANCES) {
+                try {
+                    const res = await axios.get(`${instance}/api/v1/videos/${cleanYtId}`, { timeout: 4000 });
+                    if (res.data && Array.isArray(res.data.adaptiveFormats)) {
+                        const audioFormats = res.data.adaptiveFormats.filter((f: any) => f.type && f.type.startsWith('audio/'));
+                        if (audioFormats.length > 0) {
+                            audioFormats.sort((a: any, b: any) => (parseInt(b.bitrate) || 0) - (parseInt(a.bitrate) || 0));
+                            directAudioUrl = audioFormats[0].url;
+                            if (directAudioUrl) break;
+                        }
+                    }
+                } catch {}
+            }
+
+            // Try Piped API instances
+            if (!directAudioUrl) {
+                for (const instance of PIPED_INSTANCES) {
+                    try {
+                        const res = await axios.get(`${instance}/streams/${cleanYtId}`, { timeout: 4000 });
+                        if (res.data && Array.isArray(res.data.audioStreams) && res.data.audioStreams.length > 0) {
+                            res.data.audioStreams.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0));
+                            directAudioUrl = res.data.audioStreams[0].url;
+                            if (directAudioUrl) break;
+                        }
+                    } catch {}
+                }
+            }
+
+            if (directAudioUrl) {
+                try {
                     const writer = fs.createWriteStream(finalAudioPath);
                     const response = await axios({
-                        url: bestStreamUrl,
+                        url: directAudioUrl,
                         method: 'GET',
                         responseType: 'stream',
-                        timeout: 30000
+                        headers: {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                        },
+                        timeout: 60000
                     });
                     response.data.pipe(writer);
                     await new Promise((resolve, reject) => {
@@ -99,20 +152,19 @@ export async function POST(req: Request) {
                         writer.on('error', reject);
                     });
                     downloaded = true;
+                } catch (pipeErr: any) {
+                    console.error('Audio pipe stream download error:', pipeErr.message);
                 }
-            } catch (e: any) {
-                console.error('Fallback audio download error:', e.message);
             }
         }
 
-        // 3. Save Album Artwork if not already existing
+        // 3. Save Album Artwork
         if (coverUrl) {
             const coverPath = path.join(albumDir, 'cover.jpg');
             if (!fs.existsSync(coverPath)) {
                 try {
                     const imgRes = await axios.get(coverUrl, { responseType: 'arraybuffer', timeout: 8000 });
                     fs.writeFileSync(coverPath, Buffer.from(imgRes.data));
-                    // also save folder.jpg for Windows/Plex compatibility
                     fs.writeFileSync(path.join(albumDir, 'folder.jpg'), Buffer.from(imgRes.data));
                 } catch (imgErr) {
                     console.warn('Failed to download cover image:', imgErr);
@@ -123,14 +175,14 @@ export async function POST(req: Request) {
         if (downloaded || fs.existsSync(finalAudioPath)) {
             return NextResponse.json({
                 success: true,
-                message: `Downloaded "${cleanTitle}" to ${cleanArtist} / ${cleanAlbum}`,
+                message: `Successfully saved "${cleanTitle}" to ${cleanArtist} / ${cleanAlbum}`,
                 path: finalAudioPath,
                 artist: cleanArtist,
                 album: cleanAlbum,
                 title: cleanTitle
             });
         } else {
-            return NextResponse.json({ error: 'Failed to download audio track. Please try again.' }, { status: 500 });
+            return NextResponse.json({ error: 'Failed to extract audio stream for this track. Please check network connection.' }, { status: 500 });
         }
     } catch (error: any) {
         console.error('API /theater/music/grab error:', error);

@@ -8,7 +8,8 @@ import {
     Info, Mic2, Edit3, Search, Sparkles, Check,
     RefreshCw, ChevronDown, Sliders, Cast, Tv, Trash2, Plus,
     Image as ImageIcon, Guitar, Activity, Zap, Layers, Music2,
-    Terminal, AlertTriangle, RotateCcw, Copy, User, ExternalLink, Calendar, Radio
+    Terminal, AlertTriangle, RotateCcw, Copy, User, ExternalLink, Calendar, Radio,
+    Star, ListPlus, Heart
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -487,7 +488,32 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         setAudioNerdLogs(prev => [...prev.slice(-150), { id, timestamp, level, message, details }]);
     };
 
-    // Musical Jam & Chords States
+    // Star Rating States (1-5 Stars per Track)
+    const [trackRatings, setTrackRatings] = useState<Record<string, number>>(() => {
+        if (typeof window !== 'undefined') {
+            try {
+                return JSON.parse(localStorage.getItem('schedulearr_track_ratings') || '{}');
+            } catch { return {}; }
+        }
+        return {};
+    });
+
+    const setTrackRating = (trackId: string, rating: number) => {
+        setTrackRatings(prev => {
+            const current = prev[trackId] || 0;
+            const nextRating = current === rating ? 0 : rating;
+            const updated = { ...prev, [trackId]: nextRating };
+            try { localStorage.setItem('schedulearr_track_ratings', JSON.stringify(updated)); } catch {}
+            if (nextRating > 0) {
+                toast.success(`Rated ${nextRating} / 5 ⭐`);
+            } else {
+                toast.info('Rating cleared');
+            }
+            return updated;
+        });
+    };
+
+    // Chords & Tab States
     const [chordsData, setChordsData] = useState<ChordsData | null>(null);
     const [chordsLoading, setChordsLoading] = useState(false);
     const [jamDifficulty, setJamDifficulty] = useState<DifficultyLevel>('beginner');
@@ -943,32 +969,22 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     };
 
     const openCastPicker = async (target?: MediaItem) => {
-        // 1. Attempt native browser Remote Playback API (Chromecast, Google Cast, Smart TVs)
+        // ALWAYS open Cast Modal immediately so user sees available TV sessions & devices
+        fetchPairedTvSessions();
+        setIsCastPickerModalOpen(true);
+
+        // Also trigger native browser Remote Playback API in background if available
         if (audioRef.current && 'remote' in audioRef.current && typeof (audioRef.current as any).remote?.prompt === 'function') {
             try {
-                await (audioRef.current as any).remote.prompt();
-                toast.success('Connected to Cast Device!');
-                return;
-            } catch (e: any) {
-                if (e.name === 'NotAllowedError' || e.name === 'NotFoundError') {
-                    return;
-                }
-                console.warn('Native audio remote prompt error:', e);
-            }
+                (audioRef.current as any).remote.prompt().catch(() => {});
+            } catch {}
         }
-
-        // 2. Attempt Safari / Apple WebKit AirPlay Picker
+        // Also trigger WebKit AirPlay if available
         if (audioRef.current && typeof (audioRef.current as any).webkitShowPlaybackTargetPicker === 'function') {
             try {
                 (audioRef.current as any).webkitShowPlaybackTargetPicker();
-                return;
-            } catch (e) {
-                console.warn('WebKit AirPlay error:', e);
-            }
+            } catch {}
         }
-
-        fetchPairedTvSessions();
-        setIsCastPickerModalOpen(true);
     };
 
     const handleCastToDevice = async (sessionId: string, deviceName: string) => {
@@ -2282,6 +2298,38 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         <User size={13} className="text-amber-400 shrink-0" />
                                         <span>{playingAudio.artist || playingAudio.folder || 'Artist'}</span>
                                     </button>
+                                </div>
+
+                                {/* 5-Star Rating & Playlist Action */}
+                                <div className="flex items-center justify-center gap-3 pt-1">
+                                    <div className="flex items-center gap-1 bg-zinc-900/80 px-2.5 py-1 rounded-xl border border-zinc-800/80">
+                                        {[1, 2, 3, 4, 5].map((star) => {
+                                            const activeRating = trackRatings[playingAudio.id || playingAudio.title] || 0;
+                                            return (
+                                                <button
+                                                    key={star}
+                                                    type="button"
+                                                    onClick={() => setTrackRating(playingAudio.id || playingAudio.title, star)}
+                                                    className="p-0.5 hover:scale-125 transition-transform"
+                                                    title={`Rate ${star} Star${star > 1 ? 's' : ''}`}
+                                                >
+                                                    <Star
+                                                        size={14}
+                                                        className={
+                                                            star <= activeRating
+                                                                ? 'text-amber-400 fill-amber-400'
+                                                                : 'text-zinc-600 hover:text-amber-300'
+                                                        }
+                                                    />
+                                                </button>
+                                            );
+                                        })}
+                                        {(trackRatings[playingAudio.id || playingAudio.title] || 0) > 0 && (
+                                            <span className="text-[10px] font-mono font-bold text-amber-300 ml-1">
+                                                {trackRatings[playingAudio.id || playingAudio.title]}/5
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
 

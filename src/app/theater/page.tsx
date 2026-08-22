@@ -903,7 +903,7 @@ export default function TheaterPage() {
             if (res.ok) {
                 const data = await res.json();
                 toast.success(`Saved "${data.title}" to ${data.artist} / ${data.album}!`);
-                fetchLibraryItems(activeLibrary);
+                if (activeLibrary) fetchLibraryItems(activeLibrary);
             } else {
                 const err = await res.json().catch(() => ({}));
                 toast.error(err.error || 'Failed to grab track to library');
@@ -917,13 +917,14 @@ export default function TheaterPage() {
 
     // Music Playlists Management
     const handleCreatePlaylist = async () => {
-        if (!newPlaylistName.trim() || !activeLibrary) return;
+        if (!newPlaylistName.trim()) return;
         try {
+            const libId = activeLibrary?.id || 'global';
             const res = await fetch('/api/theater/music/playlists', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    libraryId: activeLibrary.id,
+                    libraryId: libId,
                     name: newPlaylistName.trim(),
                     items: addToPlaylistTrack ? [addToPlaylistTrack] : []
                 })
@@ -933,11 +934,13 @@ export default function TheaterPage() {
                 setIsCreatePlaylistModalOpen(false);
                 setNewPlaylistName('');
                 setAddToPlaylistTrack(null);
-                const playRes = await fetch(`/api/theater/music/playlists?libraryId=${activeLibrary.id}`);
+                const playRes = await fetch(`/api/theater/music/playlists${activeLibrary ? `?libraryId=${activeLibrary.id}` : ''}`);
                 if (playRes.ok) {
                     const pData = await playRes.json();
                     setPlaylists(Array.isArray(pData.playlists) ? pData.playlists : []);
                 }
+            } else {
+                toast.error('Failed to create playlist');
             }
         } catch {
             toast.error('Failed to create playlist');
@@ -952,7 +955,7 @@ export default function TheaterPage() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     id: playlist.id,
-                    libraryId: playlist.library_id,
+                    libraryId: playlist.library_id || 'global',
                     name: playlist.name,
                     items: updatedItems,
                     coverUrl: playlist.cover_url || track.posterUrl
@@ -961,12 +964,10 @@ export default function TheaterPage() {
             if (res.ok) {
                 toast.success(`Added "${track.title}" to ${playlist.name}!`);
                 setAddToPlaylistTrack(null);
-                if (activeLibrary) {
-                    const playRes = await fetch(`/api/theater/music/playlists?libraryId=${activeLibrary.id}`);
-                    if (playRes.ok) {
-                        const pData = await playRes.json();
-                        setPlaylists(Array.isArray(pData.playlists) ? pData.playlists : []);
-                    }
+                const playRes = await fetch(`/api/theater/music/playlists${activeLibrary ? `?libraryId=${activeLibrary.id}` : ''}`);
+                if (playRes.ok) {
+                    const pData = await playRes.json();
+                    setPlaylists(Array.isArray(pData.playlists) ? pData.playlists : []);
                 }
             }
         } catch {
@@ -979,7 +980,11 @@ export default function TheaterPage() {
             const res = await fetch(`/api/theater/music/playlists?id=${playlistId}`, { method: 'DELETE' });
             if (res.ok) {
                 toast.success('Playlist deleted');
-                setPlaylists(prev => prev.filter(p => p.id !== playlistId));
+                const playRes = await fetch(`/api/theater/music/playlists${activeLibrary ? `?libraryId=${activeLibrary.id}` : ''}`);
+                if (playRes.ok) {
+                    const pData = await playRes.json();
+                    setPlaylists(Array.isArray(pData.playlists) ? pData.playlists : []);
+                }
             }
         } catch {
             toast.error('Failed to delete playlist');
@@ -2192,12 +2197,12 @@ export default function TheaterPage() {
                                                             <button
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
-                                                                    handleGrabTrackToLibrary(song);
+                                                                    handleDownloadTrack(song);
                                                                 }}
                                                                 className="px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 text-xs font-bold transition-all flex items-center gap-1.5"
-                                                                title="Grab & Download to Local Library Folder"
+                                                                title="Download & Organize to Music Library Folder"
                                                             >
-                                                                <Plus size={14} /> Add to Library
+                                                                <Download size={14} /> Download / Add
                                                             </button>
 
                                                             <button className="w-9 h-9 rounded-xl bg-red-500/15 group-hover:bg-red-500 text-red-400 group-hover:text-white flex items-center justify-center transition-all">
@@ -2341,15 +2346,14 @@ export default function TheaterPage() {
 
                                                             {/* Grab to Library Button */}
                                                             <button
-                                                                disabled={isGrabbing}
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
-                                                                    handleGrabTrackToLibrary(song);
+                                                                    handleDownloadTrack(song);
                                                                 }}
                                                                 className="px-3 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 text-xs font-bold transition-all flex items-center gap-1.5"
-                                                                title="Grab &amp; Download to Local Library Folder (Sonarr/Lidarr style)"
+                                                                title="Download & Organize to Music Library Folder"
                                                             >
-                                                                <Plus size={14} /> {isGrabbing ? 'Adding...' : 'Add to Library'}
+                                                                <Download size={14} /> Download / Add
                                                             </button>
 
                                                             <button className="w-10 h-10 rounded-xl bg-red-500/15 group-hover:bg-red-500 text-red-400 group-hover:text-white flex items-center justify-center transition-all">
