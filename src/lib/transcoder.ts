@@ -12,11 +12,23 @@ export type QualityPreset = '1080p-high' | '1080p' | '720p' | '480p' | 'original
 export type HardwareEncoderType = 'qsv' | 'nvenc' | 'vaapi' | 'videotoolbox' | 'cpu';
 
 export function getFFmpegPath(): string {
-    return ffmpegStatic || 'ffmpeg';
+    if (ffmpegStatic && fs.existsSync(ffmpegStatic)) {
+        return ffmpegStatic;
+    }
+    if (fs.existsSync('/usr/bin/ffmpeg')) {
+        return '/usr/bin/ffmpeg';
+    }
+    return 'ffmpeg';
 }
 
 export function getFFprobePath(): string {
-    return ffprobeStatic?.path || 'ffprobe';
+    if (ffprobeStatic?.path && fs.existsSync(ffprobeStatic.path)) {
+        return ffprobeStatic.path;
+    }
+    if (fs.existsSync('/usr/bin/ffprobe')) {
+        return '/usr/bin/ffprobe';
+    }
+    return 'ffprobe';
 }
 
 interface TranscoderConfig {

@@ -204,6 +204,9 @@ export async function GET(req: Request) {
                             const artist = item.grandparentTitle || item.originalTitle || item.parentTitle || 'Unknown Artist';
                             const album = item.parentTitle || 'Unknown Album';
 
+                            const ratingKey = item.ratingKey || item.key || '';
+                            const localFilePath = part?.file || '';
+
                             allItems.push({
                                 id: `plex-${item.ratingKey || item.key}`,
                                 name: item.title,
@@ -220,7 +223,7 @@ export async function GET(req: Request) {
                                 modifiedAt: item.updatedAt ? new Date(item.updatedAt * 1000).toISOString() : new Date().toISOString(),
                                 addedAt: item.addedAt ? new Date(item.addedAt * 1000).toISOString() : (item.updatedAt ? new Date(item.updatedAt * 1000).toISOString() : new Date().toISOString()),
                                 posterUrl,
-                                streamUrl: partKey ? `/api/theater/stream?plexPart=${encodeURIComponent(partKey)}&instanceId=${plex.id}` : ''
+                                streamUrl: partKey ? `/api/theater/stream?plexPart=${encodeURIComponent(partKey)}&instanceId=${plex.id}&ratingKey=${encodeURIComponent(ratingKey)}&localPath=${encodeURIComponent(localFilePath)}` : ''
                             });
                         }
                     }

@@ -272,6 +272,7 @@ export default function Settings() {
         fetchInstances();
         fetchVersionInfo();
         fetchSelfInfo();
+        fetchCandidates();
         // Fetch disk info on mount
         fetch('/api/system/disk').then(r => r.ok ? r.json() : null).then(d => { if (d) setDiskInfo(d); }).catch(() => {});
     }, []);

@@ -89,8 +89,14 @@ export async function GET(req: NextRequest) {
             });
         }
 
-        // 1. Plex Direct Stream or Server-Side Transcode Proxy
-        if (plexPart) {
+        const ratingKey = searchParams.get('ratingKey');
+        const localPath = searchParams.get('localPath');
+
+        // Check if local file is directly accessible on the host / container filesystem
+        const effectiveLocalPath = (localPath && fs.existsSync(localPath)) ? localPath : (filePath && fs.existsSync(filePath) ? filePath : null);
+
+        // 1. Plex Stream or Server-Side Transcode Proxy
+        if (plexPart && !effectiveLocalPath) {
             const plexInstances = getInstances().filter(i => i.type === 'plex' && i.enabled);
             const plex = instanceId ? plexInstances.find(i => i.id === instanceId) : plexInstances[0];
 
@@ -99,8 +105,6 @@ export async function GET(req: NextRequest) {
             }
 
             const plexUrlBase = plex.url.replace(/\/$/, '');
-            let plexStreamUrl = '';
-
             const normalizedPlexPart = plexPart.startsWith('/') ? plexPart : `/${plexPart}`;
             const sep = normalizedPlexPart.includes('?') ? '&' : '?';
             const fileExt = path.extname(normalizedPlexPart.split('?')[0]).toLowerCase();
@@ -169,7 +173,47 @@ export async function GET(req: NextRequest) {
                 });
             }
 
-            // Video from Plex: Universal FFmpeg Transcode (H.264 + AAC MP4)
+            // Video from Plex: Try Plex native universal transcode endpoint first if ratingKey is present
+            if ((transcode === 'universal' || transcode === 'full' || transcode === 'audio') && ratingKey) {
+                try {
+                    let maxBitrate = '16000';
+                    let resolution = '1920x1080';
+                    if (quality === '1080p-high') { maxBitrate = '20000'; resolution = '1920x1080'; }
+                    else if (quality === '720p') { maxBitrate = '6000'; resolution = '1280x720'; }
+                    else if (quality === '480p') { maxBitrate = '2000'; resolution = '854x480'; }
+
+                    const plexNativeTranscodeUrl = `${plexUrlBase}/video/:/transcode/universal/start.mp4?path=${encodeURIComponent(`/library/metadata/${ratingKey}`)}&mediaIndex=0&partIndex=0&protocol=http&directPlay=0&directStream=1&directStreamAudio=1&fastSeek=1&copyts=1&maxVideoBitrate=${maxBitrate}&videoResolution=${resolution}&videoQuality=100&X-Plex-Token=${plex.api_key}`;
+
+                    const reqHeaders: Record<string, string> = { 'X-Plex-Token': plex.api_key };
+                    const clientRange = req.headers.get('range');
+                    if (clientRange) reqHeaders['Range'] = clientRange;
+
+                    const plexNativeRes = await axios.get(plexNativeTranscodeUrl, {
+                        headers: reqHeaders,
+                        responseType: 'stream',
+                        validateStatus: () => true
+                    });
+
+                    if (plexNativeRes.status < 400) {
+                        const resHeaders = new Headers();
+                        if (plexNativeRes.headers['content-range']) resHeaders.set('Content-Range', String(plexNativeRes.headers['content-range']));
+                        if (plexNativeRes.headers['content-length']) resHeaders.set('Content-Length', String(plexNativeRes.headers['content-length']));
+                        resHeaders.set('Content-Type', plexNativeRes.headers['content-type'] || 'video/mp4');
+                        resHeaders.set('Accept-Ranges', 'bytes');
+                        resHeaders.set('X-Stream-Engine', 'Plex Native Hardware Transcoder');
+
+                        // @ts-ignore
+                        return new Response(plexNativeRes.data as any, {
+                            status: plexNativeRes.status,
+                            headers: resHeaders
+                        });
+                    }
+                } catch (e) {
+                    // fallback to local ffmpeg transcode below
+                }
+            }
+
+            // Video from Plex: Local FFmpeg Universal Transcode
             if (transcode === 'universal' || transcode === 'full' || transcode === 'audio') {
                 try {
                     const hwConfig = await detectHardwareEncoder();
@@ -243,8 +287,9 @@ export async function GET(req: NextRequest) {
             });
         }
 
-        // 2. Local File System Stream
-        if (!filePath || !fs.existsSync(filePath)) {
+        // 2. Local File System Stream (Direct or Transcoded)
+        const targetLocalFile = effectiveLocalPath || filePath;
+        if (!targetLocalFile || !fs.existsSync(targetLocalFile)) {
             return new NextResponse('File not found', { status: 404 });
         }
 
