@@ -756,19 +756,6 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             if (res.ok) {
                 const data = await res.json();
                 setLyricsData(data);
-
-                // If verified metadata was matched in LRCLib/database, update playingAudio
-                if (data && data.artist && data.title && data.title !== 'Track' && data.artist !== 'Artist') {
-                    setPlayingAudio(prev => {
-                        if (!prev) return null;
-                        return {
-                            ...prev,
-                            artist: data.artist,
-                            title: data.title,
-                            album: data.album || prev.album
-                        };
-                    });
-                }
             } else {
                 setLyricsData(null);
             }
@@ -1257,7 +1244,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             }
         }, 300);
         return () => clearInterval(timer);
-    }, [playingAudio]);
+    }, [playingAudio?.id, playingAudio?.streamUrl, isAudioPlaying]);
 
     // Track Selection & Audio Playback Handlers
     const playTrack = (track: MediaItem, queue?: MediaItem[], index?: number) => {
@@ -1803,7 +1790,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                 addAudioNerdLog('warn', `Direct play() error: ${e.message}`);
             });
         }
-    }, [playingAudio]);
+    }, [playingAudio?.id, playingAudio?.streamUrl]);
 
     const fetchArtistInfo = async (artistName?: string) => {
         const target = (artistName || playingAudio?.artist || '').trim();
