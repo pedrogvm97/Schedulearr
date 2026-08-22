@@ -124,27 +124,86 @@ export async function GET(req: Request) {
             );
         }
 
-        // 3. Query Online Music (YouTube / Apple Music)
+        // 3. Query Online Music (YouTube Music Scrape + iTunes Fallback)
         promises.push(
-            axios.get(`https://itunes.apple.com/search?term=${cleanQ}&media=music&limit=8`, { timeout: 4000 }).then(res => {
-                if (res.data?.results) {
-                    res.data.results.forEach((track: any) => {
-                        const artwork = track.artworkUrl100 ? track.artworkUrl100.replace('100x100bb', '600x600bb') : '';
-                        externalAvailable.push({
-                            id: `itunes-${track.trackId}`,
-                            title: track.trackName,
-                            artist: track.artistName,
-                            album: track.collectionName || 'Single',
-                            duration: `${Math.floor((track.trackTimeMillis || 180000) / 60000)}:${Math.floor(((track.trackTimeMillis || 180000) % 60000) / 1000).toString().padStart(2, '0')}`,
-                            category: 'audio',
-                            posterUrl: artwork,
-                            previewUrl: track.previewUrl,
-                            source: 'Apple Music / Spotify',
-                            isLocal: false
-                        });
+            (async () => {
+                try {
+                    // YouTube Music Scrape
+                    const searchUrl = `https://www.youtube.com/results?search_query=${cleanQ}+audio`;
+                    const ytRes = await axios.get(searchUrl, {
+                        headers: {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                        },
+                        timeout: 6000
                     });
+
+                    const html = ytRes.data;
+                    const jsonMatch = html.match(/ytInitialData\s*=\s*({.+?});/);
+                    if (jsonMatch && jsonMatch[1]) {
+                        const data = JSON.parse(jsonMatch[1]);
+                        const contents = data?.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents?.[0]?.itemSectionRenderer?.contents || [];
+
+                        let count = 0;
+                        for (const item of contents) {
+                            const video = item.videoRenderer;
+                            if (video && video.videoId) {
+                                const title = video.title?.runs?.[0]?.text || 'Track';
+                                const artist = video.ownerText?.runs?.[0]?.text || video.channelTitle || 'Artist';
+                                const duration = video.lengthText?.simpleText || '3:30';
+                                const thumbnail = video.thumbnail?.thumbnails?.[video.thumbnail.thumbnails.length - 1]?.url || '';
+
+                                externalAvailable.push({
+                                    id: `yt-${video.videoId}`,
+                                    name: title,
+                                    title,
+                                    artist,
+                                    album: 'YouTube Music',
+                                    duration,
+                                    category: 'audio',
+                                    type: 'music',
+                                    extension: 'STREAM',
+                                    posterUrl: thumbnail,
+                                    source: 'YouTube Music',
+                                    streamUrl: `/api/theater/music/stream?ytId=${video.videoId}`,
+                                    youtubeId: video.videoId,
+                                    isLocal: false
+                                });
+                                count++;
+                                if (count >= 10) break;
+                            }
+                        }
+                    }
+                } catch (e: any) {
+                    console.warn('Global YouTube search error:', e.message);
                 }
-            }).catch(() => null)
+
+                // iTunes fallback if YouTube yielded few results
+                try {
+                    const itunesRes = await axios.get(`https://itunes.apple.com/search?term=${cleanQ}&media=music&limit=6`, { timeout: 4000 });
+                    if (itunesRes.data?.results) {
+                        itunesRes.data.results.forEach((track: any) => {
+                            const artwork = track.artworkUrl100 ? track.artworkUrl100.replace('100x100bb', '600x600bb') : '';
+                            externalAvailable.push({
+                                id: `itunes-${track.trackId}`,
+                                name: track.trackName,
+                                title: track.trackName,
+                                artist: track.artistName,
+                                album: track.collectionName || 'Single',
+                                duration: `${Math.floor((track.trackTimeMillis || 180000) / 60000)}:${Math.floor(((track.trackTimeMillis || 180000) % 60000) / 1000).toString().padStart(2, '0')}`,
+                                category: 'audio',
+                                type: 'music',
+                                extension: 'AAC',
+                                posterUrl: artwork,
+                                streamUrl: track.previewUrl || '',
+                                source: 'Apple Music / Spotify',
+                                isLocal: false
+                            });
+                        });
+                    }
+                } catch (e: any) {
+                    console.warn('Global iTunes search error:', e.message);
+                }
+            })()
         );
 
         await Promise.all(promises);

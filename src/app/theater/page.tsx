@@ -287,17 +287,27 @@ export default function TheaterPage() {
 
         setShowGlobalSearchDropdown(true);
         setIsSearchingGlobal(true);
+        setLoadingOnline(true);
         const timer = setTimeout(async () => {
             try {
-                const res = await fetch(`/api/search/global?q=${encodeURIComponent(query)}`);
-                if (res.ok) {
-                    const data = await res.json();
+                const [globalRes, onlineMusicRes] = await Promise.all([
+                    fetch(`/api/search/global?q=${encodeURIComponent(query)}`).catch(() => null),
+                    fetch(`/api/theater/music/online?q=${encodeURIComponent(query)}`).catch(() => null)
+                ]);
+
+                if (globalRes && globalRes.ok) {
+                    const data = await globalRes.json();
                     setGlobalSearchResults(data);
                 }
+                if (onlineMusicRes && onlineMusicRes.ok) {
+                    const data = await onlineMusicRes.json();
+                    setOnlineResults(data.results || []);
+                }
             } catch (err) {
-                console.error('Global search error:', err);
+                console.error('Search error:', err);
             } finally {
                 setIsSearchingGlobal(false);
+                setLoadingOnline(false);
             }
         }, 300);
 
@@ -2126,6 +2136,82 @@ export default function TheaterPage() {
                                         </div>
                                     );
                                 })}
+
+                                {/* YouTube Online Matches Embedded in Songs Tab when Searching */}
+                                {searchQuery.trim() && (
+                                    <div className="pt-6 space-y-3">
+                                        <div className="flex items-center justify-between px-2">
+                                            <span className="text-xs font-black uppercase tracking-wider text-red-400 flex items-center gap-1.5">
+                                                <Youtube size={16} /> YouTube &amp; Online Streaming Matches ({onlineResults.length})
+                                            </span>
+                                            {loadingOnline && (
+                                                <span className="text-[10px] text-amber-400 font-bold flex items-center gap-1">
+                                                    <RefreshCw size={11} className="animate-spin" /> Searching YouTube...
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        {onlineResults.length > 0 ? (
+                                            <div className="space-y-2">
+                                                {onlineResults.map(song => (
+                                                    <div
+                                                        key={song.id}
+                                                        onClick={() => handlePlayTrack(song, onlineResults)}
+                                                        className="flex items-center justify-between p-3 sm:p-4 rounded-2xl bg-zinc-950/70 border border-zinc-900 hover:border-red-500/40 transition-all cursor-pointer group"
+                                                    >
+                                                        <div className="flex items-center gap-4 min-w-0">
+                                                            <div className="w-12 h-12 rounded-xl bg-zinc-900 overflow-hidden flex items-center justify-center text-zinc-400 shrink-0">
+                                                                {song.posterUrl ? (
+                                                                    <img src={song.posterUrl} alt="" className="w-full h-full object-cover" />
+                                                                ) : (
+                                                                    <Youtube size={20} className="text-red-500" />
+                                                                )}
+                                                            </div>
+                                                            <div className="min-w-0">
+                                                                <h4 className="font-bold text-sm sm:text-base text-white truncate group-hover:text-red-400 transition-colors">
+                                                                    {song.title}
+                                                                </h4>
+                                                                <p className="text-xs text-zinc-500 truncate">
+                                                                    {song.artist} • <span className="text-red-400">{song.source}</span> • {song.duration}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleDownloadTrack(song);
+                                                                }}
+                                                                className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs font-bold transition-all flex items-center gap-1.5"
+                                                                title="Download / Choose Format & Library"
+                                                            >
+                                                                <Download size={14} /> Download
+                                                            </button>
+
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleGrabTrackToLibrary(song);
+                                                                }}
+                                                                className="px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 text-xs font-bold transition-all flex items-center gap-1.5"
+                                                                title="Grab & Download to Local Library Folder"
+                                                            >
+                                                                <Plus size={14} /> Add to Library
+                                                            </button>
+
+                                                            <button className="w-9 h-9 rounded-xl bg-red-500/15 group-hover:bg-red-500 text-red-400 group-hover:text-white flex items-center justify-center transition-all">
+                                                                <Play size={15} className="ml-0.5" />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : !loadingOnline ? (
+                                            <p className="text-xs text-zinc-600 px-2 italic">No online YouTube tracks found for "{searchQuery}"</p>
+                                        ) : null}
+                                    </div>
+                                )}
                             </div>
                         )}
 
@@ -2189,38 +2275,30 @@ export default function TheaterPage() {
                         {/* 5. ONLINE YOUTUBE & SPOTIFY SEARCH TAB */}
                         {musicTab === 'online' && (
                             <div className="space-y-6 max-w-4xl mx-auto">
-                                <div className="p-6 rounded-3xl bg-[#09090b] border border-zinc-800 space-y-3">
-                                    <div className="flex items-center gap-2">
-                                        <Youtube size={22} className="text-red-500" />
-                                        <h3 className="text-base font-black text-white">Search YouTube & Spotify Stream Fallback</h3>
+                                <div className="p-5 rounded-3xl bg-[#09090b] border border-zinc-800 flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-3 bg-red-500/15 text-red-400 rounded-2xl border border-red-500/30">
+                                            <Youtube size={24} />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-base font-black text-white">YouTube &amp; Online Stream Matches</h3>
+                                            <p className="text-xs text-zinc-400">
+                                                {searchQuery.trim()
+                                                    ? `Showing live YouTube results for "${searchQuery}" (using top search bar)`
+                                                    : 'Type any artist or song in the top search bar above to find YouTube tracks.'}
+                                            </p>
+                                        </div>
                                     </div>
-                                    <p className="text-xs text-zinc-400">
-                                        Search millions of tracks online. Play them immediately with real audio streaming, or grab and download them directly into your local library with clean folders and album art!
-                                    </p>
 
-                                    <div className="flex gap-2 pt-2">
-                                        <input
-                                            type="text"
-                                            placeholder="Enter song title or artist (e.g. Bohemian Rhapsody, Daft Punk Get Lucky)..."
-                                            value={onlineMusicQuery}
-                                            onChange={e => setOnlineMusicQuery(e.target.value)}
-                                            onKeyDown={e => { if (e.key === 'Enter') handleSearchOnlineMusic(onlineMusicQuery); }}
-                                            className="flex-1 bg-zinc-950 border border-zinc-800 rounded-2xl px-5 py-3.5 text-sm text-white placeholder-zinc-600 outline-none focus:border-amber-500"
-                                        />
-                                        <button
-                                            disabled={loadingOnline}
-                                            onClick={() => handleSearchOnlineMusic(onlineMusicQuery)}
-                                            className="px-6 bg-red-600 hover:bg-red-500 text-white font-black text-xs uppercase tracking-wider rounded-2xl transition-all flex items-center gap-2 shadow-lg shadow-red-500/20 disabled:opacity-50"
-                                        >
-                                            {loadingOnline ? <RefreshCw size={16} className="animate-spin" /> : <Search size={16} />}
-                                            Search
-                                        </button>
-                                    </div>
+                                    {loadingOnline && (
+                                        <span className="px-3 py-1 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20 text-xs font-bold flex items-center gap-1.5">
+                                            <RefreshCw size={13} className="animate-spin" /> Searching...
+                                        </span>
+                                    )}
                                 </div>
 
-                                {onlineResults.length > 0 && (
+                                {onlineResults.length > 0 ? (
                                     <div className="space-y-2">
-                                        <h4 className="text-xs font-black uppercase text-zinc-500 tracking-wider px-2">Online Search Results</h4>
                                         <div className="space-y-2">
                                             {onlineResults.map((song) => {
                                                 const isGrabbing = grabbingTracks[song.id];
@@ -2249,6 +2327,18 @@ export default function TheaterPage() {
                                                         </div>
 
                                                         <div className="flex items-center gap-2">
+                                                            {/* Download Modal Trigger */}
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleDownloadTrack(song);
+                                                                }}
+                                                                className="px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs font-bold transition-all flex items-center gap-1.5"
+                                                                title="Download with Quality / Folder Options"
+                                                            >
+                                                                <Download size={14} /> Download
+                                                            </button>
+
                                                             {/* Grab to Library Button */}
                                                             <button
                                                                 disabled={isGrabbing}
@@ -2257,24 +2347,12 @@ export default function TheaterPage() {
                                                                     handleGrabTrackToLibrary(song);
                                                                 }}
                                                                 className="px-3 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 text-xs font-bold transition-all flex items-center gap-1.5"
-                                                                title="Grab & Download to Local Library Folder (Sonarr/Lidarr style)"
+                                                                title="Grab &amp; Download to Local Library Folder (Sonarr/Lidarr style)"
                                                             >
-                                                                {isGrabbing ? <RefreshCw size={14} className="animate-spin" /> : <ArrowDownToLine size={14} />}
-                                                                <span className="hidden sm:inline">Grab to Library</span>
+                                                                <Plus size={14} /> {isGrabbing ? 'Adding...' : 'Add to Library'}
                                                             </button>
 
-                                                            <button
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    setAddToPlaylistTrack(song);
-                                                                    setIsCreatePlaylistModalOpen(true);
-                                                                }}
-                                                                className="p-2.5 rounded-xl text-zinc-500 hover:text-amber-400 hover:bg-amber-500/10 transition-colors"
-                                                                title="Save to Playlist"
-                                                            >
-                                                                <ListPlus size={16} />
-                                                            </button>
-                                                            <button className="w-10 h-10 rounded-xl bg-red-600 hover:bg-red-500 text-white flex items-center justify-center transition-all shadow-md">
+                                                            <button className="w-10 h-10 rounded-xl bg-red-500/15 group-hover:bg-red-500 text-red-400 group-hover:text-white flex items-center justify-center transition-all">
                                                                 <Play size={16} className="ml-0.5" />
                                                             </button>
                                                         </div>
@@ -2283,7 +2361,11 @@ export default function TheaterPage() {
                                             })}
                                         </div>
                                     </div>
-                                )}
+                                ) : !loadingOnline && searchQuery.trim() ? (
+                                    <div className="p-12 text-center bg-zinc-950/40 rounded-3xl border border-zinc-900 text-zinc-500 text-sm">
+                                        No YouTube search results found for "{searchQuery}".
+                                    </div>
+                                ) : null}
                             </div>
                         )}
                     </div>
