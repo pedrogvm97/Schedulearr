@@ -9,7 +9,7 @@ import {
     RefreshCw, ChevronDown, Sliders, Cast, Tv, Trash2, Plus,
     Image as ImageIcon, Guitar, Activity, Zap, Layers, Music2,
     Terminal, AlertTriangle, RotateCcw, Copy, User, ExternalLink, Calendar, Radio,
-    Star, ListPlus, Heart
+    Star, ListPlus, Heart, Youtube
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -97,6 +97,7 @@ interface MusicPlayerContextType {
     openArtistDetails: (artistName?: string) => void;
     handleDownloadTrack: (track: MediaItem | null) => void;
     handleDownloadAlbum: (tracks: MediaItem[], albumName?: string) => void;
+    addToQueue: (track: MediaItem) => void;
 }
 
 const MusicPlayerContext = createContext<MusicPlayerContextType | null>(null);
@@ -447,9 +448,16 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     // UI Drawer & Modal States
     const [showQueueDrawer, setShowQueueDrawer] = useState(false);
     const [isExpandedPlayerOpen, setIsExpandedPlayerOpen] = useState(false);
-    const [expandedSidePanel, setExpandedSidePanel] = useState<'karaoke' | 'guitar' | 'bass' | 'sing' | 'artist' | 'queue' | 'specs'>('karaoke');
+    const [expandedSidePanel, setExpandedSidePanel] = useState<'karaoke' | 'guitar' | 'bass' | 'sing' | 'artist' | 'queue' | 'specs' | 'search'>('karaoke');
     const [showExpandedSidePanel, setShowExpandedSidePanel] = useState(true);
     const [isVinylView, setIsVinylView] = useState(true);
+
+    // In-Player Live Search States (Search YouTube & Library without exiting player)
+    const [inPlayerSearchQuery, setInPlayerSearchQuery] = useState('');
+    const [inPlayerFilter, setInPlayerFilter] = useState<'all' | 'library' | 'youtube'>('all');
+    const [inPlayerSearchResultsLocal, setInPlayerSearchResultsLocal] = useState<MediaItem[]>([]);
+    const [inPlayerSearchResultsOnline, setInPlayerSearchResultsOnline] = useState<MediaItem[]>([]);
+    const [inPlayerSearchLoading, setInPlayerSearchLoading] = useState(false);
 
     // Download Modal States
     const [showDownloadModal, setShowDownloadModal] = useState(false);
@@ -901,6 +909,78 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         setDownloadTargetAlbumTracks(tracks);
         setDownloadTargetAlbumName(albumName || tracks[0]?.album || 'Album');
         setShowDownloadModal(true);
+    };
+
+    const addToQueue = (track: MediaItem) => {
+        setAudioQueue(prev => [...prev, track]);
+        toast.success(`Added "${track.title}" to Playback Queue!`);
+    };
+
+    const handleInPlayerSearch = async (query: string) => {
+        const q = query.trim();
+        if (!q) {
+            setInPlayerSearchResultsLocal([]);
+            setInPlayerSearchResultsOnline([]);
+            return;
+        }
+        setInPlayerSearchLoading(true);
+        try {
+            const onlinePromise = fetch(`/api/theater/music/online?q=${encodeURIComponent(q)}`)
+                .then(r => r.ok ? r.json() : { results: [] })
+                .catch(() => ({ results: [] }));
+
+            const localPromise = fetch(`/api/search/global?q=${encodeURIComponent(q)}`)
+                .then(r => r.ok ? r.json() : { results: [] })
+                .catch(() => ({ results: [] }));
+
+            const [onlineData, localData] = await Promise.all([onlinePromise, localPromise]);
+
+            const onlineTracks: MediaItem[] = (onlineData.results || []).map((t: any) => ({
+                id: t.id || `yt-${t.youtubeId || Math.random()}`,
+                name: t.title,
+                title: t.title,
+                path: '',
+                folder: t.channel || t.artist || 'YouTube',
+                artist: t.artist || t.channel || 'YouTube Artist',
+                album: t.album || 'YouTube Music',
+                category: 'audio' as const,
+                extension: 'mp3',
+                sizeBytes: 0,
+                modifiedAt: new Date().toISOString(),
+                duration: t.duration,
+                posterUrl: t.posterUrl,
+                streamUrl: t.streamUrl || `/api/theater/music/stream?ytId=${t.youtubeId || t.id}`,
+                youtubeId: t.youtubeId || t.id,
+                source: 'YouTube'
+            }));
+
+            const localTracks: MediaItem[] = (localData.results || [])
+                .filter((item: any) => item.type === 'music' || item.streamUrl?.includes('music') || item.artist || item.track)
+                .map((item: any) => ({
+                    id: item.id || `local-${Math.random()}`,
+                    name: item.title || item.name,
+                    title: item.title || item.name,
+                    path: item.path || '',
+                    folder: item.folder || 'Music Library',
+                    artist: item.artist || item.folder || 'Library Artist',
+                    album: item.album || 'Music Library',
+                    category: 'audio' as const,
+                    extension: item.extension || 'mp3',
+                    sizeBytes: item.sizeBytes || 0,
+                    modifiedAt: item.modifiedAt || new Date().toISOString(),
+                    duration: item.duration,
+                    posterUrl: item.posterUrl,
+                    streamUrl: item.streamUrl || `/api/theater/stream?id=${item.id}&type=music`,
+                    source: 'Library'
+                }));
+
+            setInPlayerSearchResultsLocal(localTracks);
+            setInPlayerSearchResultsOnline(onlineTracks);
+        } catch (e) {
+            console.error('In-player search error:', e);
+        } finally {
+            setInPlayerSearchLoading(false);
+        }
     };
 
     // Grab Online Track to Local Music Library
@@ -1617,7 +1697,8 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                 closeExpandedPlayer: () => setIsExpandedPlayerOpen(false),
                 openArtistDetails,
                 handleDownloadTrack,
-                handleDownloadAlbum
+                handleDownloadAlbum,
+                addToQueue
             }}
         >
             {/* Embedded YouTube Player Container for direct lossless web audio */}
@@ -2126,6 +2207,23 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 <span className="hidden lg:inline">Bio & Discog</span>
                             </button>
 
+                            {/* In-Player Search Quick Button */}
+                            <button
+                                onClick={() => {
+                                    setShowExpandedSidePanel(true);
+                                    setExpandedSidePanel('search');
+                                }}
+                                className={`px-2.5 py-1.5 rounded-2xl border text-xs font-black uppercase tracking-wider flex items-center gap-1 transition-all ${
+                                    showExpandedSidePanel && expandedSidePanel === 'search'
+                                        ? 'bg-amber-500 text-black border-amber-400 shadow-md'
+                                        : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
+                                }`}
+                                title="Search Libraries & YouTube Without Exiting Player"
+                            >
+                                <Search size={13} className={showExpandedSidePanel && expandedSidePanel === 'search' ? 'text-black' : 'text-amber-400'} />
+                                <span className="hidden lg:inline">Search</span>
+                            </button>
+
                             {/* Force Server Transcode Button */}
                             <button
                                 onClick={handleForceAudioTranscode}
@@ -2545,6 +2643,14 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                             }`}
                                         >
                                             <ListMusic size={12} /> Queue ({audioQueue.length})
+                                        </button>
+                                        <button
+                                            onClick={() => setExpandedSidePanel('search')}
+                                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
+                                                expandedSidePanel === 'search' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                            }`}
+                                        >
+                                            <Search size={12} /> Search
                                         </button>
                                         <button
                                             onClick={() => setExpandedSidePanel('specs')}
@@ -3068,6 +3174,219 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         <div className="p-3 bg-zinc-900/40 rounded-xl border border-zinc-800 text-xs space-y-0.5">
                                             <span className="text-[10px] font-black uppercase text-zinc-500 block">Path / Source</span>
                                             <p className="font-mono text-[11px] text-zinc-400 break-all">{playingAudio.path || playingAudio.streamUrl}</p>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* 6. Search & Discover Tab Content */}
+                                {expandedSidePanel === 'search' && (
+                                    <div className="flex-1 min-h-0 flex flex-col space-y-3 overflow-hidden">
+                                        {/* Search Input Bar & Filters */}
+                                        <div className="flex items-center gap-2 shrink-0">
+                                            <div className="relative flex-1">
+                                                <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+                                                <input
+                                                    type="text"
+                                                    value={inPlayerSearchQuery}
+                                                    onChange={e => {
+                                                        setInPlayerSearchQuery(e.target.value);
+                                                        handleInPlayerSearch(e.target.value);
+                                                    }}
+                                                    onKeyDown={e => e.key === 'Enter' && handleInPlayerSearch(inPlayerSearchQuery)}
+                                                    placeholder="Search songs, artists, albums in Library & YouTube..."
+                                                    className="w-full bg-zinc-900 border border-zinc-800 text-white rounded-xl pl-10 pr-9 py-2.5 text-xs sm:text-sm placeholder-zinc-500 focus:outline-none focus:border-amber-400 font-medium transition-colors"
+                                                />
+                                                {inPlayerSearchQuery && (
+                                                    <button
+                                                        onClick={() => {
+                                                            setInPlayerSearchQuery('');
+                                                            setInPlayerSearchResultsLocal([]);
+                                                            setInPlayerSearchResultsOnline([]);
+                                                        }}
+                                                        className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-zinc-500 hover:text-white"
+                                                    >
+                                                        <X size={14} />
+                                                    </button>
+                                                )}
+                                            </div>
+
+                                            {/* Source Filter Toggle */}
+                                            <div className="flex bg-zinc-900 p-1 rounded-xl border border-zinc-800 shrink-0 text-[11px] font-bold">
+                                                {(['all', 'library', 'youtube'] as const).map(f => (
+                                                    <button
+                                                        key={f}
+                                                        onClick={() => setInPlayerFilter(f)}
+                                                        className={`px-2.5 py-1 rounded-lg uppercase tracking-wider transition-all ${
+                                                            inPlayerFilter === f
+                                                                ? 'bg-amber-500 text-black shadow-sm'
+                                                                : 'text-zinc-400 hover:text-white'
+                                                        }`}
+                                                    >
+                                                        {f === 'all' ? 'All' : f === 'library' ? 'Library' : 'YouTube'}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        {/* Results or Suggestions */}
+                                        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar space-y-4 pr-1">
+                                            {inPlayerSearchLoading && (
+                                                <div className="flex items-center justify-center gap-2 py-8 text-zinc-500 text-xs">
+                                                    <RefreshCw size={15} className="animate-spin text-amber-400" />
+                                                    <span>Searching Library & YouTube...</span>
+                                                </div>
+                                            )}
+
+                                            {!inPlayerSearchQuery && !inPlayerSearchLoading && (
+                                                <div className="space-y-3 py-2">
+                                                    <p className="text-xs font-bold text-zinc-400">Quick Artist & Genre Suggestions:</p>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {[
+                                                            playingAudio.artist,
+                                                            'OneRepublic',
+                                                            'Imagine Dragons',
+                                                            'Coldplay',
+                                                            'Acoustic',
+                                                            'Lo-Fi Beats',
+                                                            'Rock Classics',
+                                                            'Pop Hits',
+                                                            'Chill Vibes'
+                                                        ].filter(Boolean).map((tag, idx) => (
+                                                            <button
+                                                                key={`${tag}-${idx}`}
+                                                                onClick={() => {
+                                                                    setInPlayerSearchQuery(tag!);
+                                                                    handleInPlayerSearch(tag!);
+                                                                }}
+                                                                className="px-3 py-1.5 rounded-xl bg-zinc-900/90 hover:bg-amber-500/20 text-zinc-300 hover:text-amber-300 border border-zinc-800 text-xs font-bold transition-all"
+                                                            >
+                                                                🔍 {tag}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Local Library Matches */}
+                                            {(inPlayerFilter === 'all' || inPlayerFilter === 'library') && inPlayerSearchResultsLocal.length > 0 && (
+                                                <div className="space-y-2">
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-xs font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                                                            <Music size={13} /> In Your Library ({inPlayerSearchResultsLocal.length})
+                                                        </span>
+                                                    </div>
+                                                    <div className="space-y-1.5">
+                                                        {inPlayerSearchResultsLocal.map((track) => (
+                                                            <div
+                                                                key={track.id}
+                                                                className="p-2.5 bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-800/80 hover:border-zinc-700 rounded-2xl transition-all flex items-center justify-between gap-3 group"
+                                                            >
+                                                                <div className="flex items-center gap-3 min-w-0">
+                                                                    <div className="w-10 h-10 rounded-xl bg-zinc-800 overflow-hidden flex items-center justify-center text-zinc-500 shrink-0">
+                                                                        {track.posterUrl ? (
+                                                                            <img src={track.posterUrl} alt="" className="w-full h-full object-cover" />
+                                                                        ) : (
+                                                                            <Music size={16} />
+                                                                        )}
+                                                                    </div>
+                                                                    <div className="min-w-0">
+                                                                        <h4 className="font-bold text-xs sm:text-sm text-white truncate group-hover:text-amber-300 transition-colors">
+                                                                            {track.title}
+                                                                        </h4>
+                                                                        <p className="text-[11px] text-zinc-500 truncate">
+                                                                            {track.artist} • <span className="text-emerald-400">Library</span>
+                                                                        </p>
+                                                                    </div>
+                                                                </div>
+
+                                                                <div className="flex items-center gap-1.5 shrink-0">
+                                                                    <button
+                                                                        onClick={() => addToQueue(track)}
+                                                                        className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-all text-xs font-bold"
+                                                                        title="Add to Playback Queue"
+                                                                    >
+                                                                        <ListPlus size={14} />
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => playTrack(track)}
+                                                                        className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black transition-all text-xs font-black flex items-center gap-1 shadow-sm"
+                                                                        title="Play Track on Record Player"
+                                                                    >
+                                                                        <Play size={12} className="fill-black" /> Play
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* YouTube & Online Stream Matches */}
+                                            {(inPlayerFilter === 'all' || inPlayerFilter === 'youtube') && inPlayerSearchResultsOnline.length > 0 && (
+                                                <div className="space-y-2 pt-2">
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-xs font-black uppercase tracking-wider text-red-400 flex items-center gap-1.5">
+                                                            <Youtube size={14} /> YouTube &amp; Online Music ({inPlayerSearchResultsOnline.length})
+                                                        </span>
+                                                    </div>
+                                                    <div className="space-y-1.5">
+                                                        {inPlayerSearchResultsOnline.map((track) => (
+                                                            <div
+                                                                key={track.id}
+                                                                className="p-2.5 bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-800/80 hover:border-zinc-700 rounded-2xl transition-all flex items-center justify-between gap-3 group"
+                                                            >
+                                                                <div className="flex items-center gap-3 min-w-0">
+                                                                    <div className="w-10 h-10 rounded-xl bg-zinc-800 overflow-hidden flex items-center justify-center text-zinc-500 shrink-0">
+                                                                        {track.posterUrl ? (
+                                                                            <img src={track.posterUrl} alt="" className="w-full h-full object-cover" />
+                                                                        ) : (
+                                                                            <Youtube size={16} className="text-red-500" />
+                                                                        )}
+                                                                    </div>
+                                                                    <div className="min-w-0">
+                                                                        <h4 className="font-bold text-xs sm:text-sm text-white truncate group-hover:text-amber-300 transition-colors">
+                                                                            {track.title}
+                                                                        </h4>
+                                                                        <p className="text-[11px] text-zinc-500 truncate">
+                                                                            {track.artist} • <span className="text-red-400">YouTube</span> • {track.duration}
+                                                                        </p>
+                                                                    </div>
+                                                                </div>
+
+                                                                <div className="flex items-center gap-1.5 shrink-0">
+                                                                    <button
+                                                                        onClick={() => handleDownloadTrack(track)}
+                                                                        className="p-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 transition-all"
+                                                                        title="Download Track / Add to Library"
+                                                                    >
+                                                                        <Download size={14} />
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => addToQueue(track)}
+                                                                        className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-all"
+                                                                        title="Add to Playback Queue"
+                                                                    >
+                                                                        <ListPlus size={14} />
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => playTrack(track)}
+                                                                        className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black transition-all text-xs font-black flex items-center gap-1 shadow-sm"
+                                                                        title="Stream & Play on Record Player"
+                                                                    >
+                                                                        <Play size={12} className="fill-black" /> Play
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {inPlayerSearchQuery && !inPlayerSearchLoading && inPlayerSearchResultsLocal.length === 0 && inPlayerSearchResultsOnline.length === 0 && (
+                                                <div className="text-center py-8 text-zinc-500 text-xs italic">
+                                                    No tracks or artists found for "{inPlayerSearchQuery}". Try a different keyword.
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 )}
