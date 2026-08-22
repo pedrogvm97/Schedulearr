@@ -5,6 +5,7 @@ import { exec } from 'child_process';
 import util from 'util';
 import axios from 'axios';
 import db from '@/lib/db';
+import { getFFprobePath } from '@/lib/transcoder';
 
 const execPromise = util.promisify(exec);
 
@@ -31,6 +32,7 @@ export async function GET(req: Request) {
         const audioPath = searchParams.get('audioPath') || searchParams.get('filePath');
         const plexPart = searchParams.get('plexPart');
         const instanceId = searchParams.get('instanceId');
+        const ffprobeBin = getFFprobePath();
 
         // If audioPath is provided, perform deep audio probe
         if (audioPath && fs.existsSync(audioPath)) {
@@ -62,7 +64,7 @@ export async function GET(req: Request) {
             };
 
             try {
-                const { stdout } = await execPromise(`ffprobe -v quiet -print_format json -show_format -show_streams "${audioPath}"`, { timeout: 7000 });
+                const { stdout } = await execPromise(`"${ffprobeBin}" -v quiet -print_format json -show_format -show_streams "${audioPath}"`, { timeout: 7000 });
                 const data = JSON.parse(stdout);
                 const aStream = (data.streams || []).find((s: any) => s.codec_type === 'audio') || data.streams?.[0];
                 const fmt = data.format || {};
@@ -118,22 +120,22 @@ export async function GET(req: Request) {
 
         let original: any = {
             videoCodec: 'H.264 / AVC',
-            videoBitrate: 'Unknown',
-            resolution: '1920 x 1080 (1080p)',
-            fps: '24 fps',
+            resolution: '1920 x 1080 (1080p FHD)',
+            fps: '23.98 fps',
+            videoBitrate: '8.5 Mbps',
             audioCodec: 'AAC / Dolby Digital',
-            audioBitrate: '384 kbps',
             audioChannels: '5.1 Surround',
+            audioBitrate: '640 kbps',
             container: 'MP4 / MKV'
         };
 
-        // 1. Probe Local Video File using ffprobe if available
+        // 1. Probe Local Video File using ffprobe
         if (videoPath && fs.existsSync(videoPath)) {
             const ext = path.extname(videoPath).toUpperCase().replace('.', '');
             original.container = ext || 'MKV';
 
             try {
-                const { stdout } = await execPromise(`ffprobe -v quiet -print_format json -show_format -show_streams "${videoPath}"`, { timeout: 7000 });
+                const { stdout } = await execPromise(`"${ffprobeBin}" -v quiet -print_format json -show_format -show_streams "${videoPath}"`, { timeout: 7000 });
                 const data = JSON.parse(stdout);
 
                 const vStream = (data.streams || []).find((s: any) => s.codec_type === 'video');

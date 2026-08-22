@@ -5,7 +5,7 @@ import { getInstances } from '@/lib/db';
 import axios from 'axios';
 import { spawn } from 'child_process';
 import { Readable } from 'stream';
-import { detectHardwareEncoder, buildFFmpegArgs, QualityPreset } from '@/lib/transcoder';
+import { detectHardwareEncoder, buildFFmpegArgs, getFFmpegPath, QualityPreset } from '@/lib/transcoder';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,6 +48,7 @@ export async function GET(req: NextRequest) {
         const quality = (searchParams.get('quality') || 'auto') as QualityPreset;
         const startTime = searchParams.get('ss') || '0';
         const title = searchParams.get('title') || 'media';
+        const ffmpegBin = getFFmpegPath();
 
         // 0. Generate .M3U playlist file for VLC / External Players
         if (m3u === 'true') {
@@ -105,80 +106,135 @@ export async function GET(req: NextRequest) {
             const fileExt = path.extname(normalizedPlexPart.split('?')[0]).toLowerCase();
             const isAudioFile = ['.mp3', '.flac', '.wav', '.m4a', '.aac', '.ogg', '.opus', '.ape', '.dsf', '.wma', '.aiff', '.alac'].includes(fileExt);
 
+            const directPlexUrl = `${plexUrlBase}${normalizedPlexPart}${sep}X-Plex-Token=${plex.api_key}`;
+
             if (isAudioFile) {
                 // Audio file stream from Plex
                 if (transcode === 'audio' || transcode === 'mp3') {
-                    // Transcode audio via Plex universal music transcode endpoint
-                    plexStreamUrl = `${plexUrlBase}/music/:/transcode/universal/start.mp3?path=${encodeURIComponent(normalizedPlexPart)}&mediaIndex=0&partIndex=0&protocol=http&directPlay=0&directStream=1&directStreamAudio=1&fastSeek=1&copyts=1&X-Plex-Token=${plex.api_key}`;
-                } else {
-                    // Default to direct play stream for music
-                    plexStreamUrl = `${plexUrlBase}${normalizedPlexPart}${sep}X-Plex-Token=${plex.api_key}`;
-                }
-            } else if (transcode === 'direct') {
-                // Direct play stream for video from Plex
-                plexStreamUrl = `${plexUrlBase}${normalizedPlexPart}${sep}X-Plex-Token=${plex.api_key}`;
-            } else if (transcode === 'audio') {
-                // Audio-only transcode for video on Plex
-                plexStreamUrl = `${plexUrlBase}/video/:/transcode/universal/start.mp4?path=${encodeURIComponent(normalizedPlexPart)}&mediaIndex=0&partIndex=0&protocol=http&directPlay=0&directStream=1&directStreamAudio=0&fastSeek=1&copyts=1&X-Plex-Token=${plex.api_key}`;
-            } else {
-                // Universal Server-Side Optimized Transcode for video on Plex (Default)
-                let maxBitrate = '12000';
-                let resolution = '1920x1080';
-                if (quality === '1080p-high') { maxBitrate = '16000'; resolution = '1920x1080'; }
-                else if (quality === '720p') { maxBitrate = '4500'; resolution = '1280x720'; }
-                else if (quality === '480p') { maxBitrate = '1800'; resolution = '854x480'; }
+                    const plexMusicUrl = `${plexUrlBase}/music/:/transcode/universal/start.mp3?path=${encodeURIComponent(normalizedPlexPart)}&mediaIndex=0&partIndex=0&protocol=http&directPlay=0&directStream=1&directStreamAudio=1&fastSeek=1&copyts=1&X-Plex-Token=${plex.api_key}`;
+                    const reqHeaders: Record<string, string> = { 'X-Plex-Token': plex.api_key };
+                    const clientRange = req.headers.get('range');
+                    if (clientRange) reqHeaders['Range'] = clientRange;
 
-                plexStreamUrl = `${plexUrlBase}/video/:/transcode/universal/start.mp4?path=${encodeURIComponent(normalizedPlexPart)}&mediaIndex=0&partIndex=0&protocol=http&directPlay=0&directStream=1&directStreamAudio=0&fastSeek=1&copyts=1&maxVideoBitrate=${maxBitrate}&videoResolution=${resolution}&videoQuality=100&X-Plex-Token=${plex.api_key}`;
+                    let plexRes = await axios.get(plexMusicUrl, {
+                        headers: reqHeaders,
+                        responseType: 'stream',
+                        validateStatus: () => true
+                    });
+
+                    if (plexRes.status >= 400) {
+                        plexRes = await axios.get(directPlexUrl, {
+                            headers: reqHeaders,
+                            responseType: 'stream',
+                            validateStatus: () => true
+                        });
+                    }
+
+                    const resHeaders = new Headers();
+                    if (plexRes.headers['content-range']) resHeaders.set('Content-Range', String(plexRes.headers['content-range']));
+                    if (plexRes.headers['content-length']) resHeaders.set('Content-Length', String(plexRes.headers['content-length']));
+                    resHeaders.set('Content-Type', plexRes.headers['content-type'] || 'audio/mpeg');
+                    resHeaders.set('Accept-Ranges', 'bytes');
+                    resHeaders.set('X-Stream-Engine', 'Plex Audio Transcode');
+
+                    // @ts-ignore
+                    return new Response(plexRes.data as any, {
+                        status: plexRes.status,
+                        headers: resHeaders
+                    });
+                }
+
+                // Direct Play Audio Stream
+                const reqHeaders: Record<string, string> = { 'X-Plex-Token': plex.api_key };
+                const clientRange = req.headers.get('range');
+                if (clientRange) reqHeaders['Range'] = clientRange;
+
+                const plexRes = await axios.get(directPlexUrl, {
+                    headers: reqHeaders,
+                    responseType: 'stream',
+                    validateStatus: () => true
+                });
+
+                const resHeaders = new Headers();
+                if (plexRes.headers['content-range']) resHeaders.set('Content-Range', String(plexRes.headers['content-range']));
+                if (plexRes.headers['content-length']) resHeaders.set('Content-Length', String(plexRes.headers['content-length']));
+                resHeaders.set('Content-Type', plexRes.headers['content-type'] || getMimeType(fileExt || '.mp3'));
+                resHeaders.set('Accept-Ranges', 'bytes');
+                resHeaders.set('X-Stream-Engine', 'Plex Direct Audio');
+
+                // @ts-ignore
+                return new Response(plexRes.data as any, {
+                    status: plexRes.status,
+                    headers: resHeaders
+                });
             }
 
+            // Video from Plex: Universal FFmpeg Transcode (H.264 + AAC MP4)
+            if (transcode === 'universal' || transcode === 'full' || transcode === 'audio') {
+                try {
+                    const hwConfig = await detectHardwareEncoder();
+                    const ffmpegArgs = buildFFmpegArgs({
+                        filePath: directPlexUrl,
+                        startTime,
+                        quality,
+                        mode: transcode === 'audio' ? 'audio' : 'universal',
+                        config: hwConfig
+                    });
+
+                    const ffmpeg = spawn(ffmpegBin, ffmpegArgs);
+
+                    ffmpeg.stderr.on('data', (d) => {
+                        const str = d.toString();
+                        if (str.includes('Error') || str.includes('Invalid')) {
+                            console.warn('[FFmpeg Plex Video Transcode]:', str);
+                        }
+                    });
+
+                    req.signal.addEventListener('abort', () => {
+                        ffmpeg.kill('SIGKILL');
+                    });
+
+                    // @ts-ignore
+                    const webStream = Readable.toWeb(ffmpeg.stdout);
+
+                    return new Response(webStream as any, {
+                        status: 200,
+                        headers: {
+                            'Content-Type': 'video/mp4',
+                            'Cache-Control': 'no-cache, no-store, must-revalidate',
+                            'X-Hardware-Encoder': hwConfig.description,
+                            'X-Stream-Engine': 'Server-Side Universal H.264+AAC Transcode'
+                        }
+                    });
+                } catch (ffmpegErr: any) {
+                    console.warn('FFmpeg Plex transcode failed, falling back to direct stream:', ffmpegErr.message);
+                }
+            }
+
+            // Direct Video Play Stream from Plex (with byte ranges)
             const reqHeaders: Record<string, string> = {
                 'X-Plex-Token': plex.api_key
             };
-
             const clientRange = req.headers.get('range');
             if (clientRange) {
                 reqHeaders['Range'] = clientRange;
             }
 
-            const plexRes = await axios.get(plexStreamUrl, {
+            const plexRes = await axios.get(directPlexUrl, {
                 headers: reqHeaders,
                 responseType: 'stream',
                 validateStatus: () => true
             });
 
-            // If audio transcode failed on Plex, fallback to direct stream
-            if (isAudioFile && transcode === 'audio' && plexRes.status >= 400) {
-                const directPlexUrl = `${plexUrlBase}${normalizedPlexPart}${sep}X-Plex-Token=${plex.api_key}`;
-                const directRes = await axios.get(directPlexUrl, {
-                    headers: reqHeaders,
-                    responseType: 'stream',
-                    validateStatus: () => true
-                });
-                if (directRes.status < 400) {
-                    const resHeaders = new Headers();
-                    if (directRes.headers['content-range']) resHeaders.set('Content-Range', String(directRes.headers['content-range']));
-                    if (directRes.headers['content-length']) resHeaders.set('Content-Length', String(directRes.headers['content-length']));
-                    resHeaders.set('Content-Type', directRes.headers['content-type'] || getMimeType(fileExt || '.mp3'));
-                    resHeaders.set('Accept-Ranges', 'bytes');
-                    resHeaders.set('X-Stream-Engine', 'Plex Direct Stream');
-                    // @ts-ignore
-                    return new Response(directRes.data as any, {
-                        status: directRes.status,
-                        headers: resHeaders
-                    });
-                }
-            }
-
             const resHeaders = new Headers();
             if (plexRes.headers['content-range']) resHeaders.set('Content-Range', String(plexRes.headers['content-range']));
             if (plexRes.headers['content-length']) resHeaders.set('Content-Length', String(plexRes.headers['content-length']));
             
-            // Accurate MIME type detection for Audio & Video
             const incomingMime = plexRes.headers['content-type'];
-            const fallbackMime = getMimeType(fileExt || (isAudioFile ? '.mp3' : '.mp4'));
+            const fallbackMime = getMimeType(fileExt || '.mp4');
             resHeaders.set('Content-Type', incomingMime || fallbackMime);
             resHeaders.set('Accept-Ranges', 'bytes');
-            resHeaders.set('X-Stream-Engine', isAudioFile ? (transcode === 'audio' ? 'Plex Audio Transcode' : 'Plex Direct Audio') : 'Plex Native Transcoder');
+            resHeaders.set('X-Stream-Engine', 'Plex Direct Video');
 
             // @ts-ignore
             return new Response(plexRes.data as any, {
@@ -196,7 +252,7 @@ export async function GET(req: NextRequest) {
         const isVideo = ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.m4v', '.ts', '.wmv'].includes(ext);
 
         // 2A. Universal Server-Side Optimized Conversion (Default for Video unless direct requested)
-        if (isVideo && (transcode === 'universal' || transcode === 'full' || !transcode)) {
+        if (isVideo && (transcode === 'universal' || transcode === 'full')) {
             try {
                 const hwConfig = await detectHardwareEncoder();
                 const ffmpegArgs = buildFFmpegArgs({
@@ -207,7 +263,7 @@ export async function GET(req: NextRequest) {
                     config: hwConfig
                 });
 
-                const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+                const ffmpeg = spawn(ffmpegBin, ffmpegArgs);
 
                 ffmpeg.stderr.on('data', (d) => {
                     const str = d.toString();
@@ -227,8 +283,7 @@ export async function GET(req: NextRequest) {
                     status: 200,
                     headers: {
                         'Content-Type': 'video/mp4',
-                        'Transfer-Encoding': 'chunked',
-                        'Cache-Control': 'no-cache',
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
                         'X-Hardware-Encoder': hwConfig.description
                     }
                 });
@@ -249,7 +304,7 @@ export async function GET(req: NextRequest) {
                     config: hwConfig
                 });
 
-                const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+                const ffmpeg = spawn(ffmpegBin, ffmpegArgs);
 
                 ffmpeg.stderr.on('data', (d) => {
                     const str = d.toString();
@@ -269,8 +324,7 @@ export async function GET(req: NextRequest) {
                     status: 200,
                     headers: {
                         'Content-Type': 'video/mp4',
-                        'Transfer-Encoding': 'chunked',
-                        'Cache-Control': 'no-cache',
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
                         'X-Stream-Mode': 'Audio Transcode AAC'
                     }
                 });
@@ -293,7 +347,7 @@ export async function GET(req: NextRequest) {
                     'pipe:1'
                 ];
 
-                const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+                const ffmpeg = spawn(ffmpegBin, ffmpegArgs);
 
                 ffmpeg.stderr.on('data', (d) => {
                     const str = d.toString();
@@ -313,8 +367,7 @@ export async function GET(req: NextRequest) {
                     status: 200,
                     headers: {
                         'Content-Type': 'audio/mpeg',
-                        'Transfer-Encoding': 'chunked',
-                        'Cache-Control': 'no-cache',
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
                         'X-Stream-Engine': 'Server-Side MP3 Transcode (320 kbps)'
                     }
                 });

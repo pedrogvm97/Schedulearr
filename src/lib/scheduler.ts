@@ -98,22 +98,18 @@ export async function runBatchSearch(manualTrigger: boolean = false) {
 
     // ── 1. Independent Smart Auto-Clean Step ───────────────────────────────────
     try {
-        const autocleanEnabled = getSetting('disk_autoclean_enabled') === 'true';
+        const autocleanEnabled = getSetting('disk_autoclean_enabled') === 'true' || getSetting('storage_guard_autoclean_enabled') === 'true';
         if (autocleanEnabled) {
-            const cleanThresholdStr = getSetting('disk_autoclean_threshold') || getSetting('disk_pause_threshold') || '90';
+            const cleanThresholdStr = getSetting('disk_autoclean_threshold') || getSetting('storage_guard_autoclean_threshold') || getSetting('disk_pause_threshold') || '90';
             const cleanThreshold = parseInt(cleanThresholdStr) || 90;
-            const baseUrl = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-            const diskRes = await fetch(`${baseUrl}/api/system/disk`, { signal: AbortSignal.timeout(8000) }).catch(() => null);
-            if (diskRes?.ok) {
-                const diskData = await diskRes.json();
-                if (diskData.usedPercent >= cleanThreshold) {
-                    console.log(`[AUTO-CLEAN] ${diskData.usedPercent}% used ≥ ${cleanThreshold}% threshold. Triggering media cleanup...`);
-                    try {
-                        const { runSmartCleanup } = require('@/lib/autoCleanup');
-                        await runSmartCleanup();
-                    } catch (cleanErr: any) {
-                        console.error('❌ Smart Auto-Clean failed:', cleanErr.message);
-                    }
+            const { getDiskUsagePercent, runSmartCleanup } = require('@/lib/autoCleanup');
+            const usedPercent = await getDiskUsagePercent();
+            if (usedPercent >= cleanThreshold) {
+                console.log(`[AUTO-CLEAN] ${usedPercent}% used ≥ ${cleanThreshold}% threshold. Triggering media cleanup...`);
+                try {
+                    await runSmartCleanup();
+                } catch (cleanErr: any) {
+                    console.error('❌ Smart Auto-Clean failed:', cleanErr.message);
                 }
             }
         }
@@ -121,22 +117,19 @@ export async function runBatchSearch(manualTrigger: boolean = false) {
 
     // ── 2. Independent Search Pause Step ───────────────────────────────────────
     try {
-        const diskGuardEnabled = getSetting('disk_pause_enabled');
-        if (diskGuardEnabled === 'true') {
-            const thresholdStr = getSetting('disk_pause_threshold');
+        const diskGuardEnabled = getSetting('disk_pause_enabled') === 'true' || getSetting('storage_guard_pause_scheduler') === 'true';
+        if (diskGuardEnabled) {
+            const thresholdStr = getSetting('disk_pause_threshold') || getSetting('storage_guard_pause_threshold');
             const threshold = thresholdStr ? parseInt(thresholdStr) : 90;
             if (!isNaN(threshold) && threshold > 0) {
-                const baseUrl = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-                const diskRes = await fetch(`${baseUrl}/api/system/disk`, { signal: AbortSignal.timeout(8000) }).catch(() => null);
-                if (diskRes?.ok) {
-                    const diskData = await diskRes.json();
-                    if (diskData.usedPercent >= threshold) {
-                        const reason = `Disk guard: ${diskData.usedPercent}% used ≥ ${threshold}% threshold. ${(diskData.freeBytes / 1e9).toFixed(1)} GB free. Skipping search batch.`;
-                        console.warn(`⚠️  [SCHEDULER] ${reason}`);
-                        logSearchHistory('disk_guard', [], [], reason, 'disk_guard');
-                        defaultRes.reason = reason;
-                        return defaultRes;
-                    }
+                const { getDiskUsagePercent } = require('@/lib/autoCleanup');
+                const usedPercent = await getDiskUsagePercent();
+                if (usedPercent >= threshold) {
+                    const reason = `Disk guard: ${usedPercent}% used ≥ ${threshold}% threshold. Skipping search batch.`;
+                    console.warn(`⚠️  [SCHEDULER] ${reason}`);
+                    logSearchHistory('disk_guard', [], [], reason, 'disk_guard');
+                    defaultRes.reason = reason;
+                    return defaultRes;
                 }
             }
         }

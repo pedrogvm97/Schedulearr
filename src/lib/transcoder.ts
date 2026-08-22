@@ -1,11 +1,23 @@
 import { exec } from 'child_process';
 import util from 'util';
 import fs from 'fs';
+// @ts-ignore
+import ffmpegStatic from 'ffmpeg-static';
+// @ts-ignore
+import ffprobeStatic from 'ffprobe-static';
 
 const execPromise = util.promisify(exec);
 
 export type QualityPreset = '1080p-high' | '1080p' | '720p' | '480p' | 'original' | 'auto';
 export type HardwareEncoderType = 'qsv' | 'nvenc' | 'vaapi' | 'videotoolbox' | 'cpu';
+
+export function getFFmpegPath(): string {
+    return ffmpegStatic || 'ffmpeg';
+}
+
+export function getFFprobePath(): string {
+    return ffprobeStatic?.path || 'ffprobe';
+}
 
 interface TranscoderConfig {
     encoder: HardwareEncoderType;
@@ -26,31 +38,44 @@ export async function detectHardwareEncoder(): Promise<TranscoderConfig> {
         return cachedEncoderConfig;
     }
 
-    try {
-        const { stdout } = await execPromise('ffmpeg -encoders', { timeout: 3000 });
+    const ffmpegBin = getFFmpegPath();
 
-        // 1. Check Intel QuickSync (QSV)
-        if (stdout.includes('h264_qsv')) {
-            cachedEncoderConfig = {
-                encoder: 'qsv',
-                videoCodec: 'h264_qsv',
-                hwaccelFlag: ['-hwaccel', 'qsv'],
-                description: 'Intel QuickSync Video (QSV Hardware Accelerated)'
-            };
-            lastProbeTime = now;
-            return cachedEncoderConfig;
+    try {
+        const { stdout } = await execPromise(`"${ffmpegBin}" -encoders`, { timeout: 3000 });
+
+        // 1. Check NVIDIA NVENC (verify CUDA runtime is active)
+        if (stdout.includes('h264_nvenc')) {
+            try {
+                // Test a 1-frame probe to ensure CUDA/NVENC hardware driver is actually accessible
+                await execPromise(`"${ffmpegBin}" -f lavfi -i color=c=black:s=64x64:d=0.1 -c:v h264_nvenc -f null -`, { timeout: 2000 });
+                cachedEncoderConfig = {
+                    encoder: 'nvenc',
+                    videoCodec: 'h264_nvenc',
+                    hwaccelFlag: ['-hwaccel', 'cuda'],
+                    description: 'NVIDIA NVENC (CUDA Hardware Accelerated)'
+                };
+                lastProbeTime = now;
+                return cachedEncoderConfig;
+            } catch {
+                // NVENC encoder compiled in binary but driver/GPU not active
+            }
         }
 
-        // 2. Check NVIDIA NVENC
-        if (stdout.includes('h264_nvenc')) {
-            cachedEncoderConfig = {
-                encoder: 'nvenc',
-                videoCodec: 'h264_nvenc',
-                hwaccelFlag: ['-hwaccel', 'cuda'],
-                description: 'NVIDIA NVENC (CUDA Hardware Accelerated)'
-            };
-            lastProbeTime = now;
-            return cachedEncoderConfig;
+        // 2. Check Intel QuickSync (QSV)
+        if (stdout.includes('h264_qsv')) {
+            try {
+                await execPromise(`"${ffmpegBin}" -f lavfi -i color=c=black:s=64x64:d=0.1 -c:v h264_qsv -f null -`, { timeout: 2000 });
+                cachedEncoderConfig = {
+                    encoder: 'qsv',
+                    videoCodec: 'h264_qsv',
+                    hwaccelFlag: ['-hwaccel', 'qsv'],
+                    description: 'Intel QuickSync Video (QSV Hardware Accelerated)'
+                };
+                lastProbeTime = now;
+                return cachedEncoderConfig;
+            } catch {
+                // QSV hardware not active
+            }
         }
 
         // 3. Check Linux VAAPI (e.g. /dev/dri/renderD128)
@@ -66,7 +91,7 @@ export async function detectHardwareEncoder(): Promise<TranscoderConfig> {
         }
 
         // 4. Check Apple VideoToolbox (macOS)
-        if (stdout.includes('h264_videotoolbox')) {
+        if (stdout.includes('h264_videotoolbox') && process.platform === 'darwin') {
             cachedEncoderConfig = {
                 encoder: 'videotoolbox',
                 videoCodec: 'h264_videotoolbox',
@@ -76,7 +101,7 @@ export async function detectHardwareEncoder(): Promise<TranscoderConfig> {
             return cachedEncoderConfig;
         }
     } catch {
-        // Probe failed or ffmpeg not present in standard path
+        // Probe failed
     }
 
     // Default: Highly optimized multi-threaded CPU libx264
@@ -108,6 +133,17 @@ export function buildFFmpegArgs(params: {
         args.push('-ss', startSec.toString());
     }
 
+    // Network input stream options (for Plex HTTPS / remote NAS URLs)
+    if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
+        args.push(
+            '-reconnect', '1',
+            '-reconnect_at_eof', '1',
+            '-reconnect_streamed', '1',
+            '-reconnect_delay_max', '5',
+            '-tls_verify', '0'
+        );
+    }
+
     // Hardware acceleration flags before -i
     if (config.hwaccelFlag && mode === 'universal') {
         args.push(...config.hwaccelFlag);
@@ -120,8 +156,9 @@ export function buildFFmpegArgs(params: {
         args.push(
             '-c:v', 'copy',
             '-c:a', 'aac',
-            '-b:a', '256k',
+            '-b:a', '192k',
             '-ac', '2',
+            '-ar', '44100',
             '-sn',
             '-f', 'mp4',
             '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
@@ -130,12 +167,12 @@ export function buildFFmpegArgs(params: {
         return args;
     }
 
-    // Universal / Server-Side Optimized Conversion (H.264 High Profile + AAC Stereo)
-    let maxRate = '10M';
-    let bufSize = '20M';
-    let crf = '21';
+    // Universal / Server-Side Optimized Conversion (H.264 + AAC Stereo)
+    let maxRate = '8M';
+    let bufSize = '16M';
+    let crf = '22';
     let scaleFilter: string | null = null;
-    let audioBitrate = '256k';
+    let audioBitrate = '192k';
 
     switch (quality) {
         case '1080p-high':
@@ -201,7 +238,7 @@ export function buildFFmpegArgs(params: {
         // Standard high-efficiency CPU libx264
         args.push(
             '-c:v', 'libx264',
-            '-preset', 'veryfast',
+            '-preset', 'ultrafast',
             '-tune', 'zerolatency',
             '-crf', crf,
             '-maxrate', maxRate,
@@ -216,6 +253,7 @@ export function buildFFmpegArgs(params: {
         '-c:a', 'aac',
         '-b:a', audioBitrate,
         '-ac', '2',
+        '-ar', '44100',
         '-sn', // strip embedded subtitles that could break fragmented mp4 streaming
         '-f', 'mp4',
         '-movflags', 'frag_keyframe+empty_moov+default_base_moof',

@@ -737,7 +737,31 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         }
     };
 
-    const openCastPicker = (target: MediaItem) => {
+    const openCastPicker = async (target?: MediaItem) => {
+        // 1. Attempt native browser Remote Playback API (Chromecast, Google Cast, Smart TVs)
+        if (audioRef.current && 'remote' in audioRef.current && typeof (audioRef.current as any).remote?.prompt === 'function') {
+            try {
+                await (audioRef.current as any).remote.prompt();
+                toast.success('Connected to Cast Device!');
+                return;
+            } catch (e: any) {
+                if (e.name === 'NotAllowedError' || e.name === 'NotFoundError') {
+                    return;
+                }
+                console.warn('Native audio remote prompt error:', e);
+            }
+        }
+
+        // 2. Attempt Safari / Apple WebKit AirPlay Picker
+        if (audioRef.current && typeof (audioRef.current as any).webkitShowPlaybackTargetPicker === 'function') {
+            try {
+                (audioRef.current as any).webkitShowPlaybackTargetPicker();
+                return;
+            } catch (e) {
+                console.warn('WebKit AirPlay error:', e);
+            }
+        }
+
         fetchPairedTvSessions();
         setIsCastPickerModalOpen(true);
     };

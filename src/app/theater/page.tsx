@@ -352,6 +352,24 @@ export default function TheaterPage() {
         checkPairedTvs();
     }, []);
 
+    const handleOpenInVlc = (video: VideoStreamItem) => {
+        const streamOrigin = window.location.origin;
+        const directStreamUrl = video.streamUrl.startsWith('http') ? video.streamUrl : `${streamOrigin}${video.streamUrl}`;
+        const transcodeStreamUrl = `${directStreamUrl}${directStreamUrl.includes('?') ? '&' : '?'}transcode=universal`;
+        const m3uUrl = `${directStreamUrl}${directStreamUrl.includes('?') ? '&' : '?'}m3u=true&title=${encodeURIComponent(video.title)}&origin=${encodeURIComponent(streamOrigin)}`;
+
+        navigator.clipboard.writeText(directStreamUrl).catch(() => {});
+        setVlcModalInfo({
+            title: video.title,
+            m3uUrl,
+            directUrl: directStreamUrl,
+            transcodeUrl: transcodeStreamUrl
+        });
+        setIsVlcModalOpen(true);
+        addDebugLog('info', 'Opened VLC streaming modal for video', { title: video.title, directStreamUrl });
+        toast.success('Stream URL copied! Opening VLC details...');
+    };
+
     const handleApproveTv = async () => {
         if (!tvPairPin.trim()) return;
         setIsPairingTv(true);
@@ -376,8 +394,37 @@ export default function TheaterPage() {
         }
     };
 
-    const openCastPicker = async (media: MediaItem | IptvChannel) => {
-        setCastingTargetMedia(media);
+    const openCastPicker = async (media?: MediaItem | IptvChannel) => {
+        const target = media || playingVideo || playingChannel;
+        if (target) setCastingTargetMedia(target);
+
+        // 1. Attempt native browser Remote Playback API (Chromecast, Google Cast, Smart TVs in Chrome / Edge / Android)
+        const videoEl = videoRef.current || liveVideoRef.current;
+        if (videoEl && 'remote' in videoEl && typeof (videoEl as any).remote?.prompt === 'function') {
+            try {
+                await (videoEl as any).remote.prompt();
+                toast.success('Connected to Cast Device!');
+                return;
+            } catch (e: any) {
+                if (e.name === 'NotAllowedError' || e.name === 'NotFoundError') {
+                    // User cancelled device selection
+                    return;
+                }
+                console.warn('Native remote prompt error:', e);
+            }
+        }
+
+        // 2. Attempt Safari / Apple WebKit AirPlay Picker
+        if (videoEl && typeof (videoEl as any).webkitShowPlaybackTargetPicker === 'function') {
+            try {
+                (videoEl as any).webkitShowPlaybackTargetPicker();
+                return;
+            } catch (e) {
+                console.warn('WebKit AirPlay error:', e);
+            }
+        }
+
+        // 3. Open unified Cast & Device Picker modal
         setIsCastPickerModalOpen(true);
         setLoadingPairedTvs(true);
         try {
@@ -389,7 +436,7 @@ export default function TheaterPage() {
                 setPairedTvCount(sessions.length);
             }
         } catch {
-            toast.error('Failed to load paired devices');
+            // Silently handle
         } finally {
             setLoadingPairedTvs(false);
         }
@@ -958,7 +1005,8 @@ export default function TheaterPage() {
                 hlsInstanceRef.current = hls;
             } else {
                 video.src = streamUrl;
-                addDebugLog('info', `Set HTML5 video.src to "${streamUrl}"`);
+                video.load();
+                addDebugLog('info', `Set HTML5 video.src to "${streamUrl}" and called video.load()`);
                 video.play().catch((e) => {
                     addDebugLog('warn', `Video play() rejected: ${e.message}`);
                 });
@@ -2712,28 +2760,7 @@ export default function TheaterPage() {
 
                                 {/* Open in VLC */}
                                 <button
-                                    onClick={() => {
-                                        const origin = window.location.origin;
-                                        const m3uUrl = `${origin}${playingVideo.streamUrl}&m3u=true&origin=${encodeURIComponent(origin)}&title=${encodeURIComponent(playingVideo.title)}`;
-                                        const directStreamUrl = `${origin}${playingVideo.streamUrl}&transcode=direct`;
-                                        const transcodeStreamUrl = `${origin}${playingVideo.streamUrl}&transcode=universal`;
-                                        navigator.clipboard.writeText(directStreamUrl);
-                                        const a = document.createElement('a');
-                                        a.href = m3uUrl;
-                                        a.download = `${playingVideo.title.replace(/[^a-zA-Z0-9_-]/g, '_')}.m3u`;
-                                        document.body.appendChild(a);
-                                        a.click();
-                                        document.body.removeChild(a);
-                                        setVlcModalInfo({
-                                            title: playingVideo.title,
-                                            m3uUrl,
-                                            directUrl: directStreamUrl,
-                                            transcodeUrl: transcodeStreamUrl
-                                        });
-                                        setIsVlcModalOpen(true);
-                                        addDebugLog('info', 'Generated .m3u playlist and opened VLC modal');
-                                        toast.success('Direct Stream URL copied! Opening VLC playlist file (.m3u)...');
-                                    }}
+                                    onClick={() => handleOpenInVlc(playingVideo)}
                                     className="p-2 sm:p-2.5 rounded-xl bg-orange-500/15 hover:bg-orange-500 text-orange-400 hover:text-black border border-orange-500/30 text-xs font-bold flex items-center gap-1.5 transition-all"
                                     title="Open Stream in VLC Media Player (.m3u playlist download & stream links)"
                                 >
@@ -2861,17 +2888,23 @@ export default function TheaterPage() {
                                         💡 {playbackError.suggestion}
                                     </p>
 
-                                    <div className="flex flex-wrap items-center justify-center gap-2.5 max-w-lg">
+                                    <div className="flex flex-wrap items-center justify-center gap-3 max-w-xl">
                                         <button
                                             onClick={() => {
                                                 setVideoAudioMode('universal');
                                                 setPlaybackError(null);
                                                 addDebugLog('info', 'User triggered switch to Full Universal Transcode');
-                                                toast.info('Switched to Full Universal Transcode (H.264 + AAC)');
+                                                toast.info('Starting Full Universal Transcode (H.264 + AAC)...');
+                                                if (videoRef.current && playingVideo) {
+                                                    const base = playingVideo.streamUrl;
+                                                    videoRef.current.src = `${base}${base.includes('?') ? '&' : '?'}transcode=universal&quality=${videoQuality}&_t=${Date.now()}`;
+                                                    videoRef.current.load();
+                                                    videoRef.current.play().catch(() => {});
+                                                }
                                             }}
-                                            className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-2 shadow-lg transition-all"
+                                            className="px-5 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-2 shadow-xl shadow-emerald-500/20 transition-all cursor-pointer"
                                         >
-                                            <RefreshCcw size={14} /> Full Transcode (Universal H.264)
+                                            <RefreshCcw size={15} /> Universal Transcode (H.264 + AAC)
                                         </button>
 
                                         <button
@@ -2879,25 +2912,33 @@ export default function TheaterPage() {
                                                 setVideoAudioMode('transcode');
                                                 setPlaybackError(null);
                                                 addDebugLog('info', 'User triggered switch to Audio AAC Transcode');
-                                                toast.info('Switched to Audio AAC Transcode');
+                                                toast.info('Starting Audio AAC Transcode...');
+                                                if (videoRef.current && playingVideo) {
+                                                    const base = playingVideo.streamUrl;
+                                                    videoRef.current.src = `${base}${base.includes('?') ? '&' : '?'}transcode=audio&_t=${Date.now()}`;
+                                                    videoRef.current.load();
+                                                    videoRef.current.play().catch(() => {});
+                                                }
                                             }}
-                                            className="px-4 py-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/40 font-bold text-xs flex items-center gap-2 transition-all"
+                                            className="px-5 py-3 rounded-2xl bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/40 font-bold text-xs uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer"
                                         >
-                                            <Headphones size={14} /> Audio: AAC Mode
+                                            <Headphones size={15} /> Audio AAC Transcode
+                                        </button>
+
+                                        <button
+                                            onClick={() => {
+                                                if (playingVideo) handleOpenInVlc(playingVideo);
+                                            }}
+                                            className="px-4 py-3 rounded-2xl bg-orange-500/20 hover:bg-orange-500 text-orange-300 hover:text-black border border-orange-500/40 font-bold text-xs flex items-center gap-2 transition-all cursor-pointer"
+                                        >
+                                            <ExternalLink size={15} /> Open in VLC
                                         </button>
 
                                         <button
                                             onClick={() => setShowNerdToolsModal(true)}
-                                            className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-700 font-bold text-xs flex items-center gap-2 transition-all"
+                                            className="px-4 py-3 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 font-bold text-xs flex items-center gap-2 transition-all cursor-pointer"
                                         >
-                                            <Terminal size={14} /> Nerd Tools & Logs
-                                        </button>
-
-                                        <button
-                                            onClick={handleCopyDebugReport}
-                                            className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 font-bold text-xs flex items-center gap-2 transition-all"
-                                        >
-                                            <Copy size={14} /> Copy Debug Info
+                                            <Terminal size={15} /> Logs
                                         </button>
                                     </div>
                                 </div>
@@ -4099,20 +4140,55 @@ export default function TheaterPage() {
                             </div>
                         </div>
 
+                        <div className="space-y-4">
+                            {/* Primary: Native Device Search */}
+                            <button
+                                onClick={async () => {
+                                    const videoEl = videoRef.current || liveVideoRef.current;
+                                    if (videoEl && 'remote' in videoEl && typeof (videoEl as any).remote?.prompt === 'function') {
+                                        try {
+                                            await (videoEl as any).remote.prompt();
+                                            setIsCastPickerModalOpen(false);
+                                            toast.success('Connected to Cast Device');
+                                            return;
+                                        } catch (e: any) {
+                                            if (e.name !== 'NotAllowedError' && e.name !== 'NotFoundError') {
+                                                console.warn(e);
+                                            }
+                                        }
+                                    }
+                                    if (videoEl && typeof (videoEl as any).webkitShowPlaybackTargetPicker === 'function') {
+                                        try {
+                                            (videoEl as any).webkitShowPlaybackTargetPicker();
+                                            setIsCastPickerModalOpen(false);
+                                            return;
+                                        } catch (e) {
+                                            console.warn(e);
+                                        }
+                                    }
+                                    toast.info('Searching for local Google Cast / AirPlay devices...');
+                                }}
+                                className="w-full py-4 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black text-sm uppercase tracking-wider rounded-2xl transition-all shadow-xl shadow-purple-500/25 flex items-center justify-center gap-3 cursor-pointer"
+                            >
+                                <Cast size={18} /> Search & Cast to Nearby Devices
+                            </button>
+
+                            <p className="text-center text-xs text-zinc-500">
+                                Connects directly via Chrome / Android Google Cast, Apple AirPlay, or Smart TV DLNA.
+                            </p>
+                        </div>
+
                         {loadingPairedTvs ? (
-                            <div className="flex flex-col items-center justify-center py-12 gap-2">
-                                <RefreshCw size={24} className="animate-spin text-purple-400" />
-                                <span className="text-xs text-zinc-500 font-bold">Scanning paired Smart TVs...</span>
+                            <div className="flex flex-col items-center justify-center py-8 gap-2">
+                                <RefreshCw size={22} className="animate-spin text-purple-400" />
+                                <span className="text-xs text-zinc-500 font-bold">Checking linked TV sessions...</span>
                             </div>
                         ) : pairedTvSessions.length === 0 ? (
-                            <div className="p-6 rounded-3xl bg-zinc-950 border border-zinc-900 text-center space-y-4">
-                                <div className="w-14 h-14 rounded-2xl bg-zinc-900 flex items-center justify-center text-zinc-600 mx-auto">
-                                    <Tv size={28} />
-                                </div>
+                            <div className="p-5 rounded-2xl bg-zinc-950/80 border border-zinc-900 text-center space-y-3">
                                 <div className="space-y-1">
-                                    <h4 className="text-sm font-bold text-white">No Smart TVs Paired Yet</h4>
+                                    <h4 className="text-sm font-bold text-white">Browser TV Link (/tv)</h4>
                                     <p className="text-xs text-zinc-500 max-w-xs mx-auto">
-                                        Open <span className="text-purple-400 font-mono font-bold">/tv</span> on any TV browser (at home or abroad) and link with a 6-digit code.
+                                        You can also open <span className="text-purple-400 font-mono font-bold">/tv</span> in any TV browser to link it permanently.
                                     </p>
                                 </div>
 
@@ -4121,25 +4197,25 @@ export default function TheaterPage() {
                                         setIsCastPickerModalOpen(false);
                                         setIsPairTvModalOpen(true);
                                     }}
-                                    className="px-6 py-3 bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs uppercase tracking-wider rounded-2xl transition-all shadow-lg shadow-purple-500/20"
+                                    className="px-5 py-2.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 font-bold text-xs uppercase tracking-wider rounded-xl transition-all"
                                 >
-                                    Pair New TV
+                                    Link /tv Browser Screen
                                 </button>
                             </div>
                         ) : (
                             <div className="space-y-3">
                                 <div className="flex items-center justify-between">
-                                    <label className="text-[10px] font-black uppercase text-zinc-500 tracking-wider">
-                                        Paired Devices ({pairedTvSessions.length})
+                                    <label className="text-[11px] font-black uppercase text-zinc-500 tracking-wider">
+                                        Linked /tv Screens ({pairedTvSessions.length})
                                     </label>
                                     <button
                                         onClick={() => {
                                             setIsCastPickerModalOpen(false);
                                             setIsPairTvModalOpen(true);
                                         }}
-                                        className="text-[10px] font-bold text-purple-400 hover:underline flex items-center gap-1"
+                                        className="text-xs font-bold text-purple-400 hover:underline flex items-center gap-1"
                                     >
-                                        <Plus size={11} /> Pair Another TV
+                                        <Plus size={12} /> Link Another
                                     </button>
                                 </div>
 
@@ -4218,12 +4294,15 @@ export default function TheaterPage() {
                             </button>
                         </div>
 
-                        {/* M3U Download Notification */}
-                        <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-3 text-xs text-emerald-300">
-                            <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />
-                            <span>
-                                <strong>Playlist Downloaded:</strong> The <code className="bg-emerald-950 px-1 py-0.5 rounded text-[11px]">.m3u</code> file was downloaded to your device. Double-click to open directly in VLC!
-                            </span>
+                        {/* Actions: Download M3U / Quick Copy */}
+                        <div className="flex flex-wrap items-center gap-3">
+                            <a
+                                href={vlcModalInfo.m3uUrl}
+                                download={`${vlcModalInfo.title.replace(/[^a-zA-Z0-9_-]/g, '_')}.m3u`}
+                                className="flex-1 py-3 px-4 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-orange-500/20 transition-all text-center"
+                            >
+                                <ExternalLink size={15} /> Download .M3U Playlist File
+                            </a>
                         </div>
 
                         {/* Stream URLs for Network Stream Copy */}
