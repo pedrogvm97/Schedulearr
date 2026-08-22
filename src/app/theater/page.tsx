@@ -163,16 +163,30 @@ export default function TheaterPage() {
         setEnabledLibsByTab(prev => {
             const current = new Set(prev[tab] ?? allLibIds);
             if (current.has(libId)) {
-                current.delete(libId);
-                if (current.size === 0) {
-                    // Don't allow deselecting all — reset to all
+                // If it's the only one selected, clicking it resets to all
+                if (current.size === 1) {
                     return { ...prev, [tab]: new Set(allLibIds) };
                 }
+                current.delete(libId);
             } else {
                 current.add(libId);
             }
             return { ...prev, [tab]: new Set(current) };
         });
+    };
+
+    const selectSingleLibraryInTab = (tab: string, libId: string) => {
+        setEnabledLibsByTab(prev => ({
+            ...prev,
+            [tab]: new Set([libId])
+        }));
+    };
+
+    const selectAllLibrariesInTab = (tab: string, allLibIds: string[]) => {
+        setEnabledLibsByTab(prev => ({
+            ...prev,
+            [tab]: new Set(allLibIds)
+        }));
     };
 
 
@@ -519,42 +533,81 @@ export default function TheaterPage() {
         }
     }, [activeContentTab, libraries]);
 
-    // 2. Fetch Items for Selected Library (Files, Music, or IPTV)
-    const fetchLibraryItems = async (lib: TheaterLibrary) => {
+    // 2. Fetch Items for Enabled Libraries in Tab (Files, Music, or IPTV)
+    const fetchLibrariesContent = async (libs: TheaterLibrary[]) => {
+        if (!libs || libs.length === 0) {
+            setItems([]);
+            setIptvChannels([]);
+            setIptvGroups([]);
+            setShortlists([]);
+            setLoadingItems(false);
+            return;
+        }
+
         setLoadingItems(true);
         try {
-            if (lib.type === 'live') {
-                const m3uUrl = lib.folders[0] || '';
-                const res = await fetch(`/api/theater/iptv?url=${encodeURIComponent(m3uUrl)}`);
-                if (res.ok) {
-                    const data = await res.json();
-                    setIptvChannels(Array.isArray(data.channels) ? data.channels : []);
-                    setIptvGroups(Array.isArray(data.groups) ? data.groups : []);
+            const isLive = libs.some(l => l.type === 'live');
+            if (isLive) {
+                let allChannels: any[] = [];
+                let allGroups: any[] = [];
+                let allShortlists: any[] = [];
+
+                for (const lib of libs) {
+                    const m3uUrl = lib.folders?.[0] || '';
+                    if (m3uUrl) {
+                        try {
+                            const res = await fetch(`/api/theater/iptv?url=${encodeURIComponent(m3uUrl)}`);
+                            if (res.ok) {
+                                const data = await res.json();
+                                if (Array.isArray(data.channels)) allChannels = [...allChannels, ...data.channels];
+                                if (Array.isArray(data.groups)) allGroups = [...allGroups, ...data.groups];
+                            }
+                        } catch {}
+                    }
+                    try {
+                        const shortRes = await fetch(`/api/theater/iptv/shortlists?libraryId=${lib.id}`);
+                        if (shortRes.ok) {
+                            const sData = await shortRes.json();
+                            if (Array.isArray(sData.shortlists)) allShortlists = [...allShortlists, ...sData.shortlists];
+                        }
+                    } catch {}
                 }
-                const shortRes = await fetch(`/api/theater/iptv/shortlists?libraryId=${lib.id}`);
-                if (shortRes.ok) {
-                    const sData = await shortRes.json();
-                    setShortlists(Array.isArray(sData.shortlists) ? sData.shortlists : []);
-                }
+
+                setIptvChannels(allChannels);
+                setIptvGroups(allGroups);
+                setShortlists(allShortlists);
                 setItems([]);
             } else {
-                const res = await fetch(`/api/theater/items?libraryId=${lib.id}`);
-                if (res.ok) {
-                    const data = await res.json();
-                    setItems(Array.isArray(data.items) ? data.items : []);
-                } else {
-                    toast.error('Failed to scan library items');
-                    setItems([]);
-                }
+                const results = await Promise.all(
+                    libs.map(async (lib) => {
+                        try {
+                            const res = await fetch(`/api/theater/items?libraryId=${lib.id}`);
+                            if (res.ok) {
+                                const data = await res.json();
+                                const fetchedItems = Array.isArray(data.items) ? data.items : [];
+                                return fetchedItems.map((item: any) => ({
+                                    ...item,
+                                    libraryId: lib.id,
+                                    libraryName: lib.name
+                                }));
+                            }
+                        } catch {}
+                        return [];
+                    })
+                );
+
+                const mergedItems = results.flat();
+                setItems(mergedItems);
                 setIptvChannels([]);
 
-                // If music, fetch playlists
-                if (lib.type === 'music') {
-                    fetchGlobalPlaylists(lib.id);
+                // If music tab, fetch playlists
+                if (libs.some(l => l.type === 'music')) {
+                    fetchGlobalPlaylists();
                 }
             }
-        } catch {
-            toast.error('Error fetching library content');
+        } catch (e) {
+            console.error('Error fetching libraries content:', e);
+            toast.error('Error loading library content');
             setItems([]);
             setIptvChannels([]);
         } finally {
@@ -578,19 +631,8 @@ export default function TheaterPage() {
     }, []);
 
     useEffect(() => {
-        if (activeContentTab === 'music') {
-            fetchGlobalPlaylists(activeLibrary?.id);
-        }
-    }, [activeContentTab, activeLibraryId]);
-
-    useEffect(() => {
-        if (activeLibrary) {
-            fetchLibraryItems(activeLibrary);
-        } else {
-            setItems([]);
-            setIptvChannels([]);
-        }
-    }, [activeLibraryId]);
+        fetchLibrariesContent(enabledTabLibraries);
+    }, [enabledTabLibraries]);
 
 
     // 3. Fetch External Sources (Plex Libraries, Sonarr/Radarr Folders)
@@ -1487,24 +1529,36 @@ export default function TheaterPage() {
                         </div>
                     </div>
 
-                    {/* Row 3: Per-tab library toggles (only when there are multiple libraries for this tab) */}
+                    {/* Row 3: Per-tab library toggles */}
                     {activeTabLibraries.length > 1 && (
                         <div className="flex flex-wrap items-center gap-2 pt-1">
-                            <span className="text-xs text-zinc-600 font-bold uppercase tracking-wider">Libraries:</span>
+                            <span className="text-xs text-zinc-500 font-bold uppercase tracking-wider">Libraries:</span>
+                            {/* All Libraries Pill */}
+                            <button
+                                onClick={() => selectAllLibrariesInTab(activeContentTab, activeTabLibraries.map(l => l.id))}
+                                className={`flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold transition-all border ${
+                                    (!enabledLibsByTab[activeContentTab] || enabledLibsByTab[activeContentTab].size === activeTabLibraries.length)
+                                        ? 'bg-amber-500 text-black border-amber-400 font-black shadow-sm'
+                                        : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
+                                }`}
+                            >
+                                <Layers size={12} />
+                                All ({activeTabLibraries.length})
+                            </button>
                             {activeTabLibraries.map(lib => {
                                 const enabledSet = enabledLibsByTab[activeContentTab];
-                                const isEnabled = !enabledSet || enabledSet.size === 0 || enabledSet.has(lib.id);
+                                const isEnabled = enabledSet ? enabledSet.has(lib.id) : true;
                                 return (
                                     <button
                                         key={lib.id}
                                         onClick={() => toggleLibraryInTab(activeContentTab, lib.id, activeTabLibraries.map(l => l.id))}
                                         className={`flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold transition-all border ${
                                             isEnabled
-                                                ? 'bg-zinc-800 text-white border-zinc-700'
+                                                ? 'bg-zinc-800 text-white border-zinc-600 shadow-sm'
                                                 : 'bg-transparent text-zinc-600 border-zinc-800 hover:text-zinc-400'
                                         }`}
                                     >
-                                        {isEnabled && <Check size={11} className="text-emerald-400" />}
+                                        {isEnabled ? <Check size={12} className="text-emerald-400" /> : <span className="w-3 h-3 rounded-full border border-zinc-700 inline-block" />}
                                         {lib.name}
                                     </button>
                                 );
@@ -1514,7 +1568,7 @@ export default function TheaterPage() {
                 </div>
 
                 {/* ── Sub-bar: Music Studio tabs / Live TV shortlists / Movie sort/view controls ── */}
-                {activeContentTab === 'music' && activeLibrary?.type === 'music' ? (
+                {activeContentTab === 'music' && (enabledTabLibraries.some(l => l.type === 'music') || activeTabLibraries.length > 0) ? (
                     <div className="space-y-4">
                         <div className="flex flex-wrap items-center justify-between gap-4 px-2">
                             {/* Music Sub-Tabs: Albums, Artists/Composers, Songs, Playlists, Online Search */}
@@ -1565,7 +1619,7 @@ export default function TheaterPage() {
                             </div>
                         </div>
                     </div>
-                ) : activeContentTab === 'live' && activeLibrary?.type === 'live' ? (
+                ) : activeContentTab === 'live' && (enabledTabLibraries.some(l => l.type === 'live') || activeTabLibraries.length > 0) ? (
                     <div className="space-y-3">
                         <div className="flex flex-wrap items-center justify-between gap-4 px-2">
                             <div className="flex flex-wrap items-center gap-3">
@@ -1654,7 +1708,7 @@ export default function TheaterPage() {
                             </div>
                         )}
                     </div>
-                ) : activeLibrary && (activeContentTab === 'movie' || activeContentTab === 'show') ? (
+                ) : (activeContentTab === 'movie' || activeContentTab === 'show' || activeContentTab === 'photos') && activeTabLibraries.length > 0 ? (
                     <div className="flex flex-wrap items-center justify-between gap-4 px-2">
                         <div className="flex items-center gap-3">
                             <span className="text-base font-bold text-white">
@@ -1771,7 +1825,7 @@ export default function TheaterPage() {
                         <div className="w-10 h-10 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin" />
                         <span className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Scanning media files...</span>
                     </div>
-                ) : activeContentTab === 'music' && activeLibrary?.type === 'music' ? (
+                ) : activeContentTab === 'music' && (enabledTabLibraries.some(l => l.type === 'music') || activeTabLibraries.length > 0) ? (
                     /* ══════════════════════════════════════════════════════════════
                        MUSIC STUDIO VIEWS (Albums, Artists, Songs, Playlists, Online)
                        ══════════════════════════════════════════════════════════════ */
@@ -2161,7 +2215,7 @@ export default function TheaterPage() {
                             </div>
                         )}
                     </div>
-                ) : activeContentTab === 'live' && activeLibrary?.type === 'live' ? (
+                ) : activeContentTab === 'live' && (enabledTabLibraries.some(l => l.type === 'live') || activeTabLibraries.length > 0) ? (
                     /* ── Live TV Channels Grid ── */
                     filteredIptvChannels.length === 0 ? (
                         <div className="p-16 bg-zinc-950/40 rounded-[2.5rem] border border-zinc-900 text-center space-y-2">
