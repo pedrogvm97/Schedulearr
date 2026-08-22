@@ -213,8 +213,8 @@ export function MusicDownloadModal({
         }
     };
 
-    // 2. Direct Browser / Device Download
-    const handleDownloadToDevice = () => {
+    // 2. Direct Browser / Device Download (Blob Object URL - Zero 403 Redirects)
+    const handleDownloadToDevice = async () => {
         const ytId = track?.youtubeId || (track?.id?.startsWith('yt-') ? track.id.replace('yt-', '') : undefined);
         const safeArtist = activeArtist.replace(/[/\\?%*:|"<>]/g, '').trim();
         const safeTitle = initialTitle.replace(/[/\\?%*:|"<>]/g, '').trim();
@@ -232,20 +232,34 @@ export function MusicDownloadModal({
             downloadUrl = `/api/theater/music/stream?q=${encodeURIComponent(`${safeArtist} ${safeTitle}`)}&format=${audioFormat}&download=true&filename=${encodeURIComponent(filename)}`;
         }
 
+        setIsDownloading(true);
+        setDownloadProgress(20);
+        toast.loading(`Preparing ${filename}...`, { id: 'device-dl' });
+
         try {
+            const res = await fetch(downloadUrl);
+            if (!res.ok) {
+                throw new Error('Server could not prepare audio stream');
+            }
+            setDownloadProgress(75);
+            const blob = await res.blob();
+            const blobUrl = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
-            link.href = downloadUrl;
-            link.setAttribute('download', filename);
-            link.target = '_blank';
+            link.href = blobUrl;
+            link.download = filename;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-            toast.success(`Starting download of "${filename}"...`);
-            onClose();
-        } catch {
-            window.location.href = downloadUrl;
-            toast.success(`Starting download of "${filename}"...`);
-            onClose();
+            setTimeout(() => window.URL.revokeObjectURL(blobUrl), 15000);
+
+            setDownloadProgress(100);
+            setDownloadSuccess(true);
+            toast.success(`Downloaded "${filename}"!`, { id: 'device-dl' });
+            setTimeout(() => onClose(), 800);
+        } catch (err: any) {
+            toast.error(err.message || 'Failed to download to device', { id: 'device-dl' });
+        } finally {
+            setIsDownloading(false);
         }
     };
 
