@@ -444,10 +444,40 @@ export default function TheaterPage() {
 
     const openCastPicker = async (media?: MediaItem | IptvChannel) => {
         const target = media || playingVideo || playingChannel;
-        if (target) setCastingTargetMedia(target);
-
-        // 1. Attempt native browser Remote Playback API (Chromecast, Google Cast, Smart TVs in Chrome / Edge / Android)
         const videoEl = videoRef.current || liveVideoRef.current;
+
+        // 1. Google Cast Web Framework (Standard Cast device picker for Smart TVs / Chromecasts)
+        try {
+            if (typeof window !== 'undefined' && (window as any).cast?.framework) {
+                const castContext = (window as any).cast.framework.CastContext.getInstance();
+                try {
+                    castContext.setOptions({
+                        receiverApplicationId: (window as any).chrome?.cast?.media?.DEFAULT_MEDIA_RECEIVER_APP_ID || 'CC1AD845',
+                        autoJoinPolicy: (window as any).chrome?.cast?.AutoJoinPolicy?.ORIGIN_SCOPED
+                    });
+                } catch {}
+                await castContext.requestSession();
+                const session = castContext.getCurrentSession();
+                if (session && target) {
+                    const stream = (target as any).streamUrl || `${window.location.origin}/api/theater/stream?id=${target.id}`;
+                    const contentType = (target as any).type === 'music' ? 'audio/mp4' : 'video/mp4';
+                    const mediaInfo = new (window as any).chrome.cast.media.MediaInfo(stream, contentType);
+                    mediaInfo.metadata = new (window as any).chrome.cast.media.GenericMediaMetadata();
+                    mediaInfo.metadata.title = target.name || (target as any).title;
+                    if ((target as any).posterUrl) {
+                        mediaInfo.metadata.images = [{ url: (target as any).posterUrl }];
+                    }
+                    const request = new (window as any).chrome.cast.media.LoadRequest(mediaInfo);
+                    session.loadMedia(request);
+                    toast.success(`Casting "${target.name || (target as any).title}"!`);
+                    return;
+                }
+            }
+        } catch (err: any) {
+            console.log('Google Cast request:', err);
+        }
+
+        // 2. Native HTMLMediaElement Remote Playback API (Chrome, Edge, Android Cast prompt)
         if (videoEl && 'remote' in videoEl && typeof (videoEl as any).remote?.prompt === 'function') {
             try {
                 await (videoEl as any).remote.prompt();
@@ -455,39 +485,31 @@ export default function TheaterPage() {
                 return;
             } catch (e: any) {
                 if (e.name === 'NotAllowedError' || e.name === 'NotFoundError') {
-                    // User cancelled device selection
                     return;
                 }
-                console.warn('Native remote prompt error:', e);
             }
         }
 
-        // 2. Attempt Safari / Apple WebKit AirPlay Picker
+        // 3. Apple WebKit AirPlay Picker (iOS Safari, macOS Safari)
         if (videoEl && typeof (videoEl as any).webkitShowPlaybackTargetPicker === 'function') {
             try {
                 (videoEl as any).webkitShowPlaybackTargetPicker();
                 return;
-            } catch (e) {
-                console.warn('WebKit AirPlay error:', e);
-            }
+            } catch (e) {}
         }
 
-        // 3. Open unified Cast & Device Picker modal
-        setIsCastPickerModalOpen(true);
-        setLoadingPairedTvs(true);
-        try {
-            const res = await fetch('/api/theater/tv?listSessions=true');
-            if (res.ok) {
-                const data = await res.json();
-                const sessions = Array.isArray(data.sessions) ? data.sessions : [];
-                setPairedTvSessions(sessions);
-                setPairedTvCount(sessions.length);
-            }
-        } catch {
-            // Silently handle
-        } finally {
-            setLoadingPairedTvs(false);
+        // 4. W3C Presentation API (Wireless display / Cast Receiver)
+        if (typeof window !== 'undefined' && 'PresentationRequest' in window) {
+            try {
+                const request = new (window as any).PresentationRequest([window.location.origin + '/tv']);
+                request.start().then(() => {
+                    toast.success('Connected to Display / Cast!');
+                }).catch(() => {});
+                return;
+            } catch {}
         }
+
+        toast.info('Searching for Chromecast and Cast devices on your network...');
     };
 
     const handleCastToDevice = async (sessionId: string, deviceName: string) => {
@@ -1525,170 +1547,23 @@ export default function TheaterPage() {
                         </div>
 
                         <div className="relative flex-1 min-w-[280px] max-w-md">
-                            {/* Global Search */}
+                            {/* Search */}
                             <div className="relative flex-1">
                                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
                                 <input
                                     type="text"
-                                    placeholder="Search movies, series, music, channels..."
+                                    placeholder="Search in this library..."
                                     value={searchQuery}
                                     onChange={e => setSearchQuery(e.target.value)}
-                                    onFocus={() => { if (searchQuery.trim().length >= 2) setShowGlobalSearchDropdown(true); }}
                                     className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl pl-10 pr-8 py-3 text-sm text-white placeholder-zinc-600 outline-none focus:border-emerald-500 transition-colors"
                                 />
                                 {searchQuery && (
                                     <button
-                                        onClick={() => {
-                                            setSearchQuery('');
-                                            setShowGlobalSearchDropdown(false);
-                                        }}
+                                        onClick={() => setSearchQuery('')}
                                         className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
                                     >
                                         <X size={14} />
                                     </button>
-                                )}
-
-                                {/* Categorized Global Search Shortlist Dropdown */}
-                                {showGlobalSearchDropdown && (
-                                    <div className="absolute left-0 right-0 top-full mt-2 bg-zinc-950/95 border border-zinc-800 rounded-2xl shadow-2xl z-50 max-h-96 overflow-y-auto custom-scrollbar p-3 space-y-3 backdrop-blur-xl">
-                                        <div className="flex items-center justify-between pb-2 border-b border-zinc-900">
-                                            <span className="text-[11px] font-black uppercase text-zinc-400 tracking-wider flex items-center gap-1.5">
-                                                <Search size={13} className="text-emerald-400" /> Global Search Match
-                                            </span>
-                                            {isSearchingGlobal ? (
-                                                <span className="text-[10px] text-amber-400 font-bold flex items-center gap-1">
-                                                    <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" /> Searching...
-                                                </span>
-                                            ) : (
-                                                <button
-                                                    onClick={() => setShowGlobalSearchDropdown(false)}
-                                                    className="text-[10px] text-zinc-500 hover:text-zinc-300 font-bold"
-                                                >
-                                                    Dismiss
-                                                </button>
-                                            )}
-                                        </div>
-
-                                        {/* In Your Libraries Section */}
-                                        <div>
-                                            <div className="text-[10px] font-black uppercase tracking-wider text-emerald-400 px-1 py-0.5 mb-1.5 flex items-center justify-between">
-                                                <span>📁 In Your Libraries ({globalSearchResults?.inLibraries?.length || 0})</span>
-                                                <span className="text-[9px] text-zinc-500 font-medium">Instant Play</span>
-                                            </div>
-                                            {globalSearchResults?.inLibraries && globalSearchResults.inLibraries.length > 0 ? (
-                                                <div className="space-y-1.5">
-                                                    {globalSearchResults.inLibraries.map((item: any, idx: number) => (
-                                                        <div
-                                                            key={`lib-${item.id || idx}`}
-                                                            onClick={() => {
-                                                                setShowGlobalSearchDropdown(false);
-                                                                if (item.type === 'music' || item.category === 'audio' || item.artist || item.streamUrl || item.youtubeId) {
-                                                                    playTrack(item);
-                                                                } else {
-                                                                    setPlayingVideo(item);
-                                                                }
-                                                            }}
-                                                            className="flex items-center gap-2.5 p-2 rounded-xl bg-zinc-900/60 hover:bg-zinc-800 border border-zinc-800/80 cursor-pointer transition-all group"
-                                                        >
-                                                            <div className="w-10 h-10 rounded-lg overflow-hidden bg-zinc-950 flex-shrink-0 flex items-center justify-center border border-zinc-800">
-                                                                {item.posterUrl ? (
-                                                                    <img src={item.posterUrl} alt="" className="w-full h-full object-cover" />
-                                                                ) : item.type === 'music' || item.category === 'audio' ? (
-                                                                    <Music size={16} className="text-amber-400" />
-                                                                ) : (
-                                                                    <Film size={16} className="text-emerald-400" />
-                                                                )}
-                                                            </div>
-                                                            <div className="min-w-0 flex-1">
-                                                                <h4 className="text-xs font-bold text-white truncate group-hover:text-emerald-300 transition-colors">
-                                                                    {item.title || item.name}
-                                                                </h4>
-                                                                <p className="text-[10px] text-zinc-400 truncate">
-                                                                    {item.artist || item.year || item.folder || 'Local Library'}
-                                                                </p>
-                                                            </div>
-                                                            <span className="px-2 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-black uppercase shrink-0">
-                                                                Play
-                                                            </span>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            ) : !isSearchingGlobal ? (
-                                                <p className="text-[11px] text-zinc-600 px-1 py-1 italic">No matches currently in your local libraries</p>
-                                            ) : null}
-                                        </div>
-
-                                        {/* External / Available Online Section */}
-                                        <div className="pt-2 border-t border-zinc-900">
-                                            <div className="text-[10px] font-black uppercase tracking-wider text-amber-400 px-1 py-0.5 mb-1.5 flex items-center justify-between">
-                                                <span>🌐 Available to Add / Stream ({globalSearchResults?.externalAvailable?.length || 0})</span>
-                                                <span className="text-[9px] text-zinc-500 font-medium">Radarr / Sonarr / Online</span>
-                                            </div>
-                                            {globalSearchResults?.externalAvailable && globalSearchResults.externalAvailable.length > 0 ? (
-                                                <div className="space-y-1.5">
-                                                    {globalSearchResults.externalAvailable.map((item: any, idx: number) => (
-                                                        <div
-                                                            key={`ext-${item.id || idx}`}
-                                                            onClick={() => {
-                                                                setShowGlobalSearchDropdown(false);
-                                                                if (item.type === 'music' || item.category === 'audio' || item.streamUrl || item.youtubeId) {
-                                                                    playTrack(item);
-                                                                } else if (item.isLocal) {
-                                                                    setPlayingVideo(item);
-                                                                } else {
-                                                                    handleDownloadTrack(item);
-                                                                }
-                                                            }}
-                                                            className="flex items-center gap-2.5 p-2 rounded-xl bg-zinc-900/40 hover:bg-zinc-900 border border-zinc-800/80 cursor-pointer transition-all group"
-                                                        >
-                                                            <div className="w-10 h-10 rounded-lg overflow-hidden bg-zinc-950 flex-shrink-0 flex items-center justify-center border border-zinc-800">
-                                                                {item.posterUrl ? (
-                                                                    <img src={item.posterUrl} alt="" className="w-full h-full object-cover" />
-                                                                ) : (
-                                                                    <Sparkles size={16} className="text-amber-400" />
-                                                                )}
-                                                            </div>
-                                                            <div className="min-w-0 flex-1">
-                                                                <h4 className="text-xs font-bold text-white truncate group-hover:text-amber-300 transition-colors">
-                                                                    {item.title || item.name}
-                                                                </h4>
-                                                                <p className="text-[10px] text-zinc-400 truncate">
-                                                                    {item.artist || item.year || item.provider || 'Online Search'}
-                                                                </p>
-                                                            </div>
-                                                            <div className="flex items-center gap-1 shrink-0">
-                                                                {item.streamUrl && (
-                                                                    <button
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation();
-                                                                            setShowGlobalSearchDropdown(false);
-                                                                            playTrack(item);
-                                                                        }}
-                                                                        className="px-2 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-black text-[10px] font-black uppercase transition-all"
-                                                                    >
-                                                                        Listen
-                                                                    </button>
-                                                                )}
-                                                                <button
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        setShowGlobalSearchDropdown(false);
-                                                                        handleDownloadTrack(item);
-                                                                    }}
-                                                                    className="px-2 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700 text-[10px] font-black uppercase transition-all"
-                                                                    title="Add to Library / Download"
-                                                                >
-                                                                    + Add / Grab
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            ) : !isSearchingGlobal ? (
-                                                <p className="text-[11px] text-zinc-600 px-1 py-1 italic">No online results found</p>
-                                            ) : null}
-                                        </div>
-                                    </div>
                                 )}
                             </div>
                         </div>
@@ -4433,157 +4308,7 @@ export default function TheaterPage() {
                 </div>
             )}
 
-            {/* ── Smart TV Cast Device Picker Modal ── */}
-            {isCastPickerModalOpen && (
-                <div className="fixed inset-0 z-[260] flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200">
-                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-lg p-6 sm:p-8 space-y-6 shadow-2xl relative">
-                        <button
-                            onClick={() => setIsCastPickerModalOpen(false)}
-                            className="absolute top-6 right-6 p-2 rounded-xl text-zinc-400 hover:text-white"
-                        >
-                            <X size={20} />
-                        </button>
 
-                        <div className="flex items-center gap-3.5 pb-2 border-b border-zinc-900">
-                            <div className="w-12 h-12 rounded-2xl bg-purple-500/15 border border-purple-500/30 flex items-center justify-center text-purple-400">
-                                <Cast size={24} />
-                            </div>
-                            <div>
-                                <h3 className="text-lg font-black text-white">Cast to Smart TV</h3>
-                                <p className="text-xs text-zinc-400 truncate max-w-xs">
-                                    {castingTargetMedia ? (castingTargetMedia.name || (castingTargetMedia as any).title) : 'Select a device to stream to'}
-                                </p>
-                            </div>
-                        </div>
-
-                        <div className="space-y-4">
-                            {/* Primary: Native Device Search */}
-                            <button
-                                onClick={async () => {
-                                    const videoEl = videoRef.current || liveVideoRef.current;
-                                    if (videoEl && 'remote' in videoEl && typeof (videoEl as any).remote?.prompt === 'function') {
-                                        try {
-                                            await (videoEl as any).remote.prompt();
-                                            setIsCastPickerModalOpen(false);
-                                            toast.success('Connected to Cast Device');
-                                            return;
-                                        } catch (e: any) {
-                                            if (e.name !== 'NotAllowedError' && e.name !== 'NotFoundError') {
-                                                console.warn(e);
-                                            }
-                                        }
-                                    }
-                                    if (videoEl && typeof (videoEl as any).webkitShowPlaybackTargetPicker === 'function') {
-                                        try {
-                                            (videoEl as any).webkitShowPlaybackTargetPicker();
-                                            setIsCastPickerModalOpen(false);
-                                            return;
-                                        } catch (e) {
-                                            console.warn(e);
-                                        }
-                                    }
-                                    toast.info('Searching for local Google Cast / AirPlay devices...');
-                                }}
-                                className="w-full py-4 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black text-sm uppercase tracking-wider rounded-2xl transition-all shadow-xl shadow-purple-500/25 flex items-center justify-center gap-3 cursor-pointer"
-                            >
-                                <Cast size={18} /> Search & Cast to Nearby Devices
-                            </button>
-
-                            <p className="text-center text-xs text-zinc-500">
-                                Connects directly via Chrome / Android Google Cast, Apple AirPlay, or Smart TV DLNA.
-                            </p>
-                        </div>
-
-                        {loadingPairedTvs ? (
-                            <div className="flex flex-col items-center justify-center py-8 gap-2">
-                                <RefreshCw size={22} className="animate-spin text-purple-400" />
-                                <span className="text-xs text-zinc-500 font-bold">Checking linked TV sessions...</span>
-                            </div>
-                        ) : pairedTvSessions.length === 0 ? (
-                            <div className="p-5 rounded-2xl bg-zinc-950/80 border border-zinc-900 text-center space-y-3">
-                                <div className="space-y-1">
-                                    <h4 className="text-sm font-bold text-white">Browser TV Link (/tv)</h4>
-                                    <p className="text-xs text-zinc-500 max-w-xs mx-auto">
-                                        You can also open <span className="text-purple-400 font-mono font-bold">/tv</span> in any TV browser to link it permanently.
-                                    </p>
-                                </div>
-
-                                <button
-                                    onClick={() => {
-                                        setIsCastPickerModalOpen(false);
-                                        setIsPairTvModalOpen(true);
-                                    }}
-                                    className="px-5 py-2.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 font-bold text-xs uppercase tracking-wider rounded-xl transition-all"
-                                >
-                                    Link /tv Browser Screen
-                                </button>
-                            </div>
-                        ) : (
-                            <div className="space-y-3">
-                                <div className="flex items-center justify-between">
-                                    <label className="text-[11px] font-black uppercase text-zinc-500 tracking-wider">
-                                        Linked /tv Screens ({pairedTvSessions.length})
-                                    </label>
-                                    <button
-                                        onClick={() => {
-                                            setIsCastPickerModalOpen(false);
-                                            setIsPairTvModalOpen(true);
-                                        }}
-                                        className="text-xs font-bold text-purple-400 hover:underline flex items-center gap-1"
-                                    >
-                                        <Plus size={12} /> Link Another
-                                    </button>
-                                </div>
-
-                                <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
-                                    {pairedTvSessions.map(session => (
-                                        <div
-                                            key={session.id}
-                                            className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 hover:border-purple-500/50 transition-all flex items-center justify-between group shadow-sm"
-                                        >
-                                            <div className="flex items-center gap-3.5 min-w-0">
-                                                <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 shrink-0">
-                                                    <Tv size={20} />
-                                                </div>
-                                                <div className="min-w-0">
-                                                    <h4 className="font-bold text-white text-sm truncate">{session.device_name || 'Smart TV'}</h4>
-                                                    <p className="text-[10px] text-zinc-500 font-medium">
-                                                        Linked {new Date(session.paired_at || session.created_at).toLocaleDateString()} • <span className="text-emerald-400 font-bold">Ready</span>
-                                                    </p>
-                                                </div>
-                                            </div>
-
-                                            <div className="flex items-center gap-2">
-                                                <button
-                                                    onClick={() => handleUnpairDevice(session.id, session.device_name || 'Smart TV')}
-                                                    className="p-2 rounded-xl text-zinc-600 hover:text-red-400 transition-colors"
-                                                    title="Unpair Device"
-                                                >
-                                                    <Trash2 size={14} />
-                                                </button>
-
-                                                <button
-                                                    onClick={() => handleCastToDevice(session.id, session.device_name || 'Smart TV')}
-                                                    className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-purple-500/20 flex items-center gap-1.5"
-                                                >
-                                                    <Cast size={13} /> Cast
-                                                </button>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-
-                                <button
-                                    onClick={() => handleCastToDevice('all', 'All Paired TVs')}
-                                    className="w-full py-3.5 bg-zinc-900 hover:bg-zinc-800 text-white border border-zinc-800 font-bold text-xs uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2"
-                                >
-                                    <Cast size={15} className="text-purple-400" /> Cast to All Devices ({pairedTvSessions.length})
-                                </button>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
 
             {/* ── VLC Media Player & External Network Stream Modal ── */}
             {isVlcModalOpen && vlcModalInfo && (

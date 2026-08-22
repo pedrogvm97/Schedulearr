@@ -1136,65 +1136,72 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     };
 
     const openCastPicker = async (target?: MediaItem) => {
-        // ALWAYS open Cast Modal immediately so user sees available TV sessions & devices
-        fetchPairedTvSessions();
-        setIsCastPickerModalOpen(true);
+        const itemToCast = target || playingAudio;
 
-        // Also trigger native browser Remote Playback API in background if available
+        // 1. Google Cast Web Framework (Standard Cast device picker for Smart TVs / Chromecasts)
+        try {
+            if (typeof window !== 'undefined' && (window as any).cast?.framework) {
+                const castContext = (window as any).cast.framework.CastContext.getInstance();
+                try {
+                    castContext.setOptions({
+                        receiverApplicationId: (window as any).chrome?.cast?.media?.DEFAULT_MEDIA_RECEIVER_APP_ID || 'CC1AD845',
+                        autoJoinPolicy: (window as any).chrome?.cast?.AutoJoinPolicy?.ORIGIN_SCOPED
+                    });
+                } catch {}
+                await castContext.requestSession();
+                const session = castContext.getCurrentSession();
+                if (session && itemToCast) {
+                    const stream = itemToCast.streamUrl || `${window.location.origin}/api/theater/music/stream?ytId=${itemToCast.youtubeId || itemToCast.id}`;
+                    const mediaInfo = new (window as any).chrome.cast.media.MediaInfo(stream, 'audio/mp4');
+                    mediaInfo.metadata = new (window as any).chrome.cast.media.MusicTrackMediaMetadata();
+                    mediaInfo.metadata.title = itemToCast.title;
+                    mediaInfo.metadata.artist = itemToCast.artist;
+                    if (itemToCast.posterUrl) {
+                        mediaInfo.metadata.images = [{ url: itemToCast.posterUrl }];
+                    }
+                    const request = new (window as any).chrome.cast.media.LoadRequest(mediaInfo);
+                    session.loadMedia(request);
+                    toast.success(`Casting "${itemToCast.title}"!`);
+                    return;
+                }
+            }
+        } catch (err: any) {
+            console.log('Google Cast request:', err);
+        }
+
+        // 2. Native HTMLMediaElement Remote Playback API (Chrome, Edge, Android Cast prompt)
         if (audioRef.current && 'remote' in audioRef.current && typeof (audioRef.current as any).remote?.prompt === 'function') {
             try {
-                (audioRef.current as any).remote.prompt().catch(() => {});
-            } catch {}
+                await (audioRef.current as any).remote.prompt();
+                toast.success('Connected to Cast device!');
+                return;
+            } catch (e: any) {
+                if (e.name === 'NotAllowedError' || e.name === 'NotFoundError') {
+                    return;
+                }
+            }
         }
-        // Also trigger WebKit AirPlay if available
+
+        // 3. Apple WebKit AirPlay Picker (iOS Safari, macOS Safari)
         if (audioRef.current && typeof (audioRef.current as any).webkitShowPlaybackTargetPicker === 'function') {
             try {
                 (audioRef.current as any).webkitShowPlaybackTargetPicker();
+                return;
             } catch {}
         }
-    };
 
-    const handleCastToDevice = async (sessionId: string, deviceName: string) => {
-        if (!playingAudio) return;
-        try {
-            const res = await fetch('/api/theater/tv', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    sessionId,
-                    action: 'cast_media',
-                    media: {
-                        id: playingAudio.id,
-                        title: playingAudio.title,
-                        posterUrl: playingAudio.posterUrl,
-                        streamUrl: playingAudio.streamUrl,
-                        category: 'audio',
-                        artist: playingAudio.artist,
-                        album: playingAudio.album
-                    }
-                })
-            });
-            if (res.ok) {
-                toast.success(`Casting "${playingAudio.title}" to ${deviceName}!`);
-                setIsCastPickerModalOpen(false);
-            } else {
-                toast.error('Failed to cast to TV');
-            }
-        } catch {
-            toast.error('Error connecting to Smart TV');
+        // 4. W3C Presentation API (Wireless display / Cast Receiver)
+        if (typeof window !== 'undefined' && 'PresentationRequest' in window) {
+            try {
+                const request = new (window as any).PresentationRequest([window.location.origin + '/tv']);
+                request.start().then(() => {
+                    toast.success('Connected to Display / Cast!');
+                }).catch(() => {});
+                return;
+            } catch {}
         }
-    };
 
-    const handleUnpairDevice = async (id: string, name: string) => {
-        try {
-            const res = await fetch(`/api/theater/tv?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
-            if (res.ok) {
-                setPairedTvSessions(prev => prev.filter(s => s.id !== id));
-                toast.success(`Unpaired ${name}`);
-            }
-        } catch {
-            toast.error('Failed to unpair device');
-        }
+        toast.info('Searching for Chromecast and Cast devices on your network...');
     };
 
     // YouTube IFrame Player refs and state
@@ -4076,85 +4083,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                 </div>
             )}
 
-            {/* ══════════════════════════════════════════════════════════════
-               CAST PICKER MODAL (SMART TVS)
-               ══════════════════════════════════════════════════════════════ */}
-            {isCastPickerModalOpen && (
-                <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200">
-                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-lg p-6 sm:p-8 space-y-6 shadow-2xl relative">
-                        <button
-                            onClick={() => setIsCastPickerModalOpen(false)}
-                            className="absolute top-6 right-6 p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all"
-                        >
-                            <X size={20} />
-                        </button>
 
-                        <div className="flex items-center gap-3">
-                            <div className="p-3.5 bg-purple-500/10 border border-purple-500/20 text-purple-400 rounded-2xl">
-                                <Cast size={24} />
-                            </div>
-                            <div>
-                                <h3 className="text-xl font-black text-white">Cast to Smart TV</h3>
-                                <p className="text-xs text-zinc-500 font-medium">Select a paired screen to play audio</p>
-                            </div>
-                        </div>
-
-                        {loadingPairedTvs ? (
-                            <div className="flex items-center justify-center py-12 gap-2 text-xs text-zinc-500 font-bold">
-                                <RefreshCw size={16} className="animate-spin text-purple-400" /> Scanning for TVs...
-                            </div>
-                        ) : pairedTvSessions.length === 0 ? (
-                            <div className="text-center py-8 space-y-4">
-                                <Tv size={36} className="mx-auto text-zinc-700" />
-                                <div>
-                                    <p className="text-sm font-bold text-white">No paired Smart TVs found</p>
-                                    <p className="text-xs text-zinc-500 mt-1 max-w-xs mx-auto">
-                                        Open Schedulearr TV App on your Smart TV or browser and enter pairing code.
-                                    </p>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
-                                {pairedTvSessions.map(session => (
-                                    <div
-                                        key={session.id}
-                                        className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 hover:border-purple-500/50 transition-all flex items-center justify-between group shadow-sm"
-                                    >
-                                        <div className="flex items-center gap-3.5 min-w-0">
-                                            <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 shrink-0">
-                                                <Tv size={20} />
-                                            </div>
-                                            <div className="min-w-0">
-                                                <h4 className="font-bold text-white text-sm truncate">{session.device_name || 'Smart TV'}</h4>
-                                                <p className="text-[10px] text-zinc-500 font-medium">
-                                                    Linked {new Date(session.paired_at || session.created_at).toLocaleDateString()} • <span className="text-emerald-400 font-bold">Ready</span>
-                                                </p>
-                                            </div>
-                                        </div>
-
-                                        <div className="flex items-center gap-2">
-                                            <button
-                                                onClick={() => handleUnpairDevice(session.id, session.device_name || 'Smart TV')}
-                                                className="p-2 rounded-xl text-zinc-600 hover:text-red-400 transition-colors"
-                                                title="Unpair Device"
-                                            >
-                                                <Trash2 size={14} />
-                                            </button>
-
-                                            <button
-                                                onClick={() => handleCastToDevice(session.id, session.device_name || 'Smart TV')}
-                                                className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-purple-500/20 flex items-center gap-1.5"
-                                            >
-                                                <Cast size={13} /> Cast
-                                            </button>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
 
             {/* ══════════════════════════════════════════════════════════════
                AUDIO STATS FOR NERDS & PLAYBACK TELEMETRY MODAL

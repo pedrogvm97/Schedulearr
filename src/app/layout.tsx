@@ -22,6 +22,9 @@ export const metadata: Metadata = {
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
+      <head>
+        <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1" async></script>
+      </head>
       <body className="min-h-screen w-full max-w-full overflow-x-hidden bg-zinc-950 text-zinc-300 font-sans selection:bg-emerald-500/30 flex flex-col">
         <MusicPlayerProvider>
           <Navigation />
