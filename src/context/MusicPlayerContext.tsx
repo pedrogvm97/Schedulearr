@@ -101,6 +101,7 @@ interface MusicPlayerContextType {
     closeExpandedPlayer: () => void;
     openArtistDetails: (artistName?: string) => void;
     openAlbumDetails: (albumName?: string, artistName?: string, albumId?: string | number) => void;
+    openDiagnostics: () => void;
     handleDownloadTrack: (track: MediaItem | null) => void;
     handleDownloadAlbum: (tracks: MediaItem[], albumName?: string) => void;
     addToQueue: (track: MediaItem) => void;
@@ -589,6 +590,8 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     const [audioPlaybackError, setAudioPlaybackError] = useState<{ code?: number; name?: string; message: string; details?: string; suggestion?: string; } | null>(null);
     const [audioNerdLogs, setAudioNerdLogs] = useState<{ id: string; timestamp: string; level: 'info' | 'warn' | 'error' | 'success'; message: string; details?: any }[]>([]);
     const [showAudioNerdModal, setShowAudioNerdModal] = useState(false);
+    const [audioLogFilter, setAudioLogFilter] = useState<'all' | 'info' | 'warn' | 'error' | 'success'>('all');
+    const [audioLogSearch, setAudioLogSearch] = useState('');
 
     const addAudioNerdLog = (level: 'info' | 'warn' | 'error' | 'success', message: string, details?: any) => {
         const id = Math.random().toString(36).substring(2, 9);
@@ -1964,6 +1967,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                 closeExpandedPlayer: () => setIsExpandedPlayerOpen(false),
                 openArtistDetails,
                 openAlbumDetails,
+                openDiagnostics: () => setShowAudioNerdModal(true),
                 handleDownloadTrack,
                 handleDownloadAlbum,
                 addToQueue
@@ -2217,6 +2221,22 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
                         {/* Right Quick Controls */}
                         <div className="flex items-center gap-1.5 sm:gap-2 justify-end shrink-0">
+                            {/* Audio Diagnostics & Stats for Nerds / Logging */}
+                            <button
+                                onClick={() => setShowAudioNerdModal(true)}
+                                className={`p-2 sm:p-2.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-1 ${
+                                    showAudioNerdModal || audioPlaybackError
+                                        ? 'bg-amber-500/25 text-amber-300 border-amber-500/50'
+                                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-amber-400 hover:border-amber-500/40'
+                                }`}
+                                title="Open Audio Diagnostics, Live Stream Telemetry & Logs"
+                            >
+                                <Terminal size={15} />
+                                {audioPlaybackError && (
+                                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" />
+                                )}
+                            </button>
+
                             {/* Download Track */}
                             <button
                                 onClick={() => handleDownloadTrack(playingAudio)}
@@ -2385,17 +2405,25 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 <span className="hidden md:inline">{isMinimalistVinylMode ? "Full Studio" : "Minimalist Platter"}</span>
                             </button>
 
-                            {/* Nerd Tools Button */}
+                            {/* Nerd Tools & Telemetry Button */}
                             <button
                                 onClick={() => setShowAudioNerdModal(true)}
-                                className={`p-2 rounded-2xl border text-xs font-black uppercase tracking-wider flex items-center gap-1 transition-all ${
+                                className={`p-2 sm:px-3 sm:py-1.5 rounded-2xl border text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all ${
                                     showAudioNerdModal || audioPlaybackError
-                                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                                        : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
+                                        ? 'bg-amber-500/25 text-amber-300 border-amber-500/50 shadow-md shadow-amber-500/10'
+                                        : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-800 hover:border-amber-500/40 hover:text-white'
                                 }`}
-                                title="Audio Diagnostics & Stats for Nerds"
+                                title="Audio Diagnostics, Decoder Telemetry & Live Logs"
                             >
                                 <Terminal size={14} />
+                                <span className="hidden sm:inline">Stats &amp; Logs</span>
+                                {audioPlaybackError ? (
+                                    <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
+                                ) : audioNerdLogs.length > 0 ? (
+                                    <span className="px-1.5 py-0.2 rounded-full bg-zinc-800 text-zinc-400 text-[10px] font-mono">
+                                        {audioNerdLogs.length}
+                                    </span>
+                                ) : null}
                             </button>
 
                             <button
@@ -2936,7 +2964,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                 expandedSidePanel === 'specs' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
                                             }`}
                                         >
-                                            <Info size={13} /> Specs
+                                            <Terminal size={13} /> Specs &amp; Logs
                                         </button>
                                     </div>
                                 </div>
@@ -3602,31 +3630,280 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                     </div>
                                 )}
 
-                                {/* 5. Specs Tab Content */}
+                                {/* 5. Specs & Live Logs Tab Content */}
                                 {expandedSidePanel === 'specs' && (
-                                    <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-2 space-y-2.5">
-                                        <div className="grid grid-cols-2 gap-2.5 text-xs">
-                                            <div className="p-3 bg-zinc-900/60 rounded-xl border border-zinc-800 space-y-0.5">
-                                                <span className="text-[10px] font-black uppercase text-zinc-500 block">Codec &amp; Format</span>
-                                                <span className="font-bold text-white">{playingAudio.extension?.toUpperCase() || 'Audio'}</span>
+                                    <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-1 sm:p-2 space-y-4">
+                                        {/* Status & Engine Live Header */}
+                                        <div className="p-3.5 bg-zinc-900/70 rounded-2xl border border-zinc-800 space-y-2.5 shadow-md">
+                                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                                                <div className="flex items-center gap-2">
+                                                    <span className={`w-2.5 h-2.5 rounded-full ${
+                                                        audioPlaybackStatus === 'playing' ? 'bg-emerald-400 animate-pulse' :
+                                                        audioPlaybackStatus === 'loading' || audioPlaybackStatus === 'buffering' ? 'bg-amber-400 animate-spin' :
+                                                        audioPlaybackStatus === 'error' ? 'bg-red-400' : 'bg-zinc-500'
+                                                    }`} />
+                                                    <span className="text-xs font-black uppercase tracking-wider text-white">
+                                                        {audioPlaybackStatus.toUpperCase()}
+                                                    </span>
+                                                    <span className="px-2 py-0.5 rounded-md bg-zinc-800 text-zinc-400 border border-zinc-700/60 text-[9px] font-mono font-bold">
+                                                        {playingAudio.youtubeId || playingAudio.id?.startsWith('yt-')
+                                                            ? 'YouTube Lossless Web Stream'
+                                                            : (audioRef.current?.src?.includes('/api/theater/music/transcode')
+                                                                ? 'FFmpeg Server Transcode Engine'
+                                                                : 'HTML5 Native Audio Decoder')}
+                                                    </span>
+                                                </div>
+
+                                                <div className="flex items-center gap-1 text-[11px] font-mono text-zinc-400">
+                                                    <span className="text-amber-400 font-bold">{formatTime(audioCurrentTime)}</span>
+                                                    <span>/</span>
+                                                    <span>{formatTime(audioDuration)}</span>
+                                                    <span className="text-zinc-600">({audioDuration > 0 ? Math.round((audioCurrentTime / audioDuration) * 100) : 0}%)</span>
+                                                </div>
                                             </div>
-                                            <div className="p-3 bg-zinc-900/60 rounded-xl border border-zinc-800 space-y-0.5">
-                                                <span className="text-[10px] font-black uppercase text-zinc-500 block">Quality Type</span>
-                                                <span className="font-bold text-amber-400">{playingAudio.extension?.toLowerCase() === 'flac' ? '24-bit Lossless' : 'High-Res Audio'}</span>
-                                            </div>
-                                            <div className="p-3 bg-zinc-900/60 rounded-xl border border-zinc-800 space-y-0.5">
-                                                <span className="text-[10px] font-black uppercase text-zinc-500 block">File Size</span>
-                                                <span className="font-bold text-white">{formatBytes(playingAudio.sizeBytes)}</span>
-                                            </div>
-                                            <div className="p-3 bg-zinc-900/60 rounded-xl border border-zinc-800 space-y-0.5">
-                                                <span className="text-[10px] font-black uppercase text-zinc-500 block">Channels</span>
-                                                <span className="font-bold text-white">Stereo (2.0)</span>
+
+                                            {/* Progress Fill Bar */}
+                                            <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                                                <div
+                                                    className="h-full bg-gradient-to-r from-amber-500 to-amber-300 transition-all duration-150"
+                                                    style={{ width: `${audioDuration > 0 ? (audioCurrentTime / audioDuration) * 100 : 0}%` }}
+                                                />
                                             </div>
                                         </div>
 
-                                        <div className="p-3 bg-zinc-900/40 rounded-xl border border-zinc-800 text-xs space-y-0.5">
-                                            <span className="text-[10px] font-black uppercase text-zinc-500 block">Path / Source</span>
-                                            <p className="font-mono text-[11px] text-zinc-400 break-all">{playingAudio.path || playingAudio.streamUrl}</p>
+                                        {/* Playback Error Alert (if present) */}
+                                        {audioPlaybackError && (
+                                            <div className="p-3.5 rounded-2xl bg-red-500/10 border border-red-500/30 text-xs space-y-1 animate-in fade-in">
+                                                <div className="font-bold text-red-400 flex items-center gap-1.5">
+                                                    <AlertTriangle size={14} /> {audioPlaybackError.name || 'Playback Failure'}
+                                                </div>
+                                                <p className="text-zinc-300">{audioPlaybackError.message}</p>
+                                                {audioPlaybackError.details && (
+                                                    <p className="text-[11px] font-mono text-red-300/80 break-all">{audioPlaybackError.details}</p>
+                                                )}
+                                                {audioPlaybackError.suggestion && (
+                                                    <p className="text-[11px] text-amber-300/90 font-medium pt-0.5">💡 {audioPlaybackError.suggestion}</p>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {/* Technical Specifications Grid */}
+                                        <div className="space-y-2">
+                                            <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 flex items-center gap-1">
+                                                <Info size={12} /> Audiophile Technical Specs
+                                            </span>
+                                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                                                <div className="p-3 bg-zinc-900/60 rounded-xl border border-zinc-800 space-y-0.5">
+                                                    <span className="text-[9px] font-black uppercase text-zinc-500 block">Codec / Format</span>
+                                                    <span className="font-bold text-white font-mono">{playingAudio.extension?.toUpperCase() || (playingAudio.youtubeId ? 'OPUS / AAC' : 'AUDIO')}</span>
+                                                </div>
+                                                <div className="p-3 bg-zinc-900/60 rounded-xl border border-zinc-800 space-y-0.5">
+                                                    <span className="text-[9px] font-black uppercase text-zinc-500 block">Quality Profile</span>
+                                                    <span className="font-bold text-amber-400 font-mono truncate block">
+                                                        {playingAudio.extension?.toLowerCase() === 'flac' ? '24-bit Lossless Master' : (playingAudio.extension?.toLowerCase() === 'wav' ? '16-bit PCM' : '320kbps Stream')}
+                                                    </span>
+                                                </div>
+                                                <div className="p-3 bg-zinc-900/60 rounded-xl border border-zinc-800 space-y-0.5">
+                                                    <span className="text-[9px] font-black uppercase text-zinc-500 block">File / Stream Size</span>
+                                                    <span className="font-bold text-white font-mono">{playingAudio.sizeBytes ? formatBytes(playingAudio.sizeBytes) : 'Adaptive Bitstream'}</span>
+                                                </div>
+                                                <div className="p-3 bg-zinc-900/60 rounded-xl border border-zinc-800 space-y-0.5">
+                                                    <span className="text-[9px] font-black uppercase text-zinc-500 block">Channels</span>
+                                                    <span className="font-bold text-white font-mono">Stereo (2.0 L/R)</span>
+                                                </div>
+                                                <div className="p-3 bg-zinc-900/60 rounded-xl border border-zinc-800 space-y-0.5">
+                                                    <span className="text-[9px] font-black uppercase text-zinc-500 block">Decoder State</span>
+                                                    <span className="font-bold text-amber-300 font-mono truncate block">
+                                                        {audioRef.current ? ['HAVE_NOTHING (0)', 'HAVE_METADATA (1)', 'HAVE_CURRENT (2)', 'HAVE_FUTURE (3)', 'HAVE_ENOUGH_DATA (4)'][audioRef.current.readyState] || `Ready ${audioRef.current.readyState}` : 'Lossless Web Player'}
+                                                    </span>
+                                                </div>
+                                                <div className="p-3 bg-zinc-900/60 rounded-xl border border-zinc-800 space-y-0.5">
+                                                    <span className="text-[9px] font-black uppercase text-zinc-500 block">Volume &amp; Output</span>
+                                                    <span className="font-bold text-white font-mono">{Math.round(audioVolume * 100)}% {isAudioMuted ? '(Muted)' : '(Nominal)'}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Metadata & Identification Grid */}
+                                        <div className="space-y-2">
+                                            <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 flex items-center gap-1">
+                                                <Disc size={12} /> Track Metadata &amp; Identifiers
+                                            </span>
+                                            <div className="p-3.5 bg-zinc-900/40 rounded-2xl border border-zinc-800 text-xs space-y-2">
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-zinc-300">
+                                                    <div><span className="text-zinc-500">Title:</span> <b className="text-white">{playingAudio.title}</b></div>
+                                                    <div><span className="text-zinc-500">Artist:</span> <b className="text-white">{playingAudio.artist || 'Unknown'}</b></div>
+                                                    <div><span className="text-zinc-500">Album:</span> <b className="text-white">{playingAudio.album || 'Single'}</b></div>
+                                                    <div><span className="text-zinc-500">Genre:</span> <b className="text-white">{playingAudio.genre || 'Music'}</b></div>
+                                                    {playingAudio.releaseYear && (
+                                                        <div><span className="text-zinc-500">Year:</span> <b className="text-white">{playingAudio.releaseYear}</b></div>
+                                                    )}
+                                                    <div><span className="text-zinc-500">Source:</span> <b className="text-amber-400">{playingAudio.source || 'Local File'}</b></div>
+                                                </div>
+                                                <div className="pt-1.5 border-t border-zinc-800/80 text-[11px] font-mono space-y-1 text-zinc-400">
+                                                    <div className="truncate"><span className="text-zinc-500">ID:</span> {playingAudio.id}</div>
+                                                    <div className="break-all"><span className="text-zinc-500">Stream URI:</span> <span className="text-amber-400/90">{audioRef.current?.currentSrc || playingAudio.streamUrl}</span></div>
+                                                    {playingAudio.path && (
+                                                        <div className="break-all"><span className="text-zinc-500">Disk Path:</span> {playingAudio.path}</div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Real-Time Live Event Telemetry Trace & Logs */}
+                                        <div className="space-y-2">
+                                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                                                <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 flex items-center gap-1">
+                                                    <Terminal size={12} /> Live Event Trace &amp; Logs ({audioNerdLogs.length})
+                                                </span>
+                                                <div className="flex items-center gap-1.5">
+                                                    {/* Filter Pills */}
+                                                    <div className="flex bg-zinc-900 p-0.5 rounded-lg border border-zinc-800 text-[10px] font-bold">
+                                                        {(['all', 'info', 'warn', 'error', 'success'] as const).map(lvl => (
+                                                            <button
+                                                                key={lvl}
+                                                                onClick={() => setAudioLogFilter(lvl)}
+                                                                className={`px-2 py-0.5 rounded uppercase tracking-wider transition-all ${
+                                                                    audioLogFilter === lvl
+                                                                        ? 'bg-amber-500 text-black shadow-sm'
+                                                                        : 'text-zinc-400 hover:text-white'
+                                                                }`}
+                                                            >
+                                                                {lvl}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                    {/* Clear Logs */}
+                                                    <button
+                                                        onClick={() => {
+                                                            setAudioNerdLogs([]);
+                                                            toast.success('Logs cleared');
+                                                        }}
+                                                        className="p-1 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-900 transition-colors"
+                                                        title="Clear Event Logs"
+                                                    >
+                                                        <Trash2 size={13} />
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            {/* Search in Logs Input */}
+                                            <div className="relative">
+                                                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+                                                <input
+                                                    type="text"
+                                                    value={audioLogSearch}
+                                                    onChange={e => setAudioLogSearch(e.target.value)}
+                                                    placeholder="Filter logs by keyword..."
+                                                    className="w-full bg-zinc-900/90 border border-zinc-800 rounded-xl pl-8 pr-7 py-1 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-400"
+                                                />
+                                                {audioLogSearch && (
+                                                    <button onClick={() => setAudioLogSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white">
+                                                        <X size={12} />
+                                                    </button>
+                                                )}
+                                            </div>
+
+                                            {/* Logs Console Container */}
+                                            <div className="min-h-[140px] max-h-[220px] overflow-y-auto bg-black/80 border border-zinc-800/90 rounded-2xl p-3 font-mono text-xs space-y-1.5 custom-scrollbar shadow-inner">
+                                                {(() => {
+                                                    const filtered = audioNerdLogs.filter(log => {
+                                                        const matchLevel = audioLogFilter === 'all' || log.level === audioLogFilter;
+                                                        const matchSearch = !audioLogSearch || log.message.toLowerCase().includes(audioLogSearch.toLowerCase()) || log.timestamp.includes(audioLogSearch);
+                                                        return matchLevel && matchSearch;
+                                                    });
+
+                                                    if (filtered.length === 0) {
+                                                        return (
+                                                            <p className="text-zinc-600 text-[11px] py-4 text-center">
+                                                                {audioNerdLogs.length === 0 ? 'No events recorded yet. Playback events will stream here live.' : 'No logs match the current filter.'}
+                                                            </p>
+                                                        );
+                                                    }
+
+                                                    return filtered.map(log => (
+                                                        <div key={log.id} className="flex items-start gap-2 text-[11px] leading-tight hover:bg-zinc-900/40 p-0.5 rounded">
+                                                            <span className="text-zinc-600 shrink-0 select-none">{log.timestamp}</span>
+                                                            <span className={`shrink-0 uppercase font-black text-[9px] px-1 rounded ${
+                                                                log.level === 'error' ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
+                                                                log.level === 'warn' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
+                                                                log.level === 'success' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                                                                'bg-zinc-800 text-zinc-400'
+                                                            }`}>
+                                                                {log.level}
+                                                            </span>
+                                                            <span className={`break-all ${
+                                                                log.level === 'error' ? 'text-red-300' :
+                                                                log.level === 'warn' ? 'text-amber-200' :
+                                                                log.level === 'success' ? 'text-emerald-300' :
+                                                                'text-zinc-300'
+                                                            }`}>
+                                                                {log.message}
+                                                            </span>
+                                                        </div>
+                                                    ));
+                                                })()}
+                                            </div>
+                                        </div>
+
+                                        {/* Action Bar */}
+                                        <div className="pt-2 border-t border-zinc-900 flex items-center justify-between gap-2 flex-wrap">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <button
+                                                    onClick={handleForceAudioTranscode}
+                                                    className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md shadow-amber-500/20 cursor-pointer"
+                                                >
+                                                    <Zap size={13} /> Force Transcode
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        if (audioRef.current && playingAudio) {
+                                                            setAudioPlaybackStatus('loading');
+                                                            setAudioPlaybackError(null);
+                                                            audioRef.current.src = `${playingAudio.streamUrl}${playingAudio.streamUrl.includes('?') ? '&' : '?'}retry=${Date.now()}`;
+                                                            audioRef.current.play().catch(() => {});
+                                                            toast.success('Retrying audio stream...');
+                                                        }
+                                                    }}
+                                                    className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs border border-zinc-800 flex items-center gap-1.5 transition-all cursor-pointer"
+                                                >
+                                                    <RotateCcw size={13} /> Reload
+                                                </button>
+                                            </div>
+
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    onClick={() => {
+                                                        const report = [
+                                                            `# Schedulearr Audio Diagnostics Report`,
+                                                            `Time: ${new Date().toISOString()}`,
+                                                            `Track: ${playingAudio?.title || 'None'}`,
+                                                            `Artist: ${playingAudio?.artist || 'Unknown'}`,
+                                                            `Album: ${playingAudio?.album || 'Unknown'}`,
+                                                            `Format: ${playingAudio?.extension || 'Unknown'}`,
+                                                            `Stream URL: ${audioRef.current?.currentSrc || playingAudio?.streamUrl || 'None'}`,
+                                                            `Status: ${audioPlaybackStatus}`,
+                                                            `Ready State: ${audioRef.current?.readyState}`,
+                                                            `Network State: ${audioRef.current?.networkState}`,
+                                                            `Duration: ${audioDuration}s, Current: ${audioCurrentTime}s`,
+                                                            `Active Error: ${JSON.stringify(audioPlaybackError)}`,
+                                                            `\n## Event Logs:\n` + audioNerdLogs.map(l => `[${l.timestamp}] [${l.level.toUpperCase()}] ${l.message}`).join('\n')
+                                                        ].join('\n');
+                                                        navigator.clipboard.writeText(report);
+                                                        toast.success('Diagnostics report copied to clipboard!');
+                                                    }}
+                                                    className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-bold text-xs border border-zinc-800 flex items-center gap-1.5 transition-all cursor-pointer"
+                                                >
+                                                    <Copy size={13} /> Copy Report
+                                                </button>
+                                                <button
+                                                    onClick={() => setShowAudioNerdModal(true)}
+                                                    className="p-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 transition-all cursor-pointer"
+                                                    title="Pop-out Fullscreen Diagnostics Modal"
+                                                >
+                                                    <Maximize2 size={13} />
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 )}
@@ -4903,10 +5180,10 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             </button>
                         </div>
 
-                        {/* Telemetry Grid */}
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                            <div className="p-3 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-1">
-                                <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Status</span>
+                        {/* Telemetry & Specs Overview Grid */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                            <div className="p-2.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-0.5">
+                                <span className="text-[9px] uppercase font-black text-zinc-500 tracking-wider block">Status</span>
                                 <div className="flex items-center gap-1.5 font-mono text-xs font-black">
                                     <span className={`w-2 h-2 rounded-full ${
                                         audioPlaybackStatus === 'playing' ? 'bg-emerald-400 animate-pulse' :
@@ -4919,88 +5196,154 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 </div>
                             </div>
 
-                            <div className="p-3 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-1">
-                                <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Decoder State</span>
+                            <div className="p-2.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-0.5">
+                                <span className="text-[9px] uppercase font-black text-zinc-500 tracking-wider block">Decoder State</span>
                                 <p className="font-mono text-xs font-bold text-amber-300 truncate">
                                     {audioRef.current ? (
-                                        ['HAVE_NOTHING (0)', 'HAVE_METADATA (1)', 'HAVE_CURRENT_DATA (2)', 'HAVE_FUTURE_DATA (3)', 'HAVE_ENOUGH_DATA (4)'][audioRef.current.readyState] || `Ready ${audioRef.current.readyState}`
-                                    ) : 'No Element'}
+                                        ['HAVE_NOTHING (0)', 'HAVE_METADATA (1)', 'HAVE_CURRENT (2)', 'HAVE_FUTURE (3)', 'HAVE_ENOUGH (4)'][audioRef.current.readyState] || `Ready ${audioRef.current.readyState}`
+                                    ) : 'Web Audio API'}
                                 </p>
                             </div>
 
-                            <div className="p-3 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-1">
-                                <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Network State</span>
+                            <div className="p-2.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-0.5">
+                                <span className="text-[9px] uppercase font-black text-zinc-500 tracking-wider block">Codec / Format</span>
                                 <p className="font-mono text-xs font-bold text-cyan-300 truncate">
-                                    {audioRef.current ? (
-                                        ['NETWORK_EMPTY (0)', 'NETWORK_IDLE (1)', 'NETWORK_LOADING (2)', 'NETWORK_NO_SOURCE (3)'][audioRef.current.networkState] || `State ${audioRef.current.networkState}`
-                                    ) : 'No Element'}
+                                    {playingAudio ? (playingAudio.extension?.toUpperCase() || (playingAudio.youtubeId ? 'OPUS/AAC' : 'AUDIO')) : 'None'}
                                 </p>
                             </div>
 
-                            <div className="p-3 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-1">
-                                <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Time / Duration</span>
+                            <div className="p-2.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-0.5">
+                                <span className="text-[9px] uppercase font-black text-zinc-500 tracking-wider block">Time / Duration</span>
                                 <p className="font-mono text-xs font-bold text-zinc-200">
                                     {formatTime(audioCurrentTime)} / {formatTime(audioDuration)}
                                 </p>
                             </div>
                         </div>
 
-                        {/* Stream Source & Target Info */}
+                        {/* Audiophile Specs & Stream Diagnostics */}
                         {playingAudio && (
-                            <div className="p-3 rounded-2xl bg-zinc-900/60 border border-zinc-800 text-xs font-mono space-y-1.5">
-                                <div className="flex items-center justify-between text-zinc-400">
-                                    <span>Track: <b className="text-white font-sans">{playingAudio.title}</b> ({playingAudio.extension?.toUpperCase() || 'AUDIO'})</span>
-                                    <span className="text-[10px] text-zinc-500">Source: {playingAudio.source || 'Local Disk'}</span>
+                            <div className="p-3.5 rounded-2xl bg-zinc-900/60 border border-zinc-800 text-xs space-y-2">
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-zinc-300 font-mono text-[11px]">
+                                    <div><span className="text-zinc-500 font-sans">Engine:</span> <b className="text-amber-400">{playingAudio.youtubeId ? 'YouTube Stream' : (audioRef.current?.src?.includes('/api/theater/music/transcode') ? 'Server Transcoder' : 'Native Decoder')}</b></div>
+                                    <div><span className="text-zinc-500 font-sans">Quality:</span> <b className="text-emerald-400">{playingAudio.extension?.toLowerCase() === 'flac' ? '24-bit Lossless' : 'High Quality'}</b></div>
+                                    <div><span className="text-zinc-500 font-sans">Size:</span> <b className="text-white">{playingAudio.sizeBytes ? formatBytes(playingAudio.sizeBytes) : 'Bitstream'}</b></div>
+                                    <div><span className="text-zinc-500 font-sans">Volume:</span> <b className="text-white">{Math.round(audioVolume * 100)}%</b></div>
                                 </div>
-                                <div className="text-zinc-500 break-all text-[11px]">
-                                    Active Stream URI: <span className="text-amber-400/90">{audioRef.current?.currentSrc || playingAudio.streamUrl}</span>
+                                <div className="pt-1.5 border-t border-zinc-800 text-[11px] font-mono space-y-0.5 text-zinc-400">
+                                    <div className="truncate"><span className="text-zinc-500">Track:</span> <b className="text-white font-sans">{playingAudio.title}</b> — {playingAudio.artist} {playingAudio.album ? `(${playingAudio.album})` : ''}</div>
+                                    <div className="break-all"><span className="text-zinc-500">Stream URI:</span> <span className="text-amber-400/90">{audioRef.current?.currentSrc || playingAudio.streamUrl}</span></div>
+                                    {playingAudio.path && (
+                                        <div className="break-all"><span className="text-zinc-500">Disk Path:</span> {playingAudio.path}</div>
+                                    )}
                                 </div>
                             </div>
                         )}
 
                         {/* Error Callout if Active */}
                         {audioPlaybackError && (
-                            <div className="p-3.5 rounded-2xl bg-red-500/10 border border-red-500/30 text-xs space-y-1">
+                            <div className="p-3 rounded-2xl bg-red-500/10 border border-red-500/30 text-xs space-y-1">
                                 <div className="font-bold text-red-400 flex items-center gap-1.5">
                                     <AlertTriangle size={14} /> {audioPlaybackError.name || 'Playback Failure'}
                                 </div>
                                 <p className="text-zinc-300">{audioPlaybackError.message}</p>
                                 {audioPlaybackError.details && (
-                                    <p className="text-[11px] font-mono text-red-300/80">{audioPlaybackError.details}</p>
+                                    <p className="text-[11px] font-mono text-red-300/80 break-all">{audioPlaybackError.details}</p>
                                 )}
                             </div>
                         )}
 
-                        {/* Live Event Stream Console */}
-                        <div className="flex-1 min-h-[160px] max-h-[220px] overflow-y-auto bg-black/60 border border-zinc-900 rounded-2xl p-3 font-mono text-xs space-y-1.5 custom-scrollbar">
-                            <div className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider sticky top-0 bg-black/90 py-0.5">
-                                Event Telemetry Trace ({audioNerdLogs.length} events)
-                            </div>
-                            {audioNerdLogs.length === 0 ? (
-                                <p className="text-zinc-600 text-[11px]">No events recorded yet. Play a track to capture live logs.</p>
-                            ) : (
-                                audioNerdLogs.map((log) => (
-                                    <div key={log.id} className="flex items-start gap-2 text-[11px] leading-tight">
-                                        <span className="text-zinc-600 shrink-0">{log.timestamp}</span>
-                                        <span className={`shrink-0 uppercase font-black text-[9px] px-1 rounded ${
-                                            log.level === 'error' ? 'bg-red-500/20 text-red-400' :
-                                            log.level === 'warn' ? 'bg-amber-500/20 text-amber-400' :
-                                            log.level === 'success' ? 'bg-emerald-500/20 text-emerald-400' :
-                                            'bg-zinc-800 text-zinc-400'
-                                        }`}>
-                                            {log.level}
-                                        </span>
-                                        <span className={
-                                            log.level === 'error' ? 'text-red-300' :
-                                            log.level === 'warn' ? 'text-amber-200' :
-                                            log.level === 'success' ? 'text-emerald-300' :
-                                            'text-zinc-300'
-                                        }>
-                                            {log.message}
-                                        </span>
+                        {/* Real-time Live Event Telemetry Trace & Logging Console */}
+                        <div className="flex-1 flex flex-col space-y-2 min-h-0">
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                                <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">
+                                    Event Telemetry Trace ({audioNerdLogs.length} events)
+                                </span>
+                                <div className="flex items-center gap-1.5">
+                                    <div className="flex bg-zinc-900 p-0.5 rounded-lg border border-zinc-800 text-[10px] font-bold">
+                                        {(['all', 'info', 'warn', 'error', 'success'] as const).map(lvl => (
+                                            <button
+                                                key={lvl}
+                                                onClick={() => setAudioLogFilter(lvl)}
+                                                className={`px-2 py-0.5 rounded uppercase tracking-wider transition-all ${
+                                                    audioLogFilter === lvl
+                                                        ? 'bg-amber-500 text-black shadow-sm'
+                                                        : 'text-zinc-400 hover:text-white'
+                                                }`}
+                                            >
+                                                {lvl}
+                                            </button>
+                                        ))}
                                     </div>
-                                ))
-                            )}
+                                    <button
+                                        onClick={() => {
+                                            setAudioNerdLogs([]);
+                                            toast.success('Logs cleared');
+                                        }}
+                                        className="p-1 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-900 transition-colors"
+                                        title="Clear Event Logs"
+                                    >
+                                        <Trash2 size={13} />
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Log Search Filter */}
+                            <div className="relative">
+                                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+                                <input
+                                    type="text"
+                                    value={audioLogSearch}
+                                    onChange={e => setAudioLogSearch(e.target.value)}
+                                    placeholder="Filter logs by message..."
+                                    className="w-full bg-zinc-900/90 border border-zinc-800 rounded-xl pl-8 pr-7 py-1 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-400"
+                                />
+                                {audioLogSearch && (
+                                    <button onClick={() => setAudioLogSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white">
+                                        <X size={12} />
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Scrollable Log Stream */}
+                            <div className="flex-1 min-h-[150px] max-h-[220px] overflow-y-auto bg-black/80 border border-zinc-900 rounded-2xl p-3 font-mono text-xs space-y-1.5 custom-scrollbar shadow-inner">
+                                {(() => {
+                                    const filtered = audioNerdLogs.filter(log => {
+                                        const matchLevel = audioLogFilter === 'all' || log.level === audioLogFilter;
+                                        const matchSearch = !audioLogSearch || log.message.toLowerCase().includes(audioLogSearch.toLowerCase()) || log.timestamp.includes(audioLogSearch);
+                                        return matchLevel && matchSearch;
+                                    });
+
+                                    if (filtered.length === 0) {
+                                        return (
+                                            <p className="text-zinc-600 text-[11px] py-4 text-center">
+                                                {audioNerdLogs.length === 0 ? 'No events recorded yet. Play a track to capture live telemetry.' : 'No logs match the current filter.'}
+                                            </p>
+                                        );
+                                    }
+
+                                    return filtered.map(log => (
+                                        <div key={log.id} className="flex items-start gap-2 text-[11px] leading-tight hover:bg-zinc-900/40 p-0.5 rounded">
+                                            <span className="text-zinc-600 shrink-0 select-none">{log.timestamp}</span>
+                                            <span className={`shrink-0 uppercase font-black text-[9px] px-1 rounded ${
+                                                log.level === 'error' ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
+                                                log.level === 'warn' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
+                                                log.level === 'success' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                                                'bg-zinc-800 text-zinc-400'
+                                            }`}>
+                                                {log.level}
+                                            </span>
+                                            <span className={`break-all ${
+                                                log.level === 'error' ? 'text-red-300' :
+                                                log.level === 'warn' ? 'text-amber-200' :
+                                                log.level === 'success' ? 'text-emerald-300' :
+                                                'text-zinc-300'
+                                            }`}>
+                                                {log.message}
+                                            </span>
+                                        </div>
+                                    ));
+                                })()}
+                            </div>
                         </div>
 
                         {/* Modal Footer Controls */}
