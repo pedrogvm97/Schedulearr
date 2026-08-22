@@ -1312,17 +1312,67 @@ export default function TheaterPage() {
         }
     };
 
-    // Filter & Sort Items
+    // Filter & Sort Items with Smart Search Relevance Scoring
     const filteredItems = useMemo(() => {
         let list = [...items];
         if (searchQuery.trim()) {
             const q = searchQuery.toLowerCase().trim();
-            list = list.filter(i =>
-                i.title.toLowerCase().includes(q) ||
-                (i.artist && i.artist.toLowerCase().includes(q)) ||
-                (i.album && i.album.toLowerCase().includes(q)) ||
-                i.folder.toLowerCase().includes(q)
-            );
+            const escapedQ = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const wordBoundaryRegex = new RegExp(`(^|\\b|\\s)${escapedQ}(\\b|\\s|$)`, 'i');
+
+            const scoredList: Array<{ item: MediaItem; score: number }> = [];
+
+            for (const i of list) {
+                const title = (i.title || i.name || '').toLowerCase();
+                const artist = (i.artist || '').toLowerCase();
+                const album = (i.album || '').toLowerCase();
+                const folder = (i.folder || '').toLowerCase();
+
+                let score = 0;
+
+                // 1. Exact matches (highest priority)
+                if (title === q || artist === q) {
+                    score += 2000;
+                } else if (album === q) {
+                    score += 1500;
+                }
+                // 2. Starts with / prefix match
+                else if (title.startsWith(q) || artist.startsWith(q)) {
+                    score += 1000;
+                } else if (album.startsWith(q)) {
+                    score += 700;
+                }
+                // 3. Word boundary match (e.g. "fun" in "Some Fun" or "Fun.")
+                else if (wordBoundaryRegex.test(title) || wordBoundaryRegex.test(artist)) {
+                    score += 500;
+                } else if (wordBoundaryRegex.test(album)) {
+                    score += 300;
+                }
+                // 4. Substring in Title
+                else if (title.includes(q)) {
+                    score += 200;
+                }
+                // 5. Substring in Artist
+                else if (artist.includes(q)) {
+                    score += 150;
+                }
+                // 6. Substring in Album
+                else if (album.includes(q)) {
+                    score += 80;
+                }
+                // 7. Substring in Folder path (lowest fallback)
+                else if (folder.includes(q)) {
+                    score += 10;
+                }
+
+                if (score > 0) {
+                    scoredList.push({ item: i, score });
+                }
+            }
+
+            // Sort primarily by relevance score descending
+            scoredList.sort((a, b) => b.score - a.score);
+            return scoredList.map(s => s.item);
         }
 
         list.sort((a, b) => {

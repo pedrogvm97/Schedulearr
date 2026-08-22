@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useRef, useMemo } from 'react';
 import {
-    Play, Pause, Volume2, VolumeX, Maximize, X,
+    Play, Pause, Volume2, VolumeX, Maximize, Maximize2, Minimize2, X,
     Shuffle, Repeat, SkipForward, SkipBack,
     Disc, Music, ListMusic, Download, ArrowDownToLine,
     Info, Mic2, Edit3, Search, Sparkles, Check,
@@ -651,6 +651,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     const [customMatchArtist, setCustomMatchArtist] = useState('');
     const [customMatchTitle, setCustomMatchTitle] = useState('');
     const [customMatchAlbum, setCustomMatchAlbum] = useState('');
+    const loadedTrackIdRef = useRef<string | null>(null);
 
     // Specs & Diagnostics Modal States
     const [isAudioSpecsOpen, setIsAudioSpecsOpen] = useState(false);
@@ -1682,7 +1683,19 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
     // When playingAudio changes, load source, fetch lyrics and fetch chords
     useEffect(() => {
-        if (!playingAudio) return;
+        if (!playingAudio) {
+            loadedTrackIdRef.current = null;
+            return;
+        }
+        const trackKey = `${playingAudio.id}___${playingAudio.streamUrl}`;
+        const isNewTrack = loadedTrackIdRef.current !== trackKey;
+        loadedTrackIdRef.current = trackKey;
+
+        if (!isNewTrack) {
+            // Same track instance; do not reload audio elements or restart stream
+            return;
+        }
+
         const ytId = getYtId(playingAudio);
         if (audioStallWatchdogRef.current) clearTimeout(audioStallWatchdogRef.current);
         hasRetriedTranscodeRef.current = false;
@@ -2093,92 +2106,39 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             </div>
                         </div>
 
-                        {/* Right Quick Actions */}
-                        <div className="flex items-center gap-1 sm:gap-1.5 justify-end shrink-0">
-                            {playingAudio.youtubeId && (
-                                <button
-                                    onClick={() => handleGrabTrackToLibrary(playingAudio)}
-                                    disabled={isGrabbingTrack}
-                                    className="p-2 sm:p-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 text-xs font-bold transition-all hidden md:flex"
-                                    title="Grab Track to Local Music Library Folder"
-                                >
-                                    <ArrowDownToLine size={15} />
-                                </button>
-                            )}
-
-                            {/* Chords & Musical Jam Stage */}
-                            <button
-                                onClick={() => {
-                                    setIsExpandedPlayerOpen(true);
-                                    setShowExpandedSidePanel(true);
-                                    setExpandedSidePanel('guitar');
-                                }}
-                                className="p-2 sm:p-2.5 rounded-xl bg-amber-500/15 hover:bg-amber-500 text-amber-400 hover:text-black border border-amber-500/30 text-xs font-bold transition-all hidden lg:flex"
-                                title="Open Guitar & Ukulele Chords Jam Stage"
-                            >
-                                <Guitar size={15} />
-                            </button>
-
-                            {/* Karaoke / Live Lyrics */}
-                            <button
-                                onClick={() => setShowLyricsModal(true)}
-                                className={`p-2 sm:p-2.5 rounded-xl border text-xs font-bold transition-all hidden md:flex ${
-                                    showLyricsModal ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-amber-400 hover:border-amber-500/40'
-                                }`}
-                                title="Karaoke Live Lyrics & Match Editor"
-                            >
-                                <Mic2 size={15} />
-                            </button>
-
+                        {/* Right Quick Controls */}
+                        <div className="flex items-center gap-1.5 sm:gap-2 justify-end shrink-0">
                             {/* Download Track */}
                             <button
                                 onClick={() => handleDownloadTrack(playingAudio)}
-                                className="p-2 sm:p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-emerald-400 hover:border-emerald-500/40 text-xs font-bold transition-all hidden md:flex"
-                                title="Download Audio File to Local Machine"
+                                className="p-2 sm:p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-emerald-400 hover:border-emerald-500/40 text-xs font-bold transition-all"
+                                title="Download Track"
                             >
                                 <Download size={15} />
                             </button>
 
-                            <button
-                                onClick={() => setShowAudioNerdModal(true)}
-                                className={`p-2 sm:p-2.5 rounded-xl border text-xs font-bold transition-all hidden lg:flex ${
-                                    showAudioNerdModal || audioPlaybackError
-                                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
-                                }`}
-                                title="Audio Diagnostics & Stats for Nerds"
-                            >
-                                <Terminal size={15} />
-                            </button>
-
-                            <button
-                                onClick={() => fetchAudioSpecs(playingAudio)}
-                                className="p-2 sm:p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-amber-400 hover:border-amber-500/40 text-xs font-bold transition-all hidden lg:flex"
-                                title="Audio Specs & Metadata (Stats for Audiophiles)"
-                            >
-                                <Info size={15} />
-                            </button>
-
+                            {/* Playback Queue */}
                             <button
                                 onClick={() => setShowQueueDrawer(!showQueueDrawer)}
-                                className={`p-2 sm:p-2.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all hidden sm:flex ${
+                                className={`p-2 sm:px-3 sm:py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
                                     showQueueDrawer ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
                                 }`}
                                 title="Toggle Playback Queue"
                             >
                                 <ListMusic size={15} />
-                                <span className="hidden xl:inline text-xs">({audioQueue.length})</span>
+                                <span className="hidden sm:inline text-xs font-mono">{audioQueue.length}</span>
                             </button>
 
-                            {/* Mobile Expand Studio Button */}
+                            {/* Full Studio Expand */}
                             <button
                                 onClick={() => setIsExpandedPlayerOpen(true)}
-                                className="p-2 rounded-xl bg-amber-500/15 text-amber-400 border border-amber-500/30 text-xs font-bold transition-all sm:hidden"
-                                title="Open Full Studio"
+                                className="p-2 sm:p-2.5 rounded-xl bg-amber-500/15 hover:bg-amber-500 text-amber-400 hover:text-black border border-amber-500/30 text-xs font-bold transition-all"
+                                title="Open Full Turntable Studio"
                             >
                                 <Maximize size={15} />
                             </button>
 
+                            {/* Dismiss Player */}
                             <button
                                 onClick={closePlayer}
                                 className="p-1.5 sm:p-2 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all ml-0.5"
