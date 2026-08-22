@@ -60,13 +60,15 @@ export async function GET(req: Request) {
             if (item.primaryGenreName) genresSet.add(item.primaryGenreName);
             const albumKey = (item.collectionName || '').toLowerCase().trim();
             if (albumKey && !albumMap.has(albumKey)) {
-                const artwork = item.artworkUrl100 ? item.artworkUrl100.replace('100x100bb', '600x600bb') : null;
+                const rawArt = item.artworkUrl100 || item.artworkUrl60 || item.artworkUrl30 || '';
+                const artwork = rawArt ? rawArt.replace(/\d+x\d+(bb)?/, '600x600bb') : null;
                 const year = item.releaseDate ? new Date(item.releaseDate).getFullYear() : undefined;
                 albumMap.set(albumKey, {
                     id: String(item.collectionId),
                     title: item.collectionName,
                     albumTitle: item.collectionName,
                     artistName: item.artistName,
+                    coverUrl: artwork,
                     coverArt: artwork,
                     posterUrl: artwork,
                     remoteCover: artwork,

@@ -1096,6 +1096,32 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         setIsAudioPlaying(true);
     };
 
+    const handlePlayAlbumCard = async (album: any) => {
+        const artist = artistData?.artistName || album.artistName || playingAudio?.artist || '';
+        const title = album.title || album.name || 'Album';
+        const query = `${artist} ${title}`.trim();
+        toast.info(`Finding tracks for "${title}"...`);
+        try {
+            const res = await fetch(`/api/theater/music/online?q=${encodeURIComponent(query)}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.results && data.results.length > 0) {
+                    playAlbum(data.results);
+                    toast.success(`Playing album "${title}" (${data.results.length} songs)!`);
+                    return;
+                }
+            }
+        } catch {}
+        playTrack({
+            id: `album-${album.id || Date.now()}`,
+            title,
+            artist,
+            album: title,
+            posterUrl: album.coverUrl || album.posterUrl || album.remoteCover || album.coverArt,
+            streamUrl: `/api/theater/music/stream?ytId=${album.id || ''}`
+        } as any);
+    };
+
     const togglePlayPause = () => {
         const ytId = getYtId(playingAudio);
         if (ytId && ytPlayerRef.current && ytPlayerReadyRef.current) {
@@ -2902,18 +2928,26 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                     {artistData.albums && artistData.albums.length > 0 ? (
                                                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                                                             {artistData.albums.map((album: any, ai: number) => {
-                                                                const coverImg = album.coverUrl || album.remoteCover || album.images?.find((img: any) => img.coverType === 'cover')?.remoteUrl;
+                                                                const coverImg = album.coverUrl || album.posterUrl || album.coverArt || album.remoteCover || album.remotePoster || album.images?.find((img: any) => img.coverType === 'cover' || img.coverType === 'poster')?.remoteUrl;
                                                                 return (
                                                                     <div
                                                                         key={ai}
-                                                                        className="p-2.5 bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-800/80 hover:border-amber-500/40 rounded-2xl transition-all space-y-2 group flex flex-col justify-between"
+                                                                        onClick={() => handlePlayAlbumCard(album)}
+                                                                        className="p-2.5 bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-800/80 hover:border-amber-500/60 rounded-2xl transition-all space-y-2 group flex flex-col justify-between cursor-pointer hover:scale-[1.02] shadow-lg"
+                                                                        title={`Click to play album "${album.title}"`}
                                                                     >
-                                                                        <div className="aspect-square w-full rounded-xl overflow-hidden bg-zinc-950 flex items-center justify-center relative">
+                                                                        <div className="aspect-square w-full rounded-xl overflow-hidden bg-zinc-950 flex items-center justify-center relative shadow-md">
                                                                             {coverImg ? (
                                                                                 <img src={coverImg} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                                                                             ) : (
                                                                                 <Disc size={28} className="text-zinc-700" />
                                                                             )}
+                                                                            {/* Play Overlay */}
+                                                                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                                                                <div className="w-9 h-9 rounded-full bg-amber-500 text-black flex items-center justify-center shadow-lg transform group-hover:scale-110 transition-transform">
+                                                                                    <Play size={16} className="ml-0.5 fill-black" />
+                                                                                </div>
+                                                                            </div>
                                                                             {album.releaseDate && (
                                                                                 <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-black/80 backdrop-blur-sm text-[9px] font-mono font-bold text-amber-300">
                                                                                     {String(album.releaseDate).slice(0, 4)}
@@ -3119,18 +3153,26 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         {artistData.albums && artistData.albums.length > 0 ? (
                                             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                                                 {artistData.albums.map((album: any, ai: number) => {
-                                                    const coverImg = album.coverUrl || album.remoteCover || album.images?.find((img: any) => img.coverType === 'cover')?.remoteUrl;
+                                                    const coverImg = album.coverUrl || album.posterUrl || album.coverArt || album.remoteCover || album.remotePoster || album.images?.find((img: any) => img.coverType === 'cover' || img.coverType === 'poster')?.remoteUrl;
                                                     return (
                                                         <div
                                                             key={ai}
-                                                            className="p-3 bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-800/80 hover:border-amber-500/40 rounded-2xl transition-all space-y-2 group flex flex-col justify-between"
+                                                            onClick={() => handlePlayAlbumCard(album)}
+                                                            className="p-3 bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-800/80 hover:border-amber-500/60 rounded-2xl transition-all space-y-2 group flex flex-col justify-between cursor-pointer hover:scale-[1.02] shadow-xl"
+                                                            title={`Click to play album "${album.title}"`}
                                                         >
-                                                            <div className="aspect-square w-full rounded-xl overflow-hidden bg-zinc-950 flex items-center justify-center relative">
+                                                            <div className="aspect-square w-full rounded-xl overflow-hidden bg-zinc-950 flex items-center justify-center relative shadow-md">
                                                                 {coverImg ? (
                                                                     <img src={coverImg} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                                                                 ) : (
                                                                     <Disc size={32} className="text-zinc-700" />
                                                                 )}
+                                                                {/* Play Overlay */}
+                                                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                                                    <div className="w-11 h-11 rounded-full bg-amber-500 text-black flex items-center justify-center shadow-lg transform group-hover:scale-110 transition-transform">
+                                                                        <Play size={20} className="ml-0.5 fill-black" />
+                                                                    </div>
+                                                                </div>
                                                                 {album.releaseDate && (
                                                                     <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded bg-black/80 backdrop-blur-sm text-[10px] font-mono font-bold text-amber-300">
                                                                         {String(album.releaseDate).slice(0, 4)}

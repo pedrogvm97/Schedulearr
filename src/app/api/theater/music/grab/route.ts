@@ -87,7 +87,34 @@ export async function POST(req: Request) {
 
         const ext = audioFormat === 'flac' ? 'flac' : audioFormat === 'aac' ? 'm4a' : audioFormat === 'opus' ? 'opus' : 'mp3';
         const finalAudioPath = path.join(albumDir, `${cleanTitle}.${ext}`);
-        const cleanYtId = (youtubeId || '').replace(/^yt-/, '');
+        let cleanYtId = (youtubeId || '').replace(/^yt-/, '');
+
+        if (!cleanYtId && body.streamUrl) {
+            try {
+                const u = new URL(body.streamUrl, 'http://localhost');
+                const p = u.searchParams.get('ytId');
+                if (p) cleanYtId = p.replace(/^yt-/, '');
+            } catch {}
+        }
+
+        // Automatic YouTube search fallback if neither youtubeId nor direct stream was found
+        if (!cleanYtId && (!body.streamUrl || body.streamUrl.includes('/api/theater/music/stream'))) {
+            try {
+                const searchQ = encodeURIComponent(`${cleanArtist} ${cleanTitle} audio`);
+                const searchRes = await axios.get(`https://www.youtube.com/results?search_query=${searchQ}`, {
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                    },
+                    timeout: 6000
+                });
+                const match = searchRes.data.match(/videoId":"([a-zA-Z0-9_-]{11})"/);
+                if (match && match[1]) {
+                    cleanYtId = match[1];
+                }
+            } catch (searchErr) {
+                console.warn('Grab search fallback failed:', searchErr);
+            }
+        }
 
         // 2. Download Track Audio
         let downloaded = false;
