@@ -7,8 +7,11 @@ import util from 'util';
 import db from '@/lib/db';
 import ffmpegStatic from 'ffmpeg-static';
 
-const execPromise = util.promisify(exec);
-const ffmpegPath: string = ffmpegStatic || 'ffmpeg';
+function getYtDlpPath(): string {
+    const localBin = path.join(process.cwd(), 'bin', process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp');
+    if (fs.existsSync(localBin)) return localBin;
+    return 'yt-dlp';
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -197,16 +200,25 @@ export async function POST(req: Request) {
             }
         }
 
-        // 2. Download Track Audio (Native streams only, zero conversions)
+        // 2. Download Track Audio
         let downloaded = false;
+        const ytDlpBin = getYtDlpPath();
+        const formatFilter = sourceFormat === 'opus' ? 'ba[ext=webm]/251/250/249/bestaudio' : 'ba[ext=m4a]/140/139/bestaudio';
 
         // Try yt-dlp first if available
         if (cleanYtId) {
             try {
-                const formatFilter = ext === 'm4a' ? 'bestaudio[ext=m4a]/bestaudio' : 'bestaudio[ext=webm]/bestaudio';
-                const cmd = `yt-dlp -f "${formatFilter}" --embed-metadata -o "${path.join(albumDir, `${cleanTitle}.%(ext)s`)}" "https://www.youtube.com/watch?v=${cleanYtId}"`;
-                await execPromise(cmd, { timeout: 45000 });
-                downloaded = true;
+                if (saveFormat === 'mp3' || saveFormat === 'flac' || saveFormat === 'wav') {
+                    const ffmpegBin = ffmpegStatic || 'ffmpeg';
+                    const cmd = `"${ytDlpBin}" -f "${formatFilter}" --extract-audio --audio-format ${saveFormat} ${saveFormat === 'mp3' ? '--audio-quality 320k' : ''} --ffmpeg-location "${ffmpegBin}" --embed-metadata -o "${finalAudioPath}" "https://www.youtube.com/watch?v=${cleanYtId}"`;
+                    await execPromise(cmd, { timeout: 60000 });
+                } else {
+                    const cmd = `"${ytDlpBin}" -f "${formatFilter}" --embed-metadata -o "${finalAudioPath}" "https://www.youtube.com/watch?v=${cleanYtId}"`;
+                    await execPromise(cmd, { timeout: 60000 });
+                }
+                if (fs.existsSync(finalAudioPath)) {
+                    downloaded = true;
+                }
             } catch {}
         }
 
