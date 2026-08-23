@@ -158,9 +158,17 @@ function PlexTelemetryPanelInner() {
         localStorage.setItem('plexUserColors', JSON.stringify(newColors));
     };
 
-    const getUserColor = (userName: string, index: number) => {
+    const getUserColor = (userName: string, index?: number) => {
         if (userColors[userName]) return userColors[userName];
-        return DEFAULT_COLORS[index % DEFAULT_COLORS.length];
+        if (typeof index === 'number' && index >= 0) {
+            return DEFAULT_COLORS[index % DEFAULT_COLORS.length];
+        }
+        let hash = 0;
+        for (let i = 0; i < (userName || '').length; i++) {
+            hash = (userName || '').charCodeAt(i) + ((hash << 5) - hash);
+        }
+        const colorIdx = Math.abs(hash) % DEFAULT_COLORS.length;
+        return DEFAULT_COLORS[colorIdx];
     };
 
     const formatDuration = (ms: number) => {
@@ -835,7 +843,7 @@ function PlexTelemetryPanelInner() {
                                                         ) : (
                                                             <UserIcon size={12} className="text-zinc-500" />
                                                         )}
-                                                        <span className="font-medium text-zinc-400" style={{ color: getUserColor(item.user.name, Object.keys(userHistoryCounts).indexOf(item.user.name)) }}>{item.user.name}</span>
+                                                        <span className="font-medium text-zinc-400" style={{ color: getUserColor(item.user.name) }}>{item.user.name}</span>
                                                     </div>
                                                     <div className="text-[10px] font-bold text-zinc-600 flex items-center gap-1">
                                                         {item.player.platform} 
@@ -1019,7 +1027,7 @@ function PlexTelemetryPanelInner() {
                 <UserActivityPanel
                     userName={selectedUser.name}
                     userThumb={selectedUser.thumb}
-                    userColor={getUserColor(selectedUser.name, Object.keys(userHistoryCounts).indexOf(selectedUser.name))}
+                    userColor={getUserColor(selectedUser.name)}
                     history={history} // pass unfiltered history so we can calculate their overall
                     formatHours={formatHours}
                     onClose={() => setSelectedUser(null)}
