@@ -1,11 +1,15 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
-import { spawn } from 'child_process';
+import os from 'os';
+import util from 'util';
+import { spawn, exec } from 'child_process';
+import { Readable } from 'stream';
 import axios from 'axios';
 import ffmpegStatic from 'ffmpeg-static';
 import { ensureYtDlpBinary, getYtDlpCommonArgs } from '@/lib/ytdlp';
 
+const execPromise = util.promisify(exec);
 const ffmpegPath: string = ffmpegStatic || 'ffmpeg';
 
 export const dynamic = 'force-dynamic';
@@ -92,8 +96,76 @@ export async function GET(req: Request) {
 
         const ytDlpBin = await ensureYtDlpBinary();
 
-        // ── MODE A: Transcoded Stream & Clean Downloads (MP3/FLAC/WAV or transcode=audio or download) ──
-        if (saveFormat === 'mp3' || saveFormat === 'flac' || saveFormat === 'wav' || isTranscode || isDownload) {
+        // ── MODE A: Clean File Downloads (Ensures 100% complete files with exact Content-Length) ──
+        if (isDownload) {
+            const outFormat = saveFormat === 'flac' ? 'flac' : saveFormat === 'wav' ? 'wav' : saveFormat === 'm4a' ? 'm4a' : saveFormat === 'opus' ? 'opus' : 'mp3';
+            const mimeType = outFormat === 'flac' ? 'audio/flac' : outFormat === 'wav' ? 'audio/wav' : outFormat === 'm4a' ? 'audio/mp4' : outFormat === 'opus' ? 'audio/opus' : 'audio/mpeg';
+            const tempFilePath = path.join(os.tmpdir(), `schdl_dl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${outFormat}`);
+
+            let downloaded = false;
+
+            // 1. Try downloading with standalone yt-dlp binary
+            try {
+                let cmd = '';
+                if (outFormat === 'mp3' || outFormat === 'flac' || outFormat === 'wav') {
+                    cmd = `"${ytDlpBin}" -f "ba/b" --no-playlist --no-check-certificates --no-warnings --extractor-args "youtube:player_client=ios,android,web,mweb" --extract-audio --audio-format ${outFormat} ${outFormat === 'mp3' ? '--audio-quality 320k' : ''} --ffmpeg-location "${ffmpegPath}" --force-overwrites -o "${tempFilePath}" "${targetUrl}"`;
+                } else {
+                    cmd = `"${ytDlpBin}" -f "${formatFilter}" --no-playlist --no-check-certificates --no-warnings --extractor-args "youtube:player_client=ios,android,web,mweb" --ffmpeg-location "${ffmpegPath}" --force-overwrites -o "${tempFilePath}" "${targetUrl}"`;
+                }
+                console.log(`[DOWNLOAD API] Fetching audio with yt-dlp: ${cmd}`);
+                await execPromise(cmd, { timeout: 120000 });
+                if (fs.existsSync(tempFilePath) && fs.statSync(tempFilePath).size > 1024) {
+                    downloaded = true;
+                }
+            } catch (err: any) {
+                console.warn('[DOWNLOAD API] yt-dlp download failed, attempting fallback API:', err.message);
+            }
+
+            // 2. Fallback: Extract direct stream URL from Invidious/Piped and transcode with ffmpeg
+            if (!downloaded && cleanId) {
+                try {
+                    const directAudioUrl = await extractDirectAudioUrl(cleanId);
+                    if (directAudioUrl) {
+                        const ffmpegCmd = `"${ffmpegPath}" -y -i "${directAudioUrl}" -vn ${outFormat === 'mp3' ? '-b:a 320k -ar 44100' : ''} -f ${outFormat} "${tempFilePath}"`;
+                        console.log(`[DOWNLOAD API] Fallback ffmpeg direct stream convert: ${ffmpegCmd}`);
+                        await execPromise(ffmpegCmd, { timeout: 60000 });
+                        if (fs.existsSync(tempFilePath) && fs.statSync(tempFilePath).size > 1024) {
+                            downloaded = true;
+                        }
+                    }
+                } catch (fallbackErr: any) {
+                    console.error('[DOWNLOAD API] Direct stream fallback error:', fallbackErr.message);
+                }
+            }
+
+            if (downloaded && fs.existsSync(tempFilePath)) {
+                const stat = fs.statSync(tempFilePath);
+                const fileStream = fs.createReadStream(tempFilePath);
+
+                fileStream.on('close', () => {
+                    setTimeout(() => {
+                        try {
+                            if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+                        } catch {}
+                    }, 5000);
+                });
+
+                return new Response(Readable.toWeb(fileStream) as any, {
+                    status: 200,
+                    headers: {
+                        'Content-Type': mimeType,
+                        'Content-Length': stat.size.toString(),
+                        'Content-Disposition': `attachment; filename="${encodeURIComponent(safeFilename)}"; filename*=UTF-8''${encodeURIComponent(safeFilename)}`,
+                        'Cache-Control': 'no-cache, no-store'
+                    }
+                });
+            }
+
+            return new NextResponse('Failed to process and download audio file.', { status: 502 });
+        }
+
+        // ── MODE B: Transcoded Live Audio Stream (For In-Browser Web Player) ──
+        if (saveFormat === 'mp3' || saveFormat === 'flac' || saveFormat === 'wav' || isTranscode) {
             const outFormat = saveFormat === 'flac' ? 'flac' : saveFormat === 'wav' ? 'wav' : 'mp3';
             const mimeType = outFormat === 'flac' ? 'audio/flac' : outFormat === 'wav' ? 'audio/wav' : 'audio/mpeg';
 
@@ -143,15 +215,13 @@ export async function GET(req: Request) {
                     }
                 });
 
-                const headers: Record<string, string> = {
-                    'Content-Type': mimeType,
-                    'Cache-Control': isDownload ? 'no-cache, no-store' : 'public, max-age=3600'
-                };
-                if (isDownload) {
-                    headers['Content-Disposition'] = `attachment; filename="${encodeURIComponent(safeFilename)}"; filename*=UTF-8''${encodeURIComponent(safeFilename)}`;
-                }
-
-                return new Response(webStream, { status: 200, headers });
+                return new Response(webStream, {
+                    status: 200,
+                    headers: {
+                        'Content-Type': mimeType,
+                        'Cache-Control': 'public, max-age=3600'
+                    }
+                });
             } catch (err: any) {
                 console.warn('[AUDIO STREAM] yt-dlp transcode spawn failed, trying fallback API:', err.message);
             }
@@ -182,15 +252,13 @@ export async function GET(req: Request) {
                         }
                     });
 
-                    const headers: Record<string, string> = {
-                        'Content-Type': mimeType,
-                        'Cache-Control': isDownload ? 'no-cache, no-store' : 'public, max-age=3600'
-                    };
-                    if (isDownload) {
-                        headers['Content-Disposition'] = `attachment; filename="${encodeURIComponent(safeFilename)}"; filename*=UTF-8''${encodeURIComponent(safeFilename)}`;
-                    }
-
-                    return new Response(webStream, { status: 200, headers });
+                    return new Response(webStream, {
+                        status: 200,
+                        headers: {
+                            'Content-Type': mimeType,
+                            'Cache-Control': 'public, max-age=3600'
+                        }
+                    });
                 }
             }
         }
