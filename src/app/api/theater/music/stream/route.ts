@@ -4,14 +4,9 @@ import path from 'path';
 import { spawn } from 'child_process';
 import axios from 'axios';
 import ffmpegStatic from 'ffmpeg-static';
+import { ensureYtDlpBinary, getYtDlpCommonArgs } from '@/lib/ytdlp';
 
 const ffmpegPath: string = ffmpegStatic || 'ffmpeg';
-
-function getYtDlpPath(): string {
-    const localBin = path.join(process.cwd(), 'bin', process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp');
-    if (fs.existsSync(localBin)) return localBin;
-    return 'yt-dlp';
-}
 
 export const dynamic = 'force-dynamic';
 
@@ -95,10 +90,10 @@ export async function GET(req: Request) {
             ? 'ba[ext=webm]/251/250/249/ba/b'
             : 'ba[ext=m4a]/140/139/ba/b';
 
-        const ytDlpBin = getYtDlpPath();
+        const ytDlpBin = await ensureYtDlpBinary();
 
-        // ── MODE A: Transcoded Stream (MP3/FLAC/WAV or transcode=audio) ──
-        if (saveFormat === 'mp3' || saveFormat === 'flac' || saveFormat === 'wav' || isTranscode) {
+        // ── MODE A: Transcoded Stream & Clean Downloads (MP3/FLAC/WAV or transcode=audio or download) ──
+        if (saveFormat === 'mp3' || saveFormat === 'flac' || saveFormat === 'wav' || isTranscode || isDownload) {
             const outFormat = saveFormat === 'flac' ? 'flac' : saveFormat === 'wav' ? 'wav' : 'mp3';
             const mimeType = outFormat === 'flac' ? 'audio/flac' : outFormat === 'wav' ? 'audio/wav' : 'audio/mpeg';
 

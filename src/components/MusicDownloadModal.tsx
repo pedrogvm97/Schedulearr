@@ -38,7 +38,7 @@ export function MusicDownloadModal({
 
     const isLocalFile = Boolean(track?.path || (albumTracks?.[0]?.path));
     const [downloadScope, setDownloadScope] = useState<'track' | 'album'>(isAlbumAvailable ? 'album' : 'track');
-    const [saveFormat, setSaveFormat] = useState<'original' | 'mp3' | 'flac' | 'wav' | 'm4a' | 'opus'>('original');
+    const [saveFormat, setSaveFormat] = useState<'original' | 'mp3' | 'flac' | 'wav' | 'm4a' | 'opus'>('mp3');
     const [destinations, setDestinations] = useState<DestinationOption[]>([]);
     const [selectedDestId, setSelectedDestId] = useState<string>('device');
     const [isDownloading, setIsDownloading] = useState(false);
@@ -139,7 +139,7 @@ export function MusicDownloadModal({
         };
     };
 
-    // Download to user's device (Browser Blob)
+    // Download to user's device (Browser Blob / Direct Stream)
     const handleDownloadToDevice = async () => {
         if (!tracksToProcess || tracksToProcess.length === 0) {
             toast.error('No tracks selected to download');
@@ -156,24 +156,45 @@ export function MusicDownloadModal({
             setCurrentDownloadStatus(`Downloading (${i + 1}/${tracksToProcess.length}): ${filename}`);
 
             try {
-                const res = await fetch(url);
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const blob = await res.blob();
-                const blobUrl = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = blobUrl;
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                setTimeout(() => window.URL.revokeObjectURL(blobUrl), 15000);
-                successCount++;
+                // If single track, use direct anchor download for instant native browser streaming
+                if (tracksToProcess.length === 1) {
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    successCount++;
+                } else {
+                    const res = await fetch(url);
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    const blob = await res.blob();
+                    const blobUrl = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = blobUrl;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    setTimeout(() => window.URL.revokeObjectURL(blobUrl), 15000);
+                    successCount++;
+                }
             } catch (err: any) {
-                console.error(`Failed to download ${filename}:`, err);
+                console.error(`Failed to download ${filename}, attempting direct link fallback:`, err);
+                try {
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    successCount++;
+                } catch (fallbackErr) {
+                    console.error('Fallback download also failed:', fallbackErr);
+                }
             }
 
             setDownloadProgress(Math.round(((i + 1) / tracksToProcess.length) * 100));
-            // Small pause between multiple file downloads to let the browser handle files cleanly
             if (tracksToProcess.length > 1) {
                 await new Promise(r => setTimeout(r, 600));
             }
@@ -181,10 +202,10 @@ export function MusicDownloadModal({
 
         setIsDownloading(false);
         if (successCount > 0) {
-            toast.success(`Successfully downloaded ${successCount} track${successCount > 1 ? 's' : ''}!`);
-            setTimeout(() => onClose(), 1000);
+            toast.success(`Successfully queued ${successCount} track${successCount > 1 ? 's' : ''} for download!`);
+            setTimeout(() => onClose(), 1200);
         } else {
-            toast.error('Failed to download tracks. Please check connection.');
+            toast.error('Failed to download tracks. Please check server logs.');
         }
     };
 

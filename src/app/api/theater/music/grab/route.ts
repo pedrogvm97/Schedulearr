@@ -6,15 +6,10 @@ import { exec } from 'child_process';
 import util from 'util';
 import db from '@/lib/db';
 import ffmpegStatic from 'ffmpeg-static';
+import { ensureYtDlpBinary } from '@/lib/ytdlp';
 
 const execPromise = util.promisify(exec);
 const ffmpegPath: string = ffmpegStatic || 'ffmpeg';
-
-function getYtDlpPath(): string {
-    const localBin = path.join(process.cwd(), 'bin', process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp');
-    if (fs.existsSync(localBin)) return localBin;
-    return 'yt-dlp';
-}
 
 export const dynamic = 'force-dynamic';
 
@@ -205,7 +200,7 @@ export async function POST(req: Request) {
 
         // 2. Download Track Audio
         let downloaded = false;
-        const ytDlpBin = getYtDlpPath();
+        const ytDlpBin = await ensureYtDlpBinary();
         const formatFilter = sourceFormat === 'opus' ? 'ba[ext=webm]/251/250/249/bestaudio' : 'ba[ext=m4a]/140/139/bestaudio';
 
         // Try yt-dlp first if available
