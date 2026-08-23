@@ -178,9 +178,10 @@ function PlexTelemetryPanelInner() {
         return `${min}:${sec < 10 ? '0' : ''}${sec}`;
     };
     
-    const formatHours = (ms: number) => {
+    const formatHours = (ms?: number) => {
+        if (!ms || isNaN(ms) || ms <= 0) return '0.0h';
         const hours = ms / (1000 * 60 * 60);
-        return hours.toFixed(1) + 'h';
+        return (hours < 0.1 ? '<0.1' : hours.toFixed(1)) + 'h';
     };
 
     const getPlatformIcon = (platform: string) => {
@@ -907,8 +908,8 @@ function PlexTelemetryPanelInner() {
                                             </div>
                                         </div>
                                         <div className="flex flex-col items-end gap-0.5">
-                                            <span className="text-sm font-black text-purple-400">{formatHours(u.duration)}</span>
-                                            <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">{u.count} plays</span>
+                                            <span className="text-sm font-black text-purple-400">{formatHours(u.durationMs)}</span>
+                                            <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">{u.totalPlays} plays</span>
                                         </div>
                                     </div>
                                 ))
