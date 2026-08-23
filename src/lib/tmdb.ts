@@ -90,10 +90,14 @@ export const TMDB_PROVIDERS: Record<string, string | number> = {
     'Netflix': 8,
     'HBO': '118|1899|384', // HBO, Max, HBO Max
     'Disney+': 337,
+    'Disney': 337,
     'Amazon': '119|9|10', // Prime Video, Amazon Video
+    'Prime': '119|9|10',
     'Apple TV+': 350,
+    'Apple': 350,
     'Hulu': 15,
-    'Paramount+': 531,
+    'Paramount+': '531|584|613|238', // Paramount+, Paramount+ with Showtime, Paramount Plus, CBS
+    'Paramount': '531|584|613|238',
     'Peacock': 386
 };
 

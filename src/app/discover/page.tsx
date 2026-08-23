@@ -1051,15 +1051,35 @@ export default function DiscoverPage() {
 
         // Platform / Studio Filter
         if (filterPlatform !== 'All') {
-            const platformLower = filterPlatform.toLowerCase();
+            const platformLower = filterPlatform.toLowerCase().replace(/[\s\-_+]/g, '');
             items = items.filter(i => {
+                // If it came directly from discovery with that platform filter already applied
+                if (Array.isArray(i.productionCompanies) && i.productionCompanies.some((pc: any) => String(pc).toLowerCase().replace(/[\s\-_+]/g, '').includes(platformLower))) {
+                    return true;
+                }
+
                 const companies: string[] = [
                     ...(Array.isArray(i.productionCompanies) ? i.productionCompanies.map((c: any) => typeof c === 'string' ? c : c?.name || '') : []),
                     i.studio,
                     i.network,
                     ...(Array.isArray(i.networks) ? i.networks.map((n: any) => typeof n === 'string' ? n : n?.name || '') : [])
-                ].filter(Boolean).map(s => String(s).toLowerCase());
-                return companies.some(c => c.includes(platformLower) || platformLower.includes(c) || (platformLower.includes('apple') && c.includes('apple')));
+                ].filter(Boolean).map(s => String(s).toLowerCase().replace(/[\s\-_+]/g, ''));
+
+                if (companies.length === 0) {
+                    return false;
+                }
+
+                return companies.some(c => {
+                    if (platformLower.includes('paramount') && (c.includes('paramount') || c.includes('cbs') || c.includes('showtime') || c.includes('viacom'))) return true;
+                    if (platformLower.includes('disney') && (c.includes('disney') || c.includes('pixar') || c.includes('marvel') || c.includes('lucasfilm') || c.includes('starwars'))) return true;
+                    if (platformLower.includes('hbo') && (c.includes('hbo') || c.includes('max') || c.includes('warner') || c.includes('wb'))) return true;
+                    if (platformLower.includes('apple') && c.includes('apple')) return true;
+                    if (platformLower.includes('amazon') && (c.includes('amazon') || c.includes('mgm') || c.includes('prime'))) return true;
+                    if (platformLower.includes('netflix') && c.includes('netflix')) return true;
+                    if (platformLower.includes('hulu') && c.includes('hulu')) return true;
+                    if (platformLower.includes('peacock') && (c.includes('peacock') || c.includes('universal') || c.includes('nbc'))) return true;
+                    return c.includes(platformLower) || platformLower.includes(c);
+                });
             });
         }
 

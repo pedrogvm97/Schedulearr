@@ -684,10 +684,10 @@ export function SchedulePanel() {
                 </div>
             </div>
 
-            {/* ── Multi-Dimensional 2-Column Grid Layout ── */}
+            {/* ── Multi-Dimensional 2-Column Grid Layout (8 cols left, 4 cols right) ── */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 xl:gap-8 items-start">
-                {/* ── Left Column: Timeline / Grid Main Stream (7 Cols) ── */}
-                <div className="lg:col-span-7 xl:col-span-7 2xl:col-span-7 space-y-6">
+                {/* ── Left Column: Timeline / Grid Main Stream (8 Cols) ── */}
+                <div className="lg:col-span-8 xl:col-span-8 2xl:col-span-8 space-y-6">
                     {/* Top Infinite Load Earlier Releases Button */}
                     <div className="text-center">
                         <button
@@ -1007,8 +1007,8 @@ export function SchedulePanel() {
                     </div>
                 </div>
 
-                {/* ── Right Column: Sidebar Dashboard & Widgets (5 Cols) ── */}
-                <div className="lg:col-span-5 xl:col-span-5 2xl:col-span-5 space-y-6 sticky top-6">
+                {/* ── Right Column: Sidebar Dashboard & Widgets (4 Cols) ── */}
+                <div className="lg:col-span-4 xl:col-span-4 2xl:col-span-4 space-y-6 sticky top-6">
                     {/* Widget 1: Schedule Analytics & Progress Gauge */}
                     <div className="p-6 rounded-[2.5rem] bg-[#0c0c0e] border border-zinc-800 shadow-2xl space-y-4">
                         <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">

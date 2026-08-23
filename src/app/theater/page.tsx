@@ -1534,16 +1534,45 @@ function TheaterPageContent() {
         return artistsList.sort((a, b) => a.name.localeCompare(b.name));
     }, [filteredItems, searchQuery]);
 
+    // Accurate Show / Anime name extractor from item metadata, folder hierarchy, and path
+    const extractShowName = useCallback((item: MediaItem): string => {
+        if (item.seriesTitle) return item.seriesTitle.trim();
+        if (item.showTitle) return item.showTitle.trim();
+
+        if (item.path) {
+            const parts = item.path.split(/[/\\]/).filter(Boolean);
+            if (parts.length >= 2) {
+                const parent = parts[parts.length - 2].trim();
+                if (/^(season\s*\d+|specials?|ova|movies?|extras?)$/i.test(parent) && parts.length >= 3) {
+                    return parts[parts.length - 3].trim();
+                }
+                if (parent && !/^(shows?|anime|series|tv|tvshows?|media|videos?)$/i.test(parent)) {
+                    return parent;
+                }
+            }
+        }
+
+        if (item.folder && !/^(season\s*\d+|specials?|ova|shows?|anime|series|tv|media|videos?)$/i.test(item.folder.trim())) {
+            const cleaned = item.folder.replace(/season\s*\d+/i, '').trim();
+            if (cleaned) return cleaned;
+        }
+
+        const titleSplit = item.title.split(/(?:[-–—]\s*)?s\d+e\d+/i)[0]?.trim();
+        if (titleSplit && titleSplit.length > 1) return titleSplit;
+
+        return item.folder || item.title;
+    }, []);
+
     // Derived TV Shows with Seasons and Episodes
     const tvShows = useMemo(() => {
-        const map = new Map<string, { name: string; posterUrl?: string; folder: string; seasons: { seasonNumber: number; episodes: MediaItem[] }[]; totalEpisodes: number }>();
+        const map = new Map<string, { name: string; posterUrl?: string; folder: string; seasons: { seasonNumber: number; episodes: MediaItem[] }[]; totalEpisodes: number; ids: Set<string> }>();
         
         for (const item of filteredItems) {
             if (item.category !== 'video') continue;
             const isShowItem = activeContentTab === 'show' || item.folder?.toLowerCase().includes('season') || item.folder?.toLowerCase().includes('show') || /s\d+e\d+/i.test(item.title) || /s\d+e\d+/i.test(item.path);
             if (!isShowItem && activeContentTab !== 'show') continue;
 
-            const showName = item.folder?.replace(/season\s*\d+/i, '').trim() || item.title.split(/[-–—]|s\d+e\d+/i)[0]?.trim() || 'Show';
+            const showName = extractShowName(item);
             const parsed = parseSeasonEpisode(item.title) || parseSeasonEpisode(item.path) || parseSeasonEpisode(item.name) || { season: 1, episode: 1 };
             const enrichedItem = { ...item, seasonNumber: parsed.season, episodeNumber: parsed.episode };
 
@@ -1553,11 +1582,13 @@ function TheaterPageContent() {
                     posterUrl: item.posterUrl,
                     folder: item.folder,
                     seasons: [],
-                    totalEpisodes: 0
+                    totalEpisodes: 0,
+                    ids: new Set<string>()
                 });
             }
 
             const show = map.get(showName)!;
+            show.ids.add(item.id);
             if (!show.posterUrl && item.posterUrl) show.posterUrl = item.posterUrl;
             show.totalEpisodes++;
 
@@ -1578,19 +1609,17 @@ function TheaterPageContent() {
                     episodes: s.episodes.sort((a, b) => (a.episodeNumber || 1) - (b.episodeNumber || 1))
                 }))
         }));
-    }, [filteredItems, activeContentTab]);
+    }, [filteredItems, activeContentTab, extractShowName]);
 
     // Episodes of the currently playing show for in-player Season/Episode drawer
     const currentShowEpisodes = useMemo(() => {
         if (!playingVideo) return [];
-        const showFolder = playingVideo.folder?.toLowerCase().trim();
-        const showTitleBase = playingVideo.title?.split(/[-–—]|s\d+e\d+/i)[0]?.trim().toLowerCase();
+        const targetShowName = extractShowName(playingVideo).toLowerCase();
 
         return items.filter(i => {
             if (i.category !== 'video') return false;
-            if (showFolder && i.folder?.toLowerCase().trim() === showFolder) return true;
-            if (showTitleBase && showTitleBase.length > 2 && i.title.toLowerCase().startsWith(showTitleBase)) return true;
-            return false;
+            const iShowName = extractShowName(i).toLowerCase();
+            return iShowName === targetShowName;
         }).map(i => {
             const parsed = parseSeasonEpisode(i.title) || parseSeasonEpisode(i.path) || parseSeasonEpisode(i.name) || { season: 1, episode: 1 };
             return {
@@ -1602,7 +1631,7 @@ function TheaterPageContent() {
             if (a.seasonNumber !== b.seasonNumber) return a.seasonNumber - b.seasonNumber;
             return (a.episodeNumber || 1) - (b.episodeNumber || 1);
         });
-    }, [playingVideo, items]);
+    }, [playingVideo, items, extractShowName]);
 
     const showSeasonsMap = useMemo(() => {
         const seasonsMap = new Map<number, typeof currentShowEpisodes>();
@@ -1655,7 +1684,12 @@ function TheaterPageContent() {
     const handlePlayItem = (item: MediaItem) => {
         if (item.category === 'video') {
             if (activeContentTab === 'show') {
-                const matchShow = tvShows.find(s => s.name === item.folder || s.folder === item.folder || item.title.startsWith(s.name));
+                const targetShowName = extractShowName(item).toLowerCase();
+                const matchShow = tvShows.find(s => 
+                    s.name.toLowerCase() === targetShowName ||
+                    (s as any).ids?.has(item.id) ||
+                    s.seasons.some(sn => sn.episodes.some(ep => ep.id === item.id || ep.path === item.path))
+                );
                 if (matchShow && matchShow.totalEpisodes > 1) {
                     setSelectedShow(matchShow);
                     setSelectedShowSeason(null);

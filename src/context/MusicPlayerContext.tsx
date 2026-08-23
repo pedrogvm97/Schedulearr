@@ -1983,15 +1983,21 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                 ref={audioRef}
                 preload="auto"
                 onLoadStart={() => {
+                    const isYt = Boolean(getYtId(playingAudio));
+                    if (isYt) return;
                     setAudioPlaybackStatus('loading');
                     setAudioPlaybackError(null);
                     addAudioNerdLog('info', 'Audio loadstart event');
                 }}
                 onWaiting={() => {
+                    const isYt = Boolean(getYtId(playingAudio));
+                    if (isYt) return;
                     setAudioPlaybackStatus('buffering');
                     addAudioNerdLog('warn', 'Audio stream buffering/waiting for data');
                 }}
                 onCanPlay={() => {
+                    const isYt = Boolean(getYtId(playingAudio));
+                    if (isYt) return;
                     addAudioNerdLog('success', 'Audio stream ready (canplay)');
                     if (audioPlaybackStatus === 'loading' || audioPlaybackStatus === 'buffering') {
                         setAudioPlaybackStatus(isAudioPlaying ? 'playing' : 'paused');
@@ -2003,6 +2009,8 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                     }
                 }}
                 onPlaying={() => {
+                    const isYt = Boolean(getYtId(playingAudio));
+                    if (isYt) return;
                     if (audioStallWatchdogRef.current) {
                         clearTimeout(audioStallWatchdogRef.current);
                         audioStallWatchdogRef.current = null;
@@ -2013,24 +2021,40 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                     addAudioNerdLog('success', 'Audio stream playing');
                 }}
                 onPause={() => {
+                    const isYt = Boolean(getYtId(playingAudio));
+                    if (isYt) return;
                     setAudioPlaybackStatus('paused');
                     setIsAudioPlaying(false);
                     addAudioNerdLog('info', 'Audio paused');
                 }}
                 onStalled={() => {
+                    const isYt = Boolean(getYtId(playingAudio));
+                    if (isYt) return;
                     addAudioNerdLog('warn', 'Audio network stream stalled');
                 }}
                 onTimeUpdate={() => {
+                    const isYt = Boolean(getYtId(playingAudio));
+                    if (isYt) return;
                     if (audioRef.current) setAudioCurrentTime(audioRef.current.currentTime);
                 }}
                 onLoadedMetadata={() => {
+                    const isYt = Boolean(getYtId(playingAudio));
+                    if (isYt) return;
                     if (audioRef.current) {
                         setAudioDuration(audioRef.current.duration);
                         addAudioNerdLog('info', `Loaded audio metadata: duration ${audioRef.current.duration?.toFixed(1)}s`);
                     }
                 }}
-                onEnded={nextTrack}
+                onEnded={() => {
+                    const isYt = Boolean(getYtId(playingAudio));
+                    if (isYt) return;
+                    nextTrack();
+                }}
                 onError={() => {
+                    const isYt = Boolean(getYtId(playingAudio));
+                    if (isYt || !playingAudio || !audioRef.current?.src || audioRef.current?.src === '' || (typeof window !== 'undefined' && audioRef.current?.src === window.location.href)) {
+                        return;
+                    }
                     const err = audioRef.current?.error;
                     const codeMap: Record<number, string> = {
                         1: 'MEDIA_ERR_ABORTED (User aborted fetching)',
@@ -2076,7 +2100,6 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             details: `Stream source unreachable or codec unsupported: ${audioRef.current?.currentSrc || playingAudio?.streamUrl}`,
                             suggestion: 'Click "Force Transcode" or check Nerd Logs.'
                         });
-                        toast.error(`Playback Incompatible: ${codeName}`);
                     }
                 }}
             />
