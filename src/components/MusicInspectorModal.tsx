@@ -77,55 +77,60 @@ export function MusicInspectorModal({
         fetchLidarrSetup();
     }, []);
 
-    // 2. Fetch Tracklist for Album if collectionId or foreignArtistId available
+    // 2. Fetch Tracklist for Album with multi-source fallback
     useEffect(() => {
         const fetchTracks = async () => {
             if (!album) return;
             setLoadingTracks(true);
             try {
-                if (album.raw?.collectionId) {
-                    const res = await fetch(`https://itunes.apple.com/lookup?id=${album.raw.collectionId}&entity=song`);
-                    if (res.ok) {
-                        const data = await res.json();
-                        const songResults = (data.results || []).filter((r: any) => r.wrapperType === 'track');
-                        setTracks(songResults);
+                const artist = album.artistName || album.artist || album.uploader || '';
+                const title = album.albumTitle || album.title || album.name || '';
+                const collectionId = album.collectionId || album.raw?.collectionId || album.id;
+
+                // Query server album resolver
+                const url = `/api/theater/music/album?artist=${encodeURIComponent(artist)}&album=${encodeURIComponent(title)}${collectionId ? `&id=${encodeURIComponent(collectionId)}` : ''}`;
+                const res = await fetch(url);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (Array.isArray(data.tracks) && data.tracks.length > 0) {
+                        setTracks(data.tracks.map((t: any) => ({
+                            trackName: t.title || t.name,
+                            trackNumber: t.trackNumber,
+                            trackTimeMillis: t.durationMs,
+                            albumTitle: data.album?.title || title,
+                            id: t.id,
+                            previewUrl: t.previewUrl,
+                            streamUrl: t.streamUrl,
+                            artistName: t.artist || artist
+                        })));
+                        setLoadingTracks(false);
+                        return;
                     }
-                } else if (album.albums || album.raw?.albums) {
-                    // Artist object from Lidarr
-                    const artistAlbums = album.albums || album.raw?.albums || [];
-                    const allTracks: any[] = [];
-                    artistAlbums.forEach((alb: any) => {
-                        (alb.tracks || []).forEach((t: any) => {
-                            allTracks.push({
+                }
+
+                // If album query returned no tracks, fallback to searching tracks on YouTube / online
+                if (artist || title) {
+                    const searchRes = await fetch(`/api/theater/music/online?q=${encodeURIComponent(`${artist} ${title}`)}`);
+                    if (searchRes.ok) {
+                        const searchData = await searchRes.json();
+                        if (Array.isArray(searchData.results) && searchData.results.length > 0) {
+                            setTracks(searchData.results.map((t: any, idx: number) => ({
                                 trackName: t.title,
-                                trackNumber: t.trackNumber,
-                                trackTimeMillis: t.durationMs,
-                                albumTitle: alb.title,
-                                id: t.id
-                            });
-                        });
-                    });
-                    setTracks(allTracks);
-                } else {
-                    const artist = album.artistName || album.artist || '';
-                    const title = album.title || album.name || '';
-                    if (artist || title) {
-                        const res = await fetch(`/api/theater/music/album?artist=${encodeURIComponent(artist)}&album=${encodeURIComponent(title)}`);
-                        if (res.ok) {
-                            const data = await res.json();
-                            if (Array.isArray(data.tracks)) {
-                                setTracks(data.tracks.map((t: any) => ({
-                                    trackName: t.title || t.name,
-                                    trackNumber: t.trackNumber,
-                                    trackTimeMillis: t.durationMs,
-                                    albumTitle: data.album?.title || title,
-                                    id: t.id,
-                                    previewUrl: t.previewUrl
-                                })));
-                            }
+                                trackNumber: idx + 1,
+                                trackTimeMillis: 210000,
+                                albumTitle: t.album || title,
+                                id: t.id,
+                                previewUrl: t.streamUrl,
+                                streamUrl: t.streamUrl,
+                                artistName: t.artist || artist
+                            })));
+                            setLoadingTracks(false);
+                            return;
                         }
                     }
                 }
+
+                setTracks([]);
             } catch {
                 setTracks([]);
             } finally {
@@ -324,10 +329,11 @@ export function MusicInspectorModal({
                         <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 pt-2">
                             <button
                                 onClick={() => {
-                                    router.push(`/theater?play=${encodeURIComponent(albumName)}&artist=${encodeURIComponent(artistName)}`);
+                                    const queryTerm = artistName ? `${artistName} - ${albumName}` : albumName;
+                                    router.push(`/theater?tab=music&search=${encodeURIComponent(queryTerm)}&autoplay=true`);
                                     onClose();
                                 }}
-                                className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-md shadow-amber-500/20 active:scale-95 transition-all"
+                                className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-md shadow-amber-500/20 active:scale-95 transition-all cursor-pointer"
                             >
                                 <Play size={13} className="fill-current" /> Play in Theater
                             </button>

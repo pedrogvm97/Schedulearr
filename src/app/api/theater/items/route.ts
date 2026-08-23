@@ -209,7 +209,8 @@ export async function GET(req: Request) {
                         for (const item of metadata) {
                             const part = item.Media?.[0]?.Part?.[0];
                             const partKey = part?.key || '';
-                            const thumb = item.parentThumb || item.thumb || item.grandparentThumb || '';
+                            const rawThumb = item.parentThumb || item.thumb || item.grandparentThumb || '';
+                            const thumb = rawThumb && !rawThumb.endsWith('/-1') && rawThumb !== '-1' ? rawThumb : '';
                             const posterUrl = thumb ? `/api/proxy?url=${encodeURIComponent(`${plexUrl}${thumb}?X-Plex-Token=${plex.api_key}`)}` : undefined;
 
                             let mediaCategory: 'video' | 'audio' | 'photo' = 'video';

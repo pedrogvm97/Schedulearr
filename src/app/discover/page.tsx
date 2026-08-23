@@ -9,7 +9,7 @@ import {
     HardDrive, Percent, PlayCircle, ChevronUp,
     PlaySquare, Square, Trash2, MoveHorizontal, MoreVertical,
     CheckCircle2, Copy, ListOrdered, RefreshCw, Layers,
-    Disc, Music
+    Disc, Music, Radio, ArrowDownToLine
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import { CustomSelect } from '@/components/CustomSelect';
@@ -194,6 +194,18 @@ function EpisodeList({
                             </div>
 
                             <div className="flex items-center gap-1 shrink-0">
+                                {ep.hasFile && (
+                                    <button
+                                        onClick={() => {
+                                            const query = encodeURIComponent(ep.title || `S${ep.seasonNumber}E${ep.episodeNumber}`);
+                                            window.location.href = `/theater?tab=show&search=${query}&autoplay=true`;
+                                        }}
+                                        title="Play Episode in Theater"
+                                        className="p-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 transition-all flex items-center gap-1 text-xs font-black cursor-pointer"
+                                    >
+                                        <Play size={13} className="fill-current" />
+                                    </button>
+                                )}
                                 <button
                                     onClick={() => onInteractiveSearch?.(ep)}
                                     title="Interactive Search"
@@ -408,6 +420,18 @@ function UnifiedMediaCard({
                                     {item.year || item.release_date?.split('-')[0] || item.first_air_date?.split('-')[0]}
                                 </span>
                             )}
+                            {isSeries && (item.previousAiring || item.lastAired || item.last_air_date) && (
+                                <span className="flex items-center gap-1 text-emerald-400">
+                                    <Radio size={13} className="text-emerald-500" />
+                                    Aired {new Date(item.previousAiring || item.lastAired || item.last_air_date).toLocaleDateString()}
+                                </span>
+                            )}
+                            {isSeries && (item.statistics?.lastEpisodeFileAdded || item.lastEpisodeFileAdded) && (
+                                <span className="flex items-center gap-1 text-blue-400">
+                                    <ArrowDownToLine size={13} className="text-blue-500" />
+                                    Ep Added {new Date(item.statistics?.lastEpisodeFileAdded || item.lastEpisodeFileAdded).toLocaleDateString()}
+                                </span>
+                            )}
                             {sizeStr && <span className="flex items-center gap-1"><HardDrive size={13} className="text-zinc-600" /> {sizeStr}</span>}
                             {rating != null && <span className="text-amber-400 font-bold flex items-center gap-1">★ {Number(rating).toFixed(1)}</span>}
                             {libStatus.exists && path && (
@@ -527,6 +551,12 @@ function UnifiedMediaCard({
                         {(item.year || item.release_date || item.first_air_date) && (
                             <span>{item.year || item.release_date?.split('-')[0] || item.first_air_date?.split('-')[0]}</span>
                         )}
+                        {isSeries && (item.previousAiring || item.lastAired || item.last_air_date) && (
+                            <>
+                                <span className="opacity-40">•</span>
+                                <span className="text-emerald-400">Aired {new Date(item.previousAiring || item.lastAired || item.last_air_date).toLocaleDateString()}</span>
+                            </>
+                        )}
                         {libStatus.exists && (
                             <>
                                 <span className="opacity-40">•</span>
@@ -641,7 +671,7 @@ export default function DiscoverPage() {
     const [filterYear, setFilterYear] = useState<string>('All');
     const [filterRating, setFilterRating] = useState<number>(0);
     const [filterPopularity, setFilterPopularity] = useState<number>(0);
-    const [sortBy, setSortBy] = useState<'popularity' | 'year' | 'alphabetical' | 'added' | 'size'>('popularity');
+    const [sortBy, setSortBy] = useState<'popularity' | 'year' | 'alphabetical' | 'added' | 'size' | 'lastAired' | 'lastEpisodeAdded'>('popularity');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
     const [isTransferring, setIsTransferring] = useState(false);
@@ -686,18 +716,59 @@ export default function DiscoverPage() {
         ), [instances, mediaType]);
 
     const handleMusicSearch = useCallback(async (queryText: string) => {
-        if (!queryText.trim()) return;
         setMusicLoading(true);
         try {
-            const instId = selectedInstanceIds[0] || (availableInstances[0] ? availableInstances[0].id : '');
-            const url = `/api/lidarr/lookup?term=${encodeURIComponent(queryText.trim())}${instId ? `&instanceId=${instId}` : ''}`;
-            const res = await fetch(url);
-            if (res.ok) {
-                const data = await res.json();
-                setMusicResults(Array.isArray(data.results) ? data.results : []);
-            } else {
-                setMusicResults([]);
+            if (!queryText.trim()) {
+                // If search query is empty, fetch real-time Top Chart Releases
+                const res = await fetch('/api/theater/music/online?action=charts');
+                if (res.ok) {
+                    const data = await res.json();
+                    setMusicResults(Array.isArray(data.results) ? data.results : []);
+                } else {
+                    setMusicResults([]);
+                }
+                return;
             }
+
+            const instId = selectedInstanceIds[0] || (availableInstances[0] ? availableInstances[0].id : '');
+            let results: any[] = [];
+
+            // 1. Search Lidarr Lookup
+            if (instId) {
+                try {
+                    const url = `/api/lidarr/lookup?term=${encodeURIComponent(queryText.trim())}&instanceId=${instId}`;
+                    const res = await fetch(url);
+                    if (res.ok) {
+                        const data = await res.json();
+                        results = Array.isArray(data.results) ? data.results : [];
+                    }
+                } catch {}
+            }
+
+            // 2. Search Online Music / iTunes / Spotify if Lidarr returned few results
+            if (results.length < 5) {
+                try {
+                    const onlineRes = await fetch(`/api/theater/music/online?q=${encodeURIComponent(queryText.trim())}`);
+                    if (onlineRes.ok) {
+                        const onlineData = await onlineRes.json();
+                        if (Array.isArray(onlineData.results)) {
+                            const formatted = onlineData.results.map((r: any) => ({
+                                id: r.id,
+                                title: r.title || r.name,
+                                albumTitle: r.album || r.title,
+                                artistName: r.artist || r.uploader,
+                                posterUrl: r.posterUrl,
+                                releaseDate: r.year,
+                                recordLabel: r.source || 'Online Stream',
+                                raw: r
+                            }));
+                            results = [...results, ...formatted];
+                        }
+                    }
+                } catch {}
+            }
+
+            setMusicResults(results);
         } catch {
             setMusicResults([]);
         } finally {
@@ -784,7 +855,7 @@ export default function DiscoverPage() {
     // 2. Load Catalog / Discovery
     const handleDiscovery = useCallback(async (pageNum: number = currentPage) => {
         if (mediaType === 'music') {
-            handleMusicSearch(searchQuery || 'Top Hits');
+            handleMusicSearch(searchQuery);
             return;
         }
         if (availableInstances.length === 0) return;
@@ -1025,7 +1096,19 @@ export default function DiscoverPage() {
         // Sorting
         items.sort((a, b) => {
             let comparison = 0;
-            if (sortBy === 'popularity') {
+            if (sortBy === 'lastAired') {
+                const rawA = a.previousAiring || a.lastAired || a.statistics?.previousAiring || a.last_air_date || a.firstAired || 0;
+                const rawB = b.previousAiring || b.lastAired || b.statistics?.previousAiring || b.last_air_date || b.firstAired || 0;
+                const timeA = rawA ? new Date(rawA).getTime() : 0;
+                const timeB = rawB ? new Date(rawB).getTime() : 0;
+                comparison = timeA - timeB;
+            } else if (sortBy === 'lastEpisodeAdded') {
+                const rawA = a.statistics?.lastEpisodeFileAdded || a.lastEpisodeFileAdded || a.movieFile?.dateAdded || a.added || 0;
+                const rawB = b.statistics?.lastEpisodeFileAdded || b.lastEpisodeFileAdded || b.movieFile?.dateAdded || b.added || 0;
+                const timeA = rawA ? new Date(rawA).getTime() : 0;
+                const timeB = rawB ? new Date(rawB).getTime() : 0;
+                comparison = timeA - timeB;
+            } else if (sortBy === 'popularity') {
                 const popA = a.popularity || a.ratings?.votes || a.ratings?.value || 0;
                 const popB = b.popularity || b.ratings?.votes || b.ratings?.value || 0;
                 comparison = popA - popB;
@@ -1422,7 +1505,7 @@ export default function DiscoverPage() {
                                     <button 
                                         onClick={() => {
                                             setMediaType('music');
-                                            if (musicResults.length === 0) handleMusicSearch('Top Hits');
+                                            if (musicResults.length === 0) handleMusicSearch('');
                                         }} 
                                         className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 text-xs font-black rounded-xl transition-all whitespace-nowrap ${mediaType === 'music' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
                                     >
@@ -1693,18 +1776,26 @@ export default function DiscoverPage() {
 
                     <div className="flex items-center gap-3">
                         {/* Sort Options */}
-                        <div className="flex bg-zinc-950 p-1 rounded-2xl border border-zinc-800/80">
-                            {[
+                        <div className="flex flex-wrap bg-zinc-950 p-1 rounded-2xl border border-zinc-800/80 gap-0.5">
+                            {(mediaType === 'series' ? [
+                                { id: 'lastAired', label: 'Last Aired', icon: <Radio size={13} /> },
+                                { id: 'lastEpisodeAdded', label: 'Last Ep Added', icon: <ArrowDownToLine size={13} /> },
                                 { id: 'popularity', label: 'Popularity', icon: <TrendingUp size={13} /> },
                                 { id: 'year', label: 'Year', icon: <Calendar size={13} /> },
                                 { id: 'alphabetical', label: 'A-Z', icon: <Rows size={13} /> },
                                 { id: 'added', label: 'Date Added', icon: <Calendar size={13} /> },
                                 { id: 'size', label: 'Size', icon: <HardDrive size={13} /> }
-                            ].map(s => (
+                            ] : [
+                                { id: 'popularity', label: 'Popularity', icon: <TrendingUp size={13} /> },
+                                { id: 'year', label: 'Year', icon: <Calendar size={13} /> },
+                                { id: 'alphabetical', label: 'A-Z', icon: <Rows size={13} /> },
+                                { id: 'added', label: 'Date Added', icon: <Calendar size={13} /> },
+                                { id: 'size', label: 'Size', icon: <HardDrive size={13} /> }
+                            ]).map(s => (
                                 <button
                                     key={s.id}
                                     onClick={() => setSortBy(s.id as any)}
-                                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
                                         sortBy === s.id
                                             ? 'bg-zinc-800 text-white shadow-sm'
                                             : 'text-zinc-500 hover:text-zinc-300'

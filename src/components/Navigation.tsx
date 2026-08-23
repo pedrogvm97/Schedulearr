@@ -24,19 +24,14 @@ const primaryNavItems = [
 
 const secondaryNavItems = [
     {
-        href: '/downloads',
-        label: 'Downloads',
-        icon: (active: boolean) => <Download size={active ? 20 : 18} className={active ? 'text-sky-400' : 'text-zinc-400'} />
-    },
-    {
-        href: '/profiles',
-        label: 'Profiles & Indexers',
-        icon: (active: boolean) => <Sliders size={active ? 20 : 18} className={active ? 'text-amber-400' : 'text-zinc-400'} />
-    },
-    {
         href: '/',
         label: 'Schedule',
         icon: (active: boolean) => <Calendar size={active ? 20 : 18} className={active ? 'text-emerald-400' : 'text-zinc-400'} />
+    },
+    {
+        href: '/downloads',
+        label: 'Transfers',
+        icon: (active: boolean) => <Download size={active ? 20 : 18} className={active ? 'text-sky-400' : 'text-zinc-400'} />
     },
     {
         href: '/analytics',
@@ -63,14 +58,14 @@ const mobileCoreNavItems = [
         icon: (active: boolean) => <Film size={20} className={active ? 'text-emerald-400' : 'text-zinc-400'} />
     },
     {
-        href: '/downloads',
-        label: 'Downloads',
-        icon: (active: boolean) => <Download size={20} className={active ? 'text-sky-400' : 'text-zinc-400'} />
-    },
-    {
         href: '/',
         label: 'Schedule',
         icon: (active: boolean) => <Calendar size={20} className={active ? 'text-emerald-400' : 'text-zinc-400'} />
+    },
+    {
+        href: '/downloads',
+        label: 'Transfers',
+        icon: (active: boolean) => <Download size={20} className={active ? 'text-sky-400' : 'text-zinc-400'} />
     }
 ];
 

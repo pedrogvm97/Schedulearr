@@ -258,9 +258,31 @@ export function SchedulePanel() {
         });
     }, [events, selectedInstanceIds, typeFilter, statusFilter, releaseTypeFilter, searchQuery]);
 
-    // Group by Date for Timeline View
+    // Group by Date for Timeline View with multi-episode consolidation
     const groupedEvents = useMemo(() => {
-        const groups: Record<string, { date: Date; dateStr: string; isToday: boolean; isPast: boolean; events: CalendarEvent[] }> = {};
+        const groups: Record<string, {
+            date: Date;
+            dateStr: string;
+            isToday: boolean;
+            isPast: boolean;
+            events: CalendarEvent[];
+            consolidated: {
+                id: string;
+                isMultiEpisode: boolean;
+                mediaType: 'movie' | 'series';
+                seriesTitle?: string;
+                title: string;
+                releaseDate: string;
+                releaseType: 'digital' | 'physical' | 'cinemas' | 'tv';
+                monitored: boolean;
+                hasFile: boolean;
+                overview: string;
+                posterUrl?: string;
+                instanceName: string;
+                episodes: CalendarEvent[];
+                primaryEvent: CalendarEvent;
+            }[];
+        }> = {};
         const todayStr = formatDateKey(new Date());
 
         filteredEvents.forEach(e => {
@@ -274,10 +296,75 @@ export function SchedulePanel() {
                     dateStr: dateLabel,
                     isToday: dateKey === todayStr,
                     isPast: eventDate.getTime() < new Date().setHours(0, 0, 0, 0),
-                    events: []
+                    events: [],
+                    consolidated: []
                 };
             }
             groups[dateKey].events.push(e);
+        });
+
+        // Consolidate multiple episodes of the same show on each day
+        Object.values(groups).forEach(group => {
+            const showMap = new Map<string, typeof group.consolidated[0]>();
+            const items: typeof group.consolidated = [];
+
+            group.events.forEach(e => {
+                if (e.mediaType === 'series') {
+                    const cleanShowName = (e.seriesTitle || e.title.split(/[-–—]|s\d+e\d+/i)[0] || e.title).trim();
+                    const showKey = cleanShowName.toLowerCase();
+
+                    if (!showMap.has(showKey)) {
+                        const entry: typeof group.consolidated[0] = {
+                            id: e.id,
+                            isMultiEpisode: false,
+                            mediaType: 'series',
+                            seriesTitle: cleanShowName,
+                            title: cleanShowName,
+                            releaseDate: e.releaseDate,
+                            releaseType: e.releaseType,
+                            monitored: e.monitored,
+                            hasFile: e.hasFile,
+                            overview: e.overview,
+                            posterUrl: e.posterUrl,
+                            instanceName: e.instanceName,
+                            episodes: [e],
+                            primaryEvent: e
+                        };
+                        showMap.set(showKey, entry);
+                        items.push(entry);
+                    } else {
+                        const existing = showMap.get(showKey)!;
+                        existing.isMultiEpisode = true;
+                        existing.episodes.push(e);
+                        if (e.hasFile) existing.hasFile = true;
+                    }
+                } else {
+                    items.push({
+                        id: e.id,
+                        isMultiEpisode: false,
+                        mediaType: 'movie',
+                        title: e.title,
+                        releaseDate: e.releaseDate,
+                        releaseType: e.releaseType,
+                        monitored: e.monitored,
+                        hasFile: e.hasFile,
+                        overview: e.overview,
+                        posterUrl: e.posterUrl,
+                        instanceName: e.instanceName,
+                        episodes: [e],
+                        primaryEvent: e
+                    });
+                }
+            });
+
+            // Sort episodes in multi-episode shows
+            items.forEach(it => {
+                if (it.episodes.length > 1) {
+                    it.episodes.sort((a, b) => ((a.seasonNumber || 1) * 1000 + (a.episodeNumber || 1)) - ((b.seasonNumber || 1) * 1000 + (b.episodeNumber || 1)));
+                }
+            });
+
+            group.consolidated = items;
         });
 
         return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
@@ -599,8 +686,8 @@ export function SchedulePanel() {
 
             {/* ── Multi-Dimensional 2-Column Grid Layout ── */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 xl:gap-8 items-start">
-                {/* ── Left Column: Timeline / Grid Main Stream (8-9 Cols) ── */}
-                <div className="lg:col-span-8 xl:col-span-8 2xl:col-span-9 space-y-6">
+                {/* ── Left Column: Timeline / Grid Main Stream (7 Cols) ── */}
+                <div className="lg:col-span-7 xl:col-span-7 2xl:col-span-7 space-y-6">
                     {/* Top Infinite Load Earlier Releases Button */}
                     <div className="text-center">
                         <button
@@ -641,122 +728,154 @@ export function SchedulePanel() {
                         <div className="space-y-8">
                             {/* TIMELINE VIEW */}
                             {viewMode === 'timeline' && (
-                                groupedEvents.map(([dateKey, group]) => (
-                                    <div
-                                        key={dateKey}
-                                        id={`timeline-date-${dateKey}`}
-                                        ref={group.isToday ? todayRef : null}
-                                        className={`relative pl-6 sm:pl-10 transition-all ${
-                                            group.isToday ? 'p-4 sm:p-6 rounded-3xl bg-emerald-500/5 border border-emerald-500/30' : ''
-                                        }`}
-                                    >
-                                        {/* Glowing Timeline Node */}
-                                        <div className={`absolute left-0 top-3 w-3.5 h-3.5 rounded-full ${
-                                            group.isToday
-                                                ? 'bg-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.9)] animate-pulse ring-4 ring-emerald-500/20'
-                                                : group.isPast
-                                                    ? 'bg-zinc-700'
-                                                    : 'bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.6)]'
-                                        }`} />
-                                        <div className="absolute left-[6px] top-6 bottom-[-2rem] w-0.5 bg-zinc-800/80" />
+                                groupedEvents.map(([dateKey, group]) => {
+                                    const hasManyReleases = group.consolidated.length > 3;
 
-                                        {/* Date Group Header */}
-                                        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-                                            <div className="flex items-center gap-3">
-                                                <h2 className="text-base sm:text-lg font-black text-white uppercase tracking-wider flex items-center gap-2">
-                                                    {group.dateStr}
-                                                    {group.isToday && (
-                                                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-500 text-black text-[10px] font-black uppercase tracking-widest shadow-md">
-                                                            TODAY
-                                                        </span>
-                                                    )}
-                                                </h2>
+                                    return (
+                                        <div
+                                            key={dateKey}
+                                            id={`timeline-date-${dateKey}`}
+                                            ref={group.isToday ? todayRef : null}
+                                            className={`relative pl-6 sm:pl-10 transition-all ${
+                                                group.isToday ? 'p-4 sm:p-6 rounded-3xl bg-emerald-500/5 border border-emerald-500/30' : ''
+                                            }`}
+                                        >
+                                            {/* Glowing Timeline Node */}
+                                            <div className={`absolute left-0 top-3 w-3.5 h-3.5 rounded-full ${
+                                                group.isToday
+                                                    ? 'bg-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.9)] animate-pulse ring-4 ring-emerald-500/20'
+                                                    : group.isPast
+                                                        ? 'bg-zinc-700'
+                                                        : 'bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.6)]'
+                                            }`} />
+                                            <div className="absolute left-[6px] top-6 bottom-[-2rem] w-0.5 bg-zinc-800/80" />
+
+                                            {/* Date Group Header */}
+                                            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                                                <div className="flex items-center gap-3">
+                                                    <h2 className="text-base sm:text-lg font-black text-white uppercase tracking-wider flex items-center gap-2">
+                                                        {group.dateStr}
+                                                        {group.isToday && (
+                                                            <span className="px-2.5 py-0.5 rounded-full bg-emerald-500 text-black text-[10px] font-black uppercase tracking-widest shadow-md">
+                                                                TODAY
+                                                            </span>
+                                                        )}
+                                                    </h2>
+                                                </div>
+
+                                                <span className="bg-zinc-900 border border-zinc-800 text-zinc-400 text-xs font-bold px-3 py-1 rounded-full">
+                                                    {group.events.length} {group.events.length === 1 ? 'release' : 'releases'}
+                                                    {hasManyReleases && ' • Swipe ↔'}
+                                                </span>
                                             </div>
 
-                                            <span className="bg-zinc-900 border border-zinc-800 text-zinc-400 text-xs font-bold px-3 py-1 rounded-full">
-                                                {group.events.length} {group.events.length === 1 ? 'release' : 'releases'}
-                                            </span>
-                                        </div>
+                                            {/* Release Cards: Laterally scrollable if >3 releases, otherwise responsive grid */}
+                                            <div className={
+                                                hasManyReleases
+                                                    ? 'flex items-stretch gap-4 overflow-x-auto pb-4 pt-1 custom-scrollbar snap-x'
+                                                    : 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4'
+                                            }>
+                                                {group.consolidated.map(item => {
+                                                    const countdown = getCountdownLabel(item.releaseDate);
+                                                    const poster = item.posterUrl;
 
-                                        {/* Release Cards Grid */}
-                                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                                            {group.events.map(ev => {
-                                                const countdown = getCountdownLabel(ev.releaseDate);
-                                                const poster = ev.posterUrl;
-
-                                                return (
-                                                    <div
-                                                        key={ev.id}
-                                                        onClick={() => setSelectedEvent(ev)}
-                                                        className="group relative flex bg-zinc-950/70 border border-zinc-900 hover:border-zinc-700 rounded-3xl p-4 gap-4 transition-all duration-300 hover:bg-zinc-900/60 shadow-xl cursor-pointer hover:-translate-y-1"
-                                                    >
-                                                        {/* Poster Thumbnail */}
-                                                        <div className="w-20 sm:w-24 aspect-[2/3] rounded-2xl overflow-hidden bg-zinc-900 shrink-0 border border-white/5 shadow-lg group-hover:scale-105 transition-transform relative">
-                                                            {poster ? (
-                                                                <img
-                                                                    src={poster.startsWith('http') ? `/api/proxy?url=${encodeURIComponent(poster)}` : poster}
-                                                                    alt=""
-                                                                    className="w-full h-full object-cover"
-                                                                />
-                                                            ) : (
-                                                                <div className="w-full h-full flex items-center justify-center text-zinc-700">
-                                                                    {ev.mediaType === 'series' ? <Tv size={28} /> : <Film size={28} />}
-                                                                </div>
-                                                            )}
-                                                            {ev.hasFile && (
-                                                                <div className="absolute top-1.5 right-1.5 p-1 rounded-full bg-emerald-500 text-black shadow-md">
-                                                                    <Check size={11} className="stroke-[3]" />
-                                                                </div>
-                                                            )}
-                                                        </div>
-
-                                                        {/* Media Info */}
-                                                        <div className="flex-1 min-w-0 flex flex-col justify-between">
-                                                            <div className="space-y-2">
-                                                                <div className="flex items-center gap-1.5 flex-wrap">
-                                                                    <span className={`px-2.5 py-0.5 rounded-lg text-[10px] border uppercase tracking-wider ${countdown.color}`}>
-                                                                        {countdown.label}
-                                                                    </span>
-                                                                    <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border uppercase tracking-wider ${
-                                                                        ev.releaseType === 'cinemas' ? 'bg-purple-500/15 text-purple-300 border-purple-500/30' :
-                                                                        ev.releaseType === 'physical' ? 'bg-orange-500/15 text-orange-300 border-orange-500/30' :
-                                                                        ev.releaseType === 'digital' ? 'bg-blue-500/15 text-blue-300 border-blue-500/30' :
-                                                                        'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
-                                                                    }`}>
-                                                                        {ev.releaseType === 'cinemas' ? 'In Cinemas' : ev.releaseType === 'physical' ? 'Physical' : ev.releaseType === 'digital' ? 'Digital VOD' : 'TV Airing'}
-                                                                    </span>
-                                                                </div>
-
-                                                                <h3 className="font-black text-white text-base leading-snug line-clamp-2 group-hover:text-emerald-400 transition-colors">
-                                                                    {ev.title}
-                                                                </h3>
-
-                                                                {ev.overview && (
-                                                                    <p className="text-xs text-zinc-500 line-clamp-2 leading-relaxed font-medium">
-                                                                        {ev.overview}
-                                                                    </p>
-                                                                )}
-                                                            </div>
-
-                                                            <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold pt-2 border-t border-zinc-900/80 mt-3">
-                                                                <span className="truncate max-w-[120px]">{ev.instanceName}</span>
-                                                                {ev.hasFile ? (
-                                                                    <span className="text-emerald-400 font-black flex items-center gap-1">
-                                                                        <CheckCircle2 size={13} /> On Disk
-                                                                    </span>
+                                                    return (
+                                                        <div
+                                                            key={item.id}
+                                                            onClick={() => setSelectedEvent(item.primaryEvent)}
+                                                            className={`group relative flex bg-zinc-950/70 border border-zinc-900 hover:border-zinc-700 rounded-3xl p-4 gap-4 transition-all duration-300 hover:bg-zinc-900/60 shadow-xl cursor-pointer hover:-translate-y-1 ${
+                                                                hasManyReleases ? 'min-w-[300px] sm:min-w-[330px] max-w-[350px] shrink-0 snap-start' : ''
+                                                            }`}
+                                                        >
+                                                            {/* Poster Thumbnail */}
+                                                            <div className="w-20 sm:w-24 aspect-[2/3] rounded-2xl overflow-hidden bg-zinc-900 shrink-0 border border-white/5 shadow-lg group-hover:scale-105 transition-transform relative">
+                                                                {poster ? (
+                                                                    <img
+                                                                        src={poster.startsWith('http') ? `/api/proxy?url=${encodeURIComponent(poster)}` : poster}
+                                                                        alt=""
+                                                                        className="w-full h-full object-cover"
+                                                                    />
                                                                 ) : (
-                                                                    <span className="text-zinc-500 font-medium flex items-center gap-1">
-                                                                        <Clock size={12} /> Scheduled
-                                                                    </span>
+                                                                    <div className="w-full h-full flex items-center justify-center text-zinc-700">
+                                                                        {item.mediaType === 'series' ? <Tv size={28} /> : <Film size={28} />}
+                                                                    </div>
+                                                                )}
+                                                                {item.hasFile && (
+                                                                    <div className="absolute top-1.5 right-1.5 p-1 rounded-full bg-emerald-500 text-black shadow-md">
+                                                                        <Check size={11} className="stroke-[3]" />
+                                                                    </div>
                                                                 )}
                                                             </div>
+
+                                                            {/* Media Info */}
+                                                            <div className="flex-1 min-w-0 flex flex-col justify-between">
+                                                                <div className="space-y-2">
+                                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                                        <span className={`px-2.5 py-0.5 rounded-lg text-[10px] border uppercase tracking-wider ${countdown.color}`}>
+                                                                            {countdown.label}
+                                                                        </span>
+                                                                        <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border uppercase tracking-wider ${
+                                                                            item.releaseType === 'cinemas' ? 'bg-purple-500/15 text-purple-300 border-purple-500/30' :
+                                                                            item.releaseType === 'physical' ? 'bg-orange-500/15 text-orange-300 border-orange-500/30' :
+                                                                            item.releaseType === 'digital' ? 'bg-blue-500/15 text-blue-300 border-blue-500/30' :
+                                                                            'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                                                                        }`}>
+                                                                            {item.releaseType === 'cinemas' ? 'In Cinemas' : item.releaseType === 'physical' ? 'Physical' : item.releaseType === 'digital' ? 'Digital VOD' : 'TV Airing'}
+                                                                        </span>
+                                                                        {item.isMultiEpisode && (
+                                                                            <span className="px-2 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-black">
+                                                                                {item.episodes.length} Episodes
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+
+                                                                    <h3 className="font-black text-white text-base leading-snug line-clamp-2 group-hover:text-emerald-400 transition-colors">
+                                                                        {item.title}
+                                                                    </h3>
+
+                                                                    {item.isMultiEpisode ? (
+                                                                        <div className="space-y-1 pt-1">
+                                                                            {item.episodes.slice(0, 3).map(ep => (
+                                                                                <div key={ep.id} className="text-[11px] text-zinc-400 font-semibold truncate flex items-center gap-1.5">
+                                                                                    <span className="px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-300 font-mono text-[10px]">
+                                                                                        S{ep.seasonNumber}E{ep.episodeNumber}
+                                                                                    </span>
+                                                                                    <span className="truncate">{ep.episodeTitle || ep.title}</span>
+                                                                                </div>
+                                                                            ))}
+                                                                            {item.episodes.length > 3 && (
+                                                                                <div className="text-[10px] text-zinc-500 font-bold">
+                                                                                    +{item.episodes.length - 3} more episodes
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    ) : item.overview ? (
+                                                                        <p className="text-xs text-zinc-500 line-clamp-2 leading-relaxed font-medium">
+                                                                            {item.overview}
+                                                                        </p>
+                                                                    ) : null}
+                                                                </div>
+
+                                                                <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold pt-2 border-t border-zinc-900/80 mt-3">
+                                                                    <span className="truncate max-w-[120px]">{item.instanceName}</span>
+                                                                    {item.hasFile ? (
+                                                                        <span className="text-emerald-400 font-black flex items-center gap-1">
+                                                                            <CheckCircle2 size={13} /> On Disk
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="text-zinc-500 font-medium flex items-center gap-1">
+                                                                            <Clock size={12} /> Scheduled
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            </div>
                                                         </div>
-                                                    </div>
-                                                );
-                                            })}
+                                                    );
+                                                })}
+                                            </div>
                                         </div>
-                                    </div>
-                                ))
+                                    );
+                                })
                             )}
 
                             {/* GRID VIEW (Compact Poster Grid) */}
@@ -888,8 +1007,8 @@ export function SchedulePanel() {
                     </div>
                 </div>
 
-                {/* ── Right Column: Sidebar Dashboard & Widgets (3-4 Cols) ── */}
-                <div className="lg:col-span-4 xl:col-span-4 2xl:col-span-3 space-y-6 sticky top-6">
+                {/* ── Right Column: Sidebar Dashboard & Widgets (5 Cols) ── */}
+                <div className="lg:col-span-5 xl:col-span-5 2xl:col-span-5 space-y-6 sticky top-6">
                     {/* Widget 1: Schedule Analytics & Progress Gauge */}
                     <div className="p-6 rounded-[2.5rem] bg-[#0c0c0e] border border-zinc-800 shadow-2xl space-y-4">
                         <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
@@ -938,7 +1057,7 @@ export function SchedulePanel() {
                     <div className="p-6 rounded-[2.5rem] bg-[#0c0c0e] border border-zinc-800 shadow-2xl space-y-4">
                         <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
                             <span className="text-xs font-black uppercase text-indigo-400 tracking-wider flex items-center gap-2">
-                                <CalendarIcon size={16} /> Date Navigator
+                                <CalendarIcon size={16} /> Calendar
                             </span>
                             <div className="flex items-center gap-1">
                                 <button

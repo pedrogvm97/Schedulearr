@@ -135,3 +135,72 @@ export async function GET(req: Request) {
         return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
 }
+
+export async function DELETE(req: Request) {
+    try {
+        const { searchParams } = new URL(req.url);
+        const sessionId = searchParams.get('sessionId');
+        const instanceName = searchParams.get('instanceName');
+        const action = searchParams.get('action');
+
+        if (action === 'clear-all') {
+            const { clearAllPlaybackSessions } = await import('@/lib/db');
+            clearAllPlaybackSessions();
+            const instances = getInstances().filter(i => i.type === 'plex');
+            for (const plex of instances) {
+                try {
+                    const res = await axios.get(`${plex.url}/status/sessions`, {
+                        headers: { 'X-Plex-Token': plex.api_key, 'Accept': 'application/json' },
+                        timeout: 3000
+                    });
+                    const metadata = res.data?.MediaContainer?.Metadata || [];
+                    for (const item of metadata) {
+                        const sKey = item.sessionKey || item.ratingKey;
+                        if (sKey) {
+                            await axios.get(`${plex.url}/status/sessions/terminate`, {
+                                params: { sessionId: sKey, reason: 'Cleared by Admin' },
+                                headers: { 'X-Plex-Token': plex.api_key },
+                                timeout: 3000
+                            }).catch(() => {});
+                        }
+                    }
+                } catch (err) {}
+            }
+            return NextResponse.json({ success: true, message: 'All active and ghost sessions cleared' });
+        }
+
+        if (!sessionId) {
+            return NextResponse.json({ error: 'sessionId is required' }, { status: 400 });
+        }
+
+        // 1. Try local DB end session
+        const { endPlaybackSession } = await import('@/lib/db');
+        endPlaybackSession(sessionId);
+
+        // 2. Try Plex server termination
+        const instances = getInstances().filter(i => i.type === 'plex');
+        for (const plex of instances) {
+            if (!instanceName || plex.name.toLowerCase() === instanceName.toLowerCase()) {
+                try {
+                    await axios.get(`${plex.url}/status/sessions/terminate`, {
+                        params: { sessionId, reason: 'Terminated by Admin' },
+                        headers: { 'X-Plex-Token': plex.api_key },
+                        timeout: 3000
+                    });
+                } catch (err) {
+                    console.warn(`Failed to terminate session on Plex ${plex.name}:`, err);
+                }
+            }
+        }
+
+        return NextResponse.json({ success: true, terminated: sessionId });
+    } catch (e: any) {
+        console.error('Error terminating session:', e);
+        return NextResponse.json({ error: e.message || 'Failed to terminate session' }, { status: 500 });
+    }
+}
+
+export async function POST(req: Request) {
+    return DELETE(req);
+}
+

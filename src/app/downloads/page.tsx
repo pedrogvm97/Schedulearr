@@ -1,9 +1,13 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
-import { Film, Pause, Play, Trash2, Info, ShieldCheck, Clock, HardDrive, Tv } from "lucide-react";
+import { Film, Pause, Play, Trash2, Info, ShieldCheck, Clock, HardDrive, Tv, Sliders, Radio, Users, Download as DownloadIcon } from "lucide-react";
 import { MediaDetailsPanel } from "@/components/MediaDetailsPanel";
+import { ProfilesPanel } from "@/components/ProfilesPanel";
+import { IndexersPanel } from "@/components/IndexersPanel";
+import { PlexUserManagerPanel } from "@/components/PlexUserManagerPanel";
 import { toast } from "sonner";
 
 // --- Interfaces ---
@@ -180,13 +184,33 @@ function MediaCardRow({ torrent, onOpenMedia, onPauseResume, onDeleteClick }: Me
     );
 }
 
-// ─── Main Component ────────────────────────────────────────────────────────────
-export default function Downloads() {
-    const [activeTab, setActiveTab] = useState<'downloads' | 'indexers' | 'profiles'>('downloads');
+// ─── Main Content Component ───────────────────────────────────────────────────
+function DownloadsContent() {
+    const searchParams = useSearchParams();
+    const router = useRouter();
+
+    const initialTab = (['downloads', 'profiles', 'indexers', 'users'].includes(searchParams.get('tab') || '')
+        ? searchParams.get('tab')
+        : 'downloads') as 'downloads' | 'profiles' | 'indexers' | 'users';
+
+    const [activeTab, setActiveTab] = useState<'downloads' | 'profiles' | 'indexers' | 'users'>(initialTab);
     const [torrents, setTorrents] = useState<Torrent[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+    useEffect(() => {
+        const tab = searchParams.get('tab');
+        if (tab && ['downloads', 'profiles', 'indexers', 'users'].includes(tab)) {
+            setActiveTab(tab as any);
+        }
+    }, [searchParams]);
+
+    const handleTabChange = (tab: 'downloads' | 'profiles' | 'indexers' | 'users') => {
+        setActiveTab(tab);
+        const url = tab === 'downloads' ? '/downloads' : `/downloads?tab=${tab}`;
+        router.replace(url, { scroll: false });
+    };
 
     // Delete modal
     const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -425,78 +449,220 @@ export default function Downloads() {
 
     // ─── Render ───────────────────────────────────────────────────────────────
     return (
-        <div className="max-w-6xl mx-auto p-6 space-y-8 pb-24">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="max-w-[1800px] mx-auto p-4 sm:p-8 space-y-6 pb-24">
+            {/* Header & Sub-Navigation */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[#09090b]/80 border border-zinc-800/80 backdrop-blur-2xl p-5 sm:p-6 rounded-[2.5rem] shadow-2xl">
                 <div>
-                    <h1 className="text-3xl font-bold text-white mb-1">Downloads</h1>
+                    <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white flex items-center gap-3">
+                        <DownloadIcon size={26} className="text-sky-400" /> Transfers
+                    </h1>
+                    <p className="text-sm text-zinc-500 mt-1 font-medium">
+                        Manage active torrent downloads, configure quality profiles, sync indexers, and manage Plex user permissions.
+                    </p>
+                </div>
+
+                {/* Segmented Switcher */}
+                <div className="flex flex-wrap bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner self-start sm:self-auto gap-1">
+                    <button
+                        onClick={() => setActiveTab('downloads')}
+                        className={`flex items-center gap-2 px-4 sm:px-5 py-2.5 text-xs font-black rounded-xl transition-all cursor-pointer ${
+                            activeTab === 'downloads'
+                                ? 'bg-sky-600/20 text-sky-400 border border-sky-500/30 shadow-md'
+                                : 'text-zinc-500 hover:text-zinc-300'
+                        }`}
+                    >
+                        <DownloadIcon size={16} /> Downloads ({torrents.length})
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('profiles')}
+                        className={`flex items-center gap-2 px-4 sm:px-5 py-2.5 text-xs font-black rounded-xl transition-all cursor-pointer ${
+                            activeTab === 'profiles'
+                                ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 shadow-md'
+                                : 'text-zinc-500 hover:text-zinc-300'
+                        }`}
+                    >
+                        <ShieldCheck size={16} /> Quality Profiles
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('indexers')}
+                        className={`flex items-center gap-2 px-4 sm:px-5 py-2.5 text-xs font-black rounded-xl transition-all cursor-pointer ${
+                            activeTab === 'indexers'
+                                ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 shadow-md'
+                                : 'text-zinc-500 hover:text-zinc-300'
+                        }`}
+                    >
+                        <Radio size={16} /> Indexers
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('users')}
+                        className={`flex items-center gap-2 px-4 sm:px-5 py-2.5 text-xs font-black rounded-xl transition-all cursor-pointer ${
+                            activeTab === 'users'
+                                ? 'bg-amber-600/20 text-amber-400 border border-amber-500/30 shadow-md'
+                                : 'text-zinc-500 hover:text-zinc-300'
+                        }`}
+                    >
+                        <Users size={16} /> Plex Users
+                    </button>
                 </div>
             </div>
 
-            {/* ── Error / Success ─────────────────────────────────────────────── */}
-            {error && (
-                <div className="bg-red-500/10 border border-red-500/50 text-red-500 p-4 rounded-xl">{error}</div>
-            )}
-            {successMessage && (
-                <div className="bg-emerald-500/10 border border-emerald-500/50 text-emerald-500 p-4 rounded-xl flex items-center gap-3">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-                    {successMessage}
+            {/* Profiles Tab */}
+            {activeTab === 'profiles' && (
+                <div className="animate-in fade-in duration-200">
+                    <ProfilesPanel />
                 </div>
             )}
 
-            {/* ── Torrent List ─────────────────────────────────────────────────── */}
-            {loading && torrents.length === 0 ? (
-                <div className="text-zinc-500 text-center py-10">Loading torrents...</div>
-            ) : torrents.length === 0 ? (
-                <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-8 text-center text-zinc-500">
-                    No active downloads found.
+            {/* Indexers Tab */}
+            {activeTab === 'indexers' && (
+                <div className="animate-in fade-in duration-200">
+                    <IndexersPanel />
                 </div>
-            ) : (
-                <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden shadow-lg">
-                    {/* Table header */}
-                    <div className="hidden md:grid grid-cols-[auto_2fr_0.8fr_1fr_1fr_1fr_auto] gap-4 p-4 border-b border-zinc-800 bg-zinc-950/50 text-xs font-semibold text-zinc-500 uppercase tracking-wider items-center select-none">
-                        <div className="w-10">Art</div>
-                        <button onClick={() => toggleSort('name')} className="text-left flex items-center gap-1 hover:text-zinc-300 transition-colors">
-                            Name {sortField === 'name' && (sortDirection === 'asc' ? '↑' : '↓')}
-                        </button>
-                        <button onClick={() => toggleSort('size')} className="text-left flex items-center gap-1 hover:text-zinc-300 transition-colors">
-                            Size {sortField === 'size' && (sortDirection === 'asc' ? '↑' : '↓')}
-                        </button>
-                        <button onClick={() => toggleSort('progress')} className="text-left flex items-center gap-1 hover:text-zinc-300 transition-colors">
-                            Completion {sortField === 'progress' && (sortDirection === 'asc' ? '↑' : '↓')}
-                        </button>
-                        <button onClick={() => toggleSort('dlspeed')} className="text-left flex items-center gap-1 hover:text-zinc-300 transition-colors">
-                            Speed {sortField === 'dlspeed' && (sortDirection === 'asc' ? '↑' : '↓')}
-                        </button>
-                        <div className="text-left">Indexer</div>
-                        <div className="w-28 text-center">Actions</div>
-                    </div>
+            )}
 
-                    {/* Rows */}
-                    <div className="divide-y divide-zinc-800/50">
-                        {sortedTorrents.map(torrent => (
-                            <MediaCardRow
-                                key={torrent.hash}
-                                torrent={torrent}
-                                onOpenMedia={handleOpenMedia}
-                                onPauseResume={handleAction}
-                                onDeleteClick={(t) => {
-                                    setSelectedHash({ hash: t.hash, name: t.name, instanceId: t.instanceId });
-                                    setDeleteModalOpen(true);
-                                }}
-                            />
-                        ))}
+            {/* Users Tab */}
+            {activeTab === 'users' && (
+                <div className="animate-in fade-in duration-200">
+                    <PlexUserManagerPanel />
+                </div>
+            )}
+
+            {/* Downloads Tab */}
+            {activeTab === 'downloads' && (
+                <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-200">
+                    {/* ── Error / Success ─────────────────────────────────────────────── */}
+                    {error && (
+                        <div className="bg-red-500/10 border border-red-500/50 text-red-500 p-4 rounded-xl">{error}</div>
+                    )}
+                    {successMessage && (
+                        <div className="bg-emerald-500/10 border border-emerald-500/50 text-emerald-500 p-4 rounded-xl flex items-center gap-3">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                            {successMessage}
+                        </div>
+                    )}
+
+                    {/* ── Torrent List ─────────────────────────────────────────────────── */}
+                    {loading && torrents.length === 0 ? (
+                        <div className="text-zinc-500 text-center py-10">Loading torrents...</div>
+                    ) : torrents.length === 0 ? (
+                        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-8 text-center text-zinc-500">
+                            No active downloads found.
+                        </div>
+                    ) : (
+                        <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden shadow-lg">
+                            {/* Table header */}
+                            <div className="hidden md:grid grid-cols-[auto_2fr_0.8fr_1fr_1fr_1fr_auto] gap-4 p-4 border-b border-zinc-800 bg-zinc-950/40 text-xs font-semibold text-zinc-400">
+                                <span className="w-10">Media</span>
+                                <span className="cursor-pointer flex items-center gap-1 hover:text-white" onClick={() => toggleSort('name')}>
+                                    Release {sortField === 'name' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
+                                </span>
+                                <span className="cursor-pointer flex items-center gap-1 hover:text-white" onClick={() => toggleSort('size')}>
+                                    Size {sortField === 'size' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
+                                </span>
+                                <span className="cursor-pointer flex items-center gap-1 hover:text-white" onClick={() => toggleSort('progress')}>
+                                    Progress {sortField === 'progress' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
+                                </span>
+                                <span className="cursor-pointer flex items-center gap-1 hover:text-white" onClick={() => toggleSort('dlspeed')}>
+                                    Down Speed {sortField === 'dlspeed' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
+                                </span>
+                                <span>Up Speed</span>
+                                <span className="text-right">Actions</span>
+                            </div>
+
+                            <div className="divide-y divide-zinc-800/60">
+                                {sortedTorrents.map((t) => (
+                                    <MediaCardRow
+                                        key={`${t.instanceId}-${t.hash}`}
+                                        torrent={t}
+                                        onOpenMedia={handleOpenMedia}
+                                        onPauseResume={handleAction}
+                                        onDeleteClick={(torrent) => {
+                                            setSelectedHash({ hash: torrent.hash, name: torrent.name, instanceId: torrent.instanceId });
+                                            setDeleteModalOpen(true);
+                                        }}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ── Auto-Cleanup & Smart Tools ───────────────────────────────────── */}
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl space-y-6">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800/80 pb-4">
+                            <div>
+                                <h3 className="text-base font-black text-white flex items-center gap-2">
+                                    <HardDrive size={18} className="text-emerald-400" /> Auto-Cleanup &amp; Stagnation Watchdog
+                                </h3>
+                                <p className="text-xs text-zinc-400 mt-0.5 font-medium">
+                                    Automatically delete stalled torrents, oversized files, and free disk space.
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <button
+                                    onClick={handleSmartClean}
+                                    disabled={isRunningSmartClean}
+                                    className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-black uppercase text-xs tracking-wider rounded-xl transition-all shadow-md flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                                >
+                                    {isRunningSmartClean ? 'Cleaning...' : '⚡ Clean Stalled Now'}
+                                </button>
+                                <button
+                                    onClick={() => setIsCleanupSettingsOpen(!isCleanupSettingsOpen)}
+                                    className="px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-bold rounded-xl border border-zinc-700 transition-all cursor-pointer"
+                                >
+                                    {isCleanupSettingsOpen ? 'Hide Rules' : 'Configure Rules'}
+                                </button>
+                            </div>
+                        </div>
+
+                        {isCleanupSettingsOpen && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-950/60 border border-zinc-800/80">
+                                        <div>
+                                            <span className="text-xs font-bold text-white block">Auto Cleanup Engine</span>
+                                            <span className="text-[11px] text-zinc-400">Run background watchdog periodically</span>
+                                        </div>
+                                        <Toggle value={qbitCleanupEnabled} onChange={setQbitCleanupEnabled} />
+                                    </div>
+
+                                    <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-950/60 border border-zinc-800/80">
+                                        <div>
+                                            <span className="text-xs font-bold text-white block">Stagnant Torrents</span>
+                                            <span className="text-[11px] text-zinc-400">Remove downloads with 0 B/s for {qbitStagnationMin} mins</span>
+                                        </div>
+                                        <Toggle value={qbitStagnationEnabled} onChange={setQbitStagnationEnabled} />
+                                    </div>
+                                </div>
+
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-950/60 border border-zinc-800/80">
+                                        <div>
+                                            <span className="text-xs font-bold text-white block">Delete Files From Disk</span>
+                                            <span className="text-[11px] text-zinc-400">Reclaim physical storage immediately</span>
+                                        </div>
+                                        <Toggle value={qbitDeleteFiles} onChange={setQbitDeleteFiles} />
+                                    </div>
+
+                                    <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-950/60 border border-zinc-800/80">
+                                        <div>
+                                            <span className="text-xs font-bold text-white block">Blacklist Failed Release</span>
+                                            <span className="text-[11px] text-zinc-400">Instruct Sonarr/Radarr to find alternate release</span>
+                                        </div>
+                                        <Toggle value={qbitBlacklist} onChange={setQbitBlacklist} />
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
 
             {/* ── Delete Confirmation Modal ─────────────────────────────────────── */}
             {deleteModalOpen && selectedHash && (
-                <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-                    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 max-w-md w-full shadow-2xl">
-                        <h2 className="text-xl font-bold text-white mb-4">Confirm Deletion</h2>
-                        <p className="text-zinc-400 text-sm mb-6 pb-4 border-b border-zinc-800">
-                            Are you sure you want to remove <span className="text-white font-medium break-all">{selectedHash.name}</span>?
-                        </p>
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
+                        <h3 className="text-lg font-black text-white">Delete Download</h3>
+                        <p className="text-xs text-zinc-400 font-medium">Are you sure you want to remove <span className="text-white font-bold">{selectedHash.name}</span>?</p>
 
                         <div className="space-y-4 mb-8">
                             {[
@@ -540,5 +706,18 @@ export default function Downloads() {
                 />
             )}
         </div>
+    );
+}
+
+export default function Downloads() {
+    return (
+        <Suspense fallback={
+            <div className="flex items-center justify-center py-40 gap-3 text-zinc-500 text-sm font-bold">
+                <div className="w-5 h-5 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
+                Loading Transfers...
+            </div>
+        }>
+            <DownloadsContent />
+        </Suspense>
     );
 }

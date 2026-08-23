@@ -27,7 +27,7 @@ RUN npm run build
 FROM base AS runner
 WORKDIR /app
 
-RUN apk add --no-cache ffmpeg yt-dlp python3 py3-pip libc6-compat
+RUN apk add --no-cache ffmpeg python3 py3-pip libc6-compat && pip3 install --no-cache-dir --break-system-packages -U yt-dlp
 
 ENV NODE_ENV=production
 # Uncomment the following line in case you want to disable telemetry during runtime.

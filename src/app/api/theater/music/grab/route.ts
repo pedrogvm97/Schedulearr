@@ -214,9 +214,9 @@ export async function POST(req: Request) {
                 const ffmpegBin = ffmpegStatic || 'ffmpeg';
                 let cmd = '';
                 if (saveFormat === 'mp3' || saveFormat === 'flac' || saveFormat === 'wav') {
-                    cmd = `"${ytDlpBin}" -f "ba/b" --no-playlist --no-check-certificates --extract-audio --audio-format ${saveFormat} ${saveFormat === 'mp3' ? '--audio-quality 320k' : ''} --ffmpeg-location "${ffmpegBin}" --force-overwrites -o "${finalAudioPath}" "https://www.youtube.com/watch?v=${cleanYtId}"`;
+                    cmd = `"${ytDlpBin}" -f "ba/b" --no-playlist --no-check-certificates --no-warnings --extractor-args "youtube:player_client=ios,android,web,mweb" --extract-audio --audio-format ${saveFormat} ${saveFormat === 'mp3' ? '--audio-quality 320k' : ''} --ffmpeg-location "${ffmpegBin}" --force-overwrites -o "${finalAudioPath}" "https://www.youtube.com/watch?v=${cleanYtId}"`;
                 } else {
-                    cmd = `"${ytDlpBin}" -f "${formatFilter}" --no-playlist --no-check-certificates --ffmpeg-location "${ffmpegBin}" --force-overwrites -o "${finalAudioPath}" "https://www.youtube.com/watch?v=${cleanYtId}"`;
+                    cmd = `"${ytDlpBin}" -f "${formatFilter}" --no-playlist --no-check-certificates --no-warnings --extractor-args "youtube:player_client=ios,android,web,mweb" --ffmpeg-location "${ffmpegBin}" --force-overwrites -o "${finalAudioPath}" "https://www.youtube.com/watch?v=${cleanYtId}"`;
                 }
                 console.log(`[MUSIC GRAB] Downloading track with yt-dlp: ${cmd}`);
                 await execPromise(cmd, { timeout: 120000 });

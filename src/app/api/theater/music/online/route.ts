@@ -9,9 +9,52 @@ export async function GET(req: Request) {
     try {
         const { searchParams } = new URL(req.url);
         const query = searchParams.get('q');
+        const action = searchParams.get('action');
 
-        if (!query || !query.trim()) {
-            return NextResponse.json({ results: [] });
+        // 0. Top Charts / Trending Releases (when query is empty or action=charts/trending)
+        if (!query || !query.trim() || action === 'charts' || action === 'trending') {
+            try {
+                const genre = searchParams.get('genre') || '';
+                const feedRes = await axios.get('https://itunes.apple.com/us/rss/topalbums/limit=24/json', {
+                    headers: { 'User-Agent': 'Schedulearr/0.5.16' },
+                    timeout: 6000
+                });
+
+                const entries = feedRes.data?.feed?.entry || [];
+                let results = entries.map((e: any) => {
+                    const albumName = e['im:name']?.label || 'Album';
+                    const artistName = e['im:artist']?.label || 'Artist';
+                    const rawImg = e['im:image']?.[2]?.label || e['im:image']?.[1]?.label || '';
+                    const posterUrl = rawImg ? rawImg.replace(/170x170bb/g, '600x600bb') : '';
+                    const genreName = e.category?.attributes?.label || 'Music';
+                    const collectionId = e.id?.attributes?.['im:id'] || '';
+
+                    return {
+                        id: `chart-${collectionId || albumName}`,
+                        name: albumName,
+                        title: albumName,
+                        artist: artistName,
+                        artistName: artistName,
+                        albumTitle: albumName,
+                        genre: genreName,
+                        category: 'audio',
+                        extension: 'ALBUM',
+                        posterUrl,
+                        source: 'Top Charts',
+                        collectionId,
+                        streamUrl: `/api/theater/music/stream?q=${encodeURIComponent(`${artistName} ${albumName}`)}`
+                    };
+                });
+
+                if (genre) {
+                    results = results.filter((r: any) => r.genre.toLowerCase().includes(genre.toLowerCase()));
+                }
+
+                return NextResponse.json({ results });
+            } catch (e: any) {
+                console.warn('Error fetching top charts:', e.message);
+                return NextResponse.json({ results: [] });
+            }
         }
 
         const cleanQ = encodeURIComponent(query.trim());

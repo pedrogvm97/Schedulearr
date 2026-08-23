@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useMemo } from "react";
-import { Play, Pause, Monitor, Tv, Smartphone, Cpu, Activity, RefreshCw, Film, AlertCircle, Clock, History, BarChart2, CheckCircle2, User as UserIcon, Calendar as CalendarIcon, ChevronDown, ChevronRight, Palette, Music, Headphones } from "lucide-react";
+import { Play, Pause, Monitor, Tv, Smartphone, Cpu, Activity, RefreshCw, Film, AlertCircle, Clock, History, BarChart2, BarChart3, CheckCircle2, User as UserIcon, Calendar as CalendarIcon, ChevronDown, ChevronRight, Palette, Music, Headphones, Users, HardDrive, XCircle } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { MediaDetailsPanel } from "./MediaDetailsPanel";
 import { LibraryExplorerPanel } from "./LibraryExplorerPanel";
@@ -78,6 +78,7 @@ function PlexTelemetryPanelInner() {
     const [selectedHistoryMedia, setSelectedHistoryMedia] = useState<PlexHistory | null>(null);
     const [selectedLibraryExplorer, setSelectedLibraryExplorer] = useState<any | null>(null);
     const [selectedUser, setSelectedUser] = useState<{name: string, thumb?: string} | null>(null);
+    const [terminatingId, setTerminatingId] = useState<string | null>(null);
 
     useEffect(() => {
         // Load user colors from local storage
@@ -87,9 +88,41 @@ function PlexTelemetryPanelInner() {
         }
     }, []);
 
+    const handleTerminateSession = async (sessionId: string, instanceName: string) => {
+        setTerminatingId(sessionId);
+        try {
+            const res = await fetch(`/api/plex/sessions?sessionId=${encodeURIComponent(sessionId)}&instanceName=${encodeURIComponent(instanceName)}`, {
+                method: 'DELETE'
+            });
+            if (res.ok) {
+                fetchTelemetry();
+            }
+        } catch (e) {
+            console.error('Failed to terminate session', e);
+        } finally {
+            setTerminatingId(null);
+        }
+    };
+
+    const handleClearAllSessions = async () => {
+        setTerminatingId('all');
+        try {
+            const res = await fetch('/api/plex/sessions?action=clear-all', {
+                method: 'DELETE'
+            });
+            if (res.ok) {
+                fetchTelemetry();
+            }
+        } catch (e) {
+            console.error('Failed to clear sessions', e);
+        } finally {
+            setTerminatingId(null);
+        }
+    };
+
     const fetchTelemetry = async () => {
         try {
-            const limit = timeRange === 7 ? 500 : timeRange === 30 ? 2000 : 5000;
+            const limit = timeRange === 1 ? 300 : timeRange === 7 ? 600 : timeRange === 30 ? 2000 : 5000;
             const [sessionsRes, historyRes, statsRes] = await Promise.all([
                 fetch('/api/plex/sessions'),
                 fetch(`/api/plex/history?limit=${limit}`),
@@ -152,45 +185,188 @@ function PlexTelemetryPanelInner() {
 
     // Filter history by time range
     const filteredHistory = useMemo(() => {
+        if (timeRange === 9999) return history;
         const cutoff = Date.now() - (timeRange * 24 * 60 * 60 * 1000);
         return history.filter(h => h.viewedAt >= cutoff);
     }, [history, timeRange]);
 
-    // Compute top users based on filtered history
-    const userHistoryCounts = useMemo(() => {
-        return filteredHistory.reduce((acc, curr) => {
-            const name = curr.user.name;
-            if (!acc[name]) acc[name] = { name, count: 0, duration: 0, thumb: curr.user.thumb };
-            acc[name].count++;
-            acc[name].duration += (curr.viewOffsetMs || curr.durationMs || 0);
-            return acc;
-        }, {} as Record<string, { name: string, count: number, duration: number, thumb?: string }>);
-    }, [filteredHistory]);
+    // Comprehensive Metrics Calculation (Overall & Per-User)
+    const metrics = useMemo(() => {
+        let totalShows = 0;
+        let totalMovies = 0;
+        let totalSongs = 0;
+        let totalLiveTv = 0;
+        let totalDurationMs = 0;
+        let totalGb = 0;
 
-    const topHistoricalUsers = Object.values(userHistoryCounts).sort((a, b) => b.duration - a.duration).slice(0, 8);
-
-    // Compute chart data (Watch time per user per day)
-    const chartData = useMemo(() => {
-        const daysMap: Record<string, any> = {};
-        
-        // Initialize days map for the time range
-        for (let i = timeRange - 1; i >= 0; i--) {
-            const d = new Date(Date.now() - (i * 24 * 60 * 60 * 1000));
-            const dateStr = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-            daysMap[dateStr] = { date: dateStr };
-        }
+        const usersMap: Record<string, {
+            name: string;
+            thumb?: string;
+            shows: number;
+            movies: number;
+            songs: number;
+            totalPlays: number;
+            durationMs: number;
+            gb: number;
+            platforms: Record<string, number>;
+            lastViewedAt: number;
+        }> = {};
 
         filteredHistory.forEach(h => {
-            const d = new Date(h.viewedAt);
-            const dateStr = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-            if (daysMap[dateStr]) {
-                const userName = h.user.name;
-                const hours = (h.viewOffsetMs || h.durationMs || 0) / (1000 * 60 * 60);
-                daysMap[dateStr][userName] = (daysMap[dateStr][userName] || 0) + hours;
+            const duration = h.viewOffsetMs || h.durationMs || 0;
+            totalDurationMs += duration;
+            const hours = duration / 3600000;
+
+            let gb = 0;
+            if (h.mediaType === 'movie') {
+                totalMovies++;
+                gb = hours * 2.5; // ~2.5 GB / hr avg stream
+            } else if (h.mediaType === 'series') {
+                totalShows++;
+                gb = hours * 2.0; // ~2.0 GB / hr
+            } else if (h.mediaType === 'track' || h.mediaType === 'music' || h.mediaType === 'audio') {
+                totalSongs++;
+                gb = Math.max(0.015, hours * 0.08); // ~15MB avg song
+            } else {
+                totalLiveTv++;
+                gb = hours * 2.5;
             }
+
+            totalGb += gb;
+
+            // Per User tracking
+            const uname = h.user.name;
+            if (!usersMap[uname]) {
+                usersMap[uname] = {
+                    name: uname,
+                    thumb: h.user.thumb,
+                    shows: 0,
+                    movies: 0,
+                    songs: 0,
+                    totalPlays: 0,
+                    durationMs: 0,
+                    gb: 0,
+                    platforms: {},
+                    lastViewedAt: h.viewedAt
+                };
+            }
+            const u = usersMap[uname];
+            u.totalPlays++;
+            u.durationMs += duration;
+            u.gb += gb;
+            if (h.viewedAt > u.lastViewedAt) u.lastViewedAt = h.viewedAt;
+
+            if (h.mediaType === 'movie') u.movies++;
+            else if (h.mediaType === 'series') u.shows++;
+            else if (h.mediaType === 'track' || h.mediaType === 'music' || h.mediaType === 'audio') u.songs++;
+
+            const plat = h.player.platform || 'Client';
+            u.platforms[plat] = (u.platforms[plat] || 0) + 1;
         });
 
-        return Object.values(daysMap);
+        const sortedUsers = Object.values(usersMap).sort((a, b) => b.durationMs - a.durationMs).map(u => {
+            const topPlatform = Object.entries(u.platforms).sort(([, a], [, b]) => b - a)[0]?.[0] || 'Unknown';
+            const percentage = totalDurationMs > 0 ? Math.round((u.durationMs / totalDurationMs) * 100) : 0;
+            return {
+                ...u,
+                hours: (u.durationMs / 3600000).toFixed(1),
+                gbFormatted: u.gb >= 1000 ? `${(u.gb / 1000).toFixed(2)} TB` : `${u.gb.toFixed(1)} GB`,
+                primaryPlatform: topPlatform,
+                percentage
+            };
+        });
+
+        return {
+            totalPlays: filteredHistory.length,
+            totalShows,
+            totalMovies,
+            totalSongs,
+            totalLiveTv,
+            totalDurationMs,
+            totalHours: (totalDurationMs / 3600000).toFixed(1),
+            totalGbFormatted: totalGb >= 1000 ? `${(totalGb / 1000).toFixed(2)} TB` : `${totalGb.toFixed(1)} GB`,
+            usersCount: sortedUsers.length,
+            users: sortedUsers
+        };
+    }, [filteredHistory]);
+
+    const topHistoricalUsers = metrics.users.slice(0, 8);
+
+    // Compute chart data (Watch time per user)
+    const chartData = useMemo(() => {
+        const bucketsMap: Record<string, any> = {};
+        
+        if (timeRange === 1) {
+            // 24-hour mode: 3-hour blocks
+            for (let i = 7; i >= 0; i--) {
+                const d = new Date(Date.now() - (i * 3 * 60 * 60 * 1000));
+                const label = `${String(d.getHours()).padStart(2, '0')}:00`;
+                bucketsMap[label] = { date: label };
+            }
+            filteredHistory.forEach(h => {
+                const d = new Date(h.viewedAt);
+                const blockHour = Math.floor(d.getHours() / 3) * 3;
+                const label = `${String(blockHour).padStart(2, '0')}:00`;
+                if (bucketsMap[label]) {
+                    const userName = h.user.name;
+                    const hours = (h.viewOffsetMs || h.durationMs || 0) / (1000 * 60 * 60);
+                    bucketsMap[label][userName] = (bucketsMap[label][userName] || 0) + hours;
+                }
+            });
+        } else if (timeRange <= 30) {
+            // Days mode
+            for (let i = timeRange - 1; i >= 0; i--) {
+                const d = new Date(Date.now() - (i * 24 * 60 * 60 * 1000));
+                const dateStr = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+                bucketsMap[dateStr] = { date: dateStr };
+            }
+            filteredHistory.forEach(h => {
+                const d = new Date(h.viewedAt);
+                const dateStr = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+                if (bucketsMap[dateStr]) {
+                    const userName = h.user.name;
+                    const hours = (h.viewOffsetMs || h.durationMs || 0) / (1000 * 60 * 60);
+                    bucketsMap[dateStr][userName] = (bucketsMap[dateStr][userName] || 0) + hours;
+                }
+            });
+        } else if (timeRange <= 90) {
+            // 90 days: weekly buckets
+            for (let i = 12; i >= 0; i--) {
+                const d = new Date(Date.now() - (i * 7 * 24 * 60 * 60 * 1000));
+                const label = `W-${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+                bucketsMap[label] = { date: label };
+            }
+            filteredHistory.forEach(h => {
+                const diffDays = Math.floor((Date.now() - h.viewedAt) / (24 * 60 * 60 * 1000));
+                const weekIdx = Math.min(12, Math.floor(diffDays / 7));
+                const d = new Date(Date.now() - (weekIdx * 7 * 24 * 60 * 60 * 1000));
+                const label = `W-${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+                if (bucketsMap[label]) {
+                    const userName = h.user.name;
+                    const hours = (h.viewOffsetMs || h.durationMs || 0) / (1000 * 60 * 60);
+                    bucketsMap[label][userName] = (bucketsMap[label][userName] || 0) + hours;
+                }
+            });
+        } else {
+            // 365 Days / All time: monthly buckets
+            for (let i = 11; i >= 0; i--) {
+                const d = new Date();
+                d.setMonth(d.getMonth() - i);
+                const label = d.toLocaleDateString(undefined, { month: 'short', year: '2-digit' });
+                bucketsMap[label] = { date: label };
+            }
+            filteredHistory.forEach(h => {
+                const d = new Date(h.viewedAt);
+                const label = d.toLocaleDateString(undefined, { month: 'short', year: '2-digit' });
+                if (bucketsMap[label]) {
+                    const userName = h.user.name;
+                    const hours = (h.viewOffsetMs || h.durationMs || 0) / (1000 * 60 * 60);
+                    bucketsMap[label][userName] = (bucketsMap[label][userName] || 0) + hours;
+                }
+            });
+        }
+
+        return Object.values(bucketsMap);
     }, [filteredHistory, timeRange]);
 
     // Compute most watched media
@@ -233,74 +409,156 @@ function PlexTelemetryPanelInner() {
 
     return (
         <div className="space-y-8 animate-in fade-in duration-300">
-            {/* Top Telemetry Header Overview */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="p-5 rounded-2xl bg-zinc-950/70 border border-zinc-800/80 flex items-center justify-between shadow-xl">
-                    <div className="space-y-1">
-                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">Active Streams</span>
-                        <span className="text-3xl font-black text-white">{data.activeStreamsCount}</span>
-                    </div>
-                    <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center">
-                        <Activity size={20} className={data.activeStreamsCount > 0 ? 'animate-pulse' : ''} />
-                    </div>
+            {/* ── Top Controls & Time Window Selector ── */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[#0c0c0e] border border-zinc-800 p-5 rounded-[2rem] shadow-xl">
+                <div>
+                    <h2 className="text-base sm:text-lg font-black text-white flex items-center gap-2">
+                        <BarChart3 size={20} className="text-indigo-400" /> Streaming Telemetry &amp; Analytics
+                    </h2>
+                    <p className="text-xs text-zinc-500 font-medium mt-0.5">
+                        Historical playback statistics, consumed bandwidth, and per-user activity.
+                    </p>
                 </div>
 
-                <div className="p-5 rounded-2xl bg-zinc-950/70 border border-zinc-800/80 flex items-center justify-between shadow-xl">
-                    <div className="space-y-1">
-                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">Total Bandwidth</span>
-                        <span className="text-3xl font-black text-sky-400">{data.totalBandwidthMbps} <span className="text-sm font-bold text-zinc-500">Mbps</span></span>
+                {/* Time Window Switcher */}
+                <div className="flex flex-wrap items-center gap-1.5 bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner">
+                    {[
+                        { label: '24 Hours', value: 1 },
+                        { label: '7 Days', value: 7 },
+                        { label: '30 Days', value: 30 },
+                        { label: '90 Days', value: 90 },
+                        { label: '1 Year', value: 365 },
+                        { label: 'All Time', value: 9999 }
+                    ].map(btn => (
+                        <button
+                            key={btn.value}
+                            onClick={() => setTimeRange(btn.value)}
+                            className={`px-3 sm:px-4 py-2 text-xs font-black rounded-xl transition-all cursor-pointer ${
+                                timeRange === btn.value
+                                    ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/40 shadow-sm'
+                                    : 'text-zinc-500 hover:text-zinc-300'
+                            }`}
+                        >
+                            {btn.label}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            {/* ── Comprehensive Overview Metric Cards (For Selected Time Window) ── */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
+                {/* 1. Shows Streamed */}
+                <div className="p-4 rounded-2xl bg-zinc-950/70 border border-zinc-800/80 shadow-xl space-y-1 relative overflow-hidden group">
+                    <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">Shows Streamed</span>
+                        <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                            <Tv size={16} />
+                        </div>
                     </div>
-                    <div className="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-400 flex items-center justify-center">
-                        <RefreshCw size={20} />
-                    </div>
+                    <div className="text-2xl sm:text-3xl font-black text-white">{metrics.totalShows}</div>
+                    <span className="text-[10px] text-zinc-500 font-bold block">Episodes Played</span>
                 </div>
 
-                <div className="p-5 rounded-2xl bg-zinc-950/70 border border-zinc-800/80 flex items-center justify-between shadow-xl">
-                    <div className="space-y-1">
-                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">History Records (Selected Range)</span>
-                        <span className="text-3xl font-black text-purple-400">{filteredHistory.length}</span>
+                {/* 2. Movies Streamed */}
+                <div className="p-4 rounded-2xl bg-zinc-950/70 border border-zinc-800/80 shadow-xl space-y-1 relative overflow-hidden group">
+                    <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">Movies Streamed</span>
+                        <div className="w-8 h-8 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center">
+                            <Film size={16} />
+                        </div>
                     </div>
-                    <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center">
-                        <History size={20} />
-                    </div>
+                    <div className="text-2xl sm:text-3xl font-black text-white">{metrics.totalMovies}</div>
+                    <span className="text-[10px] text-zinc-500 font-bold block">Films Watched</span>
                 </div>
 
-                <div className="p-5 rounded-2xl bg-zinc-950/70 border border-zinc-800/80 flex items-center justify-between shadow-xl relative group">
-                    <div className="space-y-1">
-                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block flex items-center gap-1 cursor-help" title="Combined watch and listening time across Plex and Schedulearr players.">
-                            Total Listening &amp; Watch Time
-                        </span>
-                        <span className="text-3xl font-black text-amber-400">
-                            {formatHours(filteredHistory.reduce((acc, h) => acc + (h.viewOffsetMs || h.durationMs || 0), 0))}
-                        </span>
+                {/* 3. Songs Streamed */}
+                <div className="p-4 rounded-2xl bg-zinc-950/70 border border-zinc-800/80 shadow-xl space-y-1 relative overflow-hidden group">
+                    <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">Songs Streamed</span>
+                        <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center">
+                            <Music size={16} />
+                        </div>
                     </div>
-                    <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center">
-                        <Clock size={20} />
+                    <div className="text-2xl sm:text-3xl font-black text-white">{metrics.totalSongs}</div>
+                    <span className="text-[10px] text-zinc-500 font-bold block">Tracks Listened</span>
+                </div>
+
+                {/* 4. Total Stream Time */}
+                <div className="p-4 rounded-2xl bg-zinc-950/70 border border-zinc-800/80 shadow-xl space-y-1 relative overflow-hidden group">
+                    <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">Hours Watched</span>
+                        <div className="w-8 h-8 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center">
+                            <Clock size={16} />
+                        </div>
                     </div>
+                    <div className="text-2xl sm:text-3xl font-black text-indigo-400">{metrics.totalHours} <span className="text-xs text-zinc-500">hrs</span></div>
+                    <span className="text-[10px] text-zinc-500 font-bold block">Total Stream Time</span>
+                </div>
+
+                {/* 5. Total Bandwidth / GB */}
+                <div className="p-4 rounded-2xl bg-zinc-950/70 border border-zinc-800/80 shadow-xl space-y-1 relative overflow-hidden group">
+                    <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">Data Streamed</span>
+                        <div className="w-8 h-8 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-400 flex items-center justify-center">
+                            <HardDrive size={16} />
+                        </div>
+                    </div>
+                    <div className="text-2xl sm:text-3xl font-black text-sky-400">{metrics.totalGbFormatted}</div>
+                    <span className="text-[10px] text-zinc-500 font-bold block">Estimated Traffic</span>
+                </div>
+
+                {/* 6. Active Streamers */}
+                <div className="p-4 rounded-2xl bg-zinc-950/70 border border-zinc-800/80 shadow-xl space-y-1 relative overflow-hidden group">
+                    <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">Active Users</span>
+                        <div className="w-8 h-8 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center">
+                            <Users size={16} />
+                        </div>
+                    </div>
+                    <div className="text-2xl sm:text-3xl font-black text-purple-400">{metrics.usersCount}</div>
+                    <span className="text-[10px] text-zinc-500 font-bold block">Active in Window</span>
                 </div>
             </div>
 
             {/* Main Content Area */}
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
                 
-                {/* Left Column: Live Streams, Chart, History */}
+                {/* Left Column: Live Streams, Chart, Per-User Breakdown, History */}
                 <div className="xl:col-span-2 space-y-8">
                     
                     {/* Live Streams */}
                     <div className="space-y-4">
-                        <h2 className="text-lg font-black text-white flex items-center gap-2">
-                            <Activity className="text-emerald-500" size={20} /> Live Streams
+                        <div className="flex items-center justify-between">
+                            <h2 className="text-lg font-black text-white flex items-center gap-2">
+                                <Activity className="text-emerald-500" size={20} /> Live Streams
+                                {data.activeStreamsCount > 0 && (
+                                    <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                                        LIVE ({data.activeStreamsCount} • {data.totalBandwidthMbps} Mbps)
+                                    </span>
+                                )}
+                            </h2>
+
                             {data.activeStreamsCount > 0 && (
-                                <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                                    LIVE
-                                </span>
+                                <button
+                                    onClick={handleClearAllSessions}
+                                    disabled={terminatingId !== null}
+                                    className="px-3 py-1 bg-red-500/15 hover:bg-red-500/25 text-red-400 border border-red-500/30 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                    title="Disconnect and terminate all active and ghost stream sessions"
+                                >
+                                    {terminatingId === 'all' ? (
+                                        <div className="w-3 h-3 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
+                                    ) : (
+                                        <XCircle size={13} />
+                                    )}
+                                    <span>Clear Ghost Streams</span>
+                                </button>
                             )}
-                        </h2>
+                        </div>
                         
                         {data.sessions.length === 0 ? (
-                            <div className="p-12 text-center bg-zinc-950/40 rounded-2xl border border-zinc-800/80 border-dashed">
-                                <Activity className="mx-auto text-zinc-700 mb-3" size={32} />
-                                <p className="text-zinc-400 font-bold text-sm">No Active Streams</p>
+                            <div className="p-8 text-center bg-zinc-950/40 rounded-2xl border border-zinc-800/80 border-dashed">
+                                <Activity className="mx-auto text-zinc-700 mb-2" size={28} />
+                                <p className="text-zinc-400 font-bold text-xs">No Active Streams Currently</p>
                             </div>
                         ) : (
                             <div className="grid grid-cols-1 gap-4">
@@ -340,15 +598,30 @@ function PlexTelemetryPanelInner() {
                                                         </div>
                                                     </div>
                                                     <div className="flex flex-col items-end gap-1.5 shrink-0">
-                                                        {s.transcode.streamType === 'Direct Play' ? (
-                                                            <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                                                                Direct Play ({s.transcode.resolution || 'Audio'})
-                                                            </span>
-                                                        ) : (
-                                                            <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                                                                {s.transcode.streamType}
-                                                            </span>
-                                                        )}
+                                                        <div className="flex items-center gap-2">
+                                                            {s.transcode.streamType === 'Direct Play' ? (
+                                                                <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                                                                    Direct Play ({s.transcode.resolution || 'Audio'})
+                                                                </span>
+                                                            ) : (
+                                                                <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                                                                    {s.transcode.streamType}
+                                                                </span>
+                                                            )}
+                                                            <button
+                                                                onClick={() => handleTerminateSession(s.id, s.instanceName)}
+                                                                disabled={terminatingId === s.id}
+                                                                className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-red-500/15 hover:bg-red-500/30 text-red-400 border border-red-500/30 flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
+                                                                title="End this ghost/active stream"
+                                                            >
+                                                                {terminatingId === s.id ? (
+                                                                    <div className="w-2.5 h-2.5 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
+                                                                ) : (
+                                                                    <XCircle size={10} />
+                                                                )}
+                                                                <span>End</span>
+                                                            </button>
+                                                        </div>
                                                         <span className="text-[10px] font-black text-sky-400">{s.playback.bandwidthMbps} Mbps</span>
                                                     </div>
                                                 </div>
@@ -393,21 +666,13 @@ function PlexTelemetryPanelInner() {
 
                     {/* Chart Area */}
                     <div className="space-y-4">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div className="flex items-center justify-between">
                             <h2 className="text-lg font-black text-white flex items-center gap-2">
-                                <BarChart2 className="text-indigo-500" size={20} /> Watch Activity
+                                <BarChart2 className="text-indigo-500" size={20} /> Watch Activity Timeline
                             </h2>
-                            <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 p-1 rounded-xl">
-                                {[7, 30, 90, 365].map(days => (
-                                    <button
-                                        key={days}
-                                        onClick={() => setTimeRange(days)}
-                                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${timeRange === days ? 'bg-indigo-500/20 text-indigo-400' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                    >
-                                        {days === 365 ? '1 Year' : `${days} Days`}
-                                    </button>
-                                ))}
-                            </div>
+                            <span className="text-xs text-zinc-500 font-bold">
+                                {timeRange === 1 ? 'Last 24 Hours' : timeRange === 9999 ? 'All Time' : `Last ${timeRange} Days`}
+                            </span>
                         </div>
                         
                         <div className="bg-zinc-950/40 rounded-2xl border border-zinc-800/80 p-4 h-[300px]">
@@ -430,6 +695,82 @@ function PlexTelemetryPanelInner() {
                                 </ResponsiveContainer>
                             ) : (
                                 <div className="w-full h-full flex items-center justify-center text-zinc-500 text-sm">No data available for this range.</div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* ── Per-User Streaming Breakdown Table ── */}
+                    <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                            <h2 className="text-lg font-black text-white flex items-center gap-2">
+                                <Users className="text-purple-400" size={20} /> Per-User Streaming Breakdown
+                            </h2>
+                            <span className="text-xs text-zinc-500 font-bold">{metrics.users.length} Users Active</span>
+                        </div>
+
+                        <div className="bg-zinc-950/50 rounded-2xl border border-zinc-800/80 overflow-hidden shadow-xl">
+                            {metrics.users.length === 0 ? (
+                                <div className="p-8 text-center text-zinc-500 text-sm">No user streaming activity in this time window.</div>
+                            ) : (
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left text-xs">
+                                        <thead className="bg-zinc-900/60 border-b border-zinc-800 text-zinc-400 font-bold uppercase tracking-wider text-[10px]">
+                                            <tr>
+                                                <th className="p-3.5 pl-5">User</th>
+                                                <th className="p-3.5 text-center">Shows</th>
+                                                <th className="p-3.5 text-center">Movies</th>
+                                                <th className="p-3.5 text-center">Songs</th>
+                                                <th className="p-3.5 text-right">Watch Time</th>
+                                                <th className="p-3.5 text-right">Data (GB)</th>
+                                                <th className="p-3.5 text-right pr-5">Share</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-zinc-900 font-medium">
+                                            {metrics.users.map((u, i) => (
+                                                <tr key={u.name} className="hover:bg-zinc-900/40 transition-colors">
+                                                    <td className="p-3.5 pl-5">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="relative">
+                                                                {u.thumb ? (
+                                                                    <img src={u.thumb} className="w-7 h-7 rounded-full border shadow-sm" style={{ borderColor: getUserColor(u.name, i) }} alt="" />
+                                                                ) : (
+                                                                    <div className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-sm" style={{ backgroundColor: getUserColor(u.name, i) }}>
+                                                                        {u.name.charAt(0).toUpperCase()}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            <div>
+                                                                <button
+                                                                    onClick={() => setSelectedUser({ name: u.name, thumb: u.thumb })}
+                                                                    className="font-bold text-zinc-200 hover:text-white transition-colors cursor-pointer text-left block"
+                                                                >
+                                                                    {u.name}
+                                                                </button>
+                                                                <span className="text-[10px] text-zinc-500 font-normal">{u.primaryPlatform}</span>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                    <td className="p-3.5 text-center font-bold text-emerald-400">{u.shows}</td>
+                                                    <td className="p-3.5 text-center font-bold text-rose-400">{u.movies}</td>
+                                                    <td className="p-3.5 text-center font-bold text-amber-400">{u.songs}</td>
+                                                    <td className="p-3.5 text-right font-black text-indigo-400">{u.hours} hrs</td>
+                                                    <td className="p-3.5 text-right font-black text-sky-400">{u.gbFormatted}</td>
+                                                    <td className="p-3.5 text-right pr-5">
+                                                        <div className="flex items-center justify-end gap-2">
+                                                            <span className="text-[11px] font-black text-zinc-400">{u.percentage}%</span>
+                                                            <div className="w-16 h-2 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800">
+                                                                <div
+                                                                    className="h-full rounded-full transition-all"
+                                                                    style={{ width: `${u.percentage}%`, backgroundColor: getUserColor(u.name, i) }}
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
                             )}
                         </div>
                     </div>

@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
     Film, Tv, Music, Image as ImageIcon, Folder, Plus,
     Play, Pause, Volume2, VolumeX, Maximize, X, Minimize2, Maximize2, Minus,
@@ -126,7 +127,7 @@ interface StreamDiagnosticsInfo {
 }
 
 function formatBytes(bytes: number): string {
-    if (!bytes || bytes === 0) return '0 B';
+    if (!bytes || bytes <= 0 || isNaN(bytes)) return '';
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
@@ -140,7 +141,17 @@ function formatTime(seconds: number): string {
     return `${m}:${s < 10 ? '0' : ''}${s}`;
 }
 
-export default function TheaterPage() {
+function parseSeasonEpisode(str: string): { season: number; episode: number } | null {
+    if (!str) return null;
+    const match = str.match(/s(\d+)e(\d+)/i) || str.match(/(\d+)x(\d+)/i) || str.match(/season\s*(\d+)\s*episode\s*(\d+)/i);
+    if (match) {
+        return { season: parseInt(match[1], 10), episode: parseInt(match[2], 10) };
+    }
+    return null;
+}
+
+function TheaterPageContent() {
+    const searchParams = useSearchParams();
     const [libraries, setLibraries] = useState<TheaterLibrary[]>([]);
     const [activeLibraryId, setActiveLibraryId] = useState<string | null>(null);
     const [items, setItems] = useState<MediaItem[]>([]);
@@ -231,6 +242,18 @@ export default function TheaterPage() {
     const [newPlaylistName, setNewPlaylistName] = useState('');
     const [addToPlaylistTrack, setAddToPlaylistTrack] = useState<MediaItem | null>(null);
 
+    // TV Show / Series Season & Episode Picker States
+    const [selectedShow, setSelectedShow] = useState<{
+        name: string;
+        posterUrl?: string;
+        folder: string;
+        seasons: { seasonNumber: number; episodes: MediaItem[] }[];
+        totalEpisodes: number;
+    } | null>(null);
+    const [selectedShowSeason, setSelectedShowSeason] = useState<number | null>(null);
+    const [showEpisodesDrawer, setShowEpisodesDrawer] = useState(false);
+    const [selectedDrawerSeason, setSelectedDrawerSeason] = useState<number | null>(null);
+
     // Online YouTube & Spotify Search States
     const [onlineMusicQuery, setOnlineMusicQuery] = useState('');
     const [onlineResults, setOnlineResults] = useState<MediaItem[]>([]);
@@ -272,6 +295,26 @@ export default function TheaterPage() {
         prevVideoRef.current = playingVideo;
         prevChannelRef.current = playingChannel;
     }, [playingVideo, playingChannel]);
+
+    // Handle URL search params (e.g. from Music Inspector: ?tab=music&search=...&autoplay=true)
+    useEffect(() => {
+        const tabParam = searchParams.get('tab');
+        const searchParam = searchParams.get('search') || searchParams.get('play') || searchParams.get('q');
+        const artistParam = searchParams.get('artist');
+
+        if (tabParam === 'music' || searchParam || artistParam) {
+            setActiveContentTab('music');
+            if (searchParam || artistParam) {
+                const fullQuery = artistParam && searchParam && !searchParam.toLowerCase().includes(artistParam.toLowerCase())
+                    ? `${artistParam} - ${searchParam}`
+                    : (searchParam || artistParam || '');
+                setMusicTab('online');
+                setOnlineMusicQuery(fullQuery);
+                setSearchQuery(fullQuery);
+                handleSearchOnlineMusic(fullQuery);
+            }
+        }
+    }, [searchParams]);
 
     // Load saved streaming preferences from localStorage (default to transcode for lossless video + AAC sound)
     useEffect(() => {
@@ -1003,7 +1046,22 @@ export default function TheaterPage() {
                 stallTimeoutRef.current = null;
             }
 
-            let streamUrl = playingVideo.streamUrl;
+            let baseStreamUrl = playingVideo.streamUrl;
+            if (!baseStreamUrl && playingVideo.path && (playingVideo.path.startsWith('/') || playingVideo.path.includes('\\') || playingVideo.path.includes('.'))) {
+                baseStreamUrl = `/api/theater/stream?path=${encodeURIComponent(playingVideo.path)}`;
+            }
+
+            if (!baseStreamUrl) {
+                setPlaybackError({
+                    codeName: 'NO_PLAYABLE_STREAM',
+                    message: `No video file stream or media file path was found for "${playingVideo.title}".`,
+                    suggestion: 'If this is a series or show, pick a specific episode from the Episodes menu or Sonarr/Plex library.'
+                });
+                addDebugLog('error', `Cannot play "${playingVideo.title}": No streamUrl or valid file path found`, { item: playingVideo });
+                return;
+            }
+
+            let streamUrl = baseStreamUrl;
 
             // Transcode mode & quality query param injection
             if (videoAudioMode === 'universal') {
@@ -1476,6 +1534,100 @@ export default function TheaterPage() {
         return artistsList.sort((a, b) => a.name.localeCompare(b.name));
     }, [filteredItems, searchQuery]);
 
+    // Derived TV Shows with Seasons and Episodes
+    const tvShows = useMemo(() => {
+        const map = new Map<string, { name: string; posterUrl?: string; folder: string; seasons: { seasonNumber: number; episodes: MediaItem[] }[]; totalEpisodes: number }>();
+        
+        for (const item of filteredItems) {
+            if (item.category !== 'video') continue;
+            const isShowItem = activeContentTab === 'show' || item.folder?.toLowerCase().includes('season') || item.folder?.toLowerCase().includes('show') || /s\d+e\d+/i.test(item.title) || /s\d+e\d+/i.test(item.path);
+            if (!isShowItem && activeContentTab !== 'show') continue;
+
+            const showName = item.folder?.replace(/season\s*\d+/i, '').trim() || item.title.split(/[-–—]|s\d+e\d+/i)[0]?.trim() || 'Show';
+            const parsed = parseSeasonEpisode(item.title) || parseSeasonEpisode(item.path) || parseSeasonEpisode(item.name) || { season: 1, episode: 1 };
+            const enrichedItem = { ...item, seasonNumber: parsed.season, episodeNumber: parsed.episode };
+
+            if (!map.has(showName)) {
+                map.set(showName, {
+                    name: showName,
+                    posterUrl: item.posterUrl,
+                    folder: item.folder,
+                    seasons: [],
+                    totalEpisodes: 0
+                });
+            }
+
+            const show = map.get(showName)!;
+            if (!show.posterUrl && item.posterUrl) show.posterUrl = item.posterUrl;
+            show.totalEpisodes++;
+
+            let sObj = show.seasons.find(s => s.seasonNumber === parsed.season);
+            if (!sObj) {
+                sObj = { seasonNumber: parsed.season, episodes: [] };
+                show.seasons.push(sObj);
+            }
+            sObj.episodes.push(enrichedItem);
+        }
+
+        return Array.from(map.values()).map(show => ({
+            ...show,
+            seasons: show.seasons
+                .sort((a, b) => a.seasonNumber - b.seasonNumber)
+                .map(s => ({
+                    ...s,
+                    episodes: s.episodes.sort((a, b) => (a.episodeNumber || 1) - (b.episodeNumber || 1))
+                }))
+        }));
+    }, [filteredItems, activeContentTab]);
+
+    // Episodes of the currently playing show for in-player Season/Episode drawer
+    const currentShowEpisodes = useMemo(() => {
+        if (!playingVideo) return [];
+        const showFolder = playingVideo.folder?.toLowerCase().trim();
+        const showTitleBase = playingVideo.title?.split(/[-–—]|s\d+e\d+/i)[0]?.trim().toLowerCase();
+
+        return items.filter(i => {
+            if (i.category !== 'video') return false;
+            if (showFolder && i.folder?.toLowerCase().trim() === showFolder) return true;
+            if (showTitleBase && showTitleBase.length > 2 && i.title.toLowerCase().startsWith(showTitleBase)) return true;
+            return false;
+        }).map(i => {
+            const parsed = parseSeasonEpisode(i.title) || parseSeasonEpisode(i.path) || parseSeasonEpisode(i.name) || { season: 1, episode: 1 };
+            return {
+                ...i,
+                seasonNumber: parsed.season,
+                episodeNumber: parsed.episode
+            };
+        }).sort((a, b) => {
+            if (a.seasonNumber !== b.seasonNumber) return a.seasonNumber - b.seasonNumber;
+            return (a.episodeNumber || 1) - (b.episodeNumber || 1);
+        });
+    }, [playingVideo, items]);
+
+    const showSeasonsMap = useMemo(() => {
+        const seasonsMap = new Map<number, typeof currentShowEpisodes>();
+        currentShowEpisodes.forEach(ep => {
+            const s = ep.seasonNumber || 1;
+            if (!seasonsMap.has(s)) seasonsMap.set(s, []);
+            seasonsMap.get(s)!.push(ep);
+        });
+        return Array.from(seasonsMap.entries())
+            .sort(([a], [b]) => a - b)
+            .map(([seasonNumber, episodes]) => ({
+                seasonNumber,
+                episodes: episodes.sort((a, b) => (a.episodeNumber || 1) - (b.episodeNumber || 1))
+            }));
+    }, [currentShowEpisodes]);
+
+    const currentEpisodeIndex = useMemo(() => {
+        if (!playingVideo || currentShowEpisodes.length === 0) return -1;
+        return currentShowEpisodes.findIndex(e => e.id === playingVideo.id || e.path === playingVideo.path);
+    }, [playingVideo, currentShowEpisodes]);
+
+    const prevEpisode = currentEpisodeIndex > 0 ? currentShowEpisodes[currentEpisodeIndex - 1] : null;
+    const nextEpisode = currentEpisodeIndex >= 0 && currentEpisodeIndex < currentShowEpisodes.length - 1 ? currentShowEpisodes[currentEpisodeIndex + 1] : null;
+    const currentSeasonEp = playingVideo ? (parseSeasonEpisode(playingVideo.title) || parseSeasonEpisode(playingVideo.path)) : null;
+
     // Filtered IPTV Channels by Shortlist and Group
     const filteredIptvChannels = useMemo(() => {
         let list = [...iptvChannels];
@@ -1502,6 +1654,14 @@ export default function TheaterPage() {
 
     const handlePlayItem = (item: MediaItem) => {
         if (item.category === 'video') {
+            if (activeContentTab === 'show') {
+                const matchShow = tvShows.find(s => s.name === item.folder || s.folder === item.folder || item.title.startsWith(s.name));
+                if (matchShow && matchShow.totalEpisodes > 1) {
+                    setSelectedShow(matchShow);
+                    setSelectedShowSeason(null);
+                    return;
+                }
+            }
             setPlayingVideo(item);
         } else if (item.category === 'audio') {
             handlePlayTrack(item, filteredItems, filteredItems.findIndex(i => i.id === item.id));
@@ -2401,14 +2561,18 @@ export default function TheaterPage() {
                                                 <h3 className="font-bold text-white text-base sm:text-lg truncate group-hover:text-emerald-400 transition-colors">
                                                     {item.title}
                                                 </h3>
-                                                <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500 font-medium">
+                                                <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400 font-medium">
                                                     <span>{item.folder}</span>
-                                                    <span>•</span>
-                                                    <span>{formatBytes(item.sizeBytes)}</span>
+                                                    {item.sizeBytes > 0 && (
+                                                        <>
+                                                            <span>•</span>
+                                                            <span className="font-mono text-zinc-400">{formatBytes(item.sizeBytes)}</span>
+                                                        </>
+                                                    )}
                                                     {item.addedAt && (
                                                         <>
                                                             <span>•</span>
-                                                            <span className="text-zinc-400">Added {new Date(item.addedAt).toLocaleDateString()}</span>
+                                                            <span className="text-zinc-500">Added {new Date(item.addedAt).toLocaleDateString()}</span>
                                                         </>
                                                     )}
                                                 </div>
@@ -2495,9 +2659,13 @@ export default function TheaterPage() {
                                         <h3 className="font-bold text-white text-base leading-snug line-clamp-1 group-hover:text-emerald-400 transition-colors">
                                             {item.title}
                                         </h3>
-                                        <div className="flex items-center justify-between text-xs text-zinc-500 font-semibold pt-0.5">
-                                            <span className="truncate max-w-[120px]">{item.folder}</span>
-                                            <span>{formatBytes(item.sizeBytes)}</span>
+                                        <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold pt-0.5">
+                                            <span className="truncate max-w-[140px] text-zinc-400">{item.folder}</span>
+                                            {item.sizeBytes > 0 ? (
+                                                <span className="font-mono text-zinc-500 text-[11px]">{formatBytes(item.sizeBytes)}</span>
+                                            ) : (
+                                                <span className="text-[10px] text-zinc-600 uppercase font-black">{item.extension || 'Plex'}</span>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -2598,6 +2766,123 @@ export default function TheaterPage() {
                                     </div>
                                 </div>
                             ))}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── TV Show & Series Season & Episode Detail Modal ── */}
+            {selectedShow && (
+                <div className="fixed inset-0 z-[220] flex items-center justify-center p-4 sm:p-6 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200">
+                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-4xl p-6 sm:p-8 space-y-6 shadow-2xl relative max-h-[88vh] overflow-y-auto custom-scrollbar flex flex-col">
+                        <button
+                            onClick={() => { setSelectedShow(null); setSelectedShowSeason(null); }}
+                            className="absolute top-6 right-6 p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all cursor-pointer"
+                        >
+                            <X size={20} />
+                        </button>
+
+                        <div className="flex flex-col sm:flex-row items-center gap-6 pb-4 border-b border-zinc-900">
+                            <div className="w-36 h-48 sm:w-44 sm:h-60 rounded-3xl bg-zinc-900 border border-zinc-800 overflow-hidden flex items-center justify-center text-emerald-400 shrink-0 shadow-2xl">
+                                {selectedShow.posterUrl ? (
+                                    <img src={selectedShow.posterUrl} alt="" className="w-full h-full object-cover" />
+                                ) : (
+                                    <Tv size={56} />
+                                )}
+                            </div>
+
+                            <div className="space-y-2 text-center sm:text-left flex-1">
+                                <span className="px-2.5 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-black uppercase tracking-wider">
+                                    TV Series
+                                </span>
+                                <h2 className="text-2xl sm:text-3xl font-black text-white">{selectedShow.name}</h2>
+                                <p className="text-xs text-zinc-500 font-mono truncate max-w-lg">{selectedShow.folder}</p>
+                                <div className="flex items-center justify-center sm:justify-start gap-3 text-xs text-zinc-400 font-bold">
+                                    <span>{selectedShow.seasons.length} {selectedShow.seasons.length === 1 ? 'Season' : 'Seasons'}</span>
+                                    <span>•</span>
+                                    <span>{selectedShow.totalEpisodes} Episodes</span>
+                                </div>
+
+                                <div className="pt-2 flex flex-wrap items-center justify-center sm:justify-start gap-3">
+                                    <button
+                                        onClick={() => {
+                                            const firstEp = selectedShow.seasons[0]?.episodes[0];
+                                            if (firstEp) {
+                                                setPlayingVideo(firstEp);
+                                                setSelectedShow(null);
+                                            }
+                                        }}
+                                        className="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black uppercase text-xs tracking-widest rounded-2xl transition-all shadow-lg shadow-emerald-500/20 flex items-center gap-2 cursor-pointer"
+                                    >
+                                        <Play size={16} /> Play S1:E1
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Season Selection Tabs */}
+                        <div className="space-y-3">
+                            <div className="flex items-center gap-2 overflow-x-auto pb-1 custom-scrollbar">
+                                <button
+                                    onClick={() => setSelectedShowSeason(null)}
+                                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 cursor-pointer ${
+                                        selectedShowSeason === null
+                                            ? 'bg-emerald-500 text-black shadow-md shadow-emerald-500/20'
+                                            : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white'
+                                    }`}
+                                >
+                                    All Seasons ({selectedShow.totalEpisodes})
+                                </button>
+                                {selectedShow.seasons.map(s => (
+                                    <button
+                                        key={s.seasonNumber}
+                                        onClick={() => setSelectedShowSeason(s.seasonNumber)}
+                                        className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 cursor-pointer ${
+                                            selectedShowSeason === s.seasonNumber
+                                                ? 'bg-emerald-500 text-black shadow-md shadow-emerald-500/20'
+                                                : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white'
+                                        }`}
+                                    >
+                                        {s.seasonNumber === 0 ? 'Specials' : `Season ${s.seasonNumber}`} ({s.episodes.length})
+                                    </button>
+                                ))}
+                            </div>
+
+                            {/* Episode List */}
+                            <div className="space-y-1.5 max-h-96 overflow-y-auto pr-1 custom-scrollbar">
+                                {(selectedShowSeason === null
+                                    ? selectedShow.seasons.flatMap(s => s.episodes)
+                                    : selectedShow.seasons.find(s => s.seasonNumber === selectedShowSeason)?.episodes || []
+                                ).map(ep => (
+                                    <div
+                                        key={ep.id}
+                                        onClick={() => {
+                                            setPlayingVideo(ep);
+                                            setSelectedShow(null);
+                                        }}
+                                        className="flex items-center justify-between p-3.5 rounded-2xl bg-zinc-900/40 hover:bg-zinc-900/80 border border-zinc-800/80 hover:border-emerald-500/40 transition-all cursor-pointer group text-xs gap-3"
+                                    >
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <span className="px-2 py-1 rounded-lg bg-zinc-800 font-mono font-black text-emerald-400 shrink-0 text-[11px]">
+                                                S{ep.seasonNumber}E{ep.episodeNumber}
+                                            </span>
+                                            <div className="min-w-0">
+                                                <span className="font-bold text-white group-hover:text-emerald-400 transition-colors truncate block">
+                                                    {ep.title}
+                                                </span>
+                                                <div className="flex items-center gap-2 text-[10px] text-zinc-500 mt-0.5">
+                                                    <span>{ep.extension || 'VIDEO'}</span>
+                                                    {ep.sizeBytes > 0 && <span>• {formatBytes(ep.sizeBytes)}</span>}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <button className="w-9 h-9 rounded-xl bg-zinc-800 group-hover:bg-emerald-500 text-zinc-400 group-hover:text-black flex items-center justify-center transition-all shrink-0">
+                                            <Play size={14} className="ml-0.5 fill-current" />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -3003,8 +3288,44 @@ export default function TheaterPage() {
                                     )}
                                 </div>
 
-                                {/* Right Toolbar: Tools (Subtitles, Cast, VLC, Logs) */}
+                                {/* Right Toolbar: Tools (Episodes, Subtitles, Cast, VLC, Logs) */}
                                 <div className="flex items-center flex-wrap gap-2">
+                                    {/* Episodes & Seasons Picker Button */}
+                                    {currentShowEpisodes.length > 0 && (
+                                        <button
+                                            onClick={() => setShowEpisodesDrawer(!showEpisodesDrawer)}
+                                            className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                                                showEpisodesDrawer ? 'bg-emerald-500 text-black border-emerald-400 font-black shadow-sm' : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:text-white'
+                                            }`}
+                                            title="Choose Season and Episode"
+                                        >
+                                            <Layers size={14} className={showEpisodesDrawer ? 'text-black' : 'text-emerald-400'} />
+                                            <span>{currentSeasonEp ? `S${currentSeasonEp.season}E${currentSeasonEp.episode}` : `Episodes (${currentShowEpisodes.length})`}</span>
+                                        </button>
+                                    )}
+
+                                    {/* Prev & Next Episode Navigation */}
+                                    {prevEpisode && (
+                                        <button
+                                            onClick={() => setPlayingVideo(prevEpisode)}
+                                            className="px-2.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white text-xs font-bold flex items-center gap-1 transition-all"
+                                            title={`Previous Episode: S${prevEpisode.seasonNumber}E${prevEpisode.episodeNumber}`}
+                                        >
+                                            <SkipBack size={13} />
+                                            <span className="hidden sm:inline">Prev Ep</span>
+                                        </button>
+                                    )}
+                                    {nextEpisode && (
+                                        <button
+                                            onClick={() => setPlayingVideo(nextEpisode)}
+                                            className="px-2.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white text-xs font-bold flex items-center gap-1 transition-all"
+                                            title={`Next Episode: S${nextEpisode.seasonNumber}E${nextEpisode.episodeNumber}`}
+                                        >
+                                            <span className="hidden sm:inline">Next Ep</span>
+                                            <SkipForward size={13} />
+                                        </button>
+                                    )}
+
                                     {/* Subtitles */}
                                     <button
                                         onClick={() => setShowSubtitlesDrawer(!showSubtitlesDrawer)}
@@ -3317,6 +3638,86 @@ export default function TheaterPage() {
                                                 </div>
                                             </div>
                                         </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* ── Season & Episode Selection Drawer Overlay ── */}
+                            {showEpisodesDrawer && (
+                                <div className="absolute top-4 right-4 bottom-4 z-40 w-96 max-w-[90vw] p-5 rounded-3xl bg-[#0c0c0e]/98 border border-zinc-800 text-zinc-300 space-y-4 backdrop-blur-2xl shadow-2xl flex flex-col animate-in slide-in-from-right">
+                                    {/* Header */}
+                                    <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
+                                        <div className="min-w-0">
+                                            <span className="font-black text-sm text-white flex items-center gap-2">
+                                                <Tv size={16} className="text-emerald-400" /> Seasons &amp; Episodes
+                                            </span>
+                                            <p className="text-[11px] text-zinc-400 truncate max-w-[240px] mt-0.5 font-bold">
+                                                {playingVideo.folder || playingVideo.title}
+                                            </p>
+                                        </div>
+                                        <button onClick={() => setShowEpisodesDrawer(false)} className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all cursor-pointer">
+                                            <X size={16} />
+                                        </button>
+                                    </div>
+
+                                    {/* Season Selector Tabs */}
+                                    {showSeasonsMap.length > 1 && (
+                                        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
+                                            {showSeasonsMap.map(s => (
+                                                <button
+                                                    key={s.seasonNumber}
+                                                    onClick={() => setSelectedDrawerSeason(s.seasonNumber)}
+                                                    className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 cursor-pointer ${
+                                                        (selectedDrawerSeason ?? showSeasonsMap[0]?.seasonNumber) === s.seasonNumber
+                                                            ? 'bg-emerald-500 text-black shadow-md shadow-emerald-500/20'
+                                                            : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white'
+                                                    }`}
+                                                >
+                                                    {s.seasonNumber === 0 ? 'Specials' : `Season ${s.seasonNumber}`}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {/* Episodes List in Selected Season */}
+                                    <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                                        {(showSeasonsMap.find(s => s.seasonNumber === (selectedDrawerSeason ?? showSeasonsMap[0]?.seasonNumber))?.episodes || currentShowEpisodes).map(ep => {
+                                            const isCurrent = ep.id === playingVideo.id || ep.path === playingVideo.path;
+                                            return (
+                                                <div
+                                                    key={ep.id}
+                                                    onClick={() => {
+                                                        setPlayingVideo(ep);
+                                                        setShowEpisodesDrawer(false);
+                                                    }}
+                                                    className={`p-3 rounded-2xl border transition-all cursor-pointer group flex items-center justify-between gap-3 ${
+                                                        isCurrent
+                                                            ? 'bg-emerald-500/15 border-emerald-500/50 shadow-md'
+                                                            : 'bg-zinc-900/50 hover:bg-zinc-900 border-zinc-800/80 hover:border-zinc-700'
+                                                    }`}
+                                                >
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className={`text-xs font-black uppercase px-2 py-0.5 rounded-lg ${isCurrent ? 'bg-emerald-500 text-black' : 'bg-zinc-800 text-zinc-400'}`}>
+                                                                S{ep.seasonNumber}E{ep.episodeNumber}
+                                                            </span>
+                                                            <p className={`text-xs font-bold truncate ${isCurrent ? 'text-emerald-400' : 'text-white group-hover:text-emerald-400'} transition-colors`}>
+                                                                {ep.title}
+                                                            </p>
+                                                        </div>
+                                                        <div className="flex items-center gap-2 text-[10px] text-zinc-500 mt-1 font-semibold">
+                                                            <span>{ep.extension || 'VIDEO'}</span>
+                                                            {ep.sizeBytes > 0 && <span>• {formatBytes(ep.sizeBytes)}</span>}
+                                                            {isCurrent && <span className="text-emerald-400 font-bold">• Now Playing</span>}
+                                                        </div>
+                                                    </div>
+
+                                                    <button className={`p-2 rounded-xl transition-all shrink-0 ${isCurrent ? 'bg-emerald-500 text-black' : 'bg-zinc-800 text-zinc-400 group-hover:bg-emerald-500 group-hover:text-black'}`}>
+                                                        <Play size={14} className="fill-current ml-0.5" />
+                                                    </button>
+                                                </div>
+                                            );
+                                        })}
                                     </div>
                                 </div>
                             )}
@@ -4463,5 +4864,13 @@ export default function TheaterPage() {
                 </div>
             )}
         </>
+    );
+}
+
+export default function TheaterPage() {
+    return (
+        <Suspense fallback={<div className="min-h-screen bg-black flex items-center justify-center text-zinc-600 font-mono text-sm">Loading Theater...</div>}>
+            <TheaterPageContent />
+        </Suspense>
     );
 }

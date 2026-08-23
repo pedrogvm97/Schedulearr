@@ -974,6 +974,16 @@ export const endPlaybackSession = (sessionId: string) => {
     }
 };
 
+export const clearAllPlaybackSessions = () => {
+    try {
+        db.prepare('DELETE FROM playback_sessions').run();
+        return true;
+    } catch (e) {
+        console.error('Error clearing all playback sessions:', e);
+        return false;
+    }
+};
+
 export const getActivePlaybackSessions = () => {
     try {
         // Prune stale sessions older than 25 seconds
