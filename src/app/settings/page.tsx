@@ -1,14 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { Server, Sliders, Shield, Wrench, Heart } from "lucide-react";
 import { toast } from "sonner";
 import { CustomSelect } from "@/components/CustomSelect";
 import { AnalyticsPanel } from "@/components/AnalyticsPanel";
 import { ProfilesPanel } from "@/components/ProfilesPanel";
-import { Server, HardDrive, Cpu, Sliders, Database, RefreshCw, Sparkles, Radio, Layers, Wrench, Download, Upload, AlertCircle, CheckCircle2, ShieldCheck, Trash2 } from "lucide-react";
 
 export default function Settings() {
-    const [activeSettingsTab, setActiveSettingsTab] = useState<'instances' | 'automation' | 'system'>('instances');
+    const [settingsNavTab, setSettingsNavTab] = useState<'settings' | 'analytics' | 'profiles'>('settings');
     const [instances, setInstances] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -31,6 +31,7 @@ export default function Settings() {
 
     const [isAuthorModalOpen, setIsAuthorModalOpen] = useState(false);
     const [activeTroubleshootModal, setActiveTroubleshootModal] = useState<'socket' | 'perms' | null>(null);
+    const [settingsSubtopic, setSettingsSubtopic] = useState<'instances' | 'automation' | 'system'>('instances');
     const [confirmModal, setConfirmModal] = useState<{
         title: string;
         message: string;
@@ -596,386 +597,372 @@ export default function Settings() {
     };
 
     return (
-        <div className="max-w-6xl mx-auto p-4 sm:p-6 space-y-8 pb-24">
-            {/* Header & Subtopic Navigation */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[#09090b]/80 border border-zinc-800/80 backdrop-blur-2xl p-5 sm:p-6 rounded-[2.5rem] shadow-2xl">
-                <div>
-                    <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white flex items-center gap-3">
-                        <Sliders size={26} className="text-emerald-400" /> Settings
-                    </h1>
-                    <p className="text-sm text-zinc-500 mt-1 font-medium">
-                        Configure connected instances, storage automation rules, and system maintenance.
-                    </p>
+        <div className="max-w-6xl mx-auto p-6 space-y-8 pb-32">
+            {/* Top Navigation & Subtopic Section Switcher */}
+            <div className="bg-[#09090b]/80 border border-zinc-800/80 backdrop-blur-2xl p-6 rounded-[2.5rem] shadow-2xl space-y-5">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                        <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight flex items-center gap-3">
+                            <Sliders size={26} className="text-emerald-400" /> Settings & System Control
+                        </h1>
+                        <p className="text-sm text-zinc-400 font-medium mt-1">
+                            Instances, automated search schedules, storage protection, and system diagnostics
+                        </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => setIsAuthorModalOpen(true)}
+                            className="px-4 py-2 rounded-2xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all flex items-center gap-2 shadow-sm"
+                        >
+                            <Heart size={14} className="text-amber-400" /> Appreciation
+                        </button>
+                    </div>
                 </div>
 
                 {/* Subtopic Segmented Switcher */}
-                <div className="flex flex-wrap bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner self-start sm:self-auto gap-1">
+                <div className="flex p-1.5 bg-zinc-950/80 rounded-2xl border border-zinc-800/80 max-w-xl gap-1">
                     <button
-                        onClick={() => setActiveSettingsTab('instances')}
-                        className={`flex items-center gap-2 px-4 sm:px-5 py-2.5 text-xs font-black rounded-xl transition-all cursor-pointer ${
-                            activeSettingsTab === 'instances'
-                                ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 shadow-md'
-                                : 'text-zinc-500 hover:text-zinc-300'
+                        onClick={() => setSettingsSubtopic('instances')}
+                        className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                            settingsSubtopic === 'instances'
+                                ? 'bg-zinc-800 text-white shadow-md border border-zinc-700'
+                                : 'text-zinc-400 hover:text-white hover:bg-zinc-900/50'
                         }`}
                     >
-                        <Server size={16} /> Instances &amp; Connections
+                        <Server size={14} className={settingsSubtopic === 'instances' ? 'text-indigo-400' : ''} />
+                        <span>Instances & Integrations</span>
                     </button>
                     <button
-                        onClick={() => setActiveSettingsTab('automation')}
-                        className={`flex items-center gap-2 px-4 sm:px-5 py-2.5 text-xs font-black rounded-xl transition-all cursor-pointer ${
-                            activeSettingsTab === 'automation'
-                                ? 'bg-sky-600/20 text-sky-400 border border-sky-500/30 shadow-md'
-                                : 'text-zinc-500 hover:text-zinc-300'
+                        onClick={() => setSettingsSubtopic('automation')}
+                        className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                            settingsSubtopic === 'automation'
+                                ? 'bg-zinc-800 text-white shadow-md border border-zinc-700'
+                                : 'text-zinc-400 hover:text-white hover:bg-zinc-900/50'
                         }`}
                     >
-                        <HardDrive size={16} /> Automation &amp; Storage
+                        <Shield size={14} className={settingsSubtopic === 'automation' ? 'text-emerald-400' : ''} />
+                        <span>Automation & Storage</span>
                     </button>
                     <button
-                        onClick={() => setActiveSettingsTab('system')}
-                        className={`flex items-center gap-2 px-4 sm:px-5 py-2.5 text-xs font-black rounded-xl transition-all cursor-pointer ${
-                            activeSettingsTab === 'system'
-                                ? 'bg-purple-600/20 text-purple-400 border border-purple-500/30 shadow-md'
-                                : 'text-zinc-500 hover:text-zinc-300'
+                        onClick={() => setSettingsSubtopic('system')}
+                        className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                            settingsSubtopic === 'system'
+                                ? 'bg-zinc-800 text-white shadow-md border border-zinc-700'
+                                : 'text-zinc-400 hover:text-white hover:bg-zinc-900/50'
                         }`}
                     >
-                        <Cpu size={16} /> System &amp; Maintenance
+                        <Wrench size={14} className={settingsSubtopic === 'system' ? 'text-amber-400' : ''} />
+                        <span>System & Diagnostics</span>
                     </button>
                 </div>
             </div>
 
-            {/* ── SUBTOPIC 1: INSTANCES & CONNECTIONS ── */}
-            {activeSettingsTab === 'instances' && (
+            {/* ═══════════════════════════════════════════════════════════════════
+               SUBTOPIC 1: INSTANCES & INTEGRATIONS
+               ═══════════════════════════════════════════════════════════════════ */}
+            {settingsSubtopic === 'instances' && (
                 <div className="space-y-8 animate-in fade-in duration-200">
-                    {/* Configured Instances */}
-                    <div className="space-y-4">
+                    {/* Add / Edit Instance */}
+                                <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+                <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-semibold text-white">{editTargetId ? 'Update Instance' : 'Add Instance'}</h2>
+                    {editTargetId && (
+                        <button
+                            onClick={() => {
+                                setEditTargetId(null);
+                                setName(""); setUrl(""); setApiKey(""); setColor('bg-zinc-500');
+                            }}
+                            className="text-sm text-zinc-400 hover:text-white"
+                        >
+                            Cancel Edit
+                        </button>
+                    )}
+                </div>
+                <form onSubmit={handleAddOrEdit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                        <label className="text-sm font-medium text-zinc-300">Type</label>
+                        <CustomSelect
+                            value={type}
+                            onChange={(val) => setType(val)}
+                            options={[
+                                { id: 'radarr', name: 'Radarr' },
+                                { id: 'sonarr', name: 'Sonarr' },
+                                { id: 'lidarr', name: 'Lidarr (Music)' },
+                                { id: 'prowlarr', name: 'Prowlarr' },
+                                { id: 'qbittorrent', name: 'qBittorrent' },
+                                { id: 'plex', name: 'Plex' }
+                            ]}
+                        />
+                    </div>
+
+                    <div className="space-y-1">
+                        <label className="text-sm font-medium text-zinc-300">Name</label>
+                        <input
+                            type="text"
+                            placeholder={type === 'lidarr' ? "e.g. Lidarr Music FLAC" : type === 'radarr' ? "e.g. Radarr Movies 4K" : "e.g. Sonarr TV Series"}
+                            value={name}
+                            onChange={e => setName(e.target.value)}
+                            className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                        />
+                    </div>
+
+                    <div className="space-y-1">
+                        <label className="text-sm font-medium text-zinc-300">URL</label>
+                        <input
+                            type="url"
+                            placeholder={type === 'plex' ? "http://192.168.1.125:32400" : type === 'lidarr' ? "http://192.168.1.125:8686" : type === 'sonarr' ? "http://192.168.1.125:8989" : "http://192.168.1.125:7878"}
+                            value={url}
+                            onChange={e => setUrl(e.target.value)}
+                            className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                        />
+                    </div>
+
+                    <div className="space-y-1">
                         <div className="flex items-center justify-between">
-                            <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                                <Server size={20} className="text-emerald-400" /> Configured Instances
-                            </h2>
-                            <span className="text-xs text-zinc-500 font-bold">{instances.length} Active Connections</span>
+                            <label className="text-sm font-medium text-zinc-300">
+                                {type === 'qbittorrent' ? 'Credentials (username:password)' : type === 'plex' ? 'X-Plex-Token' : 'API Key'}
+                            </label>
+                            {type === 'plex' && (
+                                <a
+                                    href="https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-[10px] font-bold text-amber-400 hover:text-amber-300 underline"
+                                >
+                                    Plex Token Guide ↗
+                                </a>
+                            )}
                         </div>
+                        <input
+                            type="password"
+                            placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                            value={apiKey}
+                            onChange={e => setApiKey(e.target.value)}
+                            className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
+                        />
+                    </div>
 
-                        {loading ? (
-                            <div className="p-8 text-center bg-zinc-950/40 rounded-2xl border border-zinc-800/80">
-                                <div className="w-6 h-6 border-2 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin mx-auto mb-2" />
-                                <span className="text-zinc-500 text-xs font-bold">Loading instances...</span>
+                    {type === 'plex' && (
+                        <div className="md:col-span-2 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4">
+                            <div>
+                                <span className="text-xs font-black uppercase text-amber-400 tracking-wider block">
+                                    ⚡ Automated 1-Click Plex Pairing
+                                </span>
+                                <p className="text-xs text-zinc-300">
+                                    Click pair, log into your Plex account, and Schedulearr will automatically fill your URL &amp; Token.
+                                </p>
                             </div>
-                        ) : instances.length === 0 ? (
-                            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 text-center text-zinc-500">
-                                No instances configured yet. Add your first instance below.
-                            </div>
-                        ) : (
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                {instances.map(inst => {
-                                    let borderColorHex = '#27272a';
-                                    const twClass = inst.color || '';
-                                    if (twClass.includes('slate')) borderColorHex = '#64748b';
-                                    else if (twClass.includes('gray')) borderColorHex = '#6b7280';
-                                    else if (twClass.includes('zinc')) borderColorHex = '#71717a';
-                                    else if (twClass.includes('neutral')) borderColorHex = '#737373';
-                                    else if (twClass.includes('stone')) borderColorHex = '#78716c';
-                                    else if (twClass.includes('red')) borderColorHex = '#ef4444';
-                                    else if (twClass.includes('orange')) borderColorHex = '#f97316';
-                                    else if (twClass.includes('amber')) borderColorHex = '#f59e0b';
-                                    else if (twClass.includes('yellow')) borderColorHex = '#eab308';
-                                    else if (twClass.includes('lime')) borderColorHex = '#84cc16';
-                                    else if (twClass.includes('green')) borderColorHex = '#22c55e';
-                                    else if (twClass.includes('emerald')) borderColorHex = '#10b981';
-                                    else if (twClass.includes('teal')) borderColorHex = '#14b8a6';
-                                    else if (twClass.includes('cyan')) borderColorHex = '#06b6d4';
-                                    else if (twClass.includes('sky')) borderColorHex = '#0ea5e9';
-                                    else if (twClass.includes('blue')) borderColorHex = '#3b82f6';
-                                    else if (twClass.includes('indigo')) borderColorHex = '#6366f1';
-                                    else if (twClass.includes('violet')) borderColorHex = '#8b5cf6';
-                                    else if (twClass.includes('purple')) borderColorHex = '#a855f7';
-                                    else if (twClass.includes('fuchsia')) borderColorHex = '#d946ef';
-                                    else if (twClass.includes('pink')) borderColorHex = '#ec4899';
-                                    else if (twClass.includes('rose')) borderColorHex = '#f43f5e';
+                            <button
+                                type="button"
+                                onClick={handlePairPlex}
+                                disabled={plexPairing}
+                                className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg flex-shrink-0 flex items-center gap-2 cursor-pointer"
+                            >
+                                {plexPairing ? (
+                                    <>
+                                        <div className="w-3.5 h-3.5 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                                        <span>{plexPairingStatus || 'Pairing...'}</span>
+                                    </>
+                                ) : (
+                                    <span>Pair with Plex Account</span>
+                                )}
+                            </button>
+                        </div>
+                    )}
 
-                                    return (
-                                        <div key={inst.id} className="bg-zinc-900 rounded-2xl p-5 flex flex-col justify-between shadow-xl" style={{ border: `1px solid ${borderColorHex}80` }}>
-                                            <div>
-                                                <div className="flex justify-between items-start mb-3">
-                                                    <div className="flex items-center gap-2">
-                                                        {inst.color && <div className={`w-3.5 h-3.5 rounded-full ${inst.color}`} title="Instance Color" />}
-                                                        <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-md flex items-center gap-1.5" style={{ color: borderColorHex, backgroundColor: `${borderColorHex}33` }}>
-                                                            {inst.type}
-                                                        </span>
-                                                        <HealthBadge id={inst.id} />
-                                                    </div>
-                                                    <div className="flex gap-1">
-                                                        <button
-                                                            onClick={() => handleEditClick(inst)}
-                                                            className="text-zinc-500 hover:text-blue-400 p-1.5 rounded-lg hover:bg-zinc-800 transition-colors"
-                                                            title="Edit instance"
-                                                        >
-                                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
-                                                        </button>
-                                                        <button
-                                                            onClick={() => handleDelete(inst.id)}
-                                                            className="text-zinc-500 hover:text-red-400 p-1.5 rounded-lg hover:bg-zinc-800 transition-colors"
-                                                            title="Delete instance"
-                                                        >
-                                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                                <h3 className="text-base font-bold text-white truncate" title={inst.name}>{inst.name}</h3>
-                                                <p className="text-xs text-zinc-400 mt-1 truncate font-mono" title={inst.url}>{inst.url}</p>
+                    <div className="md:col-span-2 space-y-2 mt-2">
+                        <label className="text-sm font-medium text-zinc-300">Instance Indicator Color</label>
+                        <div className="flex flex-wrap gap-2">
+                            {predefinedColors.map(c => (
+                                <button
+                                    key={c}
+                                    type="button"
+                                    onClick={() => setColor(c)}
+                                    className={`w-6 h-6 rounded-full ${c} ${color === c ? 'ring-2 ring-white ring-offset-2 ring-offset-zinc-900 border-2 border-transparent' : 'opacity-70 hover:opacity-100 border border-zinc-800'}`}
+                                    aria-label={`Select ${c}`}
+                                />
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="md:col-span-2 mt-2">
+                        <button
+                            type="submit"
+                            disabled={!name || !url || !apiKey}
+                            className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {editTargetId ? 'Update Connection' : 'Add Connection'}
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+                    {/* Configured Instances */}
+                                <div className="space-y-4">
+                <h2 className="text-xl font-semibold text-white">Configured Instances</h2>
+                {loading ? (
+                    <div className="text-zinc-500">Loading...</div>
+                ) : instances.length === 0 ? (
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-8 text-center text-zinc-500">
+                        No instances configured yet. Add one above.
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {instances.map(inst => {
+                            // Convert standard "bg-red-500" into a Hex for the border or "border-red-500" equivalent
+                            let borderColorHex = '#27272a'; // default zinc-800
+                            const twClass = inst.color || '';
+                            if (twClass.includes('slate')) borderColorHex = '#64748b';
+                            else if (twClass.includes('gray')) borderColorHex = '#6b7280';
+                            else if (twClass.includes('zinc')) borderColorHex = '#71717a';
+                            else if (twClass.includes('neutral')) borderColorHex = '#737373';
+                            else if (twClass.includes('stone')) borderColorHex = '#78716c';
+                            else if (twClass.includes('red')) borderColorHex = '#ef4444';
+                            else if (twClass.includes('orange')) borderColorHex = '#f97316';
+                            else if (twClass.includes('amber')) borderColorHex = '#f59e0b';
+                            else if (twClass.includes('yellow')) borderColorHex = '#eab308';
+                            else if (twClass.includes('lime')) borderColorHex = '#84cc16';
+                            else if (twClass.includes('green')) borderColorHex = '#22c55e';
+                            else if (twClass.includes('emerald')) borderColorHex = '#10b981';
+                            else if (twClass.includes('teal')) borderColorHex = '#14b8a6';
+                            else if (twClass.includes('cyan')) borderColorHex = '#06b6d4';
+                            else if (twClass.includes('sky')) borderColorHex = '#0ea5e9';
+                            else if (twClass.includes('blue')) borderColorHex = '#3b82f6';
+                            else if (twClass.includes('indigo')) borderColorHex = '#6366f1';
+                            else if (twClass.includes('violet')) borderColorHex = '#8b5cf6';
+                            else if (twClass.includes('purple')) borderColorHex = '#a855f7';
+                            else if (twClass.includes('fuchsia')) borderColorHex = '#d946ef';
+                            else if (twClass.includes('pink')) borderColorHex = '#ec4899';
+                            else if (twClass.includes('rose')) borderColorHex = '#f43f5e';
+
+                            return (
+                                <div key={inst.id} className="bg-zinc-900 rounded-xl p-4 flex flex-col justify-between" style={{ border: `1px solid ${borderColorHex}80` }}>
+                                    <div>
+                                        <div className="flex justify-between items-start mb-2">
+                                            <div className="flex items-center gap-2">
+                                                {inst.color && <div className={`w-3 h-3 rounded-full ${inst.color}`} title="Instance Color"></div>}
+                                                <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-sm flex items-center gap-1.5" style={{ color: borderColorHex, backgroundColor: `${borderColorHex}33` }}>
+                                                    {inst.type}
+                                                </span>
+                                                <HealthBadge id={inst.id} />
+                                            </div>
+                                            <div className="flex gap-1">
+                                                <button
+                                                    onClick={() => handleEditClick(inst)}
+                                                    className="text-zinc-500 hover:text-blue-400 p-1"
+                                                    title="Edit instance"
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDelete(inst.id)}
+                                                    className="text-zinc-500 hover:text-red-400 p-1"
+                                                    title="Delete instance"
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+                                                </button>
                                             </div>
                                         </div>
-                                    );
-                                })}
-                            </div>
-                        )}
+                                        <h3 className="text-lg font-medium text-white truncate" title={inst.name}>{inst.name}</h3>
+                                        <p className="text-sm text-zinc-400 mt-1 truncate" title={inst.url}>{inst.url}</p>
+                                    </div>
+                                </div>
+                            );
+                        })}
                     </div>
+                )}
+            </div>
 
-                    {/* Add / Update Instance Form */}
-                    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl space-y-4">
-                        <div className="flex justify-between items-center mb-2">
-                            <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                                <Sparkles size={20} className="text-emerald-400" />
-                                {editTargetId ? 'Update Instance Connection' : 'Add New Instance Connection'}
-                            </h2>
-                            {editTargetId && (
+                    {/* General Settings (TMDB / Plex) & Scheduler Config */}
+                                <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+                <h2 className="text-xl font-semibold text-white mb-4">General Settings</h2>
+                <div className="space-y-4">
+                    <div className="space-y-1">
+                        <label className="text-sm font-medium text-zinc-300">TMDB API Key (Optional)</label>
+
+                        {tmdbState === 'view' ? (
+                            <div className="flex items-center justify-between bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-3">
+                                <div className="flex flex-col">
+                                    <span className="text-xs text-zinc-500 font-medium uppercase tracking-wider">Status: Configured</span>
+                                    <span className="text-white font-mono text-sm">{tmdbApiKey.slice(0, 4)}••••••••</span>
+                                </div>
                                 <button
                                     onClick={() => {
-                                        setEditTargetId(null);
-                                        setName(""); setUrl(""); setApiKey(""); setColor('bg-zinc-500');
+                                        setTmdbInput(tmdbApiKey);
+                                        setTmdbState('edit');
                                     }}
-                                    className="text-xs font-bold text-zinc-400 hover:text-white px-3 py-1.5 bg-zinc-800 rounded-xl"
+                                    className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md text-xs font-bold transition-colors"
                                 >
-                                    Cancel Edit
+                                    Change
                                 </button>
-                            )}
-                        </div>
-                        <form onSubmit={handleAddOrEdit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="space-y-1">
-                                <label className="text-sm font-medium text-zinc-300">Service Type</label>
-                                <CustomSelect
-                                    value={type}
-                                    onChange={(val) => setType(val)}
-                                    options={[
-                                        { id: 'radarr', name: 'Radarr (Movies)' },
-                                        { id: 'sonarr', name: 'Sonarr (TV Series)' },
-                                        { id: 'lidarr', name: 'Lidarr (Music)' },
-                                        { id: 'prowlarr', name: 'Prowlarr (Indexers)' },
-                                        { id: 'qbittorrent', name: 'qBittorrent (Downloads)' },
-                                        { id: 'plex', name: 'Plex Media Server' }
-                                    ]}
-                                />
                             </div>
-
-                            <div className="space-y-1">
-                                <label className="text-sm font-medium text-zinc-300">Instance Name</label>
-                                <input
-                                    type="text"
-                                    placeholder={type === 'lidarr' ? "e.g. Lidarr Music FLAC" : type === 'radarr' ? "e.g. Radarr Movies 4K" : "e.g. Sonarr TV Series"}
-                                    value={name}
-                                    onChange={e => setName(e.target.value)}
-                                    className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-emerald-500 outline-none"
-                                />
-                            </div>
-
-                            <div className="space-y-1">
-                                <label className="text-sm font-medium text-zinc-300">Connection URL</label>
-                                <input
-                                    type="url"
-                                    placeholder={type === 'plex' ? "http://192.168.1.125:32400" : type === 'lidarr' ? "http://192.168.1.125:8686" : type === 'sonarr' ? "http://192.168.1.125:8989" : "http://192.168.1.125:7878"}
-                                    value={url}
-                                    onChange={e => setUrl(e.target.value)}
-                                    className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-emerald-500 outline-none font-mono text-xs"
-                                />
-                            </div>
-
-                            <div className="space-y-1">
-                                <div className="flex items-center justify-between">
-                                    <label className="text-sm font-medium text-zinc-300">
-                                        {type === 'qbittorrent' ? 'Credentials (username:password)' : type === 'plex' ? 'X-Plex-Token' : 'API Key'}
-                                    </label>
-                                    {type === 'plex' && (
-                                        <a
-                                            href="https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/"
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="text-[10px] font-bold text-amber-400 hover:text-amber-300 underline"
-                                        >
-                                            Plex Token Guide ↗
-                                        </a>
-                                    )}
-                                </div>
+                        ) : tmdbState === 'edit' ? (
+                            <div className="flex gap-2">
                                 <input
                                     type="password"
-                                    placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                                    value={apiKey}
-                                    onChange={e => setApiKey(e.target.value)}
-                                    className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-emerald-500 outline-none font-mono text-xs"
+                                    placeholder="Paste your TMDB API Key"
+                                    value={tmdbInput}
+                                    onChange={e => setTmdbInput(e.target.value)}
+                                    className="flex-1 bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none placeholder:text-zinc-600"
                                 />
-                            </div>
-
-                            {type === 'plex' && (
-                                <div className="md:col-span-2 p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
-                                    <div>
-                                        <span className="text-xs font-black uppercase text-amber-400 tracking-wider block">
-                                            ⚡ Automated 1-Click Plex Pairing
-                                        </span>
-                                        <p className="text-xs text-zinc-300">
-                                            Click pair, log into your Plex account, and Schedulearr will automatically fill your URL &amp; Token.
-                                        </p>
-                                    </div>
+                                <button
+                                    onClick={() => setTmdbState('confirm')}
+                                    disabled={!tmdbInput}
+                                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-bold text-xs transition-colors"
+                                >
+                                    Save Key
+                                </button>
+                                {tmdbApiKey && (
                                     <button
-                                        type="button"
-                                        onClick={handlePairPlex}
-                                        disabled={plexPairing}
-                                        className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg flex-shrink-0 flex items-center gap-2 cursor-pointer"
+                                        onClick={() => setTmdbState('view')}
+                                        className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg font-bold text-xs transition-colors"
                                     >
-                                        {plexPairing ? (
-                                            <>
-                                                <div className="w-3.5 h-3.5 border-2 border-black border-t-transparent rounded-full animate-spin" />
-                                                <span>{plexPairingStatus || 'Pairing...'}</span>
-                                            </>
-                                        ) : (
-                                            <span>Pair with Plex Account</span>
-                                        )}
+                                        Cancel
+                                    </button>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="flex items-center justify-between bg-emerald-500/5 border border-emerald-500/20 rounded-lg px-4 py-3 animate-in fade-in slide-in-from-top-1 duration-200">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-1.5 bg-emerald-500/20 rounded-full">
+                                        <svg className="w-4 h-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                    </div>
+                                    <span className="text-sm text-emerald-500 font-bold">Confirm saving this key?</span>
+                                </div>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={async () => {
+                                            await updateSetting('tmdb_api_key', tmdbInput);
+                                            setTmdbApiKey(tmdbInput);
+                                            setTmdbState('view');
+                                        }}
+                                        className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md text-xs font-black transition-all"
+                                    >
+                                        Confirm
+                                    </button>
+                                    <button
+                                        onClick={() => setTmdbState('edit')}
+                                        className="px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md text-xs font-bold transition-all"
+                                    >
+                                        Back
                                     </button>
                                 </div>
-                            )}
-
-                            <div className="md:col-span-2 space-y-2 mt-2">
-                                <label className="text-sm font-medium text-zinc-300">Instance Indicator Color</label>
-                                <div className="flex flex-wrap gap-2">
-                                    {predefinedColors.map(c => (
-                                        <button
-                                            key={c}
-                                            type="button"
-                                            onClick={() => setColor(c)}
-                                            className={`w-6 h-6 rounded-full ${c} ${color === c ? 'ring-2 ring-white ring-offset-2 ring-offset-zinc-900 border-2 border-transparent' : 'opacity-70 hover:opacity-100 border border-zinc-800'}`}
-                                            aria-label={`Select ${c}`}
-                                        />
-                                    ))}
-                                </div>
                             </div>
-
-                            <div className="md:col-span-2 mt-2">
-                                <button
-                                    type="submit"
-                                    disabled={!name || !url || !apiKey}
-                                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 px-6 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                                >
-                                    {editTargetId ? 'Update Connection' : 'Add Connection'}
-                                </button>
-                            </div>
-                        </form>
+                        )}
+                        <p className="text-[10px] text-zinc-500 mt-2">Enable this for better trending and discovery results on the discovery page.</p>
                     </div>
-                </div>
-            )}
-
-            {/* ── SUBTOPIC 2: AUTOMATION & STORAGE ── */}
-            {activeSettingsTab === 'automation' && (
-                <div className="space-y-8 animate-in fade-in duration-200">
-                    {/* Storage Guard Control Panel */}
-                    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-6 shadow-xl">
-                        {/* Top Banner Header with Master Switch & Nuke Threshold Number */}
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-800">
-                            <div>
-                                <h2 className="text-xl font-black text-white flex items-center gap-2.5">
-                                    <ShieldCheck className="text-emerald-400" size={22} />
-                                    Storage Guard
-                                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                                        diskAutocleanEnabled ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-[0_0_10px_rgba(16,185,129,0.2)]' : 'bg-zinc-800 text-zinc-500 border border-zinc-700'
-                                    }`}>
-                                        {diskAutocleanEnabled ? 'ACTIVE' : 'OFF'}
-                                    </span>
-                                </h2>
-                                <p className="text-xs text-zinc-400 font-medium mt-1">Core Rule: IF Total Occupied Space &gt; Nuke Threshold %, automatically nuke media to free space.</p>
-                            </div>
-
-                            {/* Master ON / OFF Toggle + Threshold % */}
-                            <div className="flex items-center gap-4 bg-zinc-950 p-3 rounded-2xl border border-zinc-800 flex-shrink-0">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-xs font-black text-zinc-400 uppercase tracking-wider">Nuke Threshold:</span>
-                                    <input
-                                        type="number"
-                                        min="50"
-                                        max="99"
-                                        value={diskPauseThreshold}
-                                        onChange={e => {
-                                            const val = Math.min(99, Math.max(50, parseInt(e.target.value) || 90));
-                                            setDiskPauseThreshold(val);
-                                            updateSetting('storage_guard_threshold', String(val));
-                                            updateSetting('disk_pause_threshold', String(val));
-                                            updateSetting('disk_autoclean_threshold', String(val));
-                                        }}
-                                        className="w-16 bg-zinc-900 border border-zinc-700 rounded-xl text-center py-1 text-emerald-400 font-black text-sm outline-none focus:border-emerald-500"
-                                    />
-                                    <span className="text-xs font-black text-emerald-400">%</span>
-                                </div>
-
-                                <div className="w-px h-6 bg-zinc-800" />
-
-                                <button
-                                    onClick={async () => {
-                                        const next = !diskAutocleanEnabled;
-                                        setDiskAutocleanEnabled(next);
-                                        await updateSetting('storage_guard_enabled', String(next));
-                                        await updateSetting('disk_autoclean_enabled', String(next));
-                                        toast.success(next ? 'Storage Guard Activated' : 'Storage Guard Deactivated');
-                                    }}
-                                    className={`w-12 h-6.5 rounded-full transition-all relative flex-shrink-0 p-0.5 cursor-pointer ${diskAutocleanEnabled ? 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.4)]' : 'bg-zinc-800'}`}
-                                    title={diskAutocleanEnabled ? 'Deactivate Storage Guard' : 'Activate Storage Guard'}
-                                >
-                                    <div className={`w-5.5 h-5.5 rounded-full bg-white transition-transform ${diskAutocleanEnabled ? 'translate-x-5.5' : 'translate-x-0'}`} />
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Visual Disk Meter */}
-                        {diskInfo ? (
-                            <div className="space-y-3">
-                                <div className="flex items-center justify-between text-xs font-bold text-zinc-300">
-                                    <span>Total Storage Meter</span>
-                                    <span className={diskInfo.usedPercent >= diskPauseThreshold ? 'text-red-400 font-black' : 'text-emerald-400'}>
-                                        {diskInfo.totalBytes >= 1e12
-                                            ? `${(diskInfo.usedBytes / 1e12).toFixed(2)} TB used / ${(diskInfo.totalBytes / 1e12).toFixed(2)} TB total (${diskInfo.usedPercent}%)`
-                                            : `${(diskInfo.usedBytes / 1e9).toFixed(1)} GB used / ${(diskInfo.totalBytes / 1e9).toFixed(1)} GB total (${diskInfo.usedPercent}%)`
-                                        }
-                                    </span>
-                                </div>
-                                <div className="relative h-4 bg-zinc-950 rounded-full overflow-hidden border border-zinc-800">
-                                    <div
-                                        className={`h-full rounded-full transition-all duration-1000 ${
-                                            diskInfo.usedPercent >= diskPauseThreshold ? 'bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.4)]'
-                                            : diskInfo.usedPercent >= 75 ? 'bg-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.3)]'
-                                            : 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.3)]'
-                                        }`}
-                                        style={{ width: `${diskInfo.usedPercent}%` }}
-                                    />
-                                    <div
-                                        className="absolute top-0 bottom-0 w-0.5 bg-white/70 border-r border-dashed border-white/50"
-                                        style={{ left: `${diskPauseThreshold}%` }}
-                                        title={`Nuke threshold: ${diskPauseThreshold}%`}
-                                    />
-                                </div>
-                            </div>
-                        ) : null}
-                    </div>
-
-                    {/* Scheduler Configuration & TMDB API Key */}
-                    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl space-y-6">
-                        <div>
-                            <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                                <Sparkles size={20} className="text-indigo-400" /> Batch Search Scheduler
-                            </h2>
-                            <p className="text-xs text-zinc-400 mt-1 font-medium">Configure automated missing item sweeps and search rotations.</p>
-                        </div>
-
+                    <div className="pt-4 border-t border-zinc-800 space-y-4">
+                        <h3 className="text-sm font-bold text-white mb-2">Scheduler Configuration</h3>
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                             <div className="flex flex-col gap-1">
                                 <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Interval (Min)</label>
                                 <input
                                     type="number" min={1} max={10080} value={schedulerConfig.interval}
                                     onChange={e => { const v = Math.max(1, Math.min(10080, Number(e.target.value))); const nc = { ...schedulerConfig, interval: v }; setSchedulerConfig(nc); fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(nc) }); }}
-                                    className="bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-white outline-none"
+                                    className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-white outline-none"
                                 />
                             </div>
                             <div className="flex flex-col gap-1">
@@ -992,7 +979,7 @@ export default function Settings() {
                                 <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">State</label>
                                 <button
                                     onClick={() => { const nc = { ...schedulerConfig, enabled: !schedulerConfig.enabled }; setSchedulerConfig(nc); fetch('/api/scheduler/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(nc) }); }}
-                                    className={`h-10 px-4 text-xs font-bold uppercase rounded-xl transition-all border cursor-pointer ${
+                                    className={`h-10 px-4 text-xs font-bold uppercase rounded-lg transition-all border ${
                                         schedulerConfig.enabled
                                             ? 'bg-emerald-500 hover:bg-emerald-400 text-zinc-950 border-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.3)]'
                                             : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white'
@@ -1002,12 +989,11 @@ export default function Settings() {
                                 </button>
                             </div>
                         </div>
-
                         <div className="pt-2">
                             <button
                                 onClick={async () => { setIsRunningBatch(true); try { await fetch('/api/scheduler/run', { method: 'POST' }); toast.success('Batch search triggered!'); } catch { toast.error('Failed to trigger search.'); } setIsRunningBatch(false); }}
                                 disabled={isRunningBatch || !schedulerConfig.enabled}
-                                className={`w-full h-11 text-xs font-bold uppercase tracking-wider rounded-xl transition-all border cursor-pointer ${
+                                className={`w-full h-11 text-xs font-bold uppercase tracking-wider rounded-xl transition-all border ${
                                     isRunningBatch
                                         ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
                                         : !schedulerConfig.enabled
@@ -1018,514 +1004,1285 @@ export default function Settings() {
                                 {isRunningBatch ? 'Running...' : 'Run Batch Search Now'}
                             </button>
                         </div>
+                    </div>
+                </div>
+            </div>
 
-                        {/* TMDB API Key */}
-                        <div className="pt-6 border-t border-zinc-800 space-y-2">
-                            <label className="text-sm font-medium text-zinc-300">TMDB API Key (Metadata &amp; Discover)</label>
+                    {/* Backup & Restore */}
+                                <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <h2 className="text-xl font-semibold text-white">Backup & Restore</h2>
+                        <p className="text-sm text-zinc-400 mt-1">Export your instances into an encrypted file or restore them from a previous backup.</p>
+                    </div>
+                    <div className="flex gap-3">
+                        <button
+                            onClick={handleExport}
+                            className="bg-zinc-800 hover:bg-zinc-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center gap-2"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                            Export Backup
+                        </button>
+                        <button
+                            onClick={handleImport}
+                            className="bg-zinc-800 hover:bg-zinc-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center gap-2"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                            Restore Backup
+                        </button>
+                    </div>
+                </div>
+            </div>
+                </div>
+            )}
 
-                            {tmdbState === 'view' ? (
-                                <div className="flex items-center justify-between bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3">
-                                    <div className="flex flex-col">
-                                        <span className="text-xs text-zinc-500 font-medium uppercase tracking-wider">Status: Configured</span>
-                                        <span className="text-white font-mono text-sm">{tmdbApiKey ? `${tmdbApiKey.slice(0, 4)}••••••••` : 'Not Configured'}</span>
+            {/* ═══════════════════════════════════════════════════════════════════
+               SUBTOPIC 2: AUTOMATION & STORAGE
+               ═══════════════════════════════════════════════════════════════════ */}
+            {settingsSubtopic === 'automation' && (
+                <div className="space-y-8 animate-in fade-in duration-200">
+                    {/* Storage Guard Control Panel */}
+                                {/* Storage Guard Control Panel */}
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-6">
+                {/* Top Banner Header with Master Switch & Nuke Threshold Number */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-800">
+                    <div>
+                        <h2 className="text-xl font-black text-white flex items-center gap-2.5">
+                            Storage Guard
+                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                                diskAutocleanEnabled ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-[0_0_10px_rgba(16,185,129,0.2)]' : 'bg-zinc-800 text-zinc-500 border border-zinc-700'
+                            }`}>
+                                {diskAutocleanEnabled ? 'ACTIVE' : 'OFF'}
+                            </span>
+                        </h2>
+                        <p className="text-xs text-zinc-400 font-medium mt-1">Core Rule: IF Total Occupied Space &gt; Nuke Threshold %, automatically nuke media to free space.</p>
+                    </div>
+
+                    {/* Master ON / OFF Toggle + Threshold % */}
+                    <div className="flex items-center gap-4 bg-zinc-950 p-3 rounded-2xl border border-zinc-800 flex-shrink-0">
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs font-black text-zinc-400 uppercase tracking-wider">Nuke Threshold:</span>
+                            <input
+                                type="number"
+                                min="50"
+                                max="99"
+                                value={diskPauseThreshold}
+                                onChange={e => {
+                                    const val = Math.min(99, Math.max(50, parseInt(e.target.value) || 90));
+                                    setDiskPauseThreshold(val);
+                                    updateSetting('storage_guard_threshold', String(val));
+                                    updateSetting('disk_pause_threshold', String(val));
+                                    updateSetting('disk_autoclean_threshold', String(val));
+                                }}
+                                className="w-16 bg-zinc-900 border border-zinc-700 rounded-xl text-center py-1 text-emerald-400 font-black text-sm outline-none focus:border-emerald-500"
+                            />
+                            <span className="text-xs font-black text-emerald-400">%</span>
+                        </div>
+
+                        <div className="w-px h-6 bg-zinc-800" />
+
+                        <button
+                            onClick={async () => {
+                                const next = !diskAutocleanEnabled;
+                                setDiskAutocleanEnabled(next);
+                                await updateSetting('storage_guard_enabled', String(next));
+                                await updateSetting('disk_autoclean_enabled', String(next));
+                                toast.success(next ? 'Storage Guard Activated' : 'Storage Guard Deactivated');
+                            }}
+                            className={`w-12 h-6.5 rounded-full transition-all relative flex-shrink-0 p-0.5 ${diskAutocleanEnabled ? 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.4)]' : 'bg-zinc-800'}`}
+                            title={diskAutocleanEnabled ? 'Deactivate Storage Guard' : 'Activate Storage Guard'}
+                        >
+                            <div className={`w-5.5 h-5.5 rounded-full bg-white transition-transform ${diskAutocleanEnabled ? 'translate-x-5.5' : 'translate-x-0'}`} />
+                        </button>
+                    </div>
+                </div>
+
+                {/* Disk Storage Capacity Fill Bar Meter */}
+                {diskInfo ? (
+                    <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-800 space-y-2">
+                        <div className="flex justify-between items-center text-xs">
+                            <span className="font-bold text-white uppercase tracking-wider">Storage Capacity</span>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${
+                                diskInfo.usedPercent >= diskPauseThreshold
+                                    ? 'bg-red-500/10 text-red-400 border border-red-500/20'
+                                    : diskInfo.usedPercent >= 75
+                                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                    : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                            }`}>
+                                {diskInfo.usedPercent}% Used
+                            </span>
+                        </div>
+
+                        {/* Progress Bar Meter */}
+                        <div className="relative h-3 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800">
+                            <div
+                                className={`h-full rounded-full transition-all duration-1000 ${
+                                    diskInfo.usedPercent >= 90 ? 'bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.4)]'
+                                    : diskInfo.usedPercent >= 75 ? 'bg-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.3)]'
+                                    : 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.3)]'
+                                }`}
+                                style={{ width: `${diskInfo.usedPercent}%` }}
+                            />
+                            <div
+                                className="absolute top-0 bottom-0 w-0.5 bg-white/50 border-r border-dashed border-white/30"
+                                style={{ left: `${diskPauseThreshold}%` }}
+                                title={`Nuke Threshold: ${diskPauseThreshold}%`}
+                            />
+                        </div>
+
+                        <div className="flex justify-between text-[11px] text-zinc-400 font-semibold">
+                            <span>
+                                {diskInfo.totalBytes >= 1e12
+                                    ? `${(diskInfo.usedBytes / 1e12).toFixed(2)} TB used of ${(diskInfo.totalBytes / 1e12).toFixed(2)} TB`
+                                    : `${(diskInfo.usedBytes / 1e9).toFixed(0)} GB used of ${(diskInfo.totalBytes / 1e9).toFixed(0)} GB`}
+                            </span>
+                            <span className="text-emerald-400 font-black">
+                                {diskInfo.totalBytes >= 1e12
+                                    ? `${(diskInfo.freeBytes / 1e12).toFixed(2)} TB free`
+                                    : `${(diskInfo.freeBytes / 1e9).toFixed(0)} GB free`}
+                            </span>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-800 text-xs font-bold text-zinc-500 animate-pulse">
+                        Loading storage capacity data...
+                    </div>
+                )}
+
+                {diskAutocleanEnabled && (
+                    <div className="space-y-6 p-4 bg-zinc-950/60 rounded-xl border border-zinc-800">
+                        {/* Threshold Slider */}
+                        <div className="space-y-2">
+                            <div className="flex justify-between items-center text-xs font-bold">
+                                <span className="text-zinc-400 uppercase tracking-wider">Occupied Space Nuke Threshold</span>
+                                <span className="text-emerald-400 font-black text-base">{diskPauseThreshold}%</span>
+                            </div>
+                            <input
+                                type="range"
+                                min="50"
+                                max="99"
+                                value={diskPauseThreshold}
+                                onChange={e => {
+                                    const val = parseInt(e.target.value);
+                                    setDiskPauseThreshold(val);
+                                    updateSetting('storage_guard_threshold', String(val));
+                                    updateSetting('disk_pause_threshold', String(val));
+                                    updateSetting('disk_autoclean_threshold', String(val));
+                                }}
+                                className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                            />
+                        </div>
+
+                        {/* Nuke Selection Priority */}
+                        <div className="space-y-2">
+                            <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Nuke Selection Priority</span>
+                            <div className="grid grid-cols-3 gap-2">
+                                {[
+                                    { id: 'largest', label: 'Largest Downloads' },
+                                    { id: 'oldest', label: 'Oldest Downloads' },
+                                    { id: 'unplayed', label: 'Unplayed Content' }
+                                ].map(mode => (
+                                    <button
+                                        key={mode.id}
+                                        onClick={async () => {
+                                            setDiskSmartCleanMode(mode.id);
+                                            await updateSetting('qbit_smart_clean_mode', mode.id);
+                                        }}
+                                        className={`py-2 px-3 text-xs font-bold rounded-xl uppercase tracking-wider transition-all border ${
+                                            diskSmartCleanMode === mode.id
+                                                ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-sm'
+                                                : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:text-zinc-300'
+                                        }`}
+                                    >
+                                        {mode.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* TV Series Cleanup Level */}
+                        <div className="space-y-2">
+                            <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">TV Series Cleanup Level</span>
+                            <p className="text-[10px] text-zinc-500">Choose whether to delete entire shows, individual seasons, or single episodes.</p>
+                            <div className="grid grid-cols-3 gap-2">
+                                {(['series', 'season', 'episode'] as const).map(level => (
+                                    <button
+                                        key={level}
+                                        type="button"
+                                        onClick={() => {
+                                            setDiskSmartCleanSeriesLevel(level);
+                                            updateSetting('media_smart_clean_series_level', level);
+                                            setTimeout(fetchCandidates, 300);
+                                        }}
+                                        className={`py-2 px-3 text-xs font-bold rounded-xl uppercase tracking-wider transition-all border ${
+                                            diskSmartCleanSeriesLevel === level
+                                                ? 'bg-violet-500/20 text-violet-400 border-violet-500/40 shadow-sm'
+                                                : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:text-zinc-300'
+                                        }`}
+                                    >
+                                        {level === 'series' ? 'Entire Show' : level === 'season' ? 'By Season' : 'By Episode'}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Immunity Window */}
+                        <div className="flex items-center justify-between pt-2">
+                            <div>
+                                <span className="text-sm font-bold text-zinc-300">Immunity Window</span>
+                                <p className="text-xs text-zinc-500">Protect items added within last N days from being nuked</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <input
+                                    type="number"
+                                    min="0"
+                                    max="365"
+                                    value={diskSmartCleanImmunityDays}
+                                    onChange={async e => {
+                                        const val = parseInt(e.target.value) || 0;
+                                        setDiskSmartCleanImmunityDays(val);
+                                        await updateSetting('qbit_smart_clean_immunity_days', String(val));
+                                    }}
+                                    className="w-20 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-sm font-bold text-white text-center outline-none focus:border-emerald-500/50"
+                                />
+                                <span className="text-xs font-bold text-zinc-500">Days</span>
+                            </div>
+                        </div>
+
+                        {/* Also Pause Scheduler Option */}
+                        <div className="flex items-center justify-between border-t border-zinc-800 pt-4">
+                            <div>
+                                <span className="text-sm font-bold text-zinc-300">Also Pause Automated Search Batches</span>
+                                <p className="text-xs text-zinc-500">Pause scheduler search activity when above threshold</p>
+                            </div>
+                            <button
+                                onClick={async () => {
+                                    const next = !diskPauseEnabled;
+                                    setDiskPauseEnabled(next);
+                                    await updateSetting('storage_guard_pause_scheduler', String(next));
+                                    await updateSetting('disk_pause_enabled', String(next));
+                                }}
+                                className={`w-10 h-5.5 rounded-full transition-all relative flex-shrink-0 p-0.5 ${diskPauseEnabled ? 'bg-emerald-500' : 'bg-zinc-800'}`}
+                            >
+                                <div className={`w-4.5 h-4.5 rounded-full bg-white transition-transform ${diskPauseEnabled ? 'translate-x-4.5' : 'translate-x-0'}`} />
+                            </button>
+                        </div>
+                        {/* Next Items to be Nuked Preview List */}
+                        <div className="space-y-3 border-t border-zinc-800 pt-4">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <span className="text-xs font-black text-white uppercase tracking-wider block flex items-center gap-1.5">
+                                        🔥 Next Candidates in Line to be Purged ({candidates.length})
+                                    </span>
+                                    <p className="text-[11px] text-zinc-500">Sorted by priority mode ({diskSmartCleanMode.toUpperCase()}). Items with immunity active are excluded.</p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={fetchCandidates}
+                                    className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 hover:text-emerald-300 bg-zinc-900 border border-zinc-800 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                                >
+                                    <svg className={`w-3 h-3 ${loadingCandidates ? 'animate-spin' : ''}`} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                                    Refresh Queue
+                                </button>
+                            </div>
+
+                            {loadingCandidates ? (
+                                <div className="p-4 text-center text-xs font-bold text-zinc-500 italic">Calculating candidate purge queue...</div>
+                            ) : candidates.length === 0 ? (
+                                <div className="p-4 text-center bg-zinc-950 rounded-xl border border-zinc-800 text-xs font-bold text-zinc-500">
+                                    No items currently matching purge criteria (or all recent items are protected by immunity).
+                                </div>
+                            ) : (
+                                <div className="space-y-2 max-h-72 overflow-y-auto custom-scrollbar pr-1">
+                                    {candidates.slice(0, 15).map((item, idx) => (
+                                        <div key={item.key || idx} className="flex items-center justify-between p-3 rounded-xl bg-zinc-950 border border-zinc-800/80 hover:border-zinc-700 transition-all">
+                                            <div className="flex items-center gap-3 min-w-0">
+                                                <span className="w-5 h-5 rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/20 text-[10px] font-black flex items-center justify-center flex-shrink-0">
+                                                    #{idx + 1}
+                                                </span>
+                                                <div className="space-y-0.5 min-w-0">
+                                                    <h4 className="text-xs font-bold text-white truncate max-w-sm" title={item.title}>{item.title}</h4>
+                                                    <div className="flex items-center gap-2 text-[10px] text-zinc-500 font-medium">
+                                                        <span>{item.instanceName}</span>
+                                                        <span>•</span>
+                                                        <span className="text-zinc-400 font-bold">{((item.size || 0) / (1024 ** 3)).toFixed(2)} GB</span>
+                                                        <span>•</span>
+                                                        <span className={item.isWatched ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}>
+                                                            {item.isWatched ? 'Watched' : 'Unplayed'}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <button
+                                                type="button"
+                                                onClick={async () => {
+                                                    if (!confirm(`Are you sure you want to purge "${item.title}"?`)) return;
+                                                    try {
+                                                        const epUrl = item.type === 'movie' ? `/api/radarr/delete?id=${item.id}&instanceId=${item.instanceId}` : `/api/sonarr/delete?id=${item.id}&instanceId=${item.instanceId}`;
+                                                        const res = await fetch(epUrl, { method: 'DELETE' });
+                                                        if (res.ok) {
+                                                            toast.success(`Purged ${item.title}`);
+                                                            fetchCandidates();
+                                                        } else {
+                                                            toast.error('Failed to purge item');
+                                                        }
+                                                    } catch (e) {
+                                                        toast.error('Error purging item');
+                                                    }
+                                                }}
+                                                className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition-colors flex-shrink-0 cursor-pointer"
+                                            >
+                                                Purge Now
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+            </div>
+
+                    {/* Storage Guard Breakdown & Pause Threshold */}
+                                {/* Storage Guard */}
+            <div className={`bg-zinc-900 border ${isDiskOpen ? 'border-emerald-500/30' : 'border-zinc-800'} rounded-2xl transition-all overflow-hidden shadow-lg`}>
+                <button
+                    onClick={() => {
+                        setIsDiskOpen(!isDiskOpen);
+                        if (!isDiskOpen) {
+                            fetchCandidates();
+                            fetch('/api/system/disk').then(r => r.ok ? r.json() : null).then(d => { if (d) setDiskInfo(d); }).catch(() => {});
+                        }
+                    }}
+                    className="w-full flex items-center justify-between p-5 hover:bg-zinc-800/50 transition-colors"
+                >
+                    <div className="flex items-center gap-4">
+                        <div className={`p-2.5 rounded-xl ${isDiskOpen ? 'bg-emerald-500/10 text-emerald-400' : 'bg-zinc-800 text-zinc-500'}`}>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
+                        </div>
+                        <div className="text-left">
+                            <h2 className="text-base font-bold text-white tracking-tight">Storage Guard</h2>
+                            <p className="text-xs text-zinc-500 font-medium">Monitor disk usage and auto-pause searches when drives are nearly full.</p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        {diskInfo && (
+                            <div className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                                diskInfo.usedPercent >= diskPauseThreshold && diskPauseEnabled
+                                    ? 'bg-red-500/20 text-red-400'
+                                    : diskInfo.usedPercent >= 80
+                                    ? 'bg-amber-500/20 text-amber-400'
+                                    : 'bg-emerald-500/20 text-emerald-400'
+                            }`}>
+                                {diskInfo.usedPercent}% used
+                            </div>
+                        )}
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`text-zinc-500 transition-transform duration-300 ${isDiskOpen ? 'rotate-180' : ''}`}><path d="m6 9 6 6 6-6" /></svg>
+                    </div>
+                </button>
+
+                {isDiskOpen && (
+                    <div className="p-6 pt-0 border-t border-zinc-800/50 animate-in fade-in slide-in-from-top-4 duration-300 space-y-6 mt-0 pt-6">
+                        {/* Disk Usage Bar */}
+                        {diskInfo ? (
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Total Disk Usage</span>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs font-bold text-zinc-200">
+                                            {diskInfo.totalBytes >= 1e12
+                                                ? `${(diskInfo.usedBytes / 1e12).toFixed(2)} TB used / ${(diskInfo.totalBytes / 1e12).toFixed(2)} TB total`
+                                                : `${(diskInfo.usedBytes / 1e9).toFixed(1)} GB used / ${(diskInfo.totalBytes / 1e9).toFixed(1)} GB total`
+                                            }
+                                        </span>
+                                        <button
+                                            onClick={() => fetch('/api/system/disk').then(r => r.ok ? r.json() : null).then(d => { if (d) setDiskInfo(d); }).catch(() => {})}
+                                            className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"
+                                            title="Refresh disk info"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="relative h-4 bg-zinc-950 rounded-full overflow-hidden border border-zinc-800">
+                                    <div
+                                        className={`h-full rounded-full transition-all duration-1000 ${
+                                            diskInfo.usedPercent >= 90 ? 'bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.4)]'
+                                            : diskInfo.usedPercent >= 75 ? 'bg-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.3)]'
+                                            : 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.3)]'
+                                        }`}
+                                        style={{ width: `${diskInfo.usedPercent}%` }}
+                                    />
+                                    {diskPauseEnabled && (
+                                        <div
+                                            className="absolute top-0 bottom-0 w-0.5 bg-white/50 border-r border-dashed border-white/30"
+                                            style={{ left: `${diskPauseThreshold}%` }}
+                                            title={`Pause threshold: ${diskPauseThreshold}%`}
+                                        />
+                                    )}
+                                </div>
+                                <div className="flex justify-between text-[10px] text-zinc-500 font-medium">
+                                    <span>{diskInfo.totalBytes >= 1e12 ? `${(diskInfo.freeBytes / 1e12).toFixed(2)} TB free` : `${(diskInfo.freeBytes / 1e9).toFixed(1)} GB free`}</span>
+                                    <span className={diskInfo.usedPercent >= diskPauseThreshold && diskPauseEnabled ? 'text-red-400 font-bold' : ''}>{diskInfo.usedPercent}% used</span>
+                                </div>
+
+                                {/* Per-instance breakdown */}
+                                {Array.isArray(diskInfo?.byInstance) && diskInfo.byInstance.length > 0 && (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                                        {diskInfo.byInstance.map((inst: any) => {
+                                            const folders = Array.isArray(inst?.folders) ? inst.folders : [];
+                                            const instTotal = folders.reduce((s: number, f: any) => s + (f?.totalBytes || 0), 0);
+                                            const instFree = folders.reduce((s: number, f: any) => s + (f?.freeBytes || 0), 0);
+                                            const instUsed = instTotal - instFree;
+                                            const instPct = instTotal > 0 ? Math.round((instUsed / instTotal) * 100) : 0;
+                                            return (
+                                                <div key={inst.id || inst.name} className="p-3 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-1.5">
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider truncate">{inst.name}</span>
+                                                        <span className={`text-[10px] font-bold ${ instPct >= 90 ? 'text-red-400' : instPct >= 75 ? 'text-amber-400' : 'text-emerald-400'}`}>{instPct}%</span>
+                                                    </div>
+                                                    <div className="h-1.5 bg-zinc-900 rounded-full overflow-hidden">
+                                                        <div className={`h-full rounded-full ${instPct >= 90 ? 'bg-red-500' : instPct >= 75 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${instPct}%` }} />
+                                                    </div>
+                                                    <p className="text-[9px] text-zinc-600">
+                                                        {instTotal >= 1e12
+                                                            ? `${(instFree / 1e12).toFixed(2)} TB free of ${(instTotal / 1e12).toFixed(2)} TB`
+                                                            : `${(instFree / 1e9).toFixed(0)} GB free of ${(instTotal / 1e9).toFixed(0)} GB`
+                                                        }
+                                                    </p>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="flex items-center gap-3 text-zinc-500 text-sm">
+                                <div className="w-4 h-4 border-2 border-zinc-700 border-t-zinc-400 rounded-full animate-spin" />
+                                Loading disk info...
+                            </div>
+                        )}
+
+                        {/* Pause Threshold Control */}
+                        <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-4">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <div className="text-sm font-bold text-zinc-200">Pause Scheduler When Full</div>
+                                    <p className="text-[10px] text-zinc-500 font-medium mt-0.5">Automatically skip search batches when disk usage exceeds the threshold.</p>
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        const next = !diskPauseEnabled;
+                                        setDiskPauseEnabled(next);
+                                        updateSetting('disk_pause_enabled', next);
+                                    }}
+                                    className={`w-10 h-5 rounded-full transition-all relative flex-shrink-0 ${ diskPauseEnabled ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-zinc-700'}`}
+                                >
+                                    <div className={`w-3 h-3 rounded-full bg-white absolute top-1 transition-all ${diskPauseEnabled ? 'left-6' : 'left-1'}`} />
+                                </button>
+                            </div>
+
+                            <div className={`space-y-2 transition-opacity ${diskPauseEnabled ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
+                                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Pause Threshold (%)</label>
+                                <div className="flex items-center gap-3">
+                                    <input
+                                        type="range"
+                                        min="50"
+                                        max="99"
+                                        value={diskPauseThreshold}
+                                        onChange={e => {
+                                            const val = parseInt(e.target.value);
+                                            setDiskPauseThreshold(val);
+                                            updateSetting('disk_pause_threshold', val);
+                                        }}
+                                        className="flex-1 accent-emerald-500"
+                                        disabled={!diskPauseEnabled}
+                                    />
+                                    <span className="text-lg font-black text-emerald-400 w-12 text-right">{diskPauseThreshold}%</span>
+                                </div>
+                                <p className="text-[10px] text-zinc-500">Scheduler will skip batches when disk usage is at or above this percentage. Default: 90%.</p>
+                                {diskInfo && diskPauseEnabled && diskInfo.usedPercent >= diskPauseThreshold && (
+                                    <div className="flex items-center gap-2 p-2 bg-red-500/10 border border-red-500/20 rounded-lg">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-red-400 flex-shrink-0"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                                        <span className="text-xs font-bold text-red-400">Guard is ACTIVE — Scheduler currently paused ({diskInfo.usedPercent}% ≥ {diskPauseThreshold}%)</span>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </div>
+
+                    {/* QBit Auto-Cleaner & Smart Clean Candidates */}
+                                {/* QBit Auto Cleaner (Library Cleanup) */}
+            <div className={`bg-zinc-900 border ${isQbitCleanOpen ? 'border-violet-500/30' : 'border-zinc-800'} rounded-2xl transition-all overflow-hidden shadow-lg mt-6`}>
+                <button
+                    onClick={() => {
+                        setIsQbitCleanOpen(!isQbitCleanOpen);
+                        if (!isQbitCleanOpen) {
+                            fetchCandidates();
+                        }
+                    }}
+                    className="w-full flex items-center justify-between p-5 hover:bg-zinc-800/50 transition-colors"
+                >
+                    <div className="flex items-center gap-4">
+                        <div className={`p-2.5 rounded-xl ${isQbitCleanOpen ? 'bg-violet-500/10 text-violet-400' : 'bg-zinc-800 text-zinc-500'}`}>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+                        </div>
+                        <div className="text-left">
+                            <h2 className="text-base font-bold text-white tracking-tight">Auto-Cleaner</h2>
+                            <p className="text-xs text-zinc-500 font-medium">Automatically manage and delete older library media to free up space.</p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`text-zinc-500 transition-transform duration-300 ${isQbitCleanOpen ? 'rotate-180' : ''}`}><path d="m6 9 6 6 6-6" /></svg>
+                    </div>
+                </button>
+
+                {isQbitCleanOpen && (
+                    <div className="p-6 pt-0 border-t border-zinc-800/50 animate-in fade-in slide-in-from-top-4 duration-300 space-y-6 mt-0 pt-6">
+                        <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-4">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <div className="text-sm font-bold text-zinc-200">Enable Smart Auto-Clean</div>
+                                    <p className="text-[10px] text-zinc-500 font-medium mt-0.5">
+                                        Automatically delete library media files from Radarr/Sonarr to free up space when the threshold is reached.
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        const next = !diskAutocleanEnabled;
+                                        setDiskAutocleanEnabled(next);
+                                        updateSetting('disk_autoclean_enabled', next);
+                                    }}
+                                    className={`w-10 h-5 rounded-full transition-all relative flex-shrink-0 ${ diskAutocleanEnabled ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-zinc-700'}`}
+                                >
+                                    <div className={`w-3 h-3 rounded-full bg-white absolute top-1 transition-all ${diskAutocleanEnabled ? 'left-6' : 'left-1'}`} />
+                                </button>
+                            </div>
+
+                            <div className={`space-y-4 transition-all duration-300 ${diskAutocleanEnabled ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
+                                <div className="space-y-2">
+                                    <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Auto-Clean Trigger Threshold (%)</label>
+                                    <div className="flex items-center gap-3">
+                                        <input
+                                            type="range"
+                                            min="50"
+                                            max="99"
+                                            value={diskAutocleanThreshold}
+                                            onChange={e => {
+                                                const val = parseInt(e.target.value);
+                                                setDiskAutocleanThreshold(val);
+                                                updateSetting('disk_autoclean_threshold', val);
+                                            }}
+                                            className="flex-1 accent-emerald-500"
+                                            disabled={!diskAutocleanEnabled}
+                                        />
+                                        <span className="text-lg font-black text-emerald-400 w-12 text-right">{diskAutocleanThreshold}%</span>
+                                    </div>
+                                    <p className="text-[10px] text-zinc-500">Auto-clean will delete files when disk usage reaches or exceeds this percentage. Searches will continue downloading without pausing.</p>
+                                </div>
+
+                                <div className="border-t border-zinc-900 pt-3 space-y-3">
+                                    <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Delete Selection Criteria</label>
+                                    <div className="flex flex-wrap gap-2">
+                                        {(['largest', 'oldest', 'unplayed'] as const).map(mode => (
+                                            <button
+                                                key={mode}
+                                                type="button"
+                                                onClick={() => {
+                                                    setDiskSmartCleanMode(mode);
+                                                    updateSetting('qbit_smart_clean_mode', mode);
+                                                }}
+                                                className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all border ${
+                                                    diskSmartCleanMode === mode
+                                                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                                        : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                                                }`}
+                                            >
+                                                {mode === 'largest' ? 'Largest Files' : mode === 'oldest' ? 'Oldest Added' : 'Unplayed in Plex'}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="border-t border-zinc-900 pt-3 flex items-center justify-between">
+                                    <div>
+                                        <div className="text-xs font-bold text-zinc-300">Protect Recently Added (Immunity)</div>
+                                        <p className="text-[10px] text-zinc-500 mt-0.5">Skip media files added to Radarr/Sonarr within the last few days.</p>
                                     </div>
                                     <button
                                         onClick={() => {
-                                            setTmdbInput(tmdbApiKey);
-                                            setTmdbState('edit');
+                                            const next = !diskSmartCleanImmunityEnabled;
+                                            setDiskSmartCleanImmunityEnabled(next);
+                                            updateSetting('qbit_smart_clean_immunity_enabled', next);
                                         }}
-                                        className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                                        className={`w-10 h-5 rounded-full transition-all relative flex-shrink-0 ${ diskSmartCleanImmunityEnabled ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-zinc-700'}`}
                                     >
-                                        Change
+                                        <div className={`w-3 h-3 rounded-full bg-white absolute top-1 transition-all ${diskSmartCleanImmunityEnabled ? 'left-6' : 'left-1'}`} />
                                     </button>
                                 </div>
-                            ) : tmdbState === 'edit' ? (
-                                <div className="flex gap-2">
-                                    <input
-                                        type="password"
-                                        placeholder="Paste your TMDB API Key"
-                                        value={tmdbInput}
-                                        onChange={e => setTmdbInput(e.target.value)}
-                                        className="flex-1 bg-zinc-950 border border-zinc-700 rounded-xl px-4 py-2 text-white focus:ring-2 focus:ring-emerald-500 outline-none placeholder:text-zinc-600"
-                                    />
-                                    <button
-                                        onClick={() => setTmdbState('confirm')}
-                                        disabled={!tmdbInput}
-                                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl font-bold text-xs transition-colors cursor-pointer"
-                                    >
-                                        Save Key
-                                    </button>
-                                    {tmdbApiKey && (
-                                        <button
-                                            onClick={() => setTmdbState('view')}
-                                            className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl font-bold text-xs transition-colors cursor-pointer"
-                                        >
-                                            Cancel
-                                        </button>
-                                    )}
-                                </div>
-                            ) : (
-                                <div className="flex items-center justify-between bg-emerald-500/5 border border-emerald-500/20 rounded-xl px-4 py-3 animate-in fade-in slide-in-from-top-1 duration-200">
-                                    <div className="flex items-center gap-3">
-                                        <div className="p-1.5 bg-emerald-500/20 rounded-full">
-                                            <CheckCircle2 size={16} className="text-emerald-500" />
-                                        </div>
-                                        <span className="text-sm text-emerald-500 font-bold">Confirm saving this key?</span>
-                                    </div>
-                                    <div className="flex gap-2">
-                                        <button
-                                            onClick={async () => {
-                                                await updateSetting('tmdb_api_key', tmdbInput);
-                                                setTmdbApiKey(tmdbInput);
-                                                setTmdbState('view');
-                                            }}
-                                            className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-black transition-all cursor-pointer"
-                                        >
-                                            Confirm
-                                        </button>
-                                        <button
-                                            onClick={() => setTmdbState('edit')}
-                                            className="px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs font-bold transition-all cursor-pointer"
-                                        >
-                                            Back
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-                            <p className="text-[10px] text-zinc-500 mt-1">Enables richer artwork, trailers, and discovery recommendations.</p>
-                        </div>
-                    </div>
 
-                    {/* Smart Library Auto-Cleaner */}
-                    <div className={`bg-zinc-900 border ${isQbitCleanOpen ? 'border-violet-500/30' : 'border-zinc-800'} rounded-2xl transition-all overflow-hidden shadow-lg`}>
-                        <button
-                            onClick={() => {
-                                setIsQbitCleanOpen(!isQbitCleanOpen);
-                                if (!isQbitCleanOpen) {
-                                    fetchCandidates();
-                                }
-                            }}
-                            className="w-full flex items-center justify-between p-5 hover:bg-zinc-800/50 transition-colors cursor-pointer"
-                        >
-                            <div className="flex items-center gap-4">
-                                <div className={`p-2.5 rounded-xl ${isQbitCleanOpen ? 'bg-violet-500/10 text-violet-400' : 'bg-zinc-800 text-zinc-500'}`}>
-                                    <Trash2 size={20} />
-                                </div>
-                                <div className="text-left">
-                                    <h2 className="text-base font-bold text-white tracking-tight">Smart Library Auto-Cleaner</h2>
-                                    <p className="text-xs text-zinc-500 font-medium">Automatically purge older or watched library media from Radarr/Sonarr when disk is full.</p>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-3">
-                                <ChevronDown size={16} className={`text-zinc-500 transition-transform duration-300 ${isQbitCleanOpen ? 'rotate-180' : ''}`} />
-                            </div>
-                        </button>
-
-                        {isQbitCleanOpen && (
-                            <div className="p-6 pt-0 border-t border-zinc-800/50 animate-in fade-in slide-in-from-top-4 duration-300 space-y-6 mt-0 pt-6">
-                                <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-4">
-                                    <div className="flex items-center justify-between">
-                                        <div>
-                                            <div className="text-sm font-bold text-zinc-200">Enable Smart Auto-Clean</div>
-                                            <p className="text-[10px] text-zinc-500 font-medium mt-0.5">
-                                                Automatically delete library media files from Radarr/Sonarr to free up space when the threshold is reached.
-                                            </p>
-                                        </div>
-                                        <button
-                                            onClick={() => {
-                                                const next = !diskAutocleanEnabled;
-                                                setDiskAutocleanEnabled(next);
-                                                updateSetting('disk_autoclean_enabled', next);
-                                            }}
-                                            className={`w-10 h-5 rounded-full transition-all relative flex-shrink-0 cursor-pointer ${ diskAutocleanEnabled ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-zinc-700'}`}
-                                        >
-                                            <div className={`w-3 h-3 rounded-full bg-white absolute top-1 transition-all ${diskAutocleanEnabled ? 'left-6' : 'left-1'}`} />
-                                        </button>
-                                    </div>
-
-                                    <div className={`space-y-4 transition-all duration-300 ${diskAutocleanEnabled ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
-                                        <div className="border-t border-zinc-900 pt-3 space-y-3">
-                                            <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Delete Selection Criteria</label>
-                                            <div className="flex flex-wrap gap-2">
-                                                {(['largest', 'oldest', 'unplayed'] as const).map(mode => (
-                                                    <button
-                                                        key={mode}
-                                                        type="button"
-                                                        onClick={() => {
-                                                            setDiskSmartCleanMode(mode);
-                                                            updateSetting('qbit_smart_clean_mode', mode);
-                                                        }}
-                                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all border cursor-pointer ${
-                                                            diskSmartCleanMode === mode
-                                                                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                                                                : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-300'
-                                                        }`}
-                                                    >
-                                                        {mode === 'largest' ? 'Largest Files' : mode === 'oldest' ? 'Oldest Added' : 'Unplayed in Plex'}
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        </div>
-
-                                        <div className="border-t border-zinc-900 pt-3 flex items-center justify-between">
-                                            <div>
-                                                <div className="text-xs font-bold text-zinc-300">Protect Recently Added (Immunity)</div>
-                                                <p className="text-[10px] text-zinc-500 mt-0.5">Skip media files added to Radarr/Sonarr within the last few days.</p>
-                                            </div>
-                                            <button
-                                                onClick={() => {
-                                                    const next = !diskSmartCleanImmunityEnabled;
-                                                    setDiskSmartCleanImmunityEnabled(next);
-                                                    updateSetting('qbit_smart_clean_immunity_enabled', next);
+                                {diskSmartCleanImmunityEnabled && (
+                                    <div className="pl-4 border-l-2 border-emerald-500/30 space-y-2 animate-in slide-in-from-left-2 duration-200">
+                                        <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Immunity Threshold (Days)</label>
+                                        <div className="flex items-center gap-3">
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                max="90"
+                                                value={diskSmartCleanImmunityDays}
+                                                onChange={e => {
+                                                    const val = parseInt(e.target.value) || 7;
+                                                    setDiskSmartCleanImmunityDays(val);
+                                                    updateSetting('qbit_smart_clean_immunity_days', val);
                                                 }}
-                                                className={`w-10 h-5 rounded-full transition-all relative flex-shrink-0 cursor-pointer ${ diskSmartCleanImmunityEnabled ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-zinc-700'}`}
+                                                className="w-20 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:ring-1 focus:ring-emerald-500"
+                                            />
+                                            <span className="text-xs text-zinc-500">Days</span>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="p-3 bg-emerald-500/5 border border-emerald-500/10 rounded-xl">
+                                    <p className="text-[10px] text-emerald-400 font-medium leading-relaxed">
+                                        <strong>CRITICAL NOTE:</strong> Automated cleanup checks every 15 minutes and operates <strong>WHILE</strong> disk space is <strong>ABOVE</strong> the threshold ({diskPauseThreshold}%). It will delete items sequentially from Radarr/Sonarr until space is below the threshold.
+                                    </p>
+                                </div>
+
+                                {/* TV Series Cleanup Level */}
+                                <div className="border-t border-zinc-900 pt-3 space-y-2">
+                                    <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">TV Series Cleanup Level</label>
+                                    <p className="text-[10px] text-zinc-500">Control whether entire shows, individual seasons, or single episodes are listed and cleaned.</p>
+                                    <div className="flex flex-wrap gap-2">
+                                        {(['series', 'season', 'episode'] as const).map(level => (
+                                            <button
+                                                key={level}
+                                                type="button"
+                                                onClick={() => {
+                                                    setDiskSmartCleanSeriesLevel(level);
+                                                    updateSetting('media_smart_clean_series_level', level);
+                                                    setTimeout(fetchCandidates, 300);
+                                                }}
+                                                className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all border ${
+                                                    diskSmartCleanSeriesLevel === level
+                                                        ? 'bg-violet-500/10 border-violet-500/30 text-violet-400'
+                                                        : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                                                }`}
                                             >
-                                                <div className={`w-3 h-3 rounded-full bg-white absolute top-1 transition-all ${diskSmartCleanImmunityEnabled ? 'left-6' : 'left-1'}`} />
+                                                {level === 'series' ? 'Entire Show' : level === 'season' ? 'By Season' : 'By Episode'}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Excluded Libraries (Instances) */}
+                                <div className="border-t border-zinc-900 pt-3 space-y-2">
+                                    <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Excluded Libraries</label>
+                                    <p className="text-[10px] text-zinc-500">Select individual Radarr/Sonarr instances (libraries) to protect them from auto-deletion.</p>
+                                    <div className="flex flex-wrap gap-2 mt-2">
+                                        {instances.filter(i => i.type === 'radarr' || i.type === 'sonarr' || i.type === 'lidarr').map(inst => (
+                                            <label key={inst.id} className={`flex items-center gap-2 cursor-pointer p-2 rounded-xl border transition-all ${diskSmartCleanIgnoredInstances.includes(inst.id) ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'}`}>
+                                                <div className={`w-3 h-3 rounded flex items-center justify-center transition-colors ${diskSmartCleanIgnoredInstances.includes(inst.id) ? 'bg-emerald-500 text-black' : 'bg-zinc-800'}`}>
+                                                    {diskSmartCleanIgnoredInstances.includes(inst.id) && <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>}
+                                                </div>
+                                                <span className="text-xs font-bold">{inst.name}</span>
+                                                <input 
+                                                    type="checkbox" 
+                                                    className="hidden" 
+                                                    checked={diskSmartCleanIgnoredInstances.includes(inst.id)}
+                                                    onChange={() => {
+                                                        const next = [...diskSmartCleanIgnoredInstances];
+                                                        if (next.includes(inst.id)) next.splice(next.indexOf(inst.id), 1);
+                                                        else next.push(inst.id);
+                                                        setDiskSmartCleanIgnoredInstances(next);
+                                                        updateSetting('media_smart_clean_ignored_instances', JSON.stringify(next));
+                                                        setTimeout(fetchCandidates, 300);
+                                                    }}
+                                                />
+                                            </label>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Candidates List Section */}
+                                <div className="border-t border-zinc-900 pt-4 space-y-3">
+                                    <div className="flex items-center justify-between flex-wrap gap-2">
+                                        <div>
+                                            <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Cleanup Queue</label>
+                                            <p className="text-[10px] text-zinc-500 mt-0.5">Items queued for auto-deletion. Ignore items to protect them, or clean files now.</p>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={async () => {
+                                                    try {
+                                                        toast.info('Trimming disk usage to target threshold...');
+                                                        const res = await fetch('/api/media/smart-clean', { method: 'POST' });
+                                                        const json = await res.json();
+                                                        if (json.cleanedCount > 0) {
+                                                            toast.success(json.message || `Cleaned ${json.cleanedCount} items.`);
+                                                        } else {
+                                                            toast.info(json.message || 'Disk space is within target threshold.');
+                                                        }
+                                                        setTimeout(() => { fetchCandidates(); fetch('/api/system/disk').then(r => r.ok ? r.json() : null).then(d => { if (d) setDiskInfo(d); }); }, 1500);
+                                                    } catch (e: any) {
+                                                        toast.error('Clean to threshold failed');
+                                                    }
+                                                }}
+                                                className="px-3 py-1.5 min-h-[36px] bg-amber-500/10 border border-amber-500/30 text-amber-400 hover:bg-amber-500/20 active:scale-95 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-1.5 touch-target"
+                                                title="Trim items until disk space falls below target threshold"
+                                            >
+                                                Clean to Threshold Now
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={fetchCandidates}
+                                                className="px-2.5 py-1.5 min-h-[36px] bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white rounded-xl text-xs font-bold uppercase transition-all touch-target"
+                                            >
+                                                Refresh
                                             </button>
                                         </div>
+                                    </div>
 
-                                        {diskSmartCleanImmunityEnabled && (
-                                            <div className="pl-4 border-l-2 border-emerald-500/30 space-y-2 animate-in slide-in-from-left-2 duration-200">
-                                                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Immunity Threshold (Days)</label>
-                                                <div className="flex items-center gap-3">
-                                                    <input
-                                                        type="number"
-                                                        min="1"
-                                                        max="90"
-                                                        value={diskSmartCleanImmunityDays}
-                                                        onChange={e => {
-                                                            const val = parseInt(e.target.value) || 7;
-                                                            setDiskSmartCleanImmunityDays(val);
-                                                            updateSetting('qbit_smart_clean_immunity_days', val);
-                                                        }}
-                                                        className="w-20 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:ring-1 focus:ring-emerald-500"
-                                                    />
-                                                    <span className="text-xs text-zinc-500">Days</span>
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {/* TV Series Cleanup Level */}
-                                        <div className="border-t border-zinc-900 pt-3 space-y-2">
-                                            <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">TV Series Cleanup Level</label>
-                                            <p className="text-[10px] text-zinc-500">Control whether entire shows, individual seasons, or single episodes are listed and cleaned.</p>
-                                            <div className="flex flex-wrap gap-2">
-                                                {(['series', 'season', 'episode'] as const).map(level => (
-                                                    <button
-                                                        key={level}
-                                                        type="button"
-                                                        onClick={() => {
-                                                            setDiskSmartCleanSeriesLevel(level);
-                                                            updateSetting('media_smart_clean_series_level', level);
-                                                            setTimeout(fetchCandidates, 300);
-                                                        }}
-                                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all border cursor-pointer ${
-                                                            diskSmartCleanSeriesLevel === level
-                                                                ? 'bg-violet-500/10 border-violet-500/30 text-violet-400'
-                                                                : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-300'
-                                                        }`}
-                                                    >
-                                                        {level === 'series' ? 'Entire Show' : level === 'season' ? 'By Season' : 'By Episode'}
-                                                    </button>
-                                                ))}
-                                            </div>
+                                    {loadingCandidates ? (
+                                        <div className="flex items-center gap-2 text-zinc-600 text-xs py-4 justify-center">
+                                            <div className="w-3.5 h-3.5 border border-zinc-700 border-t-zinc-400 rounded-full animate-spin" /> Fetching candidates...
                                         </div>
-
-                                        {/* Candidates List Section */}
-                                        <div className="border-t border-zinc-900 pt-4 space-y-3">
-                                            <div className="flex items-center justify-between flex-wrap gap-2">
-                                                <div>
-                                                    <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Cleanup Candidate Queue</label>
-                                                    <p className="text-[10px] text-zinc-500 mt-0.5">Items queued for auto-deletion based on rules.</p>
-                                                </div>
-                                                <div className="flex items-center gap-2">
-                                                    <button
-                                                        type="button"
-                                                        onClick={async () => {
-                                                            try {
-                                                                toast.info('Trimming disk usage to target threshold...');
-                                                                const res = await fetch('/api/media/smart-clean', { method: 'POST' });
-                                                                const json = await res.json();
-                                                                if (json.cleanedCount > 0) {
-                                                                    toast.success(json.message || `Cleaned ${json.cleanedCount} items.`);
-                                                                } else {
-                                                                    toast.info(json.message || 'Disk space is within target threshold.');
-                                                                }
-                                                                setTimeout(() => { fetchCandidates(); fetch('/api/system/disk').then(r => r.ok ? r.json() : null).then(d => { if (d) setDiskInfo(d); }); }, 1500);
-                                                            } catch (e: any) {
-                                                                toast.error('Clean to threshold failed');
-                                                            }
-                                                        }}
-                                                        className="px-3 py-1.5 min-h-[36px] bg-amber-500/10 border border-amber-500/30 text-amber-400 hover:bg-amber-500/20 active:scale-95 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-1.5 cursor-pointer"
-                                                        title="Trim items until disk space falls below target threshold"
-                                                    >
-                                                        Clean to Threshold Now
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={fetchCandidates}
-                                                        className="px-2.5 py-1.5 min-h-[36px] bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white rounded-xl text-xs font-bold uppercase transition-all cursor-pointer"
-                                                    >
-                                                        Refresh
-                                                    </button>
-                                                </div>
-                                            </div>
-
-                                            {loadingCandidates ? (
-                                                <div className="flex items-center gap-2 text-zinc-600 text-xs py-4 justify-center">
-                                                    <div className="w-3.5 h-3.5 border border-zinc-700 border-t-zinc-400 rounded-full animate-spin" /> Fetching candidates...
-                                                </div>
-                                            ) : (!Array.isArray(candidates) || candidates.length === 0) ? (
-                                                <p className="text-xs text-zinc-600 italic text-center py-4">No eligible items found.</p>
-                                            ) : (
-                                                <div className="max-h-[280px] overflow-y-auto pr-1 space-y-1.5 border border-zinc-900/50 rounded-2xl p-2 bg-zinc-950/20 custom-scrollbar">
-                                                    {candidates.map((c, index) => (
-                                                        <div
-                                                            key={c.key}
-                                                            className={`flex items-center justify-between p-2.5 rounded-xl border transition-all ${
+                                    ) : (!Array.isArray(candidates) || candidates.length === 0) ? (
+                                        <p className="text-xs text-zinc-600 italic text-center py-4">No eligible items found.</p>
+                                    ) : (
+                                        <div className="max-h-[340px] overflow-y-auto pr-1 space-y-1.5 border border-zinc-900/50 rounded-2xl p-2 bg-zinc-950/20">
+                                            {candidates.map((c, index) => (
+                                                <div
+                                                    key={c.key}
+                                                    className={`flex items-center justify-between p-2.5 rounded-xl border transition-all ${
+                                                        c.ignored
+                                                            ? 'bg-zinc-950/40 border-zinc-900/80 opacity-60'
+                                                            : 'bg-zinc-900/80 border-zinc-800/60 hover:border-zinc-700'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                                        <div className={`w-5 h-5 rounded text-[10px] font-black flex items-center justify-center flex-shrink-0 ${
+                                                            c.ignored ? 'bg-zinc-800 text-zinc-600' : 'bg-amber-500/10 border border-amber-500/20 text-amber-500'
+                                                        }`}>
+                                                            {c.ignored ? '–' : index + 1}
+                                                        </div>
+                                                        <div className="min-w-0 flex-1">
+                                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                                <span className={`text-xs font-bold truncate max-w-[180px] ${c.ignored ? 'line-through text-zinc-600' : 'text-zinc-200'}`}>{c.title}</span>
+                                                                <span className={`text-[9px] px-1 py-0.5 rounded font-black uppercase flex-shrink-0 ${
+                                                                    c.type === 'movie' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                                                                    : c.type === 'season' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                                                    : c.type === 'episode' ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20'
+                                                                    : 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+                                                                }`}>{c.type}</span>
+                                                                {c.isWatched && <span className="text-[8px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1 py-0.5 rounded font-bold uppercase flex-shrink-0">Watched</span>}
+                                                            </div>
+                                                            <p className="text-[9px] text-zinc-600 mt-0.5 truncate font-medium">
+                                                                {new Date(c.added).toLocaleDateString()} · {c.instanceName}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-1.5 ml-2 flex-shrink-0">
+                                                        <span className="text-[10px] font-black text-zinc-400 font-mono">{(c.size / (1024 ** 3)).toFixed(1)}GB</span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => toggleIgnoreCandidate(c.key)}
+                                                            className={`px-2.5 py-1.5 min-h-[32px] rounded-lg text-[10px] font-black uppercase border transition-all ${
                                                                 c.ignored
-                                                                    ? 'bg-zinc-950/40 border-zinc-900/80 opacity-60'
-                                                                    : 'bg-zinc-900/80 border-zinc-800/60 hover:border-zinc-700'
+                                                                    ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                                                                    : 'bg-zinc-950 border-zinc-800 text-zinc-500 hover:text-zinc-300'
                                                             }`}
                                                         >
-                                                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                                                                <div className={`w-5 h-5 rounded text-[10px] font-black flex items-center justify-center flex-shrink-0 ${
-                                                                    c.ignored ? 'bg-zinc-800 text-zinc-600' : 'bg-amber-500/10 border border-amber-500/20 text-amber-500'
-                                                                }`}>
-                                                                    {c.ignored ? '–' : index + 1}
-                                                                </div>
-                                                                <div className="min-w-0 flex-1">
-                                                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                                                        <span className={`text-xs font-bold truncate max-w-[180px] ${c.ignored ? 'line-through text-zinc-600' : 'text-zinc-200'}`}>{c.title}</span>
-                                                                        <span className={`text-[9px] px-1 py-0.5 rounded font-black uppercase flex-shrink-0 ${
-                                                                            c.type === 'movie' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-                                                                            : c.type === 'season' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                                                                            : c.type === 'episode' ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20'
-                                                                            : 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
-                                                                        }`}>{c.type}</span>
-                                                                        {c.isWatched && <span className="text-[8px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1 py-0.5 rounded font-bold uppercase flex-shrink-0">Watched</span>}
-                                                                    </div>
-                                                                    <p className="text-[9px] text-zinc-600 mt-0.5 truncate font-medium">
-                                                                        {new Date(c.added).toLocaleDateString()} · {c.instanceName}
-                                                                    </p>
-                                                                </div>
-                                                            </div>
-                                                            <div className="flex items-center gap-1.5 ml-2 flex-shrink-0">
-                                                                <span className="text-[10px] font-black text-zinc-400 font-mono">{(c.size / (1024 ** 3)).toFixed(1)}GB</span>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => toggleIgnoreCandidate(c.key)}
-                                                                    className={`px-2.5 py-1.5 min-h-[32px] rounded-lg text-[10px] font-black uppercase border transition-all cursor-pointer ${
-                                                                        c.ignored
-                                                                            ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
-                                                                            : 'bg-zinc-950 border-zinc-800 text-zinc-500 hover:text-zinc-300'
-                                                                    }`}
-                                                                >
-                                                                    {c.ignored ? 'Unignore' : 'Ignore'}
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                    ))}
+                                                            {c.ignored ? 'Unignore' : 'Ignore'}
+                                                        </button>
+                                                        {!c.ignored && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={async () => {
+                                                                    try {
+                                                                        let res;
+                                                                        if (c.type === 'movie') {
+                                                                            res = await fetch(`/api/radarr/delete?instanceId=${c.instanceId}&movieId=${c.id}&deleteFiles=true`, { method: 'DELETE' });
+                                                                        } else if (c.type === 'series') {
+                                                                            res = await fetch(`/api/sonarr/delete?instanceId=${c.instanceId}&seriesId=${c.id}&deleteFiles=true`, { method: 'DELETE' });
+                                                                        } else if (c.type === 'season') {
+                                                                            res = await fetch(`/api/sonarr/delete?instanceId=${c.instanceId}&seriesId=${c.seriesId}&seasonNumber=${c.seasonNumber}&deleteFiles=true&deleteFilesOnly=true`, { method: 'DELETE' });
+                                                                        } else if (c.type === 'episode') {
+                                                                            res = await fetch(`/api/sonarr/delete?instanceId=${c.instanceId}&episodeFileId=${c.episodeFileId}&deleteFiles=true&deleteFilesOnly=true`, { method: 'DELETE' });
+                                                                        }
+                                                                        if (res?.ok) {
+                                                                            toast.success(`Cleaned "${c.title}"`);
+                                                                            fetchCandidates();
+                                                                            fetch('/api/system/disk').then(r => r.ok ? r.json() : null).then(d => { if (d) setDiskInfo(d); });
+                                                                        } else {
+                                                                            toast.error('Clean failed');
+                                                                        }
+                                                                    } catch (e) { toast.error('Clean failed'); }
+                                                                }}
+                                                                className="px-2.5 py-1.5 min-h-[32px] rounded-lg text-[10px] font-black uppercase border transition-all active:scale-95 bg-rose-500/10 border-rose-500/30 text-rose-400 hover:bg-rose-500 hover:text-white flex items-center gap-1 touch-target"
+                                                                title="Clean file now"
+                                                            >
+                                                                Clean Now
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                            )}
+                                            ))}
                                         </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </div>
+                </div>
+            )}
+
+            {/* ═══════════════════════════════════════════════════════════════════
+               SUBTOPIC 3: SYSTEM & DIAGNOSTICS
+               ═══════════════════════════════════════════════════════════════════ */}
+            {settingsSubtopic === 'system' && (
+                <div className="space-y-8 animate-in fade-in duration-200">
+                    {/* Version, Updates, Downgrade Switcher & Diagnostics */}
+                    
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-2xl relative">
+                {/* Visual Accent */}
+                <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-500" />
+                
+                {/* Header with Tabs */}
+                <div className="bg-zinc-800/40 p-6 border-b border-zinc-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                        <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-400"><path d="M20 16V4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v16l4-2 4 2 4-2 4 2z"></path><path d="M8 7h8"></path><path d="M8 11h8"></path></svg>
+                            System & Updates
+                        </h2>
+                        <p className="text-xs text-zinc-400 mt-1">Manage system configurations, check updates, and troubleshoot container environment.</p>
+                    </div>
+                    
+                    {/* Tab Navigation */}
+                    <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800/80 self-start sm:self-center">
+                        <button
+                            onClick={() => setActiveTab('status')}
+                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'status' ? 'bg-zinc-800 text-white shadow-md' : 'text-zinc-500 hover:text-zinc-300'}`}
+                        >
+                            Status & Logs
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('doctor')}
+                            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${activeTab === 'doctor' ? 'bg-zinc-800 text-white shadow-md' : 'text-zinc-500 hover:text-zinc-300'}`}
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m12 14 4 4 4-4"></path><path d="M4 22V4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8"></path><path d="M18 22H4"></path><path d="m8 6h8"></path><path d="m8 10h6"></path></svg>
+                            Setup Doctor
+                            {selfInfo && (!selfInfo.available || !selfInfo.isDataWritable) && (
+                                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
+                            )}
+                        </button>
+                    </div>
+                </div>
+
+                {activeTab === 'status' ? (
+                    <div className="animate-in fade-in duration-300">
+                        {/* Version status cards */}
+                        <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div className="bg-zinc-950/40 p-4 rounded-xl border border-zinc-800/50 space-y-1">
+                                <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest block">Current Version</span>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xl font-black text-white font-mono">v{versionInfo?.currentVersion || '0.0.0'}</span>
+                                    <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 text-[9px] font-black rounded border border-emerald-500/20 uppercase tracking-wider">Active</span>
+                                </div>
+                            </div>
+
+                            <div className="bg-zinc-950/40 p-4 rounded-xl border border-zinc-800/50 space-y-1">
+                                <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest block">Latest Release</span>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xl font-black text-zinc-200 font-mono">v{versionInfo?.latestVersion || 'Unknown'}</span>
+                                    {versionInfo?.updateAvailable ? (
+                                        <span className="px-2 py-0.5 bg-amber-500/10 text-amber-400 text-[9px] font-black rounded border border-amber-500/20 uppercase tracking-wider animate-pulse">Update Available</span>
+                                    ) : (
+                                        <span className="px-2 py-0.5 bg-zinc-800 text-zinc-400 text-[9px] font-black rounded border border-zinc-700 uppercase tracking-wider">Up to Date</span>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="flex items-center justify-end sm:justify-start md:justify-end gap-3">
+                                <button
+                                    onClick={handleCheckUpdate}
+                                    disabled={checkingUpdate || updating}
+                                    className="bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-white font-bold py-2.5 px-4 rounded-xl text-xs transition-all flex items-center gap-2 border border-zinc-700/50"
+                                >
+                                    {checkingUpdate ? (
+                                        <div className="w-3.5 h-3.5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                                    ) : (
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/></svg>
+                                    )}
+                                    Check Info
+                                </button>
+
+                                {versionInfo?.updateAvailable ? (
+                                    <button
+                                        onClick={() => handleUpdate()}
+                                        disabled={updating}
+                                        className="flex-1 md:flex-none bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-white font-black py-2.5 px-6 rounded-xl transition-all shadow-lg shadow-emerald-500/15 flex items-center justify-center gap-2 active:scale-95 border border-emerald-500/30"
+                                    >
+                                        {updating ? (
+                                            <>
+                                                <div className="w-3.5 h-3.5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                                                Updating...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                                                Update App
+                                            </>
+                                        )}
+                                    </button>
+                                ) : (
+                                    <div className="text-zinc-500 text-xs font-semibold italic flex items-center gap-1.5 bg-zinc-950/20 px-4 py-2.5 rounded-xl border border-zinc-800/30">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-emerald-500"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                                        Running latest version
                                     </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Specific Version Switcher & Downgrade Panel */}
+                        <div className="px-6 pb-5 border-t border-zinc-800/50 pt-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                            <div className="space-y-0.5">
+                                <p className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
+                                    <svg className="w-4 h-4 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
+                                    Switch or Downgrade to Specific Version
+                                </p>
+                                <p className="text-[11px] text-zinc-400 font-medium">Select any previous release or tag to downgrade or roll back to a specific build.</p>
+                            </div>
+
+                            <div className="flex items-center gap-3 w-full md:w-auto">
+                                <select
+                                    value={selectedReleaseTag}
+                                    onChange={(e) => setSelectedReleaseTag(e.target.value)}
+                                    className="bg-zinc-950 border border-zinc-800 text-white font-mono text-xs font-bold rounded-xl px-3 py-2 outline-none focus:border-violet-500/50 min-w-[140px]"
+                                >
+                                    {availableReleases.map(r => (
+                                        <option key={r.tag} value={r.tag}>
+                                            {r.tag} {versionInfo?.currentVersion && r.tag.includes(versionInfo.currentVersion) ? '(Current)' : ''}
+                                        </option>
+                                    ))}
+                                </select>
+
+                                <button
+                                    type="button"
+                                    onClick={() => handleUpdate(selectedReleaseTag)}
+                                    disabled={updating || !selectedReleaseTag}
+                                    className="px-4 py-2 bg-violet-600/20 hover:bg-violet-600/30 text-violet-300 border border-violet-500/40 rounded-xl text-xs font-black uppercase tracking-wider transition-all disabled:opacity-50 whitespace-nowrap flex items-center gap-1.5"
+                                >
+                                    {updating ? 'Switching...' : 'Switch Version'}
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Auto-Update Toggle */}
+                        <div className="px-6 pb-5 flex items-center justify-between gap-4 border-t border-zinc-800/50 pt-5">
+                            <div className="space-y-0.5">
+                                <p className="text-sm font-bold text-white">Auto-Update</p>
+                                <p className="text-xs text-zinc-500 leading-relaxed">Automatically pull &amp; apply new versions every 6 hours — no clicking needed. Requires the Docker socket to be mapped.</p>
+                            </div>
+                            <button
+                                onClick={async () => {
+                                    const newVal = !autoUpdateEnabled;
+                                    setAutoUpdateEnabled(newVal);
+                                    await updateSetting('auto_update_enabled', String(newVal));
+                                    toast.success(newVal ? 'Auto-Update enabled!' : 'Auto-Update disabled');
+                                }}
+                                className={`relative inline-flex h-7 w-14 shrink-0 cursor-pointer items-center rounded-full border-2 transition-all duration-300 focus:outline-none ${
+                                    autoUpdateEnabled
+                                        ? 'bg-emerald-500 border-emerald-500 shadow-lg shadow-emerald-500/30'
+                                        : 'bg-zinc-700 border-zinc-600'
+                                }`}
+                                title={autoUpdateEnabled ? 'Disable Auto-Update' : 'Enable Auto-Update'}
+                            >
+                                <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-300 ${
+                                    autoUpdateEnabled ? 'translate-x-7' : 'translate-x-0.5'
+                                }`} />
+                            </button>
+                        </div>
+
+                        {/* SSE Update Terminal Panel */}
+                        {updateLogs.length > 0 && (
+                            <div className="px-6 pb-6 animate-in slide-in-from-bottom-2 duration-300">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                                        Live Build & Restart Logs
+                                    </span>
+                                    <button 
+                                        onClick={() => setUpdateLogs([])}
+                                        className="text-[10px] text-zinc-500 hover:text-zinc-300 font-bold uppercase"
+                                        disabled={updating}
+                                    >
+                                        Clear Logs
+                                    </button>
+                                </div>
+                                <div className="bg-black border border-zinc-800 rounded-xl p-4 font-mono text-xs overflow-y-auto max-h-72 shadow-inner space-y-1.5 custom-scrollbar relative">
+                                    {/* Console Ambient Glow */}
+                                    <div className="absolute top-0 right-0 left-0 h-4 bg-gradient-to-b from-emerald-500/5 to-transparent pointer-events-none" />
+                                    
+                                    {updateLogs.map((log, index) => {
+                                        let colorClass = 'text-zinc-400';
+                                        if (log.type === 'error') colorClass = 'text-red-400 font-bold';
+                                        else if (log.type === 'success') colorClass = 'text-emerald-400 font-bold';
+                                        else if (log.type === 'warn') colorClass = 'text-amber-400';
+                                        else if (log.type === 'info') colorClass = 'text-sky-400';
+                                        
+                                        return (
+                                            <div key={index} className={`leading-relaxed break-all ${colorClass}`}>
+                                                {log.message}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Changelog & Patch Notes panel */}
+                        {versionInfo?.changelog && (
+                            <div className="px-6 pb-6 pt-3 border-t border-zinc-800/60 bg-zinc-950/40 rounded-b-2xl">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-[11px] text-emerald-400 font-black uppercase tracking-wider flex items-center gap-1.5">
+                                        {versionInfo.updateAvailable ? 'New Update Patch Notes' : `What's New in v${versionInfo.currentVersion}`}
+                                    </span>
+                                    <a
+                                        href="https://github.com/pedrogvm97/Schedulearr/commits/main"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-[10px] text-zinc-500 hover:text-zinc-300 font-bold underline"
+                                    >
+                                        GitHub Commits
+                                    </a>
+                                </div>
+                                <div className="text-xs text-zinc-300 font-mono whitespace-pre-wrap max-h-44 overflow-y-auto leading-relaxed border border-zinc-800/80 p-4 rounded-xl bg-zinc-950/80 shadow-inner custom-scrollbar">
+                                    {versionInfo.changelog}
                                 </div>
                             </div>
                         )}
                     </div>
-                </div>
-            )}
-
-            {/* ── SUBTOPIC 3: SYSTEM & MAINTENANCE ── */}
-            {activeSettingsTab === 'system' && (
-                <div className="space-y-8 animate-in fade-in duration-200">
-                    {/* System Updates & Version Manager */}
-                    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-2xl relative">
-                        {/* Visual Accent */}
-                        <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-500" />
-                        
-                        {/* Header with Tabs */}
-                        <div className="bg-zinc-800/40 p-6 border-b border-zinc-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                            <div>
-                                <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                                    <Cpu size={22} className="text-emerald-400" />
-                                    System &amp; Updates
-                                </h2>
-                                <p className="text-xs text-zinc-400 mt-1">Manage system configurations, check updates, and troubleshoot container environment.</p>
-                            </div>
+                ) : (
+                    <div className="p-6 space-y-6 animate-in fade-in duration-300">
+                        {/* Setup Doctor Diagnostic Results */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             
-                            {/* Tab Navigation */}
-                            <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800/80 self-start sm:self-center">
-                                <button
-                                    onClick={() => setActiveTab('status')}
-                                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeTab === 'status' ? 'bg-zinc-800 text-white shadow-md' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                >
-                                    Status &amp; Logs
-                                </button>
-                                <button
-                                    onClick={() => setActiveTab('doctor')}
-                                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${activeTab === 'doctor' ? 'bg-zinc-800 text-white shadow-md' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                >
-                                    <Wrench size={12} />
-                                    Setup Doctor
-                                    {selfInfo && (!selfInfo.available || !selfInfo.isDataWritable) && (
-                                        <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
+                            {/* Docker Socket Diagnostic Card */}
+                            {selfInfo?.available ? (
+                                <div className="p-5 rounded-2xl border bg-zinc-950/30 border-emerald-500/20 hover:border-emerald-500/40 transition-all flex flex-col justify-between">
+                                    <div className="space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[10px] text-zinc-500 font-black uppercase tracking-wider">Docker Daemon Connectivity</span>
+                                            <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider flex items-center gap-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                                Active
+                                            </span>
+                                        </div>
+                                        
+                                        <h3 className="text-base font-bold text-white">Docker Socket Check</h3>
+                                        <p className="text-xs text-zinc-400 leading-relaxed">
+                                            Docker is connected and working perfectly! One-click background updates, automatic image pulls, and live self-container configuration checks are active.
+                                        </p>
+                                    </div>
+                                    
+                                    {selfInfo && selfInfo.containerName && (
+                                        <div className="mt-4 pt-3 border-t border-zinc-800/80 flex flex-wrap gap-x-4 gap-y-1.5 text-[10px] text-zinc-500 font-mono">
+                                            <span>ID: {selfInfo.containerId?.slice(0, 12)}</span>
+                                            <span>Name: {selfInfo.containerName}</span>
+                                            <span>Image: {selfInfo.image}</span>
+                                        </div>
                                     )}
-                                </button>
-                            </div>
-                        </div>
-
-                        {activeTab === 'status' ? (
-                            <div className="animate-in fade-in duration-300">
-                                {/* Version status cards */}
-                                <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
-                                    <div className="bg-zinc-950/40 p-4 rounded-xl border border-zinc-800/50 space-y-1">
-                                        <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest block">Current Version</span>
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-xl font-black text-white font-mono">v{versionInfo?.currentVersion || '0.0.0'}</span>
-                                            <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 text-[9px] font-black rounded border border-emerald-500/20 uppercase tracking-wider">Active</span>
+                                </div>
+                            ) : (
+                                <div 
+                                    onClick={() => setActiveTroubleshootModal('socket')}
+                                    className="p-6 rounded-2xl border border-yellow-500 shadow-[0_0_20px_rgba(234,179,8,0.15)] bg-yellow-500/5 hover:bg-yellow-500/10 transition-all flex flex-col justify-between cursor-pointer active:scale-[0.99] group animate-pulse duration-1000"
+                                >
+                                    <div className="space-y-4">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[10px] text-yellow-500/80 font-black uppercase tracking-wider">Setup Issue Detected</span>
+                                            <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider flex items-center gap-1 bg-yellow-500/10 text-yellow-500 border border-yellow-500/20">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-ping" />
+                                                Broken
+                                            </span>
                                         </div>
+                                        
+                                        <h3 className="text-lg font-black text-white group-hover:text-yellow-400 transition-colors flex items-center gap-2">
+                                            Docker Socket Check
+                                        </h3>
+                                        <p className="text-sm font-medium text-yellow-100/90 leading-relaxed">
+                                            Docker is NOT connected! Click this yellow box to view instructions.
+                                        </p>
                                     </div>
-
-                                    <div className="bg-zinc-950/40 p-4 rounded-xl border border-zinc-800/50 space-y-1">
-                                        <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest block">Latest Release</span>
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-xl font-black text-zinc-200 font-mono">v{versionInfo?.latestVersion || 'Unknown'}</span>
-                                            {versionInfo?.updateAvailable ? (
-                                                <span className="px-2 py-0.5 bg-amber-500/10 text-amber-400 text-[9px] font-black rounded border border-amber-500/20 uppercase tracking-wider animate-pulse">Update Available</span>
-                                            ) : (
-                                                <span className="px-2 py-0.5 bg-zinc-800 text-zinc-400 text-[9px] font-black rounded border border-zinc-700 uppercase tracking-wider">Up to Date</span>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    <div className="flex items-center justify-end sm:justify-start md:justify-end gap-3">
-                                        <button
-                                            onClick={handleCheckUpdate}
-                                            disabled={checkingUpdate || updating}
-                                            className="bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-white font-bold py-2.5 px-4 rounded-xl text-xs transition-all flex items-center gap-2 border border-zinc-700/50 cursor-pointer"
-                                        >
-                                            {checkingUpdate ? (
-                                                <div className="w-3.5 h-3.5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                                            ) : (
-                                                <RefreshCw size={14} />
-                                            )}
-                                            Check Info
-                                        </button>
-
-                                        {versionInfo?.updateAvailable ? (
-                                            <button
-                                                onClick={() => handleUpdate()}
-                                                disabled={updating || checkingUpdate}
-                                                className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold py-2.5 px-5 rounded-xl text-xs transition-all flex items-center gap-2 shadow-lg shadow-emerald-600/20 cursor-pointer"
-                                            >
-                                                {updating ? (
-                                                    <div className="w-3.5 h-3.5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                                                ) : (
-                                                    <Download size={14} />
-                                                )}
-                                                {updating ? 'Updating...' : 'Update Now'}
-                                            </button>
-                                        ) : null}
+                                    
+                                    <div className="mt-6 pt-3 border-t border-yellow-500/20 text-center">
+                                        <span className="text-xs text-yellow-400 font-black uppercase tracking-wider flex items-center justify-center gap-1.5 group-hover:text-yellow-300">
+                                            Click to Troubleshoot
+                                        </span>
                                     </div>
                                 </div>
-                            </div>
-                        ) : null}
-                    </div>
+                            )}
 
-                    {/* Database Housekeeping section */}
-                    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl space-y-4">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                                    <Database size={20} className="text-emerald-400" /> Database Housekeeping
-                                </h2>
-                                <p className="text-sm text-zinc-400 mt-1">Manage database storage retention, log pruning, and SQLite performance.</p>
-                            </div>
-                            {dbStats && (
-                                <div className="text-xs font-bold text-zinc-400 bg-zinc-800 px-3 py-1.5 rounded-xl">
-                                    {Math.round(dbStats.totalSizeBytes / (1024 * 1024))} MB Database Size
+                            {/* Database Writable Diagnostic Card */}
+                            {selfInfo?.isDataWritable ? (
+                                <div className="p-5 rounded-2xl border bg-zinc-950/30 border-emerald-500/20 hover:border-emerald-500/40 transition-all flex flex-col justify-between">
+                                    <div className="space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[10px] text-zinc-500 font-black uppercase tracking-wider">Appdata Folder Perms</span>
+                                            <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider flex items-center gap-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                                Writable
+                                            </span>
+                                        </div>
+                                        
+                                        <h3 className="text-base font-bold text-white">Permissions Check</h3>
+                                        <p className="text-xs text-zinc-400 leading-relaxed">
+                                            Database files are readable and writable. Schedulearr can safely perform SQL transactions, backups, and save indexer configurations.
+                                        </p>
+                                    </div>
+                                    
+                                    <div className="mt-4 pt-3 border-t border-zinc-800/80 text-[10px] text-zinc-500 font-mono truncate">
+                                        <span>Detected Host Path: {selfInfo?.dataHostPath || '/mnt/user/appdata/Schedulearr/data'}</span>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div 
+                                    onClick={() => setActiveTroubleshootModal('perms')}
+                                    className="p-6 rounded-2xl border border-yellow-500 shadow-[0_0_20px_rgba(234,179,8,0.15)] bg-yellow-500/5 hover:bg-yellow-500/10 transition-all flex flex-col justify-between cursor-pointer active:scale-[0.99] group animate-pulse duration-1000"
+                                >
+                                    <div className="space-y-4">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[10px] text-yellow-500/80 font-black uppercase tracking-wider">Setup Issue Detected</span>
+                                            <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider flex items-center gap-1 bg-yellow-500/10 text-yellow-500 border border-yellow-500/20">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-ping" />
+                                                Broken
+                                            </span>
+                                        </div>
+                                        
+                                        <h3 className="text-lg font-black text-white group-hover:text-yellow-400 transition-colors flex items-center gap-2">
+                                            Folder Permissions Check
+                                        </h3>
+                                        <p className="text-sm font-medium text-yellow-100/90 leading-relaxed">
+                                            Database is locked! Click this yellow box to view instructions.
+                                        </p>
+                                    </div>
+                                    
+                                    <div className="mt-6 pt-3 border-t border-yellow-500/20 text-center">
+                                        <span className="text-xs text-yellow-400 font-black uppercase tracking-wider flex items-center justify-center gap-1.5 group-hover:text-yellow-300">
+                                            Click to Troubleshoot
+                                        </span>
+                                    </div>
                                 </div>
                             )}
                         </div>
+                    </div>
+                )}
+            </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
-                            <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-4">
-                                <div className="flex items-center justify-between">
-                                    <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Retention (Days)</label>
-                                    <span className="text-[10px] text-zinc-600 font-bold uppercase">Manual Cleanup</span>
-                                </div>
-                                <div className="flex gap-2">
-                                    <input
-                                        type="number"
-                                        min="7"
-                                        placeholder="30"
-                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2 text-sm text-white focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500/50 outline-none transition-all"
-                                        defaultValue={getSettingValue('db_retention_days') || '30'}
-                                        onBlur={(e) => updateSetting('db_retention_days', e.target.value)}
-                                    />
-                                    <button 
-                                        onClick={async () => {
-                                            const res = await fetch('/api/system/housekeeping/', {
-                                                method: 'POST',
-                                                headers: { 'Content-Type': 'application/json' },
-                                                body: JSON.stringify({ daysToKeep: parseInt(getSettingValue('db_retention_days') || '30') })
-                                            });
-                                            if (res.ok) {
-                                                toast.success("Cleanup complete!");
-                                                fetch('/api/stats/db-info').then(r => r.json()).then(setDbStats);
-                                            }
-                                        }}
-                                        className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-amber-600/10 active:scale-95 cursor-pointer"
-                                    >
-                                        Cleanup
-                                    </button>
-                                </div>
-                                <p className="text-[10px] text-zinc-500 leading-relaxed italic">Deletes old telemetry logs and search activity. Reclaims database pages.</p>
+                    {/* Database Housekeeping */}
+                                {/* Database Housekeeping section */}
+            <div className={`bg-zinc-900 border ${isHousekeepingOpen ? 'border-amber-500/30' : 'border-zinc-800'} rounded-2xl transition-all overflow-hidden shadow-lg`}>
+                <button
+                    onClick={() => {
+                        setIsHousekeepingOpen(!isHousekeepingOpen);
+                        if (!isHousekeepingOpen) {
+                            fetch('/api/stats/db-info').then(r => r.json()).then(setDbStats).catch(console.error);
+                        }
+                    }}
+                    className="w-full flex items-center justify-between p-5 hover:bg-zinc-800/50 transition-colors"
+                >
+                    <div className="flex items-center gap-4">
+                        <div className={`p-2.5 rounded-xl ${isHousekeepingOpen ? 'bg-amber-500/10 text-amber-400' : 'bg-zinc-800 text-zinc-500'}`}>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                        </div>
+                        <div className="text-left">
+                            <h2 className="text-base font-bold text-white tracking-tight">Database Housekeeping</h2>
+                            <p className="text-xs text-zinc-500 font-medium tracking-tight">Manage storage and data retention policies.</p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        {dbStats && (
+                            <div className="text-[10px] font-bold text-zinc-400 bg-zinc-800 px-2 py-1 rounded-md">
+                                {Math.round(dbStats.totalSizeBytes / (1024 * 1024))} MB
                             </div>
+                        )}
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className={`text-zinc-500 transition-transform duration-300 ${isHousekeepingOpen ? 'rotate-180' : ''}`}
+                        >
+                            <path d="m6 9 6 6 6-6" />
+                        </svg>
+                    </div>
+                </button>
 
-                            <div className="space-y-2 max-h-[160px] overflow-y-auto pr-2 custom-scrollbar">
-                                <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest block px-1">Table Metrics</span>
-                                {dbStats?.tableStats.map((table: any) => (
-                                    <div key={table.name} className="flex items-center justify-between p-2.5 bg-zinc-950/30 rounded-xl border border-zinc-800/50">
-                                        <span className="text-xs font-medium text-zinc-400 capitalize">{table.name.replace(/_/g, ' ')}</span>
-                                        <span className="text-xs font-bold text-zinc-200">{table.count.toLocaleString()} rows</span>
+                {isHousekeepingOpen && (
+                    <div className="p-6 pt-0 border-t border-zinc-800/50 animate-in fade-in slide-in-from-top-4 duration-300">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                            <div className="space-y-6">
+                                <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Retention (Days)</label>
+                                        <span className="text-[10px] text-zinc-600 font-bold uppercase">Manual Only</span>
                                     </div>
-                                ))}
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="number"
+                                            min="7"
+                                            placeholder="30"
+                                            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2 text-sm text-white focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500/50 outline-none transition-all"
+                                            defaultValue={getSettingValue('db_retention_days') || '30'}
+                                            onBlur={(e) => updateSetting('db_retention_days', e.target.value)}
+                                        />
+                                        <button 
+                                            onClick={async () => {
+                                                const res = await fetch('/api/system/housekeeping/', {
+                                                    method: 'POST',
+                                                    headers: { 'Content-Type': 'application/json' },
+                                                    body: JSON.stringify({ daysToKeep: parseInt(getSettingValue('db_retention_days') || '30') })
+                                                });
+                                                if (res.ok) {
+                                                    toast.success("Cleanup complete!");
+                                                    fetch('/api/stats/db-info').then(r => r.json()).then(setDbStats);
+                                                }
+                                            }}
+                                            className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-amber-600/10 active:scale-95"
+                                        >
+                                            Cleanup
+                                        </button>
+                                    </div>
+                                    <p className="text-[10px] text-zinc-500 leading-relaxed italic">Deletes analytics history and search logs older than X days. Database will verify size after operation.</p>
+                                </div>
                             </div>
-                        </div>
-                    </div>
 
-                    {/* Backup & Restore Section */}
-                    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl">
-                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                            <div>
-                                <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                                    <Database size={20} className="text-amber-400" /> Backup &amp; Restore
-                                </h2>
-                                <p className="text-sm text-zinc-400 mt-1">Export your instances and configuration into an encrypted backup file or restore anytime.</p>
-                            </div>
-                            <div className="flex gap-3">
-                                <button
-                                    onClick={handleExport}
-                                    className="bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-2.5 px-4 rounded-xl transition-colors flex items-center gap-2 text-xs cursor-pointer border border-zinc-700/60"
-                                >
-                                    <Download size={15} />
-                                    Export Backup
-                                </button>
-                                <button
-                                    onClick={handleImport}
-                                    className="bg-zinc-800 hover:bg-zinc-700 text-white font-bold py-2.5 px-4 rounded-xl transition-colors flex items-center gap-2 text-xs cursor-pointer border border-zinc-700/60"
-                                >
-                                    <Upload size={15} />
-                                    Restore Backup
-                                </button>
+                            <div className="space-y-4">
+                                <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest block px-1">Growth Metrics</span>
+                                <div className="space-y-2 max-h-[180px] overflow-y-auto pr-2 custom-scrollbar">
+                                    {dbStats?.tableStats.map((table: any) => (
+                                        <div key={table.name} className="flex items-center justify-between p-3 bg-zinc-950/30 rounded-lg border border-zinc-800/50">
+                                            <span className="text-xs font-medium text-zinc-400 capitalize">{table.name.replace(/_/g, ' ')}</span>
+                                            <span className="text-xs font-bold text-zinc-200">{table.count.toLocaleString()} rows</span>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )}
+            </div>
 
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 flex flex-col md:flex-row items-center justify-between text-sm">
                 <div className="flex flex-col md:flex-row items-center gap-4 mb-4 md:mb-0 text-center md:text-left">
@@ -1545,8 +2302,13 @@ export default function Settings() {
                     <span className="opacity-50 mt-1 inline-block">v0.2.2</span>
                 </div>
             </div>
+                </div>
+            )}
 
-            {/* Author Appreciation Modal */}
+            {/* ═══════════════════════════════════════════════════════════════════
+               ROOT MODALS (ALWAYS AVAILABLE ON ANY TAB)
+               ═══════════════════════════════════════════════════════════════════ */}
+                        {/* Author Appreciation Modal */}
             {isAuthorModalOpen && (
                 <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={() => setIsAuthorModalOpen(false)}>
                     <div
