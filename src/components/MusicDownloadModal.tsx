@@ -139,7 +139,7 @@ export function MusicDownloadModal({
         };
     };
 
-    // Download to user's device (Browser Blob / Direct Stream)
+    // Download to user's device (Download to Server Disk -> Send File to Device)
     const handleDownloadToDevice = async () => {
         if (!tracksToProcess || tracksToProcess.length === 0) {
             toast.error('No tracks selected to download');
@@ -152,46 +152,54 @@ export function MusicDownloadModal({
 
         for (let i = 0; i < tracksToProcess.length; i++) {
             const currentTrack = tracksToProcess[i];
-            const { url, filename } = getDownloadUrlForTrack(currentTrack);
-            setCurrentDownloadStatus(`Downloading (${i + 1}/${tracksToProcess.length}): ${filename}`);
+            const tArtist = (currentTrack.artist || initialArtist || 'Artist').replace(/[/\\?%*:|"<>]/g, '').trim();
+            const tTitle = (currentTrack.title || currentTrack.name || 'Track').replace(/[/\\?%*:|"<>]/g, '').trim();
+            setCurrentDownloadStatus(`Processing on server (${i + 1}/${tracksToProcess.length}): ${tArtist} - ${tTitle}`);
 
             try {
-                // If single track, use direct anchor download for instant native browser streaming
-                if (tracksToProcess.length === 1) {
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = filename;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    successCount++;
-                } else {
-                    const res = await fetch(url);
-                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                    const blob = await res.blob();
-                    const blobUrl = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = blobUrl;
-                    a.download = filename;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    setTimeout(() => window.URL.revokeObjectURL(blobUrl), 15000);
-                    successCount++;
+                // Step 1: Tell server to download and convert to server disk
+                const prepRes = await fetch('/api/theater/music/download', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        track: currentTrack,
+                        youtubeId: currentTrack.youtubeId || (currentTrack.id?.startsWith('yt-') ? currentTrack.id.replace('yt-', '') : undefined),
+                        title: tTitle,
+                        artist: tArtist,
+                        album: currentTrack.album || albumName,
+                        saveFormat,
+                        path: currentTrack.path
+                    })
+                });
+
+                if (!prepRes.ok) {
+                    const errData = await prepRes.json().catch(() => ({}));
+                    throw new Error(errData.error || `Server download failed (HTTP ${prepRes.status})`);
                 }
+
+                const prepData = await prepRes.json();
+                if (!prepData.downloadUrl) {
+                    throw new Error(prepData.error || 'No download URL returned from server');
+                }
+
+                setCurrentDownloadStatus(`Sending to device: ${prepData.filename || tTitle}`);
+
+                // Step 2: Fetch the completed file as blob and trigger instant browser save
+                const fileRes = await fetch(prepData.downloadUrl);
+                if (!fileRes.ok) throw new Error(`File fetch failed (HTTP ${fileRes.status})`);
+                const blob = await fileRes.blob();
+                const blobUrl = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = blobUrl;
+                a.download = prepData.filename || `${tArtist} - ${tTitle}.${saveFormat === 'original' ? 'mp3' : saveFormat}`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(() => window.URL.revokeObjectURL(blobUrl), 20000);
+                successCount++;
             } catch (err: any) {
-                console.error(`Failed to download ${filename}, attempting direct link fallback:`, err);
-                try {
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = filename;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    successCount++;
-                } catch (fallbackErr) {
-                    console.error('Fallback download also failed:', fallbackErr);
-                }
+                console.error(`Failed to download ${tTitle}:`, err);
+                toast.error(`Failed to download "${tTitle}": ${err.message}`);
             }
 
             setDownloadProgress(Math.round(((i + 1) / tracksToProcess.length) * 100));
@@ -202,10 +210,10 @@ export function MusicDownloadModal({
 
         setIsDownloading(false);
         if (successCount > 0) {
-            toast.success(`Successfully queued ${successCount} track${successCount > 1 ? 's' : ''} for download!`);
+            toast.success(`Successfully downloaded ${successCount} track${successCount > 1 ? 's' : ''}!`);
             setTimeout(() => onClose(), 1200);
         } else {
-            toast.error('Failed to download tracks. Please check server logs.');
+            toast.error('Download failed. Please check server logs.');
         }
     };
 
