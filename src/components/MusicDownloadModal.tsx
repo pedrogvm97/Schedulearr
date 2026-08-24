@@ -287,7 +287,10 @@ export function MusicDownloadModal({
     };
 
     return (
-        <div className="fixed inset-0 z-[350] flex items-center justify-center p-3 sm:p-4 bg-black/90 backdrop-blur-2xl animate-in fade-in duration-200">
+        <div
+            onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+            className="fixed inset-0 z-[350] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
+        >
             <div className="relative w-full max-w-xl bg-zinc-950 border border-zinc-800 rounded-[2.5rem] p-6 sm:p-8 shadow-2xl space-y-5 max-h-[90vh] flex flex-col overflow-hidden">
                 {/* Header */}
                 <div className="flex items-center justify-between pb-3 border-b border-zinc-900 shrink-0">
@@ -317,8 +320,8 @@ export function MusicDownloadModal({
                     </div>
                     <button
                         onClick={onClose}
-                        disabled={isDownloading}
-                        className="p-2 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all shrink-0"
+                        className="p-2 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all shrink-0 cursor-pointer"
+                        title={isDownloading ? 'Minimize / Run in background' : 'Close'}
                     >
                         <X size={18} />
                     </button>
@@ -477,22 +480,26 @@ export function MusicDownloadModal({
                     <div className="flex items-center gap-3">
                         <button
                             type="button"
-                            onClick={onClose}
-                            disabled={isDownloading}
-                            className="flex-1 py-3 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-black text-xs uppercase tracking-wider transition-all border border-zinc-800"
+                            onClick={() => {
+                                if (isDownloading) {
+                                    toast.info('Downloads continuing in the background...');
+                                }
+                                onClose();
+                            }}
+                            className="flex-1 py-3 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-black text-xs uppercase tracking-wider transition-all border border-zinc-800 cursor-pointer"
                         >
-                            Cancel
+                            {isDownloading ? 'Run in Background' : 'Cancel'}
                         </button>
                         <button
                             type="button"
                             onClick={handleExecute}
                             disabled={isDownloading}
-                            className="flex-1 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs uppercase tracking-wider transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 disabled:opacity-50"
+                            className="flex-1 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs uppercase tracking-wider transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 disabled:opacity-75 cursor-pointer"
                         >
                             {isDownloading ? (
                                 <>
                                     <RefreshCw size={15} className="animate-spin" />
-                                    <span>Downloading...</span>
+                                    <span>Downloading ({downloadProgress}%)</span>
                                 </>
                             ) : (
                                 <>

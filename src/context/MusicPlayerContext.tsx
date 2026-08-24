@@ -552,6 +552,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     const [inPlayerSearchResultsLocal, setInPlayerSearchResultsLocal] = useState<MediaItem[]>([]);
     const [inPlayerSearchResultsOnline, setInPlayerSearchResultsOnline] = useState<MediaItem[]>([]);
     const [inPlayerSearchLoading, setInPlayerSearchLoading] = useState(false);
+    const inPlayerSearchDebounceRef = useRef<NodeJS.Timeout | null>(null);
 
     // Download Modal States
     const [showDownloadModal, setShowDownloadModal] = useState(false);
@@ -1031,70 +1032,84 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         toast.success(`Added "${track.title}" to Playback Queue!`);
     };
 
-    const handleInPlayerSearch = async (query: string) => {
+    const handleInPlayerSearch = (query: string, immediate: boolean = false) => {
+        if (inPlayerSearchDebounceRef.current) {
+            clearTimeout(inPlayerSearchDebounceRef.current);
+        }
+
         const q = query.trim();
         if (!q) {
             setInPlayerSearchResultsLocal([]);
             setInPlayerSearchResultsOnline([]);
+            setInPlayerSearchLoading(false);
             return;
         }
-        setInPlayerSearchLoading(true);
-        try {
-            const onlinePromise = fetch(`/api/theater/music/online?q=${encodeURIComponent(q)}`)
-                .then(r => r.ok ? r.json() : { results: [] })
-                .catch(() => ({ results: [] }));
 
-            const localPromise = fetch(`/api/search/global?q=${encodeURIComponent(q)}`)
-                .then(r => r.ok ? r.json() : { results: [] })
-                .catch(() => ({ results: [] }));
+        const executeSearch = async () => {
+            setInPlayerSearchLoading(true);
+            try {
+                const onlinePromise = fetch(`/api/theater/music/online?q=${encodeURIComponent(q)}`)
+                    .then(r => r.ok ? r.json() : { results: [] })
+                    .catch(() => ({ results: [] }));
 
-            const [onlineData, localData] = await Promise.all([onlinePromise, localPromise]);
+                const localPromise = fetch(`/api/search/global?q=${encodeURIComponent(q)}`)
+                    .then(r => r.ok ? r.json() : { results: [] })
+                    .catch(() => ({ results: [] }));
 
-            const onlineTracks: MediaItem[] = (onlineData.results || []).map((t: any) => ({
-                id: t.id || `yt-${t.youtubeId || Math.random()}`,
-                name: t.title,
-                title: t.title,
-                path: '',
-                folder: t.channel || t.artist || 'YouTube',
-                artist: t.artist || t.channel || 'YouTube Artist',
-                album: t.album || 'YouTube Music',
-                category: 'audio' as const,
-                extension: 'mp3',
-                sizeBytes: 0,
-                modifiedAt: new Date().toISOString(),
-                duration: t.duration,
-                posterUrl: t.posterUrl,
-                streamUrl: t.streamUrl || `/api/theater/music/stream?ytId=${t.youtubeId || t.id}`,
-                youtubeId: t.youtubeId || t.id,
-                source: 'YouTube'
-            }));
+                const [onlineData, localData] = await Promise.all([onlinePromise, localPromise]);
 
-            const localTracks: MediaItem[] = (localData.results || [])
-                .filter((item: any) => item.type === 'music' || item.streamUrl?.includes('music') || item.artist || item.track)
-                .map((item: any) => ({
-                    id: item.id || `local-${Math.random()}`,
-                    name: item.title || item.name,
-                    title: item.title || item.name,
-                    path: item.path || '',
-                    folder: item.folder || 'Music Library',
-                    artist: item.artist || item.folder || 'Library Artist',
-                    album: item.album || 'Music Library',
+                const onlineTracks: MediaItem[] = (onlineData.results || []).map((t: any) => ({
+                    id: t.id || `yt-${t.youtubeId || Math.random()}`,
+                    name: t.title,
+                    title: t.title,
+                    path: '',
+                    folder: t.channel || t.artist || 'YouTube',
+                    artist: t.artist || t.channel || 'YouTube Artist',
+                    album: t.album || 'YouTube Music',
                     category: 'audio' as const,
-                    extension: item.extension || 'mp3',
-                    sizeBytes: item.sizeBytes || 0,
-                    modifiedAt: item.modifiedAt || new Date().toISOString(),
-                    duration: item.duration,
-                    posterUrl: item.posterUrl,
-                    streamUrl: item.streamUrl || `/api/theater/stream?id=${item.id}&type=music`,
-                    source: 'Library'
+                    extension: 'mp3',
+                    sizeBytes: 0,
+                    modifiedAt: new Date().toISOString(),
+                    duration: t.duration,
+                    posterUrl: t.posterUrl,
+                    streamUrl: t.streamUrl || `/api/theater/music/stream?ytId=${t.youtubeId || t.id}`,
+                    youtubeId: t.youtubeId || t.id,
+                    source: 'YouTube'
                 }));
 
-            setInPlayerSearchResultsLocal(localTracks);
-            setInPlayerSearchResultsOnline(onlineTracks);
-        } catch (e) {
-            console.error('In-player search error:', e);
-        } finally {
-            setInPlayerSearchLoading(false);
+                const localTracks: MediaItem[] = (localData.results || [])
+                    .filter((item: any) => item.type === 'music' || item.streamUrl?.includes('music') || item.artist || item.track)
+                    .map((item: any) => ({
+                        id: item.id || `local-${Math.random()}`,
+                        name: item.title || item.name,
+                        title: item.title || item.name,
+                        path: item.path || '',
+                        folder: item.folder || 'Music Library',
+                        artist: item.artist || item.folder || 'Library Artist',
+                        album: item.album || 'Music Library',
+                        category: 'audio' as const,
+                        extension: item.extension || 'mp3',
+                        sizeBytes: item.sizeBytes || 0,
+                        modifiedAt: item.modifiedAt || new Date().toISOString(),
+                        duration: item.duration,
+                        posterUrl: item.posterUrl,
+                        streamUrl: item.streamUrl || `/api/theater/stream?id=${item.id}&type=music`,
+                        source: 'Library'
+                    }));
+
+                setInPlayerSearchResultsLocal(localTracks);
+                setInPlayerSearchResultsOnline(onlineTracks);
+            } catch (e) {
+                console.error('In-player search error:', e);
+            } finally {
+                setInPlayerSearchLoading(false);
+            }
+        };
+
+        if (immediate) {
+            executeSearch();
+        } else {
+            inPlayerSearchDebounceRef.current = setTimeout(executeSearch, 300);
         }
     };
 
