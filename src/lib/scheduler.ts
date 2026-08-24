@@ -3,7 +3,7 @@ import { getAllMovies, triggerMovieSearch, RadarrMovie, getQueue as getRadarrQue
 import { getAllSeries, getMissingEpisodes, triggerEpisodeSearch, SonarrSeries, getQueue as getSonarrQueue } from '@/lib/sonarr';
 import { getIndexerHealth } from '@/lib/prowlarr';
 import { evaluateIndexerRules } from '@/lib/indexerAutomations';
-import { runAutoCleanup, runSmartCleanup } from '@/lib/autoCleanup';
+import { runAutoCleanup, runSmartCleanup, checkAndCleanIndividualLibraries } from '@/lib/autoCleanup';
 import axios from 'axios';
 
 // Prevent multiple scheduler instances from running in dev mode HMR
@@ -64,6 +64,9 @@ if (!global.globalSchedulerRunning && process.env.NEXT_PHASE !== 'phase-producti
                     console.log(`[${now}] 🧹 Running Smart Auto-Clean disk guard...`);
                     await runSmartCleanup();
                 }
+                
+                // Check and enforce individual library storage limits
+                await checkAndCleanIndividualLibraries();
             } catch (error) {
                 console.error('❌ Auto-cleanup error:', error);
             }

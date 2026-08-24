@@ -219,6 +219,47 @@ export default function Settings() {
     const [candidates, setCandidates] = useState<any[]>([]);
     const [loadingCandidates, setLoadingCandidates] = useState(false);
 
+    // Individual Library Max Sizes & Storage Guards
+    const [libraryLimits, setLibraryLimits] = useState<{
+        id: string;
+        name: string;
+        instanceId: string;
+        type: 'radarr' | 'sonarr' | 'lidarr';
+        enabled: boolean;
+        maxGb: number;
+        cleanMode: 'largest' | 'oldest' | 'unplayed';
+    }[]>([]);
+    const [cleaningLibraryId, setCleaningLibraryId] = useState<string | null>(null);
+
+    const handleUpdateLibraryLimit = (id: string, updates: Partial<{ enabled: boolean; maxGb: number; cleanMode: 'largest' | 'oldest' | 'unplayed' }>) => {
+        const next = libraryLimits.map(l => l.id === id ? { ...l, ...updates } : l);
+        setLibraryLimits(next);
+        updateSetting('library_storage_limits', JSON.stringify(next));
+    };
+
+    const handleRunLibraryClean = async (lib: typeof libraryLimits[0]) => {
+        setCleaningLibraryId(lib.id);
+        try {
+            const res = await fetch('/api/media/smart-clean', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ libraryConfig: lib })
+            });
+            const data = await res.json();
+            if (data.success) {
+                toast.success(data.message || `Clean routine completed for ${lib.name}`);
+                fetchCandidates();
+                fetch('/api/system/disk').then(r => r.ok ? r.json() : null).then(d => { if (d) setDiskInfo(d); }).catch(() => {});
+            } else {
+                toast.error(data.message || `Clean routine failed for ${lib.name}`);
+            }
+        } catch (e: any) {
+            toast.error(e.message || 'Error running library clean');
+        } finally {
+            setCleaningLibraryId(null);
+        }
+    };
+
     const fetchCandidates = async () => {
         setLoadingCandidates(true);
         try {
@@ -293,7 +334,31 @@ export default function Settings() {
             try { setDiskSmartCleanIgnoredInstances(JSON.parse(allSettings.media_smart_clean_ignored_instances)); } catch (e) { }
         }
         if (allSettings.auto_update_enabled !== undefined) setAutoUpdateEnabled(allSettings.auto_update_enabled === 'true');
-    }, [allSettings]);
+
+        // Sync libraryLimits
+        let savedLimits: any[] = [];
+        if (allSettings.library_storage_limits) {
+            try {
+                savedLimits = JSON.parse(allSettings.library_storage_limits);
+            } catch {
+                savedLimits = [];
+            }
+        }
+        const mediaInstances = instances.filter(i => ['radarr', 'sonarr', 'lidarr'].includes(i.type));
+        const merged = mediaInstances.map(inst => {
+            const existing = savedLimits.find((l: any) => l.instanceId === inst.id || l.id === inst.id);
+            return {
+                id: inst.id,
+                name: inst.name,
+                instanceId: inst.id,
+                type: inst.type as 'radarr' | 'sonarr' | 'lidarr',
+                enabled: existing ? existing.enabled : false,
+                maxGb: existing ? (existing.maxGb || 500) : 500,
+                cleanMode: existing ? (existing.cleanMode || 'largest') : 'largest',
+            };
+        });
+        setLibraryLimits(merged);
+    }, [allSettings, instances]);
 
     const fetchSelfInfo = async () => {
         try {
@@ -1041,371 +1106,88 @@ export default function Settings() {
                ═══════════════════════════════════════════════════════════════════ */}
             {settingsSubtopic === 'automation' && (
                 <div className="space-y-8 animate-in fade-in duration-200">
-                    {/* Storage Guard Control Panel */}
-                                {/* Storage Guard Control Panel */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-6">
-                {/* Top Banner Header with Master Switch & Nuke Threshold Number */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-800">
-                    <div>
-                        <h2 className="text-xl font-black text-white flex items-center gap-2.5">
-                            Storage Guard
-                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                                diskAutocleanEnabled ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-[0_0_10px_rgba(16,185,129,0.2)]' : 'bg-zinc-800 text-zinc-500 border border-zinc-700'
-                            }`}>
-                                {diskAutocleanEnabled ? 'ACTIVE' : 'OFF'}
-                            </span>
-                        </h2>
-                        <p className="text-xs text-zinc-400 font-medium mt-1">Core Rule: IF Total Occupied Space &gt; Nuke Threshold %, automatically nuke media to free space.</p>
-                    </div>
-
-                    {/* Master ON / OFF Toggle + Threshold % */}
-                    <div className="flex items-center gap-4 bg-zinc-950 p-3 rounded-2xl border border-zinc-800 flex-shrink-0">
-                        <div className="flex items-center gap-2">
-                            <span className="text-xs font-black text-zinc-400 uppercase tracking-wider">Nuke Threshold:</span>
-                            <input
-                                type="number"
-                                min="50"
-                                max="99"
-                                value={diskPauseThreshold}
-                                onChange={e => {
-                                    const val = Math.min(99, Math.max(50, parseInt(e.target.value) || 90));
-                                    setDiskPauseThreshold(val);
-                                    updateSetting('storage_guard_threshold', String(val));
-                                    updateSetting('disk_pause_threshold', String(val));
-                                    updateSetting('disk_autoclean_threshold', String(val));
-                                }}
-                                className="w-16 bg-zinc-900 border border-zinc-700 rounded-xl text-center py-1 text-emerald-400 font-black text-sm outline-none focus:border-emerald-500"
-                            />
-                            <span className="text-xs font-black text-emerald-400">%</span>
-                        </div>
-
-                        <div className="w-px h-6 bg-zinc-800" />
-
-                        <button
-                            onClick={async () => {
-                                const next = !diskAutocleanEnabled;
-                                setDiskAutocleanEnabled(next);
-                                await updateSetting('storage_guard_enabled', String(next));
-                                await updateSetting('disk_autoclean_enabled', String(next));
-                                toast.success(next ? 'Storage Guard Activated' : 'Storage Guard Deactivated');
-                            }}
-                            className={`w-12 h-6.5 rounded-full transition-all relative flex-shrink-0 p-0.5 ${diskAutocleanEnabled ? 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.4)]' : 'bg-zinc-800'}`}
-                            title={diskAutocleanEnabled ? 'Deactivate Storage Guard' : 'Activate Storage Guard'}
-                        >
-                            <div className={`w-5.5 h-5.5 rounded-full bg-white transition-transform ${diskAutocleanEnabled ? 'translate-x-5.5' : 'translate-x-0'}`} />
-                        </button>
-                    </div>
-                </div>
-
-                {/* Disk Storage Capacity Fill Bar Meter */}
-                {diskInfo ? (
-                    <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-800 space-y-2">
-                        <div className="flex justify-between items-center text-xs">
-                            <span className="font-bold text-white uppercase tracking-wider">Storage Capacity</span>
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${
-                                diskInfo.usedPercent >= diskPauseThreshold
-                                    ? 'bg-red-500/10 text-red-400 border border-red-500/20'
-                                    : diskInfo.usedPercent >= 75
-                                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                                    : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                            }`}>
-                                {diskInfo.usedPercent}% Used
-                            </span>
-                        </div>
-
-                        {/* Progress Bar Meter */}
-                        <div className="relative h-3 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800">
-                            <div
-                                className={`h-full rounded-full transition-all duration-1000 ${
-                                    diskInfo.usedPercent >= 90 ? 'bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.4)]'
-                                    : diskInfo.usedPercent >= 75 ? 'bg-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.3)]'
-                                    : 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.3)]'
-                                }`}
-                                style={{ width: `${diskInfo.usedPercent}%` }}
-                            />
-                            <div
-                                className="absolute top-0 bottom-0 w-0.5 bg-white/50 border-r border-dashed border-white/30"
-                                style={{ left: `${diskPauseThreshold}%` }}
-                                title={`Nuke Threshold: ${diskPauseThreshold}%`}
-                            />
-                        </div>
-
-                        <div className="flex justify-between text-[11px] text-zinc-400 font-semibold">
-                            <span>
-                                {diskInfo.totalBytes >= 1e12
-                                    ? `${(diskInfo.usedBytes / 1e12).toFixed(2)} TB used of ${(diskInfo.totalBytes / 1e12).toFixed(2)} TB`
-                                    : `${(diskInfo.usedBytes / 1e9).toFixed(0)} GB used of ${(diskInfo.totalBytes / 1e9).toFixed(0)} GB`}
-                            </span>
-                            <span className="text-emerald-400 font-black">
-                                {diskInfo.totalBytes >= 1e12
-                                    ? `${(diskInfo.freeBytes / 1e12).toFixed(2)} TB free`
-                                    : `${(diskInfo.freeBytes / 1e9).toFixed(0)} GB free`}
-                            </span>
-                        </div>
-                    </div>
-                ) : (
-                    <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-800 text-xs font-bold text-zinc-500 animate-pulse">
-                        Loading storage capacity data...
-                    </div>
-                )}
-
-                {diskAutocleanEnabled && (
-                    <div className="space-y-6 p-4 bg-zinc-950/60 rounded-xl border border-zinc-800">
-                        {/* Threshold Slider */}
-                        <div className="space-y-2">
-                            <div className="flex justify-between items-center text-xs font-bold">
-                                <span className="text-zinc-400 uppercase tracking-wider">Occupied Space Nuke Threshold</span>
-                                <span className="text-emerald-400 font-black text-base">{diskPauseThreshold}%</span>
-                            </div>
-                            <input
-                                type="range"
-                                min="50"
-                                max="99"
-                                value={diskPauseThreshold}
-                                onChange={e => {
-                                    const val = parseInt(e.target.value);
-                                    setDiskPauseThreshold(val);
-                                    updateSetting('storage_guard_threshold', String(val));
-                                    updateSetting('disk_pause_threshold', String(val));
-                                    updateSetting('disk_autoclean_threshold', String(val));
-                                }}
-                                className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
-                            />
-                        </div>
-
-                        {/* Nuke Selection Priority */}
-                        <div className="space-y-2">
-                            <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Nuke Selection Priority</span>
-                            <div className="grid grid-cols-3 gap-2">
-                                {[
-                                    { id: 'largest', label: 'Largest Downloads' },
-                                    { id: 'oldest', label: 'Oldest Downloads' },
-                                    { id: 'unplayed', label: 'Unplayed Content' }
-                                ].map(mode => (
-                                    <button
-                                        key={mode.id}
-                                        onClick={async () => {
-                                            setDiskSmartCleanMode(mode.id);
-                                            await updateSetting('qbit_smart_clean_mode', mode.id);
-                                        }}
-                                        className={`py-2 px-3 text-xs font-bold rounded-xl uppercase tracking-wider transition-all border ${
-                                            diskSmartCleanMode === mode.id
-                                                ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-sm'
-                                                : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:text-zinc-300'
-                                        }`}
-                                    >
-                                        {mode.label}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* TV Series Cleanup Level */}
-                        <div className="space-y-2">
-                            <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">TV Series Cleanup Level</span>
-                            <p className="text-[10px] text-zinc-500">Choose whether to delete entire shows, individual seasons, or single episodes.</p>
-                            <div className="grid grid-cols-3 gap-2">
-                                {(['series', 'season', 'episode'] as const).map(level => (
-                                    <button
-                                        key={level}
-                                        type="button"
-                                        onClick={() => {
-                                            setDiskSmartCleanSeriesLevel(level);
-                                            updateSetting('media_smart_clean_series_level', level);
-                                            setTimeout(fetchCandidates, 300);
-                                        }}
-                                        className={`py-2 px-3 text-xs font-bold rounded-xl uppercase tracking-wider transition-all border ${
-                                            diskSmartCleanSeriesLevel === level
-                                                ? 'bg-violet-500/20 text-violet-400 border-violet-500/40 shadow-sm'
-                                                : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:text-zinc-300'
-                                        }`}
-                                    >
-                                        {level === 'series' ? 'Entire Show' : level === 'season' ? 'By Season' : 'By Episode'}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Immunity Window */}
-                        <div className="flex items-center justify-between pt-2">
+                    {/* Unified Storage Guard Control Panel */}
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-6">
+                        {/* Top Banner Header with Master Switch & Storage Guard Threshold Number */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-800">
                             <div>
-                                <span className="text-sm font-bold text-zinc-300">Immunity Window</span>
-                                <p className="text-xs text-zinc-500">Protect items added within last N days from being nuked</p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <input
-                                    type="number"
-                                    min="0"
-                                    max="365"
-                                    value={diskSmartCleanImmunityDays}
-                                    onChange={async e => {
-                                        const val = parseInt(e.target.value) || 0;
-                                        setDiskSmartCleanImmunityDays(val);
-                                        await updateSetting('qbit_smart_clean_immunity_days', String(val));
-                                    }}
-                                    className="w-20 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-sm font-bold text-white text-center outline-none focus:border-emerald-500/50"
-                                />
-                                <span className="text-xs font-bold text-zinc-500">Days</span>
-                            </div>
-                        </div>
-
-                        {/* Also Pause Scheduler Option */}
-                        <div className="flex items-center justify-between border-t border-zinc-800 pt-4">
-                            <div>
-                                <span className="text-sm font-bold text-zinc-300">Also Pause Automated Search Batches</span>
-                                <p className="text-xs text-zinc-500">Pause scheduler search activity when above threshold</p>
-                            </div>
-                            <button
-                                onClick={async () => {
-                                    const next = !diskPauseEnabled;
-                                    setDiskPauseEnabled(next);
-                                    await updateSetting('storage_guard_pause_scheduler', String(next));
-                                    await updateSetting('disk_pause_enabled', String(next));
-                                }}
-                                className={`w-10 h-5.5 rounded-full transition-all relative flex-shrink-0 p-0.5 ${diskPauseEnabled ? 'bg-emerald-500' : 'bg-zinc-800'}`}
-                            >
-                                <div className={`w-4.5 h-4.5 rounded-full bg-white transition-transform ${diskPauseEnabled ? 'translate-x-4.5' : 'translate-x-0'}`} />
-                            </button>
-                        </div>
-                        {/* Next Items to be Nuked Preview List */}
-                        <div className="space-y-3 border-t border-zinc-800 pt-4">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <span className="text-xs font-black text-white uppercase tracking-wider block flex items-center gap-1.5">
-                                        🔥 Next Candidates in Line to be Purged ({candidates.length})
+                                <h2 className="text-xl font-black text-white flex items-center gap-2.5">
+                                    Storage Guard
+                                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                                        diskAutocleanEnabled ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-[0_0_10px_rgba(16,185,129,0.2)]' : 'bg-zinc-800 text-zinc-500 border border-zinc-700'
+                                    }`}>
+                                        {diskAutocleanEnabled ? 'ACTIVE' : 'OFF'}
                                     </span>
-                                    <p className="text-[11px] text-zinc-500">Sorted by priority mode ({diskSmartCleanMode.toUpperCase()}). Items with immunity active are excluded.</p>
+                                </h2>
+                                <p className="text-xs text-zinc-400 font-medium mt-1">Core Rule: If total occupied disk space exceeds threshold %, automatically run clean routines to maintain free space.</p>
+                            </div>
+
+                            {/* Master ON / OFF Toggle + Threshold % */}
+                            <div className="flex items-center gap-4 bg-zinc-950 p-3 rounded-2xl border border-zinc-800 flex-shrink-0">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs font-black text-zinc-400 uppercase tracking-wider">Trigger Threshold:</span>
+                                    <input
+                                        type="number"
+                                        min="50"
+                                        max="99"
+                                        value={diskPauseThreshold}
+                                        onChange={e => {
+                                            const val = Math.min(99, Math.max(50, parseInt(e.target.value) || 90));
+                                            setDiskPauseThreshold(val);
+                                            updateSetting('storage_guard_threshold', String(val));
+                                            updateSetting('disk_pause_threshold', String(val));
+                                            updateSetting('disk_autoclean_threshold', String(val));
+                                        }}
+                                        className="w-16 bg-zinc-900 border border-zinc-700 rounded-xl text-center py-1 text-emerald-400 font-black text-sm outline-none focus:border-emerald-500"
+                                    />
+                                    <span className="text-xs font-black text-emerald-400">%</span>
                                 </div>
+
+                                <div className="w-px h-6 bg-zinc-800" />
+
                                 <button
-                                    type="button"
-                                    onClick={fetchCandidates}
-                                    className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 hover:text-emerald-300 bg-zinc-900 border border-zinc-800 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                                    onClick={async () => {
+                                        const next = !diskAutocleanEnabled;
+                                        setDiskAutocleanEnabled(next);
+                                        await updateSetting('storage_guard_enabled', String(next));
+                                        await updateSetting('disk_autoclean_enabled', String(next));
+                                        toast.success(next ? 'Storage Guard Activated' : 'Storage Guard Deactivated');
+                                    }}
+                                    className={`w-12 h-6.5 rounded-full transition-all relative flex-shrink-0 p-0.5 ${diskAutocleanEnabled ? 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.4)]' : 'bg-zinc-800'}`}
+                                    title={diskAutocleanEnabled ? 'Deactivate Storage Guard' : 'Activate Storage Guard'}
                                 >
-                                    <svg className={`w-3 h-3 ${loadingCandidates ? 'animate-spin' : ''}`} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-                                    Refresh Queue
+                                    <div className={`w-5.5 h-5.5 rounded-full bg-white transition-transform ${diskAutocleanEnabled ? 'translate-x-5.5' : 'translate-x-0'}`} />
                                 </button>
                             </div>
-
-                            {loadingCandidates ? (
-                                <div className="p-4 text-center text-xs font-bold text-zinc-500 italic">Calculating candidate purge queue...</div>
-                            ) : candidates.length === 0 ? (
-                                <div className="p-4 text-center bg-zinc-950 rounded-xl border border-zinc-800 text-xs font-bold text-zinc-500">
-                                    No items currently matching purge criteria (or all recent items are protected by immunity).
-                                </div>
-                            ) : (
-                                <div className="space-y-2 max-h-72 overflow-y-auto custom-scrollbar pr-1">
-                                    {candidates.slice(0, 15).map((item, idx) => (
-                                        <div key={item.key || idx} className="flex items-center justify-between p-3 rounded-xl bg-zinc-950 border border-zinc-800/80 hover:border-zinc-700 transition-all">
-                                            <div className="flex items-center gap-3 min-w-0">
-                                                <span className="w-5 h-5 rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/20 text-[10px] font-black flex items-center justify-center flex-shrink-0">
-                                                    #{idx + 1}
-                                                </span>
-                                                <div className="space-y-0.5 min-w-0">
-                                                    <h4 className="text-xs font-bold text-white truncate max-w-sm" title={item.title}>{item.title}</h4>
-                                                    <div className="flex items-center gap-2 text-[10px] text-zinc-500 font-medium">
-                                                        <span>{item.instanceName}</span>
-                                                        <span>•</span>
-                                                        <span className="text-zinc-400 font-bold">{((item.size || 0) / (1024 ** 3)).toFixed(2)} GB</span>
-                                                        <span>•</span>
-                                                        <span className={item.isWatched ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}>
-                                                            {item.isWatched ? 'Watched' : 'Unplayed'}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            <button
-                                                type="button"
-                                                onClick={async () => {
-                                                    if (!confirm(`Are you sure you want to purge "${item.title}"?`)) return;
-                                                    try {
-                                                        const epUrl = item.type === 'movie' ? `/api/radarr/delete?id=${item.id}&instanceId=${item.instanceId}` : `/api/sonarr/delete?id=${item.id}&instanceId=${item.instanceId}`;
-                                                        const res = await fetch(epUrl, { method: 'DELETE' });
-                                                        if (res.ok) {
-                                                            toast.success(`Purged ${item.title}`);
-                                                            fetchCandidates();
-                                                        } else {
-                                                            toast.error('Failed to purge item');
-                                                        }
-                                                    } catch (e) {
-                                                        toast.error('Error purging item');
-                                                    }
-                                                }}
-                                                className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition-colors flex-shrink-0 cursor-pointer"
-                                            >
-                                                Purge Now
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
                         </div>
-                    </div>
-                )}
-            </div>
 
-                    {/* Storage Guard Breakdown & Pause Threshold */}
-                                {/* Storage Guard */}
-            <div className={`bg-zinc-900 border ${isDiskOpen ? 'border-emerald-500/30' : 'border-zinc-800'} rounded-2xl transition-all overflow-hidden shadow-lg`}>
-                <button
-                    onClick={() => {
-                        setIsDiskOpen(!isDiskOpen);
-                        if (!isDiskOpen) {
-                            fetchCandidates();
-                            fetch('/api/system/disk').then(r => r.ok ? r.json() : null).then(d => { if (d) setDiskInfo(d); }).catch(() => {});
-                        }
-                    }}
-                    className="w-full flex items-center justify-between p-5 hover:bg-zinc-800/50 transition-colors"
-                >
-                    <div className="flex items-center gap-4">
-                        <div className={`p-2.5 rounded-xl ${isDiskOpen ? 'bg-emerald-500/10 text-emerald-400' : 'bg-zinc-800 text-zinc-500'}`}>
-                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
-                        </div>
-                        <div className="text-left">
-                            <h2 className="text-base font-bold text-white tracking-tight">Storage Guard</h2>
-                            <p className="text-xs text-zinc-500 font-medium">Monitor disk usage and auto-pause searches when drives are nearly full.</p>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                        {diskInfo && (
-                            <div className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                                diskInfo.usedPercent >= diskPauseThreshold && diskPauseEnabled
-                                    ? 'bg-red-500/20 text-red-400'
-                                    : diskInfo.usedPercent >= 80
-                                    ? 'bg-amber-500/20 text-amber-400'
-                                    : 'bg-emerald-500/20 text-emerald-400'
-                            }`}>
-                                {diskInfo.usedPercent}% used
-                            </div>
-                        )}
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`text-zinc-500 transition-transform duration-300 ${isDiskOpen ? 'rotate-180' : ''}`}><path d="m6 9 6 6 6-6" /></svg>
-                    </div>
-                </button>
-
-                {isDiskOpen && (
-                    <div className="p-6 pt-0 border-t border-zinc-800/50 animate-in fade-in slide-in-from-top-4 duration-300 space-y-6 mt-0 pt-6">
-                        {/* Disk Usage Bar */}
+                        {/* Disk Storage Capacity Fill Bar Meter */}
                         {diskInfo ? (
-                            <div className="space-y-3">
-                                <div className="flex items-center justify-between">
-                                    <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Total Disk Usage</span>
+                            <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-800 space-y-2">
+                                <div className="flex justify-between items-center text-xs">
+                                    <span className="font-bold text-white uppercase tracking-wider">Total Storage Capacity</span>
                                     <div className="flex items-center gap-2">
-                                        <span className="text-xs font-bold text-zinc-200">
-                                            {diskInfo.totalBytes >= 1e12
-                                                ? `${(diskInfo.usedBytes / 1e12).toFixed(2)} TB used / ${(diskInfo.totalBytes / 1e12).toFixed(2)} TB total`
-                                                : `${(diskInfo.usedBytes / 1e9).toFixed(1)} GB used / ${(diskInfo.totalBytes / 1e9).toFixed(1)} GB total`
-                                            }
+                                        <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${
+                                            diskInfo.usedPercent >= diskPauseThreshold
+                                                ? 'bg-red-500/10 text-red-400 border border-red-500/20'
+                                                : diskInfo.usedPercent >= 75
+                                                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                                : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                        }`}>
+                                            {diskInfo.usedPercent}% Used
                                         </span>
                                         <button
                                             onClick={() => fetch('/api/system/disk').then(r => r.ok ? r.json() : null).then(d => { if (d) setDiskInfo(d); }).catch(() => {})}
-                                            className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"
+                                            className="p-1 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white"
                                             title="Refresh disk info"
                                         >
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
                                         </button>
                                     </div>
                                 </div>
-                                <div className="relative h-4 bg-zinc-950 rounded-full overflow-hidden border border-zinc-800">
+
+                                {/* Progress Bar Meter */}
+                                <div className="relative h-3.5 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800">
                                     <div
                                         className={`h-full rounded-full transition-all duration-1000 ${
                                             diskInfo.usedPercent >= 90 ? 'bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.4)]'
@@ -1414,22 +1196,29 @@ export default function Settings() {
                                         }`}
                                         style={{ width: `${diskInfo.usedPercent}%` }}
                                     />
-                                    {diskPauseEnabled && (
-                                        <div
-                                            className="absolute top-0 bottom-0 w-0.5 bg-white/50 border-r border-dashed border-white/30"
-                                            style={{ left: `${diskPauseThreshold}%` }}
-                                            title={`Pause threshold: ${diskPauseThreshold}%`}
-                                        />
-                                    )}
-                                </div>
-                                <div className="flex justify-between text-[10px] text-zinc-500 font-medium">
-                                    <span>{diskInfo.totalBytes >= 1e12 ? `${(diskInfo.freeBytes / 1e12).toFixed(2)} TB free` : `${(diskInfo.freeBytes / 1e9).toFixed(1)} GB free`}</span>
-                                    <span className={diskInfo.usedPercent >= diskPauseThreshold && diskPauseEnabled ? 'text-red-400 font-bold' : ''}>{diskInfo.usedPercent}% used</span>
+                                    <div
+                                        className="absolute top-0 bottom-0 w-0.5 bg-white/50 border-r border-dashed border-white/30"
+                                        style={{ left: `${diskPauseThreshold}%` }}
+                                        title={`Trigger Threshold: ${diskPauseThreshold}%`}
+                                    />
                                 </div>
 
-                                {/* Per-instance breakdown */}
+                                <div className="flex justify-between text-[11px] text-zinc-400 font-semibold">
+                                    <span>
+                                        {diskInfo.totalBytes >= 1e12
+                                            ? `${(diskInfo.usedBytes / 1e12).toFixed(2)} TB used of ${(diskInfo.totalBytes / 1e12).toFixed(2)} TB`
+                                            : `${(diskInfo.usedBytes / 1e9).toFixed(0)} GB used of ${(diskInfo.totalBytes / 1e9).toFixed(0)} GB`}
+                                    </span>
+                                    <span className="text-emerald-400 font-black">
+                                        {diskInfo.totalBytes >= 1e12
+                                            ? `${(diskInfo.freeBytes / 1e12).toFixed(2)} TB free`
+                                            : `${(diskInfo.freeBytes / 1e9).toFixed(0)} GB free`}
+                                    </span>
+                                </div>
+
+                                {/* Per-Instance Breakdown */}
                                 {Array.isArray(diskInfo?.byInstance) && diskInfo.byInstance.length > 0 && (
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3 pt-3 border-t border-zinc-900">
                                         {diskInfo.byInstance.map((inst: any) => {
                                             const folders = Array.isArray(inst?.folders) ? inst.folders : [];
                                             const instTotal = folders.reduce((s: number, f: any) => s + (f?.totalBytes || 0), 0);
@@ -1437,20 +1226,14 @@ export default function Settings() {
                                             const instUsed = instTotal - instFree;
                                             const instPct = instTotal > 0 ? Math.round((instUsed / instTotal) * 100) : 0;
                                             return (
-                                                <div key={inst.id || inst.name} className="p-3 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-1.5">
+                                                <div key={inst.id || inst.name} className="p-2.5 bg-zinc-900/60 rounded-xl border border-zinc-800/60 space-y-1">
                                                     <div className="flex items-center justify-between">
-                                                        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider truncate">{inst.name}</span>
-                                                        <span className={`text-[10px] font-bold ${ instPct >= 90 ? 'text-red-400' : instPct >= 75 ? 'text-amber-400' : 'text-emerald-400'}`}>{instPct}%</span>
+                                                        <span className="text-[10px] font-bold text-zinc-300 uppercase tracking-wider truncate">{inst.name}</span>
+                                                        <span className={`text-[10px] font-black ${ instPct >= 90 ? 'text-red-400' : instPct >= 75 ? 'text-amber-400' : 'text-emerald-400'}`}>{instPct}%</span>
                                                     </div>
-                                                    <div className="h-1.5 bg-zinc-900 rounded-full overflow-hidden">
+                                                    <div className="h-1.5 bg-zinc-950 rounded-full overflow-hidden">
                                                         <div className={`h-full rounded-full ${instPct >= 90 ? 'bg-red-500' : instPct >= 75 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${instPct}%` }} />
                                                     </div>
-                                                    <p className="text-[9px] text-zinc-600">
-                                                        {instTotal >= 1e12
-                                                            ? `${(instFree / 1e12).toFixed(2)} TB free of ${(instTotal / 1e12).toFixed(2)} TB`
-                                                            : `${(instFree / 1e9).toFixed(0)} GB free of ${(instTotal / 1e9).toFixed(0)} GB`
-                                                        }
-                                                    </p>
                                                 </div>
                                             );
                                         })}
@@ -1458,34 +1241,19 @@ export default function Settings() {
                                 )}
                             </div>
                         ) : (
-                            <div className="flex items-center gap-3 text-zinc-500 text-sm">
-                                <div className="w-4 h-4 border-2 border-zinc-700 border-t-zinc-400 rounded-full animate-spin" />
-                                Loading disk info...
+                            <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-800 text-xs font-bold text-zinc-500 animate-pulse">
+                                Loading storage capacity data...
                             </div>
                         )}
 
-                        {/* Pause Threshold Control */}
-                        <div className="p-4 bg-zinc-950/50 rounded-xl border border-zinc-800/50 space-y-4">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <div className="text-sm font-bold text-zinc-200">Pause Scheduler When Full</div>
-                                    <p className="text-[10px] text-zinc-500 font-medium mt-0.5">Automatically skip search batches when disk usage exceeds the threshold.</p>
-                                </div>
-                                <button
-                                    onClick={() => {
-                                        const next = !diskPauseEnabled;
-                                        setDiskPauseEnabled(next);
-                                        updateSetting('disk_pause_enabled', next);
-                                    }}
-                                    className={`w-10 h-5 rounded-full transition-all relative flex-shrink-0 ${ diskPauseEnabled ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-zinc-700'}`}
-                                >
-                                    <div className={`w-3 h-3 rounded-full bg-white absolute top-1 transition-all ${diskPauseEnabled ? 'left-6' : 'left-1'}`} />
-                                </button>
-                            </div>
-
-                            <div className={`space-y-2 transition-opacity ${diskPauseEnabled ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
-                                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Pause Threshold (%)</label>
-                                <div className="flex items-center gap-3">
+                        {diskAutocleanEnabled && (
+                            <div className="space-y-6 p-4 bg-zinc-950/60 rounded-xl border border-zinc-800">
+                                {/* Threshold Slider */}
+                                <div className="space-y-2">
+                                    <div className="flex justify-between items-center text-xs font-bold">
+                                        <span className="text-zinc-400 uppercase tracking-wider">Occupied Space Auto-Clean Threshold</span>
+                                        <span className="text-emerald-400 font-black text-base">{diskPauseThreshold}%</span>
+                                    </div>
                                     <input
                                         type="range"
                                         min="50"
@@ -1494,25 +1262,354 @@ export default function Settings() {
                                         onChange={e => {
                                             const val = parseInt(e.target.value);
                                             setDiskPauseThreshold(val);
-                                            updateSetting('disk_pause_threshold', val);
+                                            updateSetting('storage_guard_threshold', String(val));
+                                            updateSetting('disk_pause_threshold', String(val));
+                                            updateSetting('disk_autoclean_threshold', String(val));
                                         }}
-                                        className="flex-1 accent-emerald-500"
-                                        disabled={!diskPauseEnabled}
+                                        className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
                                     />
-                                    <span className="text-lg font-black text-emerald-400 w-12 text-right">{diskPauseThreshold}%</span>
                                 </div>
-                                <p className="text-[10px] text-zinc-500">Scheduler will skip batches when disk usage is at or above this percentage. Default: 90%.</p>
-                                {diskInfo && diskPauseEnabled && diskInfo.usedPercent >= diskPauseThreshold && (
-                                    <div className="flex items-center gap-2 p-2 bg-red-500/10 border border-red-500/20 rounded-lg">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-red-400 flex-shrink-0"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-                                        <span className="text-xs font-bold text-red-400">Guard is ACTIVE — Scheduler currently paused ({diskInfo.usedPercent}% ≥ {diskPauseThreshold}%)</span>
+
+                                {/* Clean Selection Priority */}
+                                <div className="space-y-2">
+                                    <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">Global Clean Selection Priority</span>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {[
+                                            { id: 'largest', label: 'Largest Downloads' },
+                                            { id: 'oldest', label: 'Oldest Downloads' },
+                                            { id: 'unplayed', label: 'Unplayed Content' }
+                                        ].map(mode => (
+                                            <button
+                                                key={mode.id}
+                                                onClick={async () => {
+                                                    setDiskSmartCleanMode(mode.id);
+                                                    await updateSetting('qbit_smart_clean_mode', mode.id);
+                                                }}
+                                                className={`py-2 px-3 text-xs font-bold rounded-xl uppercase tracking-wider transition-all border ${
+                                                    diskSmartCleanMode === mode.id
+                                                        ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-sm'
+                                                        : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:text-zinc-300'
+                                                }`}
+                                            >
+                                                {mode.label}
+                                            </button>
+                                        ))}
                                     </div>
-                                )}
+                                </div>
+
+                                {/* TV Series Cleanup Level */}
+                                <div className="space-y-2">
+                                    <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">TV Series Cleanup Level</span>
+                                    <p className="text-[10px] text-zinc-500">Choose whether to delete entire shows, individual seasons, or single episodes.</p>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {(['series', 'season', 'episode'] as const).map(level => (
+                                            <button
+                                                key={level}
+                                                type="button"
+                                                onClick={() => {
+                                                    setDiskSmartCleanSeriesLevel(level);
+                                                    updateSetting('media_smart_clean_series_level', level);
+                                                    setTimeout(fetchCandidates, 300);
+                                                }}
+                                                className={`py-2 px-3 text-xs font-bold rounded-xl uppercase tracking-wider transition-all border ${
+                                                    diskSmartCleanSeriesLevel === level
+                                                        ? 'bg-violet-500/20 text-violet-400 border-violet-500/40 shadow-sm'
+                                                        : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:text-zinc-300'
+                                                }`}
+                                            >
+                                                {level === 'series' ? 'Entire Show' : level === 'season' ? 'By Season' : 'By Episode'}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Immunity Window */}
+                                <div className="flex items-center justify-between pt-2">
+                                    <div>
+                                        <span className="text-sm font-bold text-zinc-300">Immunity Window</span>
+                                        <p className="text-xs text-zinc-500">Protect items added within last N days from being deleted</p>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            max="365"
+                                            value={diskSmartCleanImmunityDays}
+                                            onChange={async e => {
+                                                const val = parseInt(e.target.value) || 0;
+                                                setDiskSmartCleanImmunityDays(val);
+                                                await updateSetting('qbit_smart_clean_immunity_days', String(val));
+                                            }}
+                                            className="w-20 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-sm font-bold text-white text-center outline-none focus:border-emerald-500/50"
+                                        />
+                                        <span className="text-xs font-bold text-zinc-500">Days</span>
+                                    </div>
+                                </div>
+
+                                {/* Also Pause Scheduler Option */}
+                                <div className="flex items-center justify-between border-t border-zinc-800 pt-4">
+                                    <div>
+                                        <span className="text-sm font-bold text-zinc-300">Also Pause Automated Search Batches</span>
+                                        <p className="text-xs text-zinc-500">Pause scheduler search activity when above threshold</p>
+                                    </div>
+                                    <button
+                                        onClick={async () => {
+                                            const next = !diskPauseEnabled;
+                                            setDiskPauseEnabled(next);
+                                            await updateSetting('storage_guard_pause_scheduler', String(next));
+                                            await updateSetting('disk_pause_enabled', String(next));
+                                        }}
+                                        className={`w-10 h-5.5 rounded-full transition-all relative flex-shrink-0 p-0.5 ${diskPauseEnabled ? 'bg-emerald-500' : 'bg-zinc-800'}`}
+                                    >
+                                        <div className={`w-4.5 h-4.5 rounded-full bg-white transition-transform ${diskPauseEnabled ? 'translate-x-4.5' : 'translate-x-0'}`} />
+                                    </button>
+                                </div>
+
+                                {/* ─────────────────────────────────────────────────────────────
+                                    Individual Libraries Max Sizes & Dedicated Cleaning Routines
+                                   ───────────────────────────────────────────────────────────── */}
+                                <div className="space-y-4 border-t border-zinc-800 pt-5">
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                        <div>
+                                            <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-400"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+                                                Individual Library Max Sizes & Storage Guards
+                                            </h3>
+                                            <p className="text-xs text-zinc-400 mt-0.5">
+                                                Configure max capacity limits for individual libraries. When any library exceeds its limit, its own cleaning routine runs independently.
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    {libraryLimits.length === 0 ? (
+                                        <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-800 text-xs font-bold text-zinc-500 text-center">
+                                            No media instances configured. Add Radarr, Sonarr, or Lidarr instances to configure individual library limits.
+                                        </div>
+                                    ) : (
+                                        <div className="grid grid-cols-1 gap-3">
+                                            {libraryLimits.map(lib => {
+                                                const instDisk = diskInfo?.byInstance?.find((i: any) => i.id === lib.instanceId || i.name === lib.name);
+                                                const folders = Array.isArray(instDisk?.folders) ? instDisk.folders : [];
+                                                const currentBytes = folders.reduce((s: number, f: any) => s + (f?.totalBytes - f?.freeBytes || 0), 0);
+                                                const currentGb = currentBytes > 0 ? (currentBytes / (1024 ** 3)) : 0;
+                                                const percentOfLimit = lib.maxGb > 0 && currentGb > 0 ? Math.min(100, Math.round((currentGb / lib.maxGb) * 100)) : 0;
+                                                const isOverLimit = lib.enabled && lib.maxGb > 0 && currentGb > lib.maxGb;
+
+                                                return (
+                                                    <div
+                                                        key={lib.id}
+                                                        className={`p-4 rounded-2xl border transition-all ${
+                                                            lib.enabled
+                                                                ? isOverLimit
+                                                                    ? 'bg-rose-500/5 border-rose-500/30 shadow-lg'
+                                                                    : 'bg-zinc-950/80 border-zinc-800/90'
+                                                                : 'bg-zinc-950/40 border-zinc-900 opacity-60'
+                                                        }`}
+                                                    >
+                                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                                            <div className="flex items-center gap-3">
+                                                                <div className={`p-2.5 rounded-xl ${
+                                                                    lib.type === 'radarr' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
+                                                                    lib.type === 'sonarr' ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20' :
+                                                                    'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                                                                }`}>
+                                                                    {lib.type === 'radarr' ? (
+                                                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/></svg>
+                                                                    ) : (
+                                                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect width="20" height="15" x="2" y="7" rx="2"/><polyline points="17 2 12 7 7 2"/></svg>
+                                                                    )}
+                                                                </div>
+                                                                <div>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="text-sm font-black text-white">{lib.name}</span>
+                                                                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-zinc-800 text-zinc-400 border border-zinc-700">
+                                                                            {lib.type}
+                                                                        </span>
+                                                                        {isOverLimit && (
+                                                                            <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-rose-500/20 text-rose-400 border border-rose-500/30 animate-pulse">
+                                                                                Over Limit ({currentGb.toFixed(0)} GB &gt; {lib.maxGb} GB)
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    {currentGb > 0 && (
+                                                                        <p className="text-[11px] text-zinc-400 mt-0.5">
+                                                                            Current Size: <span className="text-zinc-200 font-bold">{currentGb.toFixed(1)} GB</span>
+                                                                            {lib.enabled && lib.maxGb > 0 && (
+                                                                                <span className="text-zinc-500 font-medium"> ({percentOfLimit}% of {lib.maxGb} GB limit)</span>
+                                                                            )}
+                                                                        </p>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Controls */}
+                                                            <div className="flex flex-wrap items-center gap-3">
+                                                                {/* Clean Mode selector */}
+                                                                {lib.enabled && (
+                                                                    <div className="flex items-center gap-1 bg-zinc-900/90 border border-zinc-800 rounded-xl p-1">
+                                                                        {(['largest', 'oldest', 'unplayed'] as const).map(m => (
+                                                                            <button
+                                                                                key={m}
+                                                                                type="button"
+                                                                                onClick={() => handleUpdateLibraryLimit(lib.id, { cleanMode: m })}
+                                                                                className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase transition-all ${
+                                                                                    lib.cleanMode === m
+                                                                                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                                                                        : 'text-zinc-500 hover:text-zinc-300'
+                                                                                }`}
+                                                                            >
+                                                                                {m === 'largest' ? 'Largest' : m === 'oldest' ? 'Oldest' : 'Unplayed'}
+                                                                            </button>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+
+                                                                {/* Max Size input */}
+                                                                <div className="flex items-center gap-1.5 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-1.5">
+                                                                    <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">Max:</span>
+                                                                    <input
+                                                                        type="number"
+                                                                        min="1"
+                                                                        max="100000"
+                                                                        value={lib.maxGb}
+                                                                        disabled={!lib.enabled}
+                                                                        onChange={e => handleUpdateLibraryLimit(lib.id, { maxGb: Math.max(1, parseInt(e.target.value) || 100) })}
+                                                                        className="w-16 bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-0.5 text-center text-xs font-bold text-emerald-400 outline-none disabled:opacity-40"
+                                                                    />
+                                                                    <span className="text-[11px] font-bold text-zinc-400">GB</span>
+                                                                </div>
+
+                                                                {/* Run Library Clean Button */}
+                                                                {lib.enabled && (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleRunLibraryClean(lib)}
+                                                                        disabled={cleaningLibraryId === lib.id}
+                                                                        className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-zinc-700 text-zinc-300 hover:text-white text-xs font-bold transition-all disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
+                                                                    >
+                                                                        {cleaningLibraryId === lib.id ? (
+                                                                            <div className="w-3 h-3 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                                                                        ) : (
+                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                                                                        )}
+                                                                        Clean Library
+                                                                    </button>
+                                                                )}
+
+                                                                {/* Enable toggle switch */}
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleUpdateLibraryLimit(lib.id, { enabled: !lib.enabled })}
+                                                                    className={`w-11 h-6 rounded-full transition-all relative flex-shrink-0 p-0.5 ${
+                                                                        lib.enabled ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-zinc-800'
+                                                                    }`}
+                                                                    title={lib.enabled ? `Disable ${lib.name} Limit` : `Enable ${lib.name} Limit`}
+                                                                >
+                                                                    <div className={`w-5 h-5 rounded-full bg-white transition-transform ${lib.enabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                                                                </button>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Usage Bar */}
+                                                        {lib.enabled && lib.maxGb > 0 && (
+                                                            <div className="mt-3 space-y-1.5">
+                                                                <div className="relative h-2 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800/80">
+                                                                    <div
+                                                                        className={`h-full rounded-full transition-all duration-500 ${
+                                                                            percentOfLimit >= 100
+                                                                                ? 'bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.4)]'
+                                                                                : percentOfLimit >= 80
+                                                                                ? 'bg-amber-500'
+                                                                                : 'bg-emerald-500'
+                                                                        }`}
+                                                                        style={{ width: `${Math.min(100, percentOfLimit)}%` }}
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Candidates in Clean Queue Preview List */}
+                                <div className="space-y-3 border-t border-zinc-800 pt-4">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <span className="text-xs font-black text-white uppercase tracking-wider block flex items-center gap-1.5">
+                                                🧹 Next Candidates in Line for Auto-Clean ({candidates.length})
+                                            </span>
+                                            <p className="text-[11px] text-zinc-500">Sorted by priority mode ({diskSmartCleanMode.toUpperCase()}). Items with immunity active are protected.</p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={fetchCandidates}
+                                            className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 hover:text-emerald-300 bg-zinc-900 border border-zinc-800 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                                        >
+                                            <svg className={`w-3 h-3 ${loadingCandidates ? 'animate-spin' : ''}`} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                                            Refresh Queue
+                                        </button>
+                                    </div>
+
+                                    {loadingCandidates ? (
+                                        <div className="p-4 text-center text-xs font-bold text-zinc-500 italic">Calculating candidate clean queue...</div>
+                                    ) : candidates.length === 0 ? (
+                                        <div className="p-4 text-center bg-zinc-950 rounded-xl border border-zinc-800 text-xs font-bold text-zinc-500">
+                                            No items currently matching clean criteria (or all recent items are protected by immunity).
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-2 max-h-72 overflow-y-auto custom-scrollbar pr-1">
+                                            {candidates.slice(0, 15).map((item, idx) => (
+                                                <div key={item.key || idx} className="flex items-center justify-between p-3 rounded-xl bg-zinc-950 border border-zinc-800/80 hover:border-zinc-700 transition-all">
+                                                    <div className="flex items-center gap-3 min-w-0">
+                                                        <span className="w-5 h-5 rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/20 text-[10px] font-black flex items-center justify-center flex-shrink-0">
+                                                            #{idx + 1}
+                                                        </span>
+                                                        <div className="space-y-0.5 min-w-0">
+                                                            <h4 className="text-xs font-bold text-white truncate max-w-sm" title={item.title}>{item.title}</h4>
+                                                            <div className="flex items-center gap-2 text-[10px] text-zinc-500 font-medium">
+                                                                <span>{item.instanceName}</span>
+                                                                <span>•</span>
+                                                                <span className="text-zinc-400 font-bold">{((item.size || 0) / (1024 ** 3)).toFixed(2)} GB</span>
+                                                                <span>•</span>
+                                                                <span className={item.isWatched ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}>
+                                                                    {item.isWatched ? 'Watched' : 'Unplayed'}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <button
+                                                        type="button"
+                                                        onClick={async () => {
+                                                            if (!confirm(`Are you sure you want to clean "${item.title}"?`)) return;
+                                                            try {
+                                                                const epUrl = item.type === 'movie' ? `/api/radarr/delete?id=${item.id}&instanceId=${item.instanceId}` : `/api/sonarr/delete?id=${item.id}&instanceId=${item.instanceId}`;
+                                                                const res = await fetch(epUrl, { method: 'DELETE' });
+                                                                if (res.ok) {
+                                                                    toast.success(`Deleted ${item.title}`);
+                                                                    fetchCandidates();
+                                                                } else {
+                                                                    toast.error('Failed to delete item');
+                                                                }
+                                                            } catch (e) {
+                                                                toast.error('Error deleting item');
+                                                            }
+                                                        }}
+                                                        className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition-colors flex-shrink-0 cursor-pointer"
+                                                    >
+                                                        Delete Now
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
-                        </div>
+                        )}
                     </div>
-                )}
-            </div>
 
                     {/* QBit Auto-Cleaner & Smart Clean Candidates */}
                                 {/* QBit Auto Cleaner (Library Cleanup) */}

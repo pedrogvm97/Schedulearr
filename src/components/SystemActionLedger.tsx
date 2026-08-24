@@ -107,7 +107,7 @@ export function SystemActionLedger() {
 
                     if (h.category === 'qbit_clean' || h.category === 'media_clean') {
                         actionType = 'delete';
-                        actionLabel = h.category === 'media_clean' ? 'Storage Guard Nuke' : 'Auto-Clean';
+                        actionLabel = h.category === 'media_clean' ? 'Storage Guard Purge' : 'Auto-Clean';
                     } else if (h.category === 'disk_guard') {
                         actionType = 'system';
                         actionLabel = 'Disk Guard Alert';

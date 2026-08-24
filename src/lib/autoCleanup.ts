@@ -521,5 +521,179 @@ export async function runSmartCleanup() {
     return { success: true, message: 'No eligible library items were deleted.' };
 }
 
+export interface LibraryLimitConfig {
+    id: string;
+    name: string;
+    instanceId: string;
+    type: 'radarr' | 'sonarr' | 'lidarr';
+    enabled: boolean;
+    maxGb: number;
+    cleanMode?: 'largest' | 'oldest' | 'unplayed';
+}
+
+export async function runLibrarySmartCleanup(libraryConfig: LibraryLimitConfig) {
+    if (!libraryConfig.enabled || libraryConfig.maxGb <= 0) {
+        return { success: false, message: `Library cleanup disabled or max size not set for ${libraryConfig.name}` };
+    }
+
+    const radarrInstances = getInstances('radarr', true);
+    const sonarrInstances = getInstances('sonarr', true);
+    const targetRadarr = radarrInstances.find(i => i.id === libraryConfig.instanceId);
+    const targetSonarr = sonarrInstances.find(i => i.id === libraryConfig.instanceId);
+
+    const maxSizeBytes = libraryConfig.maxGb * 1024 * 1024 * 1024;
+    const mode = libraryConfig.cleanMode || getSetting('media_smart_clean_mode') || 'largest';
+    const immunityEnabled = getSetting('media_smart_clean_immunity_enabled') === 'true';
+    const immunityDays = parseInt(getSetting('media_smart_clean_immunity_days') || '7');
+
+    const candidates: any[] = [];
+    let currentTotalBytes = 0;
+
+    if (targetRadarr && libraryConfig.type === 'radarr') {
+        try {
+            const movies = await getAllMovies(targetRadarr.url, targetRadarr.api_key);
+            for (const m of movies) {
+                const size = m.sizeOnDisk || m.statistics?.sizeOnDisk || m.movieFile?.size || 0;
+                if (size === 0) continue;
+                currentTotalBytes += size;
+
+                if (immunityEnabled) {
+                    const cutoff = Date.now() - immunityDays * 24 * 60 * 60 * 1000;
+                    if (new Date(m.added).getTime() >= cutoff) continue;
+                }
+
+                candidates.push({
+                    id: m.id,
+                    title: m.title,
+                    type: 'movie',
+                    size,
+                    added: m.added,
+                    instance: targetRadarr,
+                    tmdbId: m.tmdbId
+                });
+            }
+        } catch (e) {
+            console.error(`Error fetching movies for library ${libraryConfig.name}:`, e);
+        }
+    } else if (targetSonarr && libraryConfig.type === 'sonarr') {
+        try {
+            const series = await getAllSeries(targetSonarr.url, targetSonarr.api_key);
+            for (const s of series) {
+                const size = s.statistics?.sizeOnDisk || s.sizeOnDisk || 0;
+                if (size === 0) continue;
+                currentTotalBytes += size;
+
+                if (immunityEnabled) {
+                    const cutoff = Date.now() - immunityDays * 24 * 60 * 60 * 1000;
+                    if (new Date(s.added).getTime() >= cutoff) continue;
+                }
+
+                candidates.push({
+                    id: s.id,
+                    title: s.title,
+                    type: 'series',
+                    size,
+                    added: s.added,
+                    instance: targetSonarr,
+                    tvdbId: s.tvdbId
+                });
+            }
+        } catch (e) {
+            console.error(`Error fetching series for library ${libraryConfig.name}:`, e);
+        }
+    }
+
+    if (currentTotalBytes <= maxSizeBytes) {
+        return {
+            success: true,
+            message: `${libraryConfig.name} is at ${(currentTotalBytes / 1e9).toFixed(1)} GB (within ${libraryConfig.maxGb} GB limit). No items deleted.`,
+            currentSizeGb: currentTotalBytes / 1e9,
+            maxGb: libraryConfig.maxGb
+        };
+    }
+
+    // Sort candidates according to clean mode
+    if (mode === 'largest') {
+        candidates.sort((a, b) => b.size - a.size);
+    } else if (mode === 'oldest') {
+        candidates.sort((a, b) => new Date(a.added).getTime() - new Date(b.added).getTime());
+    } else if (mode === 'unplayed') {
+        const plexInstances = getInstances('plex', true);
+        let plexWatchMap = new Map<string, boolean>();
+        if (plexInstances.length > 0) {
+            try {
+                plexWatchMap = await getPlexWatchStatusMap(plexInstances[0].url, plexInstances[0].api_key);
+            } catch (e) {}
+        }
+        candidates.sort((a, b) => {
+            const aWatched = (a.tmdbId && plexWatchMap.get(`tmdb://${a.tmdbId}`.toLowerCase())) ||
+                             (a.tvdbId && plexWatchMap.get(`tvdb://${a.tvdbId}`.toLowerCase()));
+            const bWatched = (b.tmdbId && plexWatchMap.get(`tmdb://${b.tmdbId}`.toLowerCase())) ||
+                             (b.tvdbId && plexWatchMap.get(`tvdb://${b.tvdbId}`.toLowerCase()));
+            if (!aWatched && bWatched) return -1;
+            if (aWatched && !bWatched) return 1;
+            return new Date(a.added).getTime() - new Date(b.added).getTime();
+        });
+    }
+
+    let cleanedCount = 0;
+    const cleanedNames: string[] = [];
+
+    for (const item of candidates) {
+        if (currentTotalBytes <= maxSizeBytes || cleanedCount >= 10) break;
+        try {
+            let deleted = false;
+            if (item.type === 'movie') {
+                deleted = await deleteMovie(item.instance.url, item.instance.api_key, item.id, true);
+            } else if (item.type === 'series') {
+                deleted = await deleteSeries(item.instance.url, item.instance.api_key, item.id, true);
+            }
+            if (deleted) {
+                currentTotalBytes -= item.size;
+                cleanedNames.push(item.title);
+                cleanedCount++;
+                await new Promise(r => setTimeout(r, 1000));
+            }
+        } catch (e) {
+            console.error(`Error deleting ${item.title} during library cleanup:`, e);
+        }
+    }
+
+    if (cleanedCount > 0) {
+        const message = `Library Guard (${libraryConfig.name}): Deleted ${cleanedCount} items [${cleanedNames.join(', ')}] to enforce ${libraryConfig.maxGb} GB max size limit. Remaining size: ${(currentTotalBytes / 1e9).toFixed(1)} GB.`;
+        logSearchHistory(`Library Guard (${libraryConfig.name})`, [], [], message, 'media_clean');
+        return { success: true, message, cleanedCount, currentSizeGb: currentTotalBytes / 1e9 };
+    }
+
+    return {
+        success: true,
+        message: `${libraryConfig.name} is over limit (${(currentTotalBytes / 1e9).toFixed(1)} GB > ${libraryConfig.maxGb} GB) but no eligible items could be deleted.`,
+        currentSizeGb: currentTotalBytes / 1e9
+    };
+}
+
+export async function checkAndCleanIndividualLibraries() {
+    const limitsStr = getSetting('library_storage_limits') || '[]';
+    let libraryLimits: LibraryLimitConfig[] = [];
+    try {
+        libraryLimits = JSON.parse(limitsStr);
+    } catch {
+        libraryLimits = [];
+    }
+
+    const results = [];
+    for (const lib of libraryLimits) {
+        if (lib.enabled && lib.maxGb > 0) {
+            try {
+                const res = await runLibrarySmartCleanup(lib);
+                results.push({ library: lib.name, ...res });
+            } catch (e: any) {
+                console.error(`Failed library cleanup for ${lib.name}:`, e);
+            }
+        }
+    }
+    return results;
+}
+
 
 
