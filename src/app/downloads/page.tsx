@@ -615,40 +615,211 @@ function DownloadsContent() {
                         </div>
 
                         {isCleanupSettingsOpen && (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
-                                <div className="space-y-4">
-                                    <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-950/60 border border-zinc-800/80">
+                            <div className="space-y-6 pt-2 animate-in fade-in slide-in-from-top-3 duration-200">
+                                {/* Section 1: Core Automation Toggles */}
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div className="flex items-center justify-between p-4 bg-zinc-950/60 rounded-xl border border-zinc-800/80">
                                         <div>
-                                            <span className="text-xs font-bold text-white block">Auto Cleanup Engine</span>
-                                            <span className="text-[11px] text-zinc-400">Run background watchdog periodically</span>
+                                            <span className="text-sm font-bold text-white block">Auto Cleanup Engine</span>
+                                            <span className="text-xs text-zinc-400">Run background watchdog periodically</span>
                                         </div>
-                                        <Toggle value={qbitCleanupEnabled} onChange={setQbitCleanupEnabled} />
+                                        <Toggle
+                                            value={qbitCleanupEnabled}
+                                            onChange={v => { setQbitCleanupEnabled(v); updateSetting('qbit_cleanup_enabled', v); }}
+                                        />
                                     </div>
 
-                                    <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-950/60 border border-zinc-800/80">
+                                    <div className="flex items-center justify-between p-4 bg-zinc-950/60 rounded-xl border border-zinc-800/80">
                                         <div>
-                                            <span className="text-xs font-bold text-white block">Stagnant Torrents</span>
-                                            <span className="text-[11px] text-zinc-400">Remove downloads with 0 B/s for {qbitStagnationMin} mins</span>
+                                            <span className="text-sm font-bold text-white block">Delete Files From Disk</span>
+                                            <span className="text-xs text-zinc-400">Reclaim physical storage immediately</span>
                                         </div>
-                                        <Toggle value={qbitStagnationEnabled} onChange={setQbitStagnationEnabled} />
+                                        <Toggle
+                                            value={qbitDeleteFiles}
+                                            onChange={v => { setQbitDeleteFiles(v); updateSetting('qbit_cleanup_delete_files', v); }}
+                                        />
+                                    </div>
+
+                                    <div className="flex items-center justify-between p-4 bg-zinc-950/60 rounded-xl border border-zinc-800/80">
+                                        <div>
+                                            <span className="text-sm font-bold text-white block">Blacklist Failed Release</span>
+                                            <span className="text-xs text-zinc-400">Instruct Sonarr/Radarr to find alternate</span>
+                                        </div>
+                                        <Toggle
+                                            value={qbitBlacklist}
+                                            onChange={v => { setQbitBlacklist(v); updateSetting('qbit_cleanup_blacklist', v); }}
+                                        />
                                     </div>
                                 </div>
 
-                                <div className="space-y-4">
-                                    <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-950/60 border border-zinc-800/80">
-                                        <div>
-                                            <span className="text-xs font-bold text-white block">Delete Files From Disk</span>
-                                            <span className="text-[11px] text-zinc-400">Reclaim physical storage immediately</span>
-                                        </div>
-                                        <Toggle value={qbitDeleteFiles} onChange={setQbitDeleteFiles} />
+                                {/* Section 2: Timing, Stagnation & Size Thresholds */}
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    {/* Scan Interval */}
+                                    <div className="p-4 bg-zinc-950/60 rounded-xl border border-zinc-800/80 space-y-2.5">
+                                        <label className="text-xs font-bold text-zinc-300 uppercase tracking-wider block">
+                                            Scan Interval (Minutes)
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            value={qbitCleanupIntervalMin}
+                                            onChange={e => {
+                                                const v = parseInt(e.target.value) || 15;
+                                                setQbitCleanupIntervalMin(v);
+                                                updateSetting('qbit_cleanup_interval_min', v);
+                                            }}
+                                            className="w-full bg-zinc-900 border border-zinc-700/80 rounded-xl px-3.5 py-2 text-sm font-semibold text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all"
+                                        />
+                                        <p className="text-xs text-zinc-400 leading-relaxed">
+                                            How often the background process scans for stalled items.
+                                        </p>
                                     </div>
 
-                                    <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-950/60 border border-zinc-800/80">
-                                        <div>
-                                            <span className="text-xs font-bold text-white block">Blacklist Failed Release</span>
-                                            <span className="text-[11px] text-zinc-400">Instruct Sonarr/Radarr to find alternate release</span>
+                                    {/* Stagnation Limit */}
+                                    <div className="p-4 bg-zinc-950/60 rounded-xl border border-zinc-800/80 space-y-2.5">
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-xs font-bold text-zinc-300 uppercase tracking-wider">
+                                                Stagnation Timeout
+                                            </label>
+                                            <Toggle
+                                                value={qbitStagnationEnabled}
+                                                onChange={v => { setQbitStagnationEnabled(v); updateSetting('qbit_cleanup_stagnation_enabled', v); }}
+                                            />
                                         </div>
-                                        <Toggle value={qbitBlacklist} onChange={setQbitBlacklist} />
+                                        <div className="flex items-center gap-2">
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                disabled={!qbitStagnationEnabled}
+                                                value={qbitStagnationMin}
+                                                onChange={e => {
+                                                    const v = parseInt(e.target.value) || 60;
+                                                    setQbitStagnationMin(v);
+                                                    updateSetting('qbit_cleanup_stagnation_min', v);
+                                                }}
+                                                className="w-full bg-zinc-900 border border-zinc-700/80 rounded-xl px-3.5 py-2 text-sm font-semibold text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all disabled:opacity-30"
+                                            />
+                                            <span className="text-xs font-bold text-zinc-400">min</span>
+                                        </div>
+                                        <p className="text-xs text-zinc-400 leading-relaxed">
+                                            Purge downloads stalled at 0 B/s for longer than this.
+                                        </p>
+                                    </div>
+
+                                    {/* Max Size */}
+                                    <div className="p-4 bg-zinc-950/60 rounded-xl border border-zinc-800/80 space-y-2.5">
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-xs font-bold text-zinc-300 uppercase tracking-wider">
+                                                Max Release Size
+                                            </label>
+                                            <Toggle
+                                                value={qbitSizeCleanupEnabled}
+                                                onChange={v => { setQbitSizeCleanupEnabled(v); updateSetting('qbit_cleanup_max_size_enabled', v); }}
+                                            />
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                disabled={!qbitSizeCleanupEnabled}
+                                                value={qbitMaxSizeGb}
+                                                onChange={e => {
+                                                    const v = parseInt(e.target.value) || 15;
+                                                    setQbitMaxSizeGb(v);
+                                                    updateSetting('qbit_cleanup_max_size_gb', v);
+                                                }}
+                                                className="w-full bg-zinc-900 border border-zinc-700/80 rounded-xl px-3.5 py-2 text-sm font-semibold text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all disabled:opacity-30"
+                                            />
+                                            <span className="text-xs font-bold text-zinc-400">GB</span>
+                                        </div>
+                                        <p className="text-xs text-zinc-400 leading-relaxed">
+                                            Releases exceeding this size limit are rejected and purged.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Section 3: Whitelist & Exclusions */}
+                                <div className="p-4 bg-zinc-950/60 rounded-xl border border-zinc-800/80 space-y-2.5">
+                                    <label className="text-xs font-bold text-zinc-300 uppercase tracking-wider block">
+                                        Exclusions / Whitelist
+                                    </label>
+                                    <input
+                                        type="text"
+                                        placeholder="seeding, keep, manual, radarr-4k, specific-tag"
+                                        value={qbitCleanupExclusions}
+                                        onChange={e => {
+                                            const v = e.target.value;
+                                            setQbitCleanupExclusions(v);
+                                            updateSetting('qbit_cleanup_exclusions', v);
+                                        }}
+                                        className="w-full bg-zinc-900 border border-zinc-700/80 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder:text-zinc-600 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all"
+                                    />
+                                    <p className="text-xs text-zinc-400 leading-relaxed">
+                                        Comma-separated categories, release names, or torrent hashes to exempt from automatic cleanup.
+                                    </p>
+                                </div>
+
+                                {/* Section 4: Smart Storage Guard */}
+                                <div className="p-5 bg-zinc-950/70 rounded-2xl border border-emerald-500/20 space-y-5">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400">
+                                            <HardDrive size={18} />
+                                        </div>
+                                        <div>
+                                            <h4 className="text-sm font-bold text-white">Smart Auto-Clean &amp; Storage Guard</h4>
+                                            <p className="text-xs text-zinc-400">Intelligently target which stalled or oversized files to clean first.</p>
+                                        </div>
+                                    </div>
+
+                                    {/* Sort mode selector */}
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Priority Mode</label>
+                                        <div className="flex flex-wrap gap-2.5">
+                                            {([
+                                                { id: 'largest', label: 'Largest Files', icon: <HardDrive size={14} /> },
+                                                { id: 'oldest', label: 'Oldest Added', icon: <Clock size={14} /> },
+                                                { id: 'unplayed', label: 'Unplayed / Incomplete', icon: <Tv size={14} /> },
+                                            ] as const).map(opt => (
+                                                <button
+                                                    key={opt.id}
+                                                    onClick={() => { setSmartCleanMode(opt.id); updateSetting('media_smart_clean_mode', opt.id); }}
+                                                    className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider border transition-all cursor-pointer ${smartCleanMode === opt.id
+                                                        ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-300 shadow-sm'
+                                                        : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200'
+                                                        }`}
+                                                >
+                                                    {opt.icon}
+                                                    {opt.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Immunity toggle */}
+                                    <div className="flex items-center justify-between p-3.5 bg-zinc-900/60 rounded-xl border border-zinc-800/60">
+                                        <div className="flex items-center gap-2.5">
+                                            <ShieldCheck size={16} className={smartCleanImmunityEnabled ? 'text-amber-400' : 'text-zinc-600'} />
+                                            <div>
+                                                <div className="text-sm font-bold text-zinc-200">Protect Recently Added Downloads</div>
+                                                <p className="text-xs text-zinc-400 flex items-center flex-wrap gap-1 mt-0.5">
+                                                    <span>Skip torrents added within the last</span>
+                                                    <input
+                                                        type="number"
+                                                        min="1"
+                                                        max="90"
+                                                        disabled={!smartCleanImmunityEnabled}
+                                                        value={smartCleanImmunityDays}
+                                                        onChange={e => { const v = parseInt(e.target.value) || 7; setSmartCleanImmunityDays(v); updateSetting('media_smart_clean_immunity_days', v); }}
+                                                        className="w-12 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-white text-xs font-bold text-center outline-none focus:border-amber-500 disabled:opacity-30 transition-all"
+                                                    />
+                                                    <span>days.</span>
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <Toggle
+                                            value={smartCleanImmunityEnabled}
+                                            onChange={v => { setSmartCleanImmunityEnabled(v); updateSetting('media_smart_clean_immunity_enabled', v); }}
+                                        />
                                     </div>
                                 </div>
                             </div>
