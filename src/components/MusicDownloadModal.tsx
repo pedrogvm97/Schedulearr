@@ -168,30 +168,45 @@ export function MusicDownloadModal({
                         artist: tArtist,
                         album: currentTrack.album || albumName,
                         saveFormat,
-                        path: currentTrack.path
+                        path: currentTrack.path,
+                        streamUrl: currentTrack.streamUrl,
+                        plexPart: currentTrack.plexPart || currentTrack.key,
+                        instanceId: currentTrack.instanceId
                     })
                 });
 
-                if (!prepRes.ok) {
-                    const errData = await prepRes.json().catch(() => ({}));
-                    throw new Error(errData.error || `Server download failed (HTTP ${prepRes.status})`);
+                if (prepRes.ok) {
+                    const prepData = await prepRes.json();
+                    if (prepData.downloadUrl) {
+                        setCurrentDownloadStatus(`Sending to device: ${prepData.filename || tTitle}`);
+
+                        // Step 2: Fetch the completed file as blob and trigger instant browser save
+                        const fileRes = await fetch(prepData.downloadUrl);
+                        if (!fileRes.ok) throw new Error(`File fetch failed (HTTP ${fileRes.status})`);
+                        const blob = await fileRes.blob();
+                        const blobUrl = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = blobUrl;
+                        a.download = prepData.filename || `${tArtist} - ${tTitle}.${saveFormat === 'original' ? 'mp3' : saveFormat}`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        setTimeout(() => window.URL.revokeObjectURL(blobUrl), 20000);
+                        successCount++;
+                        continue;
+                    }
                 }
 
-                const prepData = await prepRes.json();
-                if (!prepData.downloadUrl) {
-                    throw new Error(prepData.error || 'No download URL returned from server');
-                }
-
-                setCurrentDownloadStatus(`Sending to device: ${prepData.filename || tTitle}`);
-
-                // Step 2: Fetch the completed file as blob and trigger instant browser save
-                const fileRes = await fetch(prepData.downloadUrl);
-                if (!fileRes.ok) throw new Error(`File fetch failed (HTTP ${fileRes.status})`);
-                const blob = await fileRes.blob();
+                // Fallback: Direct stream / local file endpoint
+                const { url: directUrl, filename: directFilename } = getDownloadUrlForTrack(currentTrack);
+                setCurrentDownloadStatus(`Retrieving file: ${directFilename}`);
+                const directRes = await fetch(directUrl);
+                if (!directRes.ok) throw new Error(`Direct download failed (HTTP ${directRes.status})`);
+                const blob = await directRes.blob();
                 const blobUrl = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = blobUrl;
-                a.download = prepData.filename || `${tArtist} - ${tTitle}.${saveFormat === 'original' ? 'mp3' : saveFormat}`;
+                a.download = directFilename;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);

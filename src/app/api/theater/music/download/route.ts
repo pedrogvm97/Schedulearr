@@ -270,7 +270,10 @@ export async function POST(req: Request) {
             artist,
             album,
             saveFormat = 'mp3',
-            path: localFilePath
+            path: localFilePath,
+            streamUrl: customStreamUrl,
+            plexPart,
+            instanceId
         } = body;
 
         const effectiveTitle = (title || track?.title || track?.name || 'Track').replace(/[/\\?%*:|"<>]/g, '').trim();
@@ -286,13 +289,33 @@ export async function POST(req: Request) {
 
         const targetFile = path.join(tempDir, `${token}.${outFormat}`);
 
-        // 1. If it's a local file on server disk
-        const filePath = localFilePath || track?.path;
-        if (filePath && fs.existsSync(filePath)) {
-            if (outFormat === path.extname(filePath).replace(/^\./, '').toLowerCase()) {
-                fs.copyFileSync(filePath, targetFile);
+        // 1. Resolve Local File on Server Disk
+        const candidatePaths = [
+            localFilePath,
+            track?.path,
+            localFilePath ? decodeURIComponent(localFilePath) : null,
+            track?.path ? decodeURIComponent(track.path) : null
+        ].filter(Boolean) as string[];
+
+        let resolvedLocalPath: string | null = null;
+        for (const p of candidatePaths) {
+            if (fs.existsSync(p)) {
+                resolvedLocalPath = p;
+                break;
+            }
+            const relPath = path.resolve(process.cwd(), p);
+            if (fs.existsSync(relPath)) {
+                resolvedLocalPath = relPath;
+                break;
+            }
+        }
+
+        if (resolvedLocalPath) {
+            const srcExt = path.extname(resolvedLocalPath).replace(/^\./, '').toLowerCase();
+            if (outFormat === srcExt || saveFormat === 'original') {
+                fs.copyFileSync(resolvedLocalPath, targetFile);
             } else {
-                const cmd = `"${ffmpegPath}" -y -i "${filePath}" -vn ${outFormat === 'mp3' ? '-b:a 320k -ar 44100' : ''} "${targetFile}"`;
+                const cmd = `"${ffmpegPath}" -y -i "${resolvedLocalPath}" -vn ${outFormat === 'mp3' ? '-b:a 320k -ar 44100' : ''} "${targetFile}"`;
                 await execPromise(cmd, { timeout: 60000 });
             }
 
@@ -307,7 +330,74 @@ export async function POST(req: Request) {
             }
         }
 
-        // 2. If it's a YouTube / Online Track
+        // 2. Resolve Remote / Plex Stream URL
+        const streamUrlCandidate = customStreamUrl || track?.streamUrl;
+        if (streamUrlCandidate || plexPart) {
+            let targetStreamUrl = streamUrlCandidate || '';
+
+            if (plexPart || targetStreamUrl.includes('plexPart=')) {
+                try {
+                    const effectivePart = plexPart || new URL(targetStreamUrl, req.url).searchParams.get('plexPart');
+                    const effectiveInst = instanceId || new URL(targetStreamUrl, req.url).searchParams.get('instanceId');
+
+                    const plexInstances = getInstances().filter(i => i.type === 'plex' && i.enabled);
+                    const plex = effectiveInst ? plexInstances.find(i => i.id === effectiveInst) : plexInstances[0];
+
+                    if (plex && effectivePart) {
+                        const plexUrlBase = plex.url.replace(/\/$/, '');
+                        const normalizedPart = effectivePart.startsWith('/') ? effectivePart : `/${effectivePart}`;
+                        const sep = normalizedPart.includes('?') ? '&' : '?';
+                        targetStreamUrl = `${plexUrlBase}${normalizedPart}${sep}X-Plex-Token=${plex.api_key}`;
+                    }
+                } catch {}
+            } else if (targetStreamUrl.startsWith('/')) {
+                targetStreamUrl = new URL(targetStreamUrl, req.url).toString();
+            }
+
+            if (targetStreamUrl.startsWith('http')) {
+                try {
+                    console.log(`[DOWNLOAD TO SERVER] Fetching remote audio stream: ${targetStreamUrl}`);
+                    const remoteRes = await axios.get(targetStreamUrl, {
+                        responseType: 'arraybuffer',
+                        timeout: 30000
+                    });
+
+                    if (remoteRes.status === 200 && remoteRes.data && remoteRes.data.length > 1024) {
+                        const tempRawPath = path.join(tempDir, `raw_${token}`);
+                        fs.writeFileSync(tempRawPath, Buffer.from(remoteRes.data));
+
+                        if (outFormat === 'mp3' || saveFormat === 'original') {
+                            // If raw file or convert needed
+                            try {
+                                const cmd = `"${ffmpegPath}" -y -i "${tempRawPath}" -vn ${outFormat === 'mp3' ? '-b:a 320k -ar 44100' : ''} "${targetFile}"`;
+                                await execPromise(cmd, { timeout: 60000 });
+                            } catch {
+                                fs.copyFileSync(tempRawPath, targetFile);
+                            }
+                        } else {
+                            const cmd = `"${ffmpegPath}" -y -i "${tempRawPath}" -vn "${targetFile}"`;
+                            await execPromise(cmd, { timeout: 60000 });
+                        }
+
+                        try { if (fs.existsSync(tempRawPath)) fs.unlinkSync(tempRawPath); } catch {}
+
+                        if (fs.existsSync(targetFile) && fs.statSync(targetFile).size > 1024) {
+                            return NextResponse.json({
+                                success: true,
+                                token,
+                                filename,
+                                size: fs.statSync(targetFile).size,
+                                downloadUrl: `/api/theater/music/download?token=${token}&filename=${encodeURIComponent(filename)}`
+                            });
+                        }
+                    }
+                } catch (remoteErr: any) {
+                    console.warn('[DOWNLOAD TO SERVER] Remote stream download error:', remoteErr.message);
+                }
+            }
+        }
+
+        // 3. Resolve YouTube / Online Track
         let cleanYtId = (youtubeId || track?.youtubeId || '').replace(/^yt-/, '');
         if (!cleanYtId && (track?.id?.startsWith('yt-') || track?.id?.startsWith('online-'))) {
             cleanYtId = track.id.replace(/^(yt-|online-)/, '');
@@ -318,7 +408,7 @@ export async function POST(req: Request) {
         const ytDlpBin = await ensureYtDlpBinary();
         let downloaded = false;
 
-        // Try yt-dlp first
+        // Try yt-dlp
         try {
             let cmd = '';
             if (outFormat === 'mp3' || outFormat === 'flac' || outFormat === 'wav') {
@@ -363,7 +453,7 @@ export async function POST(req: Request) {
             });
         }
 
-        return NextResponse.json({ error: 'Failed to download audio file to server.' }, { status: 502 });
+        return NextResponse.json({ error: 'Failed to process audio file for download.' }, { status: 502 });
     } catch (e: any) {
         console.error('[DOWNLOAD TO SERVER] Fatal Error:', e);
         return NextResponse.json({ error: e.message }, { status: 500 });
