@@ -1653,10 +1653,11 @@ function TheaterPageContent() {
 
     // Accurate Show / Anime name extractor from item metadata, folder hierarchy, and path
     const extractShowName = useCallback((item: MediaItem): string => {
+        if (!item) return 'Unknown Show';
         if (item.seriesTitle) return item.seriesTitle.trim();
         if (item.showTitle) return item.showTitle.trim();
 
-        if (item.path) {
+        if (item.path && typeof item.path === 'string') {
             const parts = item.path.split(/[/\\]/).filter(Boolean);
             if (parts.length >= 2) {
                 const parent = parts[parts.length - 2].trim();
@@ -1669,15 +1670,16 @@ function TheaterPageContent() {
             }
         }
 
-        if (item.folder && !/^(season\s*\d+|specials?|ova|shows?|anime|series|tv|media|videos?)$/i.test(item.folder.trim())) {
+        if (item.folder && typeof item.folder === 'string' && !/^(season\s*\d+|specials?|ova|shows?|anime|series|tv|media|videos?)$/i.test(item.folder.trim())) {
             const cleaned = item.folder.replace(/season\s*\d+/i, '').trim();
             if (cleaned) return cleaned;
         }
 
-        const titleSplit = item.title.split(/(?:[-–—]\s*)?s\d+e\d+/i)[0]?.trim();
+        const rawTitle = String(item.title || item.name || '').trim();
+        const titleSplit = rawTitle.split(/(?:[-–—]\s*)?s\d+e\d+/i)[0]?.trim();
         if (titleSplit && titleSplit.length > 1) return titleSplit;
 
-        return item.folder || item.title;
+        return item.folder || rawTitle || 'Unknown Show';
     }, []);
 
     // Derived TV Shows with Seasons and Episodes
@@ -1685,12 +1687,15 @@ function TheaterPageContent() {
         const map = new Map<string, { name: string; posterUrl?: string; folder: string; seasons: { seasonNumber: number; episodes: MediaItem[] }[]; totalEpisodes: number; ids: Set<string> }>();
         
         for (const item of filteredItems) {
-            if (item.category !== 'video') continue;
-            const isShowItem = activeContentTab === 'show' || item.folder?.toLowerCase().includes('season') || item.folder?.toLowerCase().includes('show') || /s\d+e\d+/i.test(item.title) || /s\d+e\d+/i.test(item.path);
+            if (!item || item.category !== 'video') continue;
+            const itemTitle = String(item.title || item.name || '');
+            const itemPath = String(item.path || '');
+            const itemFolder = String(item.folder || '').toLowerCase();
+            const isShowItem = activeContentTab === 'show' || itemFolder.includes('season') || itemFolder.includes('show') || /s\d+e\d+/i.test(itemTitle) || /s\d+e\d+/i.test(itemPath);
             if (!isShowItem && activeContentTab !== 'show') continue;
 
             const showName = extractShowName(item);
-            const parsed = parseSeasonEpisode(item.title) || parseSeasonEpisode(item.path) || parseSeasonEpisode(item.name) || { season: 1, episode: 1 };
+            const parsed = parseSeasonEpisode(itemTitle) || parseSeasonEpisode(itemPath) || parseSeasonEpisode(String(item.name || '')) || { season: 1, episode: 1 };
             const enrichedItem = { ...item, seasonNumber: parsed.season, episodeNumber: parsed.episode };
 
             if (!map.has(showName)) {
@@ -1738,7 +1743,7 @@ function TheaterPageContent() {
             const iShowName = extractShowName(i).toLowerCase();
             return iShowName === targetShowName;
         }).map(i => {
-            const parsed = parseSeasonEpisode(i.title) || parseSeasonEpisode(i.path) || parseSeasonEpisode(i.name) || { season: 1, episode: 1 };
+            const parsed = parseSeasonEpisode(String(i.title || '')) || parseSeasonEpisode(String(i.path || '')) || parseSeasonEpisode(String(i.name || '')) || { season: 1, episode: 1 };
             return {
                 ...i,
                 seasonNumber: parsed.season,

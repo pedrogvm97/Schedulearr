@@ -1055,9 +1055,21 @@ function MediaDetailsPanelInner({
                         <div className="space-y-2">
                             <span className="text-[11px] font-black text-zinc-500 uppercase tracking-widest block">Genres</span>
                             <div className="flex flex-wrap gap-2">
-                                {(details?.genres || (item.genres || []).map((g: any) => typeof g === 'string' ? { name: g } : g)).map((g: any, idx: number) => (
-                                    <span key={g.id || idx} className="px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-xs font-black uppercase tracking-wider text-zinc-300">
-                                        {g.name}
+                                {[
+                                    ...(Array.isArray(details?.genres) ? details.genres : []),
+                                    ...(Array.isArray(item.genres) ? item.genres.map((g: any) => typeof g === 'string' ? { name: g } : g) : [])
+                                ]
+                                .filter((g: any, index: number, self: any[]) => {
+                                    const gName = typeof g?.name === 'string' ? g.name.trim() : (typeof g === 'string' ? g.trim() : '');
+                                    if (!gName) return false;
+                                    return self.findIndex((x: any) => {
+                                        const xName = typeof x?.name === 'string' ? x.name.trim() : (typeof x === 'string' ? x.trim() : '');
+                                        return xName.toLowerCase() === gName.toLowerCase();
+                                    }) === index;
+                                })
+                                .map((g: any, idx: number) => (
+                                    <span key={g?.id || idx} className="px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-xs font-black uppercase tracking-wider text-zinc-300">
+                                        {typeof g?.name === 'string' ? g.name : (typeof g === 'string' ? g : 'Genre')}
                                     </span>
                                 ))}
                             </div>
@@ -1070,21 +1082,31 @@ function MediaDetailsPanelInner({
                             <span className="text-[11px] font-black text-zinc-500 uppercase tracking-widest block">Studios & Networks</span>
                             <div className="flex flex-wrap gap-2">
                                 {[
-                                    ...(details?.networks || []),
-                                    ...(details?.production_companies || []),
-                                    ...(Array.isArray(item.productionCompanies) ? item.productionCompanies : []).map((name: string) => ({ name })),
-                                    ...(item.network ? [{ name: item.network }] : []),
-                                    ...(item.studio ? [{ name: item.studio }] : [])
+                                    ...(Array.isArray(details?.networks) ? details.networks : []),
+                                    ...(Array.isArray(details?.production_companies) ? details.production_companies : []),
+                                    ...(Array.isArray(item.productionCompanies) ? item.productionCompanies.map((c: any) => typeof c === 'string' ? { name: c } : c) : []),
+                                    ...(typeof item.network === 'string' ? [{ name: item.network }] : []),
+                                    ...(typeof item.studio === 'string' ? [{ name: item.studio }] : [])
                                 ]
-                                .filter((c: any, index: number, self: any[]) => c?.name && self.findIndex((x: any) => x.name?.toLowerCase() === c.name?.toLowerCase()) === index)
-                                .map((c: any, idx: number) => (
-                                    <span key={c.id || idx} className="px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs font-bold text-emerald-400 flex items-center gap-2">
-                                        {c.logo_path && (
-                                            <img src={`https://image.tmdb.org/t/p/w92${c.logo_path}`} className="h-4 object-contain brightness-200" alt="" />
-                                        )}
-                                        {c.name}
-                                    </span>
-                                ))}
+                                .filter((c: any, index: number, self: any[]) => {
+                                    const cName = typeof c?.name === 'string' ? c.name.trim() : (typeof c === 'string' ? c.trim() : '');
+                                    if (!cName) return false;
+                                    return self.findIndex((x: any) => {
+                                        const xName = typeof x?.name === 'string' ? x.name.trim() : (typeof x === 'string' ? x.trim() : '');
+                                        return xName.toLowerCase() === cName.toLowerCase();
+                                    }) === index;
+                                })
+                                .map((c: any, idx: number) => {
+                                    const nameStr = typeof c?.name === 'string' ? c.name : (typeof c === 'string' ? c : String(c?.name || 'Studio'));
+                                    return (
+                                        <span key={c?.id || idx} className="px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs font-bold text-emerald-400 flex items-center gap-2">
+                                            {c?.logo_path && typeof c.logo_path === 'string' && (
+                                                <img src={`https://image.tmdb.org/t/p/w92${c.logo_path}`} className="h-4 object-contain brightness-200" alt="" />
+                                            )}
+                                            {nameStr}
+                                        </span>
+                                    );
+                                })}
                             </div>
                         </div>
                     )}
