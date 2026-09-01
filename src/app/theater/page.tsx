@@ -25,6 +25,7 @@ import { AddIptvProviderModal } from '@/components/AddIptvProviderModal';
 import { IptvChannelSourcesModal } from '@/components/IptvChannelSourcesModal';
 import IptvSettingsModal from '@/components/IptvSettingsModal';
 import IptvAutoGroupingModal from '@/components/IptvAutoGroupingModal';
+import TheaterLiveTvPlayer from '@/components/TheaterLiveTvPlayer';
 
 interface TheaterLibrary {
     id: string;
@@ -2102,134 +2103,7 @@ function TheaterPageContent() {
                             </div>
                         </div>
                     </div>
-                ) : activeContentTab === 'live' && (enabledTabLibraries.some(l => l.type === 'live') || activeTabLibraries.length > 0) ? (
-                    <div className="space-y-3">
-                        <div className="flex flex-wrap items-center justify-between gap-4 px-2">
-                            <div className="flex flex-wrap items-center gap-3">
-                                <div className="flex items-center gap-2 bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800">
-                                    <button
-                                        onClick={() => setActiveShortlistId('ALL')}
-                                        className={`px-3 py-1.5 rounded-xl text-sm font-bold transition-all ${
-                                            activeShortlistId === 'ALL'
-                                                ? 'bg-red-500/20 text-red-400 border border-red-500/30'
-                                                : 'text-zinc-500 hover:text-zinc-300'
-                                        }`}
-                                    >
-                                        All Channels ({iptvChannels.length})
-                                    </button>
-
-                                    {shortlists.map(s => (
-                                        <div key={s.id} className="flex items-center gap-1">
-                                            <button
-                                                onClick={() => setActiveShortlistId(s.id)}
-                                                className={`px-3 py-1.5 rounded-xl text-sm font-bold transition-all ${
-                                                    activeShortlistId === s.id
-                                                        ? 'bg-red-500/20 text-red-400 border border-red-500/30'
-                                                        : 'text-zinc-500 hover:text-zinc-300'
-                                                }`}
-                                            >
-                                                {s.name} ({s.channelIds.length})
-                                            </button>
-                                            <button
-                                                onClick={() => handleDeleteShortlist(s.id)}
-                                                className="p-1 text-zinc-600 hover:text-red-400 rounded-lg"
-                                                title="Delete Shortlist"
-                                            >
-                                                <X size={12} />
-                                            </button>
-                                        </div>
-                                    ))}
-
-                                    <button
-                                        onClick={() => {
-                                            setEditingShortlistId(null);
-                                            setShortlistEditingName('');
-                                            setShortlistSelectedChanIds([]);
-                                            setIsShortlistManagerOpen(true);
-                                        }}
-                                        className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-sm font-bold text-emerald-400 hover:bg-emerald-500/10 border border-dashed border-emerald-500/30"
-                                    >
-                                        <Plus size={13} /> New Sublist
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div className="flex items-center gap-2">
-                                <button
-                                    onClick={() => {
-                                        setMergePrimaryChanId(iptvChannels[0]?.id || null);
-                                        setMergeTargetChanIds([]);
-                                        setIsMergeModalOpen(true);
-                                    }}
-                                    className="px-3.5 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 transition-all text-xs sm:text-sm font-bold flex items-center gap-1.5 shadow-sm"
-                                    title="Merge multiple channel variants (4K, FHD, HD, SD) with automatic fallback redundancy"
-                                >
-                                    <span>⚡</span> Merge &amp; Redundancy
-                                </button>
-
-                                <button
-                                    onClick={() => setIsAutoGroupingModalOpen(true)}
-                                    className="px-3.5 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 transition-all text-xs sm:text-sm font-bold flex items-center gap-1.5 shadow-sm cursor-pointer"
-                                    title="Automatically detect duplicate sources of the same channel and review grouping"
-                                >
-                                    <Sparkles size={14} className="text-amber-400" /> Auto-Group Suggestions
-                                </button>
-
-                                <button
-                                    onClick={() => setIsPlexExportModalOpen(true)}
-                                    className="px-3.5 py-2 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-400 border border-indigo-500/30 transition-all text-xs sm:text-sm font-bold flex items-center gap-1.5 shadow-sm"
-                                    title="Export M3U & XMLTV EPG URLs for Plex Live TV DVR with CORS remote artwork proxy"
-                                >
-                                    <span>📺</span> Export to Plex
-                                </button>
-
-                                <button
-                                    onClick={() => setIsIptvSettingsOpen(true)}
-                                    className="px-3.5 py-2 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 text-amber-300 border border-amber-500/30 transition-all text-xs sm:text-sm font-bold flex items-center gap-1.5 shadow-sm"
-                                    title="View & Edit XMLTV EPG Guide URL and Refresh Provider Channels"
-                                >
-                                    <Calendar size={14} className="text-amber-400" /> EPG &amp; Settings
-                                </button>
-
-                                <button
-                                    onClick={() => handleDeleteLibrary(activeLibrary.id, activeLibrary.name)}
-                                    className="p-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition-all text-xs font-bold"
-                                    title="Delete Live TV Provider"
-                                >
-                                    <Trash2 size={14} />
-                                </button>
-                            </div>
-                        </div>
-
-                        {iptvGroups.length > 0 && (
-                            <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar py-1 px-2">
-                                <button
-                                    onClick={() => setSelectedIptvGroup('ALL')}
-                                    className={`px-3.5 py-1.5 rounded-xl text-sm font-bold shrink-0 transition-all ${
-                                        selectedIptvGroup === 'ALL'
-                                            ? 'bg-zinc-800 text-white'
-                                            : 'bg-zinc-950/60 text-zinc-500 hover:text-zinc-300 border border-zinc-900'
-                                    }`}
-                                >
-                                    All Categories
-                                </button>
-                                {iptvGroups.slice(0, 20).map(g => (
-                                    <button
-                                        key={g.name}
-                                        onClick={() => setSelectedIptvGroup(g.name)}
-                                        className={`px-3.5 py-1.5 rounded-xl text-sm font-bold shrink-0 transition-all ${
-                                            selectedIptvGroup === g.name
-                                                ? 'bg-zinc-800 text-white'
-                                                : 'bg-zinc-950/60 text-zinc-500 hover:text-zinc-300 border border-zinc-900'
-                                        }`}
-                                    >
-                                        {g.name} <span className="text-[10px] text-zinc-600">({g.count})</span>
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                ) : (activeContentTab === 'movie' || activeContentTab === 'show' || activeContentTab === 'photos') && activeTabLibraries.length > 0 ? (
+                ) : activeContentTab === 'live' ? null : (activeContentTab === 'movie' || activeContentTab === 'show' || activeContentTab === 'photos') && activeTabLibraries.length > 0 ? (
                     <div className="flex flex-wrap items-center justify-between gap-4 px-2">
                         <div className="flex items-center gap-3">
                             <span className="text-base font-bold text-white">
@@ -2968,162 +2842,20 @@ function TheaterPageContent() {
                             </div>
                         )}
                     </div>
-                ) : activeContentTab === 'live' && (enabledTabLibraries.some(l => l.type === 'live') || activeTabLibraries.length > 0) ? (
-                    /* ── Live TV Channels Grid ── */
-                    filteredIptvChannels.length === 0 ? (
-                        <div className="p-16 bg-zinc-950/40 rounded-[2.5rem] border border-zinc-900 text-center space-y-2">
-                            <Radio size={40} className="mx-auto text-zinc-700" />
-                            <p className="text-lg font-bold text-white">No Live Channels found</p>
-                            <p className="text-xs text-zinc-500">Check your shortlist filter or search terms.</p>
-                        </div>
-                    ) : (
-                        <div className="space-y-4">
-                            {viewMode === 'list' ? (
-                                <div className="space-y-2">
-                                    {paginatedIptvChannels.map(chan => {
-                                        const streamCount = chan.streams?.length || 1;
-                                        return (
-                                            <div
-                                                key={chan.id}
-                                                onClick={() => {
-                                                    setActiveLiveStreamIdx(0);
-                                                    setPlayingChannel(chan);
-                                                }}
-                                                className="p-3.5 bg-[#09090b] border border-zinc-900 hover:border-red-500/50 rounded-2xl transition-all duration-200 shadow-md cursor-pointer hover:bg-zinc-900/40 flex items-center justify-between gap-4 group"
-                                            >
-                                                <div className="flex items-center gap-3.5 min-w-0 flex-1">
-                                                    <span className="px-2 py-0.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 text-[9px] font-black uppercase flex items-center gap-1 shrink-0">
-                                                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" /> LIVE
-                                                    </span>
-                                                    <div className="w-10 h-10 rounded-xl bg-zinc-900/80 flex items-center justify-center p-1 shrink-0">
-                                                        {chan.logo ? (
-                                                            <img src={chan.logo} alt="" className="max-h-8 max-w-full object-contain" onError={e => (e.currentTarget.style.display = 'none')} />
-                                                        ) : (
-                                                            <Tv2 size={20} className="text-zinc-600 group-hover:text-red-400" />
-                                                        )}
-                                                    </div>
-                                                    <div className="min-w-0 flex-1">
-                                                        <h4 className="font-bold text-white text-sm truncate group-hover:text-red-400 transition-colors">
-                                                            {chan.name}
-                                                        </h4>
-                                                        <div className="flex items-center gap-2 mt-0.5 text-[11px] text-zinc-500">
-                                                            <span className="bg-zinc-900 px-2 py-0.5 rounded text-[10px] text-zinc-400 font-semibold">{chan.group}</span>
-                                                            {chan.streams && chan.streams.length > 0 && (
-                                                                <span className="text-zinc-500 font-mono text-[10px]">{chan.streams.map(s => s.quality).join(', ')}</span>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                <div className="flex items-center gap-2 shrink-0">
-                                                    <button
-                                                        type="button"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            setSourcesModalChannel(chan);
-                                                        }}
-                                                        className={`px-2.5 py-1 rounded-xl text-[10px] font-black shrink-0 transition-all flex items-center gap-1 cursor-pointer hover:scale-105 active:scale-95 ${
-                                                            streamCount > 1
-                                                                ? 'bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/30'
-                                                                : 'bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400 hover:text-white border border-zinc-700'
-                                                        }`}
-                                                    >
-                                                        <span>⚡</span> {streamCount > 1 ? `${streamCount} Streams` : 'Sources'}
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            ) : (
-                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                                    {paginatedIptvChannels.map(chan => {
-                                        const streamCount = chan.streams?.length || 1;
-                                        return (
-                                            <div
-                                                key={chan.id}
-                                                onClick={() => {
-                                                    setActiveLiveStreamIdx(0);
-                                                    setPlayingChannel(chan);
-                                                }}
-                                                className="p-4 bg-[#09090b] border border-zinc-900 hover:border-red-500/50 rounded-3xl transition-all duration-300 shadow-xl cursor-pointer hover:-translate-y-1 flex flex-col justify-between space-y-3 group"
-                                            >
-                                                <div className="flex items-center justify-between gap-1">
-                                                    <span className="px-2 py-0.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 text-[9px] font-black uppercase flex items-center gap-1 shrink-0">
-                                                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" /> LIVE
-                                                    </span>
-                                                    <button
-                                                        type="button"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            setSourcesModalChannel(chan);
-                                                        }}
-                                                        className={`px-1.5 py-0.5 rounded-md text-[9px] font-black shrink-0 transition-all flex items-center gap-1 cursor-pointer hover:scale-105 active:scale-95 ${
-                                                            streamCount > 1
-                                                                ? 'bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/30'
-                                                                : 'bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400 hover:text-white border border-zinc-700'
-                                                        }`}
-                                                        title="Manage Stream Priorities & Secondary Sources (8K, 4K, FHD, HD, SD)"
-                                                    >
-                                                        <span>⚡</span> {streamCount > 1 ? `${streamCount} Streams` : 'Sources'}
-                                                    </button>
-                                                </div>
-
-                                                <div className="h-16 flex items-center justify-center">
-                                                    {chan.logo ? (
-                                                        <img src={chan.logo} alt="" className="max-h-14 max-w-full object-contain" onError={e => (e.currentTarget.style.display = 'none')} />
-                                                    ) : (
-                                                        <Tv2 size={32} className="text-zinc-700 group-hover:text-red-400 transition-colors" />
-                                                    )}
-                                                </div>
-
-                                                <div className="pt-1 border-t border-zinc-900/80 space-y-0.5">
-                                                    <div className="flex items-center justify-between gap-1">
-                                                        <h4 className="font-bold text-white text-xs truncate group-hover:text-red-400 transition-colors flex-1">
-                                                            {chan.name}
-                                                        </h4>
-                                                        <span className="text-[10px] text-zinc-500 truncate max-w-[60px]">{chan.group}</span>
-                                                    </div>
-                                                    {chan.streams && chan.streams.length > 1 && (
-                                                        <p className="text-[9px] text-zinc-500 truncate font-semibold">
-                                                            {chan.streams.map(s => s.quality).join(' • ')}
-                                                        </p>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            )}
-
-                            {totalIptvPages > 1 && (
-                                <div className="flex flex-wrap items-center justify-between gap-3 pt-6 border-t border-zinc-900 px-2 mt-4">
-                                    <div className="text-xs text-zinc-500 font-bold">
-                                        Showing {((iptvPage - 1) * iptvPageSize) + 1}–{Math.min(iptvPage * iptvPageSize, filteredIptvChannels.length)} of {filteredIptvChannels.length.toLocaleString()} channels
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            onClick={() => setIptvPage(p => Math.max(1, p - 1))}
-                                            disabled={iptvPage === 1}
-                                            className="px-3.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 disabled:opacity-30 disabled:pointer-events-none text-xs font-bold transition-all border border-zinc-800 cursor-pointer"
-                                        >
-                                            &larr; Previous
-                                        </button>
-                                        <span className="text-xs font-mono font-bold text-zinc-400 px-2">
-                                            Page {iptvPage} of {totalIptvPages}
-                                        </span>
-                                        <button
-                                            onClick={() => setIptvPage(p => Math.min(totalIptvPages, p + 1))}
-                                            disabled={iptvPage === totalIptvPages}
-                                            className="px-3.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 disabled:opacity-30 disabled:pointer-events-none text-xs font-bold transition-all border border-zinc-800 cursor-pointer"
-                                        >
-                                            Next &rarr;
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    )
+                ) : activeContentTab === 'live' && activeLibrary ? (
+                    <TheaterLiveTvPlayer
+                        libraryId={activeLibrary.id}
+                        channels={iptvChannels}
+                        shortlists={shortlists}
+                        activeShortlistId={activeShortlistId === 'ALL' ? null : activeShortlistId}
+                        onSelectShortlist={(id) => setActiveShortlistId(id || 'ALL')}
+                        onOpenShortlistManager={() => {
+                            setEditingShortlistId(null);
+                            setShortlistEditingName('');
+                            setShortlistSelectedChanIds([]);
+                            setIsShortlistManagerOpen(true);
+                        }}
+                    />
                 ) : activeTabLibraries.length === 0 ? (
                     activeContentTab === 'live' ? (
                         <div className="p-12 sm:p-16 bg-zinc-950/40 rounded-[2.5rem] border border-red-500/20 text-center space-y-4 max-w-xl mx-auto my-12 shadow-2xl animate-in fade-in">

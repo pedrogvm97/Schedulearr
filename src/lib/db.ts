@@ -229,6 +229,46 @@ function initializeSchema(d: any) {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
 
+      CREATE TABLE IF NOT EXISTS dvr_storage_folders (
+        id TEXT PRIMARY KEY,
+        path TEXT NOT NULL,
+        name TEXT NOT NULL,
+        is_default INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS dvr_rules (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        query TEXT NOT NULL,
+        rule_type TEXT NOT NULL,
+        channel_scope TEXT DEFAULT 'all',
+        check_missing_from_library INTEGER DEFAULT 0,
+        destination_folder TEXT NOT NULL,
+        padding_minutes INTEGER DEFAULT 15,
+        enabled INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS dvr_recordings (
+        id TEXT PRIMARY KEY,
+        rule_id TEXT,
+        channel_id TEXT NOT NULL,
+        channel_name TEXT NOT NULL,
+        channel_logo TEXT,
+        stream_url TEXT,
+        program_title TEXT NOT NULL,
+        program_description TEXT,
+        start_time DATETIME NOT NULL,
+        end_time DATETIME NOT NULL,
+        destination_path TEXT NOT NULL,
+        file_path TEXT,
+        file_size INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'scheduled',
+        error_message TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
       CREATE TABLE IF NOT EXISTS music_playlists (
         id TEXT PRIMARY KEY,
         library_id TEXT NOT NULL,
@@ -1326,6 +1366,259 @@ export const getPlaybackHistory = (limit: number = 500) => {
     } catch (e) {
         console.error('Error getting playback history:', e);
         return [];
+    }
+};
+
+// ── Batch IPTV EPG Query ──
+export const getBatchIptvEpg = (libraryId: string, tvgIds: string[]) => {
+    try {
+        if (!tvgIds || tvgIds.length === 0) return {};
+        const now = new Date().toISOString();
+        const placeholders = tvgIds.map(() => '?').join(',');
+        const rows = db.prepare(`
+            SELECT * FROM iptv_epg 
+            WHERE library_id = ? AND channel_tvg_id IN (${placeholders}) AND end_time >= ?
+            ORDER BY start_time ASC
+        `).all(libraryId, ...tvgIds, now) as any[];
+
+        const result: Record<string, any[]> = {};
+        for (const row of (rows || [])) {
+            if (!result[row.channel_tvg_id]) {
+                result[row.channel_tvg_id] = [];
+            }
+            if (result[row.channel_tvg_id].length < 10) {
+                result[row.channel_tvg_id].push(row);
+            }
+        }
+        return result;
+    } catch (e) {
+        console.error('Error fetching batch IPTV EPG:', e);
+        return {};
+    }
+};
+
+// ── DVR Storage Folders ──
+export interface DvrStorageFolder {
+    id: string;
+    path: string;
+    name: string;
+    is_default: boolean;
+    created_at: string;
+}
+
+export const getDvrStorageFolders = (): DvrStorageFolder[] => {
+    try {
+        const rows = db.prepare('SELECT * FROM dvr_storage_folders ORDER BY is_default DESC, name ASC').all() as any[];
+        return (rows || []).map(r => ({
+            ...r,
+            is_default: Boolean(r.is_default)
+        }));
+    } catch (e) {
+        console.error('Error getting DVR storage folders:', e);
+        return [];
+    }
+};
+
+export const addDvrStorageFolder = (folderPath: string, name?: string, isDefault: boolean = false): DvrStorageFolder => {
+    const id = `dvr_fld_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const folderName = name || folderPath.split(/[\\/]/).filter(Boolean).pop() || 'Recordings';
+    if (isDefault) {
+        db.prepare('UPDATE dvr_storage_folders SET is_default = 0').run();
+    }
+    db.prepare('INSERT INTO dvr_storage_folders (id, path, name, is_default) VALUES (?, ?, ?, ?)').run(
+        id,
+        folderPath,
+        folderName,
+        isDefault ? 1 : 0
+    );
+    return {
+        id,
+        path: folderPath,
+        name: folderName,
+        is_default: isDefault,
+        created_at: new Date().toISOString()
+    };
+};
+
+export const deleteDvrStorageFolder = (id: string): boolean => {
+    try {
+        db.prepare('DELETE FROM dvr_storage_folders WHERE id = ?').run(id);
+        return true;
+    } catch (e) {
+        console.error('Error deleting DVR folder:', e);
+        return false;
+    }
+};
+
+// ── DVR Smart Rules ──
+export interface DvrRule {
+    id: string;
+    name: string;
+    query: string;
+    rule_type: 'sports' | 'actor' | 'keyword' | 'title';
+    channel_scope: string;
+    check_missing_from_library: boolean;
+    destination_folder: string;
+    padding_minutes: number;
+    enabled: boolean;
+    created_at: string;
+}
+
+export const getDvrRules = (): DvrRule[] => {
+    try {
+        const rows = db.prepare('SELECT * FROM dvr_rules ORDER BY created_at DESC').all() as any[];
+        return (rows || []).map(r => ({
+            ...r,
+            check_missing_from_library: Boolean(r.check_missing_from_library),
+            enabled: Boolean(r.enabled)
+        }));
+    } catch (e) {
+        console.error('Error getting DVR rules:', e);
+        return [];
+    }
+};
+
+export const saveDvrRule = (rule: Partial<DvrRule> & { name: string; query: string; destination_folder: string }): DvrRule => {
+    const id = rule.id || `rule_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const ruleType = rule.rule_type || 'keyword';
+    const channelScope = rule.channel_scope || 'all';
+    const checkMissing = rule.check_missing_from_library ? 1 : 0;
+    const padding = rule.padding_minutes ?? 15;
+    const enabled = rule.enabled !== false ? 1 : 0;
+
+    const existing = db.prepare('SELECT id FROM dvr_rules WHERE id = ?').get(id);
+    if (existing) {
+        db.prepare(`
+            UPDATE dvr_rules SET
+                name = ?, query = ?, rule_type = ?, channel_scope = ?,
+                check_missing_from_library = ?, destination_folder = ?,
+                padding_minutes = ?, enabled = ?
+            WHERE id = ?
+        `).run(rule.name, rule.query, ruleType, channelScope, checkMissing, rule.destination_folder, padding, enabled, id);
+    } else {
+        db.prepare(`
+            INSERT INTO dvr_rules (id, name, query, rule_type, channel_scope, check_missing_from_library, destination_folder, padding_minutes, enabled)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(id, rule.name, rule.query, ruleType, channelScope, checkMissing, rule.destination_folder, padding, enabled);
+    }
+
+    return {
+        id,
+        name: rule.name,
+        query: rule.query,
+        rule_type: ruleType,
+        channel_scope: channelScope,
+        check_missing_from_library: Boolean(checkMissing),
+        destination_folder: rule.destination_folder,
+        padding_minutes: padding,
+        enabled: Boolean(enabled),
+        created_at: new Date().toISOString()
+    };
+};
+
+export const deleteDvrRule = (id: string): boolean => {
+    try {
+        db.prepare('DELETE FROM dvr_rules WHERE id = ?').run(id);
+        return true;
+    } catch (e) {
+        console.error('Error deleting DVR rule:', e);
+        return false;
+    }
+};
+
+// ── DVR Recordings ──
+export interface DvrRecording {
+    id: string;
+    rule_id?: string;
+    channel_id: string;
+    channel_name: string;
+    channel_logo?: string;
+    stream_url?: string;
+    program_title: string;
+    program_description?: string;
+    start_time: string;
+    end_time: string;
+    destination_path: string;
+    file_path?: string;
+    file_size?: number;
+    status: 'scheduled' | 'recording' | 'completed' | 'failed' | 'cancelled';
+    error_message?: string;
+    created_at: string;
+}
+
+export const getDvrRecordings = (limit: number = 200): DvrRecording[] => {
+    try {
+        const rows = db.prepare('SELECT * FROM dvr_recordings ORDER BY start_time DESC LIMIT ?').all(limit) as any[];
+        return rows || [];
+    } catch (e) {
+        console.error('Error getting DVR recordings:', e);
+        return [];
+    }
+};
+
+export const scheduleDvrRecording = (rec: Omit<DvrRecording, 'id' | 'created_at'>): DvrRecording => {
+    const id = `rec_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    db.prepare(`
+        INSERT INTO dvr_recordings (
+            id, rule_id, channel_id, channel_name, channel_logo, stream_url,
+            program_title, program_description, start_time, end_time,
+            destination_path, file_path, file_size, status, error_message
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+        id,
+        rec.rule_id || null,
+        rec.channel_id,
+        rec.channel_name,
+        rec.channel_logo || null,
+        rec.stream_url || null,
+        rec.program_title,
+        rec.program_description || '',
+        rec.start_time,
+        rec.end_time,
+        rec.destination_path,
+        rec.file_path || null,
+        rec.file_size || 0,
+        rec.status || 'scheduled',
+        rec.error_message || null
+    );
+
+    return {
+        ...rec,
+        id,
+        created_at: new Date().toISOString()
+    };
+};
+
+export const updateDvrRecordingStatus = (
+    id: string,
+    status: 'scheduled' | 'recording' | 'completed' | 'failed' | 'cancelled',
+    filePath?: string,
+    fileSize?: number,
+    error?: string
+) => {
+    try {
+        db.prepare(`
+            UPDATE dvr_recordings SET
+                status = ?,
+                file_path = COALESCE(?, file_path),
+                file_size = COALESCE(?, file_size),
+                error_message = COALESCE(?, error_message)
+            WHERE id = ?
+        `).run(status, filePath || null, fileSize || null, error || null, id);
+        return true;
+    } catch (e) {
+        console.error('Error updating DVR recording:', e);
+        return false;
+    }
+};
+
+export const deleteDvrRecording = (id: string): boolean => {
+    try {
+        db.prepare('DELETE FROM dvr_recordings WHERE id = ?').run(id);
+        return true;
+    } catch (e) {
+        console.error('Error deleting DVR recording:', e);
+        return false;
     }
 };
 

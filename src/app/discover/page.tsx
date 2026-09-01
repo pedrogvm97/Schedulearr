@@ -12,6 +12,7 @@ import {
     Disc, Music, Radio, ArrowDownToLine
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
+import { useSearchParams } from 'next/navigation';
 import { CustomSelect } from '@/components/CustomSelect';
 import { twColorToHex } from '@/lib/instanceColor';
 import { SchedulerQueuePanel } from '@/components/SchedulerQueuePanel';
@@ -20,6 +21,7 @@ import { PersonDetailsPanel } from '@/components/PersonDetailsPanel';
 import { InteractiveSearchModal } from '@/components/InteractiveSearchModal';
 import { DeleteMediaModal } from '@/components/DeleteMediaModal';
 import { MusicInspectorModal } from '@/components/MusicInspectorModal';
+import { IptvDvrManager } from '@/components/IptvDvrManager';
 
 interface Instance {
     id: string;
@@ -627,7 +629,12 @@ function UnifiedMediaCard({
 // Main Media Page Component
 // ──────────────────────────────────────────────
 export default function DiscoverPage() {
-    const [mediaType, setMediaType] = useState<'movie' | 'series' | 'music'>('movie');
+    const searchParams = useSearchParams();
+    const tabParam = searchParams.get('tab');
+    const [mediaType, setMediaType] = useState<'movie' | 'series' | 'music' | 'iptv_dvr'>(() => {
+        if (tabParam === 'iptv' || tabParam === 'live' || tabParam === 'dvr') return 'iptv_dvr';
+        return 'movie';
+    });
     const [statusFilter, setStatusFilter] = useState<'all' | 'in_library' | 'not_in_library'>('all');
     const [searchQuery, setSearchQuery] = useState('');
     const [isSearching, setIsSearching] = useState(false);
@@ -1536,80 +1543,90 @@ export default function DiscoverPage() {
                                     >
                                         <Disc size={15} /> Music
                                     </button>
+                                    <button 
+                                        onClick={() => setMediaType('iptv_dvr')} 
+                                        className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 text-xs font-black rounded-xl transition-all whitespace-nowrap ${mediaType === 'iptv_dvr' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                    >
+                                        <Tv size={15} /> Live TV &amp; DVR
+                                    </button>
                                 </div>
 
                                 {/* Status Filter: All | In Library | Not in Library */}
-                                <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner shrink-0">
-                                    <button 
-                                        onClick={() => setStatusFilter('all')} 
-                                        className={`px-3.5 py-2 text-xs font-black rounded-xl transition-all whitespace-nowrap ${statusFilter === 'all' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                    >
-                                        All ({mediaType === 'music' ? musicResults.length : unifiedPool.length})
-                                    </button>
-                                    <button 
-                                        onClick={() => setStatusFilter('in_library')} 
-                                        className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-black rounded-xl transition-all whitespace-nowrap ${statusFilter === 'in_library' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                    >
-                                        <CheckCircle size={13} className="text-emerald-500" /> In Library
-                                    </button>
-                                    <button 
-                                        onClick={() => setStatusFilter('not_in_library')} 
-                                        className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-black rounded-xl transition-all whitespace-nowrap ${statusFilter === 'not_in_library' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                    >
-                                        <Sparkles size={13} className="text-amber-500" /> Not in Library
-                                    </button>
-                                </div>
+                                {mediaType !== 'iptv_dvr' && (
+                                    <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner shrink-0">
+                                        <button 
+                                            onClick={() => setStatusFilter('all')} 
+                                            className={`px-3.5 py-2 text-xs font-black rounded-xl transition-all whitespace-nowrap ${statusFilter === 'all' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                        >
+                                            All ({mediaType === 'music' ? musicResults.length : unifiedPool.length})
+                                        </button>
+                                        <button 
+                                            onClick={() => setStatusFilter('in_library')} 
+                                            className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-black rounded-xl transition-all whitespace-nowrap ${statusFilter === 'in_library' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                        >
+                                            <CheckCircle size={13} className="text-emerald-500" /> In Library
+                                        </button>
+                                        <button 
+                                            onClick={() => setStatusFilter('not_in_library')} 
+                                            className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-black rounded-xl transition-all whitespace-nowrap ${statusFilter === 'not_in_library' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                        >
+                                            <Sparkles size={13} className="text-amber-500" /> Not in Library
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         </div>
 
                         {/* Search + Action Buttons */}
-                        <div className="flex items-center gap-3 w-full xl:w-auto">
-                            <div className="relative flex-1 xl:w-80 min-w-[200px]">
-                                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
-                                <input
-                                    type="text"
-                                    placeholder={mediaType === 'movie' ? 'Search movies...' : mediaType === 'series' ? 'Search series...' : 'Search artists, albums, songs, labels...'}
-                                    value={searchQuery}
-                                    onChange={e => setSearchQuery(e.target.value)}
-                                    className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl pl-10 pr-9 py-2.5 text-xs text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all placeholder-zinc-600 font-medium"
-                                />
-                                {searchQuery && (
-                                    <button
-                                        type="button"
-                                        onClick={() => setSearchQuery('')}
-                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
-                                    >
-                                        <X size={14} />
-                                    </button>
-                                )}
+                        {mediaType !== 'iptv_dvr' && (
+                            <div className="flex items-center gap-3 w-full xl:w-auto">
+                                <div className="relative flex-1 xl:w-80 min-w-[200px]">
+                                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
+                                    <input
+                                        type="text"
+                                        placeholder={mediaType === 'movie' ? 'Search movies...' : mediaType === 'series' ? 'Search series...' : 'Search artists, albums, songs, labels...'}
+                                        value={searchQuery}
+                                        onChange={e => setSearchQuery(e.target.value)}
+                                        className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl pl-10 pr-9 py-2.5 text-xs text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all placeholder-zinc-600 font-medium"
+                                    />
+                                    {searchQuery && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setSearchQuery('')}
+                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                                        >
+                                            <X size={14} />
+                                        </button>
+                                    )}
+                                </div>
+
+                                {/* Filters Toggle Button */}
+                                <button
+                                    onClick={() => setShowFilters(!showFilters)}
+                                    className={`flex items-center gap-2 px-4 py-2.5 text-xs font-black rounded-2xl border transition-all shrink-0 whitespace-nowrap ${
+                                        showFilters
+                                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-sm'
+                                            : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-zinc-200'
+                                    }`}
+                                >
+                                    <Filter size={14} />
+                                    <span>Filters</span>
+                                </button>
+
+                                {/* Refresh Cache */}
+                                <button
+                                    onClick={() => loadLibrary()}
+                                    title="Refresh Media Cache"
+                                    className="p-2.5 rounded-2xl bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white transition-colors shrink-0"
+                                >
+                                    <RefreshCw size={16} className={libraryLoading ? 'animate-spin text-emerald-500' : ''} />
+                                </button>
                             </div>
-
-                            {/* Filters Toggle Button */}
-                            <button
-                                onClick={() => setShowFilters(!showFilters)}
-                                className={`flex items-center gap-2 px-4 py-2.5 text-xs font-black rounded-2xl border transition-all shrink-0 whitespace-nowrap ${
-                                    showFilters
-                                        ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-sm'
-                                        : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-zinc-200'
-                                }`}
-                            >
-                                <Filter size={14} />
-                                <span>Filters</span>
-                            </button>
-
-                            {/* Refresh Cache */}
-                            <button
-                                onClick={() => loadLibrary()}
-                                title="Refresh Media Cache"
-                                className="p-2.5 rounded-2xl bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white transition-colors shrink-0"
-                            >
-                                <RefreshCw size={16} className={libraryLoading ? 'animate-spin text-emerald-500' : ''} />
-                            </button>
-                        </div>
+                        )}
                     </div>
 
                     {/* Instance Filter Pills (Dedicated Row below, consistent across both tabs) */}
-                    {availableInstances.length > 1 && (
+                    {mediaType !== 'iptv_dvr' && availableInstances.length > 1 && (
                         <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-zinc-900/60">
                             <span className="text-[11px] font-black text-zinc-500 uppercase tracking-widest mr-1">Instances:</span>
                             {availableInstances.map(inst => {
@@ -1790,80 +1807,84 @@ export default function DiscoverPage() {
                 )}
 
                 {/* ── Sub-bar: Sort & Views ── */}
-                <div className="flex flex-wrap items-center justify-between gap-4 px-2">
-                    <div className="flex items-center gap-2">
-                        <span className="text-base font-bold text-white">
-                            Showing <span className={`${mediaType === 'music' ? 'text-amber-400' : 'text-emerald-400'} font-black`}>
-                                {mediaType === 'music' ? (statusFilter === 'in_library' ? libraryItems.length : musicResults.length) : filteredItems.length}
-                            </span> {mediaType === 'music' ? 'albums & releases' : mediaType === 'movie' ? 'movies' : 'series'}
-                        </span>
-                    </div>
-
-                    <div className="flex items-center gap-3">
-                        {/* Sort Options */}
-                        <div className="flex flex-wrap bg-zinc-950 p-1 rounded-2xl border border-zinc-800/80 gap-0.5">
-                            {(mediaType === 'series' ? [
-                                { id: 'lastAired', label: 'Last Aired', icon: <Radio size={13} /> },
-                                { id: 'lastEpisodeAdded', label: 'Last Ep Added', icon: <ArrowDownToLine size={13} /> },
-                                { id: 'popularity', label: 'Popularity', icon: <TrendingUp size={13} /> },
-                                { id: 'year', label: 'Year', icon: <Calendar size={13} /> },
-                                { id: 'alphabetical', label: 'A-Z', icon: <Rows size={13} /> },
-                                { id: 'added', label: 'Date Added', icon: <Calendar size={13} /> },
-                                { id: 'size', label: 'Size', icon: <HardDrive size={13} /> }
-                            ] : [
-                                { id: 'popularity', label: 'Popularity', icon: <TrendingUp size={13} /> },
-                                { id: 'year', label: 'Year', icon: <Calendar size={13} /> },
-                                { id: 'alphabetical', label: 'A-Z', icon: <Rows size={13} /> },
-                                { id: 'added', label: 'Date Added', icon: <Calendar size={13} /> },
-                                { id: 'size', label: 'Size', icon: <HardDrive size={13} /> }
-                            ]).map(s => (
-                                <button
-                                    key={s.id}
-                                    onClick={() => setSortBy(s.id as any)}
-                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
-                                        sortBy === s.id
-                                            ? 'bg-zinc-800 text-white shadow-sm'
-                                            : 'text-zinc-500 hover:text-zinc-300'
-                                    }`}
-                                >
-                                    {s.icon} {s.label}
-                                </button>
-                            ))}
+                {mediaType !== 'iptv_dvr' && (
+                    <div className="flex flex-wrap items-center justify-between gap-4 px-2">
+                        <div className="flex items-center gap-2">
+                            <span className="text-base font-bold text-white">
+                                Showing <span className={`${mediaType === 'music' ? 'text-amber-400' : 'text-emerald-400'} font-black`}>
+                                    {mediaType === 'music' ? (statusFilter === 'in_library' ? libraryItems.length : musicResults.length) : filteredItems.length}
+                                </span> {mediaType === 'music' ? 'albums & releases' : mediaType === 'movie' ? 'movies' : 'series'}
+                            </span>
                         </div>
 
-                        {/* Sort Order */}
-                        <button
-                            onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
-                            className="p-2.5 rounded-2xl bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white transition-all"
-                            title={sortOrder === 'desc' ? 'Descending' : 'Ascending'}
-                        >
-                            <div className={`transition-transform duration-300 ${sortOrder === 'asc' ? 'rotate-180' : ''}`}>
-                                <ChevronDown size={16} />
+                        <div className="flex items-center gap-3">
+                            {/* Sort Options */}
+                            <div className="flex flex-wrap bg-zinc-950 p-1 rounded-2xl border border-zinc-800/80 gap-0.5">
+                                {(mediaType === 'series' ? [
+                                    { id: 'lastAired', label: 'Last Aired', icon: <Radio size={13} /> },
+                                    { id: 'lastEpisodeAdded', label: 'Last Ep Added', icon: <ArrowDownToLine size={13} /> },
+                                    { id: 'popularity', label: 'Popularity', icon: <TrendingUp size={13} /> },
+                                    { id: 'year', label: 'Year', icon: <Calendar size={13} /> },
+                                    { id: 'alphabetical', label: 'A-Z', icon: <Rows size={13} /> },
+                                    { id: 'added', label: 'Date Added', icon: <Calendar size={13} /> },
+                                    { id: 'size', label: 'Size', icon: <HardDrive size={13} /> }
+                                ] : [
+                                    { id: 'popularity', label: 'Popularity', icon: <TrendingUp size={13} /> },
+                                    { id: 'year', label: 'Year', icon: <Calendar size={13} /> },
+                                    { id: 'alphabetical', label: 'A-Z', icon: <Rows size={13} /> },
+                                    { id: 'added', label: 'Date Added', icon: <Calendar size={13} /> },
+                                    { id: 'size', label: 'Size', icon: <HardDrive size={13} /> }
+                                ]).map(s => (
+                                    <button
+                                        key={s.id}
+                                        onClick={() => setSortBy(s.id as any)}
+                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+                                            sortBy === s.id
+                                                ? 'bg-zinc-800 text-white shadow-sm'
+                                                : 'text-zinc-500 hover:text-zinc-300'
+                                        }`}
+                                    >
+                                        {s.icon} {s.label}
+                                    </button>
+                                ))}
                             </div>
-                        </button>
 
-                        {/* View Mode Toggle: Grid | List */}
-                        <div className="flex bg-zinc-950 p-1 rounded-2xl border border-zinc-800/80">
+                            {/* Sort Order */}
                             <button
-                                onClick={() => setViewMode('grid')}
-                                className={`p-2 rounded-xl transition-all ${viewMode === 'grid' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                title="Grid View"
+                                onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+                                className="p-2.5 rounded-2xl bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white transition-all"
+                                title={sortOrder === 'desc' ? 'Descending' : 'Ascending'}
                             >
-                                <LayoutGrid size={16} />
+                                <div className={`transition-transform duration-300 ${sortOrder === 'asc' ? 'rotate-180' : ''}`}>
+                                    <ChevronDown size={16} />
+                                </div>
                             </button>
-                            <button
-                                onClick={() => setViewMode('list')}
-                                className={`p-2 rounded-xl transition-all ${viewMode === 'list' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                title="List View"
-                            >
-                                <Rows size={16} />
-                            </button>
+
+                            {/* View Mode Toggle: Grid | List */}
+                            <div className="flex bg-zinc-950 p-1 rounded-2xl border border-zinc-800/80">
+                                <button
+                                    onClick={() => setViewMode('grid')}
+                                    className={`p-2 rounded-xl transition-all ${viewMode === 'grid' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                    title="Grid View"
+                                >
+                                    <LayoutGrid size={16} />
+                                </button>
+                                <button
+                                    onClick={() => setViewMode('list')}
+                                    className={`p-2 rounded-xl transition-all ${viewMode === 'list' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                    title="List View"
+                                >
+                                    <Rows size={16} />
+                                </button>
+                            </div>
                         </div>
                     </div>
-                </div>
+                )}
 
                 {/* ── Content Grid / List ── */}
-                {mediaType === 'music' ? (
+                {mediaType === 'iptv_dvr' ? (
+                    <IptvDvrManager />
+                ) : mediaType === 'music' ? (
                     musicLoading || libraryLoading ? (
                         <div className="flex flex-col items-center justify-center py-40 gap-3">
                             <div className="w-12 h-12 border-4 border-amber-500/20 border-t-amber-500 rounded-full animate-spin" />
