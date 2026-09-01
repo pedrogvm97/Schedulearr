@@ -6,7 +6,7 @@ import { exec } from 'child_process';
 import util from 'util';
 import db from '@/lib/db';
 import ffmpegStatic from 'ffmpeg-static';
-import { ensureYtDlpBinary } from '@/lib/ytdlp';
+import { downloadAudioFile } from '@/lib/musicDownloader';
 
 const execPromise = util.promisify(exec);
 const ffmpegPath: string = ffmpegStatic || 'ffmpeg';
@@ -16,20 +16,6 @@ export const dynamic = 'force-dynamic';
 function sanitizeFilename(name: string): string {
     return name.replace(/[<>:"/\\|?*]/g, '').trim();
 }
-
-const INVIDIOUS_INSTANCES = [
-    'https://invidious.nerdvpn.de',
-    'https://inv.tux.pizza',
-    'https://invidious.jing.rocks',
-    'https://invidious.drgns.space',
-    'https://yt.artemislena.eu'
-];
-
-const PIPED_INSTANCES = [
-    'https://pipedapi.kavin.rocks',
-    'https://api.piped.privacydev.net',
-    'https://piped-api.garudalinux.org'
-];
 
 export async function POST(req: Request) {
     try {
@@ -142,7 +128,6 @@ export async function POST(req: Request) {
                     await execPromise(convertCmd);
                     if (fs.existsSync(tempUploadPath)) fs.unlinkSync(tempUploadPath);
                 } catch {
-                    // Fallback to rename temp if ffmpeg throws
                     if (fs.existsSync(tempUploadPath)) fs.renameSync(tempUploadPath, finalAudioPath);
                 }
             } else {
@@ -179,106 +164,18 @@ export async function POST(req: Request) {
             } catch {}
         }
 
-        // Automatic YouTube search fallback if neither youtubeId nor direct stream was found
-        if (!cleanYtId && (!body.streamUrl || body.streamUrl.includes('/api/theater/music/stream'))) {
-            try {
-                const searchQ = encodeURIComponent(`${cleanArtist} ${cleanTitle} audio`);
-                const searchRes = await axios.get(`https://www.youtube.com/results?search_query=${searchQ}`, {
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                    },
-                    timeout: 6000
-                });
-                const match = searchRes.data.match(/videoId":"([a-zA-Z0-9_-]{11})"/);
-                if (match && match[1]) {
-                    cleanYtId = match[1];
-                }
-            } catch (searchErr) {
-                console.warn('Grab search fallback failed:', searchErr);
-            }
-        }
-
-        // 2. Download Track Audio
-        let downloaded = false;
-        const ytDlpBin = await ensureYtDlpBinary();
-        const formatFilter = sourceFormat === 'opus' ? 'ba[ext=webm]/251/250/249/bestaudio' : 'ba[ext=m4a]/140/139/bestaudio';
-
-        // Try yt-dlp first if available
-        if (cleanYtId) {
-            try {
-                const ffmpegBin = ffmpegStatic || 'ffmpeg';
-                let cmd = '';
-                if (saveFormat === 'mp3' || saveFormat === 'flac' || saveFormat === 'wav') {
-                    cmd = `"${ytDlpBin}" -f "ba/b" --no-playlist --no-check-certificates --no-warnings --extractor-args "youtube:player_client=ios,android,web,mweb" --extract-audio --audio-format ${saveFormat} ${saveFormat === 'mp3' ? '--audio-quality 320k' : ''} --ffmpeg-location "${ffmpegBin}" --force-overwrites -o "${finalAudioPath}" "https://www.youtube.com/watch?v=${cleanYtId}"`;
-                } else {
-                    cmd = `"${ytDlpBin}" -f "${formatFilter}" --no-playlist --no-check-certificates --no-warnings --extractor-args "youtube:player_client=ios,android,web,mweb" --ffmpeg-location "${ffmpegBin}" --force-overwrites -o "${finalAudioPath}" "https://www.youtube.com/watch?v=${cleanYtId}"`;
-                }
-                console.log(`[MUSIC GRAB] Downloading track with yt-dlp: ${cmd}`);
-                await execPromise(cmd, { timeout: 120000 });
-                if (fs.existsSync(finalAudioPath)) {
-                    downloaded = true;
-                }
-            } catch (ytErr: any) {
-                console.warn('[MUSIC GRAB] yt-dlp failed, trying direct stream fallback:', ytErr.message);
-            }
-        }
-
-        // Direct stream extraction fallback (Invidious / Piped / internal stream proxy)
-        if (!downloaded && cleanYtId) {
-            let directAudioUrl = '';
-
-            // Try Invidious API instances
-            for (const instance of INVIDIOUS_INSTANCES) {
-                try {
-                    const res = await axios.get(`${instance}/api/v1/videos/${cleanYtId}`, { timeout: 5000 });
-                    if (res.data && Array.isArray(res.data.adaptiveFormats)) {
-                        const audioFormats = res.data.adaptiveFormats.filter((f: any) => f.type && f.type.startsWith('audio/'));
-                        if (audioFormats.length > 0) {
-                            audioFormats.sort((a: any, b: any) => (parseInt(b.bitrate) || 0) - (parseInt(a.bitrate) || 0));
-                            directAudioUrl = audioFormats[0].url;
-                            if (directAudioUrl) break;
-                        }
-                    }
-                } catch {}
-            }
-
-            // Try Piped API instances
-            if (!directAudioUrl) {
-                for (const instance of PIPED_INSTANCES) {
-                    try {
-                        const res = await axios.get(`${instance}/streams/${cleanYtId}`, { timeout: 5000 });
-                        if (res.data && Array.isArray(res.data.audioStreams) && res.data.audioStreams.length > 0) {
-                            res.data.audioStreams.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0));
-                            directAudioUrl = res.data.audioStreams[0].url;
-                            if (directAudioUrl) break;
-                        }
-                    } catch {}
-                }
-            }
-
-            if (directAudioUrl) {
-                try {
-                    const writer = fs.createWriteStream(finalAudioPath);
-                    const response = await axios({
-                        url: directAudioUrl,
-                        method: 'GET',
-                        responseType: 'stream',
-                        headers: {
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                        },
-                        timeout: 60000
-                    });
-                    response.data.pipe(writer);
-                    await new Promise<void>((resolve, reject) => {
-                        writer.on('finish', () => resolve());
-                        writer.on('error', (err) => reject(err));
-                    });
-                    downloaded = true;
-                } catch (pipeErr: any) {
-                    console.error('Audio pipe stream download error:', pipeErr.message);
-                }
-            }
-        }
+        // 2. Download Track Audio using Multi-Tier Downloader Engine
+        const dlResult = await downloadAudioFile({
+            targetUrl: cleanYtId ? `https://www.youtube.com/watch?v=${cleanYtId}` : (body.streamUrl?.startsWith('http') ? body.streamUrl : undefined),
+            youtubeId: cleanYtId || undefined,
+            query: `${cleanArtist} ${cleanTitle}`,
+            outputPath: finalAudioPath,
+            format: (saveFormat === 'original' ? 'm4a' : saveFormat) as any,
+            title: cleanTitle,
+            artist: cleanArtist,
+            album: cleanAlbum,
+            coverUrl
+        });
 
         // 3. Save Album Artwork
         if (coverUrl) {
@@ -294,7 +191,7 @@ export async function POST(req: Request) {
             }
         }
 
-        if (downloaded || fs.existsSync(finalAudioPath)) {
+        if (dlResult.success && fs.existsSync(finalAudioPath)) {
             return NextResponse.json({
                 success: true,
                 message: `Successfully saved "${cleanTitle}" to ${cleanArtist} / ${cleanAlbum}`,
@@ -304,7 +201,7 @@ export async function POST(req: Request) {
                 title: cleanTitle
             });
         } else {
-            return NextResponse.json({ error: 'Failed to extract audio stream for this track. Please check network connection.' }, { status: 500 });
+            return NextResponse.json({ error: dlResult.error || 'Failed to extract audio stream for this track. Please check network connection.' }, { status: 500 });
         }
     } catch (error: any) {
         console.error('API /theater/music/grab error:', error);

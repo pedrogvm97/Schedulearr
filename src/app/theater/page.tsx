@@ -2114,188 +2114,407 @@ function TheaterPageContent() {
                     <div className="space-y-6">
                         {/* 1. ALBUMS TAB */}
                         {musicTab === 'albums' && (
-                            musicAlbums.length === 0 ? (
-                                <div className="p-16 bg-zinc-950/40 rounded-[2.5rem] border border-zinc-900 text-center space-y-2">
-                                    <Disc size={40} className="mx-auto text-zinc-700" />
-                                    <p className="text-lg font-bold text-white">No albums found</p>
-                                    <p className="text-xs text-zinc-500">Ensure your music directory contains audio files or link a Plex music library.</p>
-                                </div>
-                            ) : (
-                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5">
-                                    {musicAlbums.map((album, idx) => (
-                                        <div
-                                            key={idx}
-                                            onClick={() => setSelectedAlbum(album)}
-                                            className="group flex flex-col bg-[#09090b] border border-zinc-900 hover:border-amber-500/50 rounded-3xl overflow-hidden transition-all duration-300 shadow-xl cursor-pointer hover:-translate-y-1.5"
-                                        >
-                                            <div className="relative aspect-square bg-zinc-900 overflow-hidden flex items-center justify-center border-b border-zinc-900">
-                                                {album.posterUrl ? (
-                                                    <img src={album.posterUrl} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" loading="lazy" />
-                                                ) : (
-                                                    <Disc size={56} className="text-zinc-700 group-hover:text-amber-400 group-hover:scale-110 transition-all duration-500" />
-                                                )}
-                                                <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    <button
+                            <div className="space-y-6">
+                                {musicAlbums.length === 0 ? (
+                                    <div className="p-12 bg-zinc-950/40 rounded-[2.5rem] border border-zinc-900 text-center space-y-3">
+                                        <Disc size={44} className="mx-auto text-zinc-700" />
+                                        {searchQuery.trim() ? (
+                                            <>
+                                                <p className="text-xl font-bold text-white">No albums found in library for "{searchQuery}"</p>
+                                                <p className="text-sm text-zinc-400">Showing YouTube &amp; online matches below:</p>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <p className="text-xl font-bold text-white">No albums found</p>
+                                                <p className="text-sm text-zinc-500">Ensure your music directory contains audio files or link a Plex music library.</p>
+                                            </>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5">
+                                        {musicAlbums.map((album, idx) => (
+                                            <div
+                                                key={idx}
+                                                onClick={() => setSelectedAlbum(album)}
+                                                className="group flex flex-col bg-[#09090b] border border-zinc-900 hover:border-amber-500/50 rounded-3xl overflow-hidden transition-all duration-300 shadow-xl cursor-pointer hover:-translate-y-1.5"
+                                            >
+                                                <div className="relative aspect-square bg-zinc-900 overflow-hidden flex items-center justify-center border-b border-zinc-900">
+                                                    {album.posterUrl ? (
+                                                        <img src={album.posterUrl} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" loading="lazy" />
+                                                    ) : (
+                                                        <Disc size={56} className="text-zinc-700 group-hover:text-amber-400 group-hover:scale-110 transition-all duration-500" />
+                                                    )}
+                                                    <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handlePlayAlbum(album.tracks);
+                                                            }}
+                                                            className="w-14 h-14 rounded-2xl bg-amber-500 text-black flex items-center justify-center shadow-2xl scale-90 group-hover:scale-100 transition-all"
+                                                            title="Play Album"
+                                                        >
+                                                            <Play size={24} className="ml-1" />
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                <div className="p-4 space-y-1">
+                                                    <h3 className="font-bold text-white text-base leading-snug line-clamp-1 group-hover:text-amber-400 transition-colors">
+                                                        {album.name}
+                                                    </h3>
+                                                    <p
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            handlePlayAlbum(album.tracks);
+                                                            const artName = album.artist || 'Unknown Artist';
+                                                            const artistTracks = items.filter(i => (i.artist || 'Unknown Artist') === artName);
+                                                            const artistAlbums = musicAlbums.filter(a => a.artist === artName);
+                                                            setSelectedArtist({ name: artName, posterUrl: album.posterUrl, albums: artistAlbums, tracks: artistTracks });
                                                         }}
-                                                        className="w-14 h-14 rounded-2xl bg-amber-500 text-black flex items-center justify-center shadow-2xl scale-90 group-hover:scale-100 transition-all"
-                                                        title="Play Album"
+                                                        className="text-xs text-zinc-400 font-medium truncate hover:text-amber-400 hover:underline cursor-pointer transition-colors"
+                                                        title="View Artist"
                                                     >
-                                                        <Play size={24} className="ml-1" />
-                                                    </button>
+                                                        {album.artist}
+                                                    </p>
+                                                    <span className="text-[11px] text-zinc-600 font-bold block pt-0.5">{album.tracks.length} tracks</span>
                                                 </div>
                                             </div>
+                                        ))}
+                                    </div>
+                                )}
 
-                                            <div className="p-4 space-y-1">
-                                                <h3 className="font-bold text-white text-base leading-snug line-clamp-1 group-hover:text-amber-400 transition-colors">
-                                                    {album.name}
-                                                </h3>
-                                                <p className="text-xs text-zinc-400 font-medium truncate">{album.artist}</p>
-                                                <span className="text-[11px] text-zinc-600 font-bold block pt-0.5">{album.tracks.length} tracks</span>
-                                            </div>
+                                {/* Always show YouTube Online Matches when searching in Albums tab */}
+                                {searchQuery.trim() && (
+                                    <div className="pt-6 space-y-3">
+                                        <div className="flex items-center justify-between px-2">
+                                            <span className="text-sm font-black uppercase tracking-wider text-red-400 flex items-center gap-2">
+                                                <Youtube size={18} /> YouTube &amp; Online Streaming Matches ({onlineResults.length})
+                                            </span>
+                                            {loadingOnline && (
+                                                <span className="text-xs text-amber-400 font-bold flex items-center gap-1.5">
+                                                    <RefreshCw size={12} className="animate-spin" /> Searching YouTube...
+                                                </span>
+                                            )}
                                         </div>
-                                    ))}
-                                </div>
-                            )
+
+                                        {onlineResults.length > 0 ? (
+                                            <div className="space-y-2">
+                                                {onlineResults.map(song => (
+                                                    <div
+                                                        key={song.id}
+                                                        onClick={() => handlePlayTrack(song, onlineResults)}
+                                                        className="flex items-center justify-between p-3 sm:p-4 rounded-2xl bg-zinc-950/70 border border-zinc-900 hover:border-red-500/40 transition-all cursor-pointer group gap-3 sm:gap-4"
+                                                    >
+                                                        <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
+                                                            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-zinc-900 overflow-hidden flex items-center justify-center text-zinc-400 shrink-0">
+                                                                {song.posterUrl ? (
+                                                                    <img src={song.posterUrl} alt="" className="w-full h-full object-cover" />
+                                                                ) : (
+                                                                    <Youtube size={22} className="text-red-500" />
+                                                                )}
+                                                            </div>
+                                                            <div className="flex-1 min-w-0">
+                                                                <h4 className="font-bold text-sm sm:text-base text-white truncate group-hover:text-red-400 transition-colors">
+                                                                    {song.title}
+                                                                </h4>
+                                                                <p className="text-xs text-zinc-400 truncate flex items-center gap-1.5">
+                                                                    <span
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setSearchQuery(song.artist);
+                                                                        }}
+                                                                        className="hover:text-amber-400 hover:underline cursor-pointer transition-colors"
+                                                                        title="Pivot to Artist"
+                                                                    >
+                                                                        {song.artist}
+                                                                    </span>
+                                                                    {' • '}
+                                                                    <span className="text-red-400 shrink-0">{song.source}</span>
+                                                                    {' • '}
+                                                                    <span className="shrink-0">{song.duration}</span>
+                                                                </p>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="flex items-center gap-2 shrink-0">
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleDownloadTrack(song);
+                                                                }}
+                                                                className="px-3 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 text-xs font-bold transition-all flex items-center gap-1.5"
+                                                                title="Download / Save Track"
+                                                            >
+                                                                <Download size={14} />
+                                                                <span className="hidden sm:inline">Download</span>
+                                                            </button>
+
+                                                            <button className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-red-500/15 group-hover:bg-red-500 text-red-400 group-hover:text-white flex items-center justify-center transition-all shrink-0">
+                                                                <Play size={15} className="ml-0.5" />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : !loadingOnline ? (
+                                            <p className="text-sm text-zinc-500 px-2 italic">No online YouTube tracks found for "{searchQuery}"</p>
+                                        ) : null}
+                                    </div>
+                                )}
+                            </div>
                         )}
 
                         {/* 2. ARTISTS & COMPOSERS TAB */}
                         {musicTab === 'artists' && (
-                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-5">
-                                {musicArtists.map((artist, idx) => (
-                                    <div
-                                        key={idx}
-                                        onClick={() => {
-                                            const artistAlbums = musicAlbums.filter(a => a.artist === artist.name);
-                                            setSelectedArtist({ name: artist.name, posterUrl: artist.posterUrl, albums: artistAlbums, tracks: artist.tracks });
-                                        }}
-                                        className="p-5 rounded-3xl bg-[#09090b] border border-zinc-900 hover:border-amber-500/50 transition-all text-center space-y-3 cursor-pointer group hover:-translate-y-1.5 shadow-xl"
-                                    >
-                                        <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-zinc-900 border-2 border-zinc-800 group-hover:border-amber-500/50 overflow-hidden mx-auto flex items-center justify-center shadow-lg relative">
-                                            {artist.posterUrl ? (
-                                                <img src={artist.posterUrl} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                                            ) : (
-                                                <User size={36} className="text-zinc-700 group-hover:text-amber-400 transition-colors" />
+                            <div className="space-y-6">
+                                {musicArtists.length === 0 ? (
+                                    <div className="p-12 bg-zinc-950/40 rounded-[2.5rem] border border-zinc-900 text-center space-y-3">
+                                        <User size={44} className="mx-auto text-zinc-700" />
+                                        {searchQuery.trim() ? (
+                                            <>
+                                                <p className="text-xl font-bold text-white">No artists found in library for "{searchQuery}"</p>
+                                                <p className="text-sm text-zinc-400">Showing YouTube &amp; online matches below:</p>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <p className="text-xl font-bold text-white">No artists found</p>
+                                                <p className="text-sm text-zinc-500">Ensure your music directory contains audio files with artist tags.</p>
+                                            </>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-5">
+                                        {musicArtists.map((artist, idx) => (
+                                            <div
+                                                key={idx}
+                                                onClick={() => {
+                                                    const artistAlbums = musicAlbums.filter(a => a.artist === artist.name);
+                                                    setSelectedArtist({ name: artist.name, posterUrl: artist.posterUrl, albums: artistAlbums, tracks: artist.tracks });
+                                                }}
+                                                className="p-5 rounded-3xl bg-[#09090b] border border-zinc-900 hover:border-amber-500/50 transition-all text-center space-y-3 cursor-pointer group hover:-translate-y-1.5 shadow-xl"
+                                            >
+                                                <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-zinc-900 border-2 border-zinc-800 group-hover:border-amber-500/50 overflow-hidden mx-auto flex items-center justify-center shadow-lg relative">
+                                                    {artist.posterUrl ? (
+                                                        <img src={artist.posterUrl} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                                                    ) : (
+                                                        <User size={36} className="text-zinc-700 group-hover:text-amber-400 transition-colors" />
+                                                    )}
+                                                </div>
+                                                <div>
+                                                    <h3 className="font-bold text-white text-base truncate group-hover:text-amber-400 transition-colors">{artist.name}</h3>
+                                                    <span className="text-xs text-zinc-500">{artist.tracks.length} songs</span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {/* Always show YouTube Online Matches when searching in Artists tab */}
+                                {searchQuery.trim() && (
+                                    <div className="pt-6 space-y-3">
+                                        <div className="flex items-center justify-between px-2">
+                                            <span className="text-sm font-black uppercase tracking-wider text-red-400 flex items-center gap-2">
+                                                <Youtube size={18} /> YouTube &amp; Online Streaming Matches ({onlineResults.length})
+                                            </span>
+                                            {loadingOnline && (
+                                                <span className="text-xs text-amber-400 font-bold flex items-center gap-1.5">
+                                                    <RefreshCw size={12} className="animate-spin" /> Searching YouTube...
+                                                </span>
                                             )}
                                         </div>
-                                        <div>
-                                            <h3 className="font-bold text-white text-base truncate group-hover:text-amber-400 transition-colors">{artist.name}</h3>
-                                            <span className="text-xs text-zinc-500">{artist.tracks.length} songs</span>
-                                        </div>
+
+                                        {onlineResults.length > 0 ? (
+                                            <div className="space-y-2">
+                                                {onlineResults.map(song => (
+                                                    <div
+                                                        key={song.id}
+                                                        onClick={() => handlePlayTrack(song, onlineResults)}
+                                                        className="flex items-center justify-between p-3 sm:p-4 rounded-2xl bg-zinc-950/70 border border-zinc-900 hover:border-red-500/40 transition-all cursor-pointer group gap-3 sm:gap-4"
+                                                    >
+                                                        <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
+                                                            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-zinc-900 overflow-hidden flex items-center justify-center text-zinc-400 shrink-0">
+                                                                {song.posterUrl ? (
+                                                                    <img src={song.posterUrl} alt="" className="w-full h-full object-cover" />
+                                                                ) : (
+                                                                    <Youtube size={22} className="text-red-500" />
+                                                                )}
+                                                            </div>
+                                                            <div className="flex-1 min-w-0">
+                                                                <h4 className="font-bold text-sm sm:text-base text-white truncate group-hover:text-red-400 transition-colors">
+                                                                    {song.title}
+                                                                </h4>
+                                                                <p className="text-xs text-zinc-400 truncate flex items-center gap-1.5">
+                                                                    <span
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setSearchQuery(song.artist);
+                                                                        }}
+                                                                        className="hover:text-amber-400 hover:underline cursor-pointer transition-colors"
+                                                                        title="Pivot to Artist"
+                                                                    >
+                                                                        {song.artist}
+                                                                    </span>
+                                                                    {' • '}
+                                                                    <span className="text-red-400 shrink-0">{song.source}</span>
+                                                                    {' • '}
+                                                                    <span className="shrink-0">{song.duration}</span>
+                                                                </p>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="flex items-center gap-2 shrink-0">
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleDownloadTrack(song);
+                                                                }}
+                                                                className="px-3 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 text-xs font-bold transition-all flex items-center gap-1.5"
+                                                                title="Download / Save Track"
+                                                            >
+                                                                <Download size={14} />
+                                                                <span className="hidden sm:inline">Download</span>
+                                                            </button>
+
+                                                            <button className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-red-500/15 group-hover:bg-red-500 text-red-400 group-hover:text-white flex items-center justify-center transition-all shrink-0">
+                                                                <Play size={15} className="ml-0.5" />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : !loadingOnline ? (
+                                            <p className="text-sm text-zinc-500 px-2 italic">No online YouTube tracks found for "{searchQuery}"</p>
+                                        ) : null}
                                     </div>
-                                ))}
+                                )}
                             </div>
                         )}
 
                         {/* 3. TRACKS / SONGS TAB */}
                         {musicTab === 'tracks' && (
-                            <div className="space-y-2">
-                                {filteredItems.map((track, idx) => {
-                                    const isCurrentPlaying = playingAudio?.id === track.id && isAudioPlaying;
-                                    return (
-                                        <div
-                                            key={track.id}
-                                            onClick={() => handlePlayTrack(track, filteredItems, idx)}
-                                            className={`flex items-center justify-between p-2.5 sm:p-4 rounded-2xl border transition-all cursor-pointer group shadow-sm gap-2.5 sm:gap-4 ${
-                                                isCurrentPlaying
-                                                    ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
-                                                    : 'bg-zinc-950/60 border-zinc-900 hover:border-zinc-800 hover:bg-zinc-900/50 text-white'
-                                            }`}
-                                        >
-                                            <div className="flex items-center gap-2.5 sm:gap-4 flex-1 min-w-0">
-                                                <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-zinc-900 overflow-hidden flex items-center justify-center text-zinc-400 shrink-0 relative">
-                                                    {track.posterUrl ? (
-                                                        <img src={track.posterUrl} alt="" className="w-full h-full object-cover" />
-                                                    ) : (
-                                                        <Music size={20} />
-                                                    )}
-                                                    {isCurrentPlaying && (
-                                                        <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-                                                            <Volume2 size={18} className="text-amber-400 animate-pulse" />
+                            <div className="space-y-6">
+                                {filteredItems.length === 0 ? (
+                                    <div className="p-12 bg-zinc-950/40 rounded-[2.5rem] border border-zinc-900 text-center space-y-3">
+                                        <Music size={44} className="mx-auto text-zinc-700" />
+                                        {searchQuery.trim() ? (
+                                            <>
+                                                <p className="text-xl font-bold text-white">No tracks found in library for "{searchQuery}"</p>
+                                                <p className="text-sm text-zinc-400">Showing YouTube &amp; online matches below:</p>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <p className="text-xl font-bold text-white">No tracks available</p>
+                                                <p className="text-sm text-zinc-500">Add music to your library or search above to find YouTube tracks.</p>
+                                            </>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <div className="space-y-2">
+                                        {filteredItems.map((track, idx) => {
+                                            const isCurrentPlaying = playingAudio?.id === track.id && isAudioPlaying;
+                                            return (
+                                                <div
+                                                    key={track.id}
+                                                    onClick={() => handlePlayTrack(track, filteredItems, idx)}
+                                                    className={`flex items-center justify-between p-2.5 sm:p-4 rounded-2xl border transition-all cursor-pointer group shadow-sm gap-2.5 sm:gap-4 ${
+                                                        isCurrentPlaying
+                                                            ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                                                            : 'bg-zinc-950/60 border-zinc-900 hover:border-zinc-800 hover:bg-zinc-900/50 text-white'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center gap-2.5 sm:gap-4 flex-1 min-w-0">
+                                                        <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-zinc-900 overflow-hidden flex items-center justify-center text-zinc-400 shrink-0 relative">
+                                                            {track.posterUrl ? (
+                                                                <img src={track.posterUrl} alt="" className="w-full h-full object-cover" />
+                                                            ) : (
+                                                                <Music size={20} />
+                                                            )}
+                                                            {isCurrentPlaying && (
+                                                                <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                                                                    <Volume2 size={18} className="text-amber-400 animate-pulse" />
+                                                                </div>
+                                                            )}
                                                         </div>
-                                                    )}
-                                                </div>
 
-                                                <div className="flex-1 min-w-0">
-                                                    <h4 className="font-bold text-xs sm:text-base truncate group-hover:text-amber-400 transition-colors">
-                                                        {track.title}
-                                                    </h4>
-                                                    <p className="text-[11px] sm:text-xs text-zinc-500 truncate">
-                                                        <span
+                                                        <div className="flex-1 min-w-0">
+                                                            <h4 className="font-bold text-xs sm:text-base truncate group-hover:text-amber-400 transition-colors">
+                                                                {track.title}
+                                                            </h4>
+                                                            <p className="text-[11px] sm:text-xs text-zinc-500 truncate">
+                                                                <span
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        const artName = track.artist || 'Unknown Artist';
+                                                                        const artistTracks = items.filter(i => (i.artist || 'Unknown Artist') === artName);
+                                                                        const artistAlbums = musicAlbums.filter(a => a.artist === artName);
+                                                                        setSelectedArtist({ name: artName, posterUrl: track.posterUrl, albums: artistAlbums, tracks: artistTracks });
+                                                                    }}
+                                                                    className="hover:text-amber-400 hover:underline cursor-pointer transition-colors"
+                                                                    title="View Artist"
+                                                                >
+                                                                    {track.artist || 'Unknown Artist'}
+                                                                </span>
+                                                                {' • '}
+                                                                <span
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        if (track.album) {
+                                                                            const alb = musicAlbums.find(a => a.name === track.album);
+                                                                            if (alb) setSelectedAlbum(alb);
+                                                                        }
+                                                                    }}
+                                                                    className="hover:text-amber-400 hover:underline cursor-pointer transition-colors"
+                                                                    title="View Album"
+                                                                >
+                                                                    {track.album || 'Single'}
+                                                                </span>
+                                                            </p>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                                                        <button
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
-                                                                const artName = track.artist || 'Unknown Artist';
-                                                                const artistTracks = items.filter(i => (i.artist || 'Unknown Artist') === artName);
-                                                                const artistAlbums = musicAlbums.filter(a => a.artist === artName);
-                                                                setSelectedArtist({ name: artName, posterUrl: track.posterUrl, albums: artistAlbums, tracks: artistTracks });
+                                                                handleDownloadTrack(track);
                                                             }}
-                                                            className="hover:text-amber-400 hover:underline cursor-pointer transition-colors"
-                                                            title="View Artist"
+                                                            className="p-1.5 sm:p-2 rounded-xl text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+                                                            title="Download Track to Local Machine"
                                                         >
-                                                            {track.artist || 'Unknown Artist'}
-                                                        </span>
-                                                        {' • '}
-                                                        <span
+                                                            <Download size={15} />
+                                                        </button>
+
+                                                        <button
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
-                                                                if (track.album) {
-                                                                    const alb = musicAlbums.find(a => a.name === track.album);
-                                                                    if (alb) setSelectedAlbum(alb);
-                                                                }
+                                                                setAddToPlaylistTrack(track);
+                                                                setIsCreatePlaylistModalOpen(true);
                                                             }}
-                                                            className="hover:text-amber-400 hover:underline cursor-pointer transition-colors"
-                                                            title="View Album"
+                                                            className="p-1.5 sm:p-2 rounded-xl text-zinc-500 hover:text-amber-400 hover:bg-amber-500/10 transition-colors"
+                                                            title="Add to Playlist"
                                                         >
-                                                            {track.album || 'Single'}
-                                                        </span>
-                                                    </p>
+                                                            <ListPlus size={15} />
+                                                        </button>
+
+                                                        <button className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-zinc-900 group-hover:bg-amber-500 text-zinc-400 group-hover:text-black flex items-center justify-center transition-all shrink-0">
+                                                            <Play size={14} className="ml-0.5" />
+                                                        </button>
+                                                    </div>
                                                 </div>
-                                            </div>
-
-                                            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleDownloadTrack(track);
-                                                    }}
-                                                    className="p-1.5 sm:p-2 rounded-xl text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
-                                                    title="Download Track to Local Machine"
-                                                >
-                                                    <Download size={15} />
-                                                </button>
-
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setAddToPlaylistTrack(track);
-                                                        setIsCreatePlaylistModalOpen(true);
-                                                    }}
-                                                    className="p-1.5 sm:p-2 rounded-xl text-zinc-500 hover:text-amber-400 hover:bg-amber-500/10 transition-colors"
-                                                    title="Add to Playlist"
-                                                >
-                                                    <ListPlus size={15} />
-                                                </button>
-
-                                                <button className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-zinc-900 group-hover:bg-amber-500 text-zinc-400 group-hover:text-black flex items-center justify-center transition-all shrink-0">
-                                                    <Play size={14} className="ml-0.5" />
-                                                </button>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
+                                            );
+                                        })}
+                                    </div>
+                                )}
 
                                 {/* YouTube Online Matches Embedded in Songs Tab when Searching */}
                                 {searchQuery.trim() && (
                                     <div className="pt-6 space-y-3">
                                         <div className="flex items-center justify-between px-2">
-                                            <span className="text-xs font-black uppercase tracking-wider text-red-400 flex items-center gap-1.5">
-                                                <Youtube size={16} /> YouTube &amp; Online Streaming Matches ({onlineResults.length})
+                                            <span className="text-sm font-black uppercase tracking-wider text-red-400 flex items-center gap-2">
+                                                <Youtube size={18} /> YouTube &amp; Online Streaming Matches ({onlineResults.length})
                                             </span>
                                             {loadingOnline && (
-                                                <span className="text-[10px] text-amber-400 font-bold flex items-center gap-1">
-                                                    <RefreshCw size={11} className="animate-spin" /> Searching YouTube...
+                                                <span className="text-xs text-amber-400 font-bold flex items-center gap-1.5">
+                                                    <RefreshCw size={12} className="animate-spin" /> Searching YouTube...
                                                 </span>
                                             )}
                                         </div>
@@ -2321,7 +2540,20 @@ function TheaterPageContent() {
                                                                     {song.title}
                                                                 </h4>
                                                                 <p className="text-[11px] sm:text-xs text-zinc-500 truncate flex items-center gap-1">
-                                                                    <span className="truncate">{song.artist}</span> • <span className="text-red-400 shrink-0">{song.source}</span> • <span className="shrink-0">{song.duration}</span>
+                                                                    <span
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setSearchQuery(song.artist);
+                                                                        }}
+                                                                        className="hover:text-amber-400 hover:underline cursor-pointer transition-colors"
+                                                                        title="Pivot to Artist"
+                                                                    >
+                                                                        {song.artist}
+                                                                    </span>
+                                                                    {' • '}
+                                                                    <span className="text-red-400 shrink-0">{song.source}</span>
+                                                                    {' • '}
+                                                                    <span className="shrink-0">{song.duration}</span>
                                                                 </p>
                                                             </div>
                                                         </div>

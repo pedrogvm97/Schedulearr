@@ -2,62 +2,16 @@ import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import util from 'util';
-import { spawn, exec } from 'child_process';
+import { spawn } from 'child_process';
 import { Readable } from 'stream';
 import axios from 'axios';
 import ffmpegStatic from 'ffmpeg-static';
-import { ensureYtDlpBinary, getYtDlpCommonArgs } from '@/lib/ytdlp';
+import { ensureYtDlpBinary } from '@/lib/ytdlp';
+import { downloadAudioFile, extractDirectAudioStreamUrl } from '@/lib/musicDownloader';
 
-const execPromise = util.promisify(exec);
 const ffmpegPath: string = ffmpegStatic || 'ffmpeg';
 
 export const dynamic = 'force-dynamic';
-
-const INVIDIOUS_INSTANCES = [
-    'https://invidious.nerdvpn.de',
-    'https://inv.tux.pizza',
-    'https://invidious.jing.rocks',
-    'https://invidious.drgns.space',
-    'https://yt.artemislena.eu'
-];
-
-const PIPED_INSTANCES = [
-    'https://pipedapi.kavin.rocks',
-    'https://api.piped.privacydev.net',
-    'https://piped-api.garudalinux.org'
-];
-
-async function extractDirectAudioUrl(cleanYtId: string): Promise<string | null> {
-    // 1. Try Invidious API
-    for (const instance of INVIDIOUS_INSTANCES) {
-        try {
-            const res = await axios.get(`${instance}/api/v1/videos/${cleanYtId}`, { timeout: 4000 });
-            if (res.data && Array.isArray(res.data.adaptiveFormats)) {
-                const audioFormats = res.data.adaptiveFormats.filter((f: any) => f.type && f.type.startsWith('audio/'));
-                if (audioFormats.length > 0) {
-                    audioFormats.sort((a: any, b: any) => (parseInt(b.bitrate) || 0) - (parseInt(a.bitrate) || 0));
-                    const best = audioFormats[0].url;
-                    if (best) return best;
-                }
-            }
-        } catch {}
-    }
-
-    // 2. Try Piped API
-    for (const instance of PIPED_INSTANCES) {
-        try {
-            const res = await axios.get(`${instance}/streams/${cleanYtId}`, { timeout: 4000 });
-            if (res.data && Array.isArray(res.data.audioStreams) && res.data.audioStreams.length > 0) {
-                res.data.audioStreams.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0));
-                const best = res.data.audioStreams[0].url;
-                if (best) return best;
-            }
-        } catch {}
-    }
-
-    return null;
-}
 
 export async function GET(req: Request) {
     try {
@@ -94,51 +48,21 @@ export async function GET(req: Request) {
             ? 'ba[ext=webm]/251/250/249/ba/b'
             : 'ba[ext=m4a]/140/139/ba/b';
 
-        const ytDlpBin = await ensureYtDlpBinary();
-
         // ── MODE A: Clean File Downloads (Ensures 100% complete files with exact Content-Length) ──
         if (isDownload) {
             const outFormat = saveFormat === 'flac' ? 'flac' : saveFormat === 'wav' ? 'wav' : saveFormat === 'm4a' ? 'm4a' : saveFormat === 'opus' ? 'opus' : 'mp3';
             const mimeType = outFormat === 'flac' ? 'audio/flac' : outFormat === 'wav' ? 'audio/wav' : outFormat === 'm4a' ? 'audio/mp4' : outFormat === 'opus' ? 'audio/opus' : 'audio/mpeg';
             const tempFilePath = path.join(os.tmpdir(), `schdl_dl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${outFormat}`);
 
-            let downloaded = false;
+            const dlResult = await downloadAudioFile({
+                targetUrl,
+                youtubeId: cleanId,
+                query: q || undefined,
+                outputPath: tempFilePath,
+                format: outFormat as any
+            });
 
-            // 1. Try downloading with standalone yt-dlp binary
-            try {
-                let cmd = '';
-                if (outFormat === 'mp3' || outFormat === 'flac' || outFormat === 'wav') {
-                    cmd = `"${ytDlpBin}" -f "ba/b" --no-playlist --no-check-certificates --no-warnings --extractor-args "youtube:player_client=ios,android,web,mweb" --extract-audio --audio-format ${outFormat} ${outFormat === 'mp3' ? '--audio-quality 320k' : ''} --ffmpeg-location "${ffmpegPath}" --force-overwrites -o "${tempFilePath}" "${targetUrl}"`;
-                } else {
-                    cmd = `"${ytDlpBin}" -f "${formatFilter}" --no-playlist --no-check-certificates --no-warnings --extractor-args "youtube:player_client=ios,android,web,mweb" --ffmpeg-location "${ffmpegPath}" --force-overwrites -o "${tempFilePath}" "${targetUrl}"`;
-                }
-                console.log(`[DOWNLOAD API] Fetching audio with yt-dlp: ${cmd}`);
-                await execPromise(cmd, { timeout: 120000 });
-                if (fs.existsSync(tempFilePath) && fs.statSync(tempFilePath).size > 1024) {
-                    downloaded = true;
-                }
-            } catch (err: any) {
-                console.warn('[DOWNLOAD API] yt-dlp download failed, attempting fallback API:', err.message);
-            }
-
-            // 2. Fallback: Extract direct stream URL from Invidious/Piped and transcode with ffmpeg
-            if (!downloaded && cleanId) {
-                try {
-                    const directAudioUrl = await extractDirectAudioUrl(cleanId);
-                    if (directAudioUrl) {
-                        const ffmpegCmd = `"${ffmpegPath}" -y -i "${directAudioUrl}" -vn ${outFormat === 'mp3' ? '-b:a 320k -ar 44100' : ''} -f ${outFormat} "${tempFilePath}"`;
-                        console.log(`[DOWNLOAD API] Fallback ffmpeg direct stream convert: ${ffmpegCmd}`);
-                        await execPromise(ffmpegCmd, { timeout: 60000 });
-                        if (fs.existsSync(tempFilePath) && fs.statSync(tempFilePath).size > 1024) {
-                            downloaded = true;
-                        }
-                    }
-                } catch (fallbackErr: any) {
-                    console.error('[DOWNLOAD API] Direct stream fallback error:', fallbackErr.message);
-                }
-            }
-
-            if (downloaded && fs.existsSync(tempFilePath)) {
+            if (dlResult.success && fs.existsSync(tempFilePath)) {
                 const stat = fs.statSync(tempFilePath);
                 const fileStream = fs.createReadStream(tempFilePath);
 
@@ -165,18 +89,20 @@ export async function GET(req: Request) {
         }
 
         // ── MODE B: Transcoded Live Audio Stream (For In-Browser Web Player) ──
+        const ytDlpBin = await ensureYtDlpBinary();
+
         if (saveFormat === 'mp3' || saveFormat === 'flac' || saveFormat === 'wav' || isTranscode) {
             const outFormat = saveFormat === 'flac' ? 'flac' : saveFormat === 'wav' ? 'wav' : 'mp3';
             const mimeType = outFormat === 'flac' ? 'audio/flac' : outFormat === 'wav' ? 'audio/wav' : 'audio/mpeg';
 
-            // Try spawning yt-dlp first with modern iOS/Android/web client rotation
+            // 1. Try spawning yt-dlp first with modern iOS/Android/web client rotation
             try {
                 const ytdlArgs = [
                     '-f', formatFilter,
                     '--no-playlist',
                     '--no-check-certificates',
                     '--no-warnings',
-                    '--extractor-args', 'youtube:player_client=ios,android,web,mweb',
+                    '--extractor-args', 'youtube:player_client=android,web,tv,ios',
                     '--ffmpeg-location', ffmpegPath,
                     '-o', '-',
                     targetUrl
@@ -192,10 +118,6 @@ export async function GET(req: Request) {
 
                 const ytdlProc = spawn(ytDlpBin, ytdlArgs);
                 const ffmpegProc = spawn(ffmpegPath, ffmpegArgs);
-
-                let hasError = false;
-                ytdlProc.on('error', () => { hasError = true; });
-                ffmpegProc.on('error', () => { hasError = true; });
 
                 ytdlProc.stdout.pipe(ffmpegProc.stdin);
                 ytdlProc.stderr.on('data', () => {});
@@ -226,9 +148,9 @@ export async function GET(req: Request) {
                 console.warn('[AUDIO STREAM] yt-dlp transcode spawn failed, trying fallback API:', err.message);
             }
 
-            // Fallback: Extract direct audio stream URL from Invidious/Piped and transcode via ffmpeg
+            // 2. Fallback: Extract direct audio stream URL from Cobalt/Piped/Invidious and transcode via ffmpeg
             if (cleanId) {
-                const directAudioUrl = await extractDirectAudioUrl(cleanId);
+                const directAudioUrl = await extractDirectAudioStreamUrl(cleanId);
                 if (directAudioUrl) {
                     const ffmpegArgs = [
                         '-i', directAudioUrl,
@@ -263,7 +185,7 @@ export async function GET(req: Request) {
             }
         }
 
-        // ── MODE B: Direct Native Audio Stream (M4A / Opus) ──
+        // ── MODE C: Direct Native Audio Stream (M4A / Opus) ──
         const contentType = effectiveExt === 'opus' ? 'audio/webm; codecs=opus' : 'audio/mp4';
 
         try {
@@ -272,7 +194,7 @@ export async function GET(req: Request) {
                 '--no-playlist',
                 '--no-check-certificates',
                 '--no-warnings',
-                '--extractor-args', 'youtube:player_client=ios,android,web,mweb',
+                '--extractor-args', 'youtube:player_client=android,web,tv,ios',
                 '--ffmpeg-location', ffmpegPath,
                 '-o', '-',
                 targetUrl
@@ -293,22 +215,20 @@ export async function GET(req: Request) {
                 }
             });
 
-            const headers: Record<string, string> = {
-                'Content-Type': contentType,
-                'Cache-Control': isDownload ? 'no-cache, no-store' : 'public, max-age=3600'
-            };
-            if (isDownload) {
-                headers['Content-Disposition'] = `attachment; filename="${encodeURIComponent(safeFilename)}"; filename*=UTF-8''${encodeURIComponent(safeFilename)}`;
-            }
-
-            return new Response(webStream, { status: 200, headers });
+            return new Response(webStream, {
+                status: 200,
+                headers: {
+                    'Content-Type': contentType,
+                    'Cache-Control': 'public, max-age=3600'
+                }
+            });
         } catch (e: any) {
             console.warn('[AUDIO STREAM] Direct yt-dlp pipe failed:', e.message);
         }
 
-        // Direct stream fallback via Invidious / Piped
+        // Direct stream fallback via Cobalt / Piped / Invidious
         if (cleanId) {
-            const directAudioUrl = await extractDirectAudioUrl(cleanId);
+            const directAudioUrl = await extractDirectAudioStreamUrl(cleanId);
             if (directAudioUrl) {
                 const remoteRes = await axios.get(directAudioUrl, { responseType: 'stream', timeout: 10000 });
                 const nodeStream = remoteRes.data;
@@ -323,14 +243,13 @@ export async function GET(req: Request) {
                     }
                 });
 
-                const headers: Record<string, string> = {
-                    'Content-Type': remoteRes.headers['content-type'] || contentType,
-                    'Cache-Control': 'public, max-age=3600'
-                };
-                if (isDownload) {
-                    headers['Content-Disposition'] = `attachment; filename="${encodeURIComponent(safeFilename)}"; filename*=UTF-8''${encodeURIComponent(safeFilename)}`;
-                }
-                return new Response(webStream, { status: 200, headers });
+                return new Response(webStream, {
+                    status: 200,
+                    headers: {
+                        'Content-Type': remoteRes.headers['content-type'] || contentType,
+                        'Cache-Control': 'public, max-age=3600'
+                    }
+                });
             }
         }
 

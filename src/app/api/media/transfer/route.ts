@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: Request) {
     try {
         const payload = await request.json();
-        const {
+        let {
             item,
             sourceInstanceId,
             targetInstanceId,
@@ -22,15 +22,42 @@ export async function POST(request: Request) {
             mediaType // 'movie' or 'series'
         } = payload;
 
-        if (!item || !sourceInstanceId || !targetInstanceId || !targetProfileId || !targetRootFolder) {
-            return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
-        }
+        // Support alternative field names from various callers
+        sourceInstanceId = sourceInstanceId || payload.sourceId;
+        targetInstanceId = targetInstanceId || payload.targetId;
+        targetProfileId = targetProfileId || payload.profileId || payload.qualityProfileId;
+        targetRootFolder = targetRootFolder || payload.rootFolder || payload.rootFolderPath;
+        action = action || (payload.deleteFromSource ? 'transfer' : 'copy');
+        moveFiles = moveFiles ?? payload.copyFiles ?? false;
+        mediaType = mediaType || payload.type || (payload.item?.type === 'series' || payload.item?.tvdbId ? 'series' : 'movie');
 
-        const sourceInstance = getInstanceById(sourceInstanceId);
-        const targetInstance = getInstanceById(targetInstanceId);
+        const sourceInstance = sourceInstanceId ? getInstanceById(sourceInstanceId) : null;
+        const targetInstance = targetInstanceId ? getInstanceById(targetInstanceId) : null;
 
         if (!sourceInstance || !targetInstance) {
-            return NextResponse.json({ error: 'Instance not found' }, { status: 404 });
+            return NextResponse.json({ error: 'Source or Target instance not found' }, { status: 404 });
+        }
+
+        if (!targetProfileId || !targetRootFolder) {
+            return NextResponse.json({ error: 'Missing targetProfileId or targetRootFolder' }, { status: 400 });
+        }
+
+        // If item object not passed, look it up from source instance using mediaId / id
+        if (!item) {
+            const mediaId = payload.mediaId || payload.id;
+            if (mediaId) {
+                if (mediaType === 'movie') {
+                    const allMovies = await radarr.getAllMovies(sourceInstance.url, sourceInstance.api_key);
+                    item = allMovies.find((m: any) => m.id === Number(mediaId));
+                } else {
+                    const allSeries = await sonarr.getAllSeries(sourceInstance.url, sourceInstance.api_key);
+                    item = allSeries.find((s: any) => s.id === Number(mediaId));
+                }
+            }
+        }
+
+        if (!item) {
+            return NextResponse.json({ error: 'Missing media item for transfer' }, { status: 400 });
         }
 
         const isMovie = mediaType === 'movie';

@@ -8,55 +8,12 @@ import { getInstances } from '@/lib/db';
 import { exec } from 'child_process';
 import util from 'util';
 import ffmpegStatic from 'ffmpeg-static';
-import { ensureYtDlpBinary } from '@/lib/ytdlp';
+import { downloadAudioFile, extractDirectAudioStreamUrl } from '@/lib/musicDownloader';
 
 const execPromise = util.promisify(exec);
 const ffmpegPath: string = ffmpegStatic || 'ffmpeg';
 
 export const dynamic = 'force-dynamic';
-
-const INVIDIOUS_INSTANCES = [
-    'https://invidious.nerdvpn.de',
-    'https://inv.tux.pizza',
-    'https://invidious.jing.rocks',
-    'https://invidious.drgns.space',
-    'https://yt.artemislena.eu'
-];
-
-const PIPED_INSTANCES = [
-    'https://pipedapi.kavin.rocks',
-    'https://api.piped.privacydev.net',
-    'https://piped-api.garudalinux.org'
-];
-
-async function extractDirectAudioUrl(cleanYtId: string): Promise<string | null> {
-    for (const instance of INVIDIOUS_INSTANCES) {
-        try {
-            const res = await axios.get(`${instance}/api/v1/videos/${cleanYtId}`, { timeout: 4000 });
-            if (res.data && Array.isArray(res.data.adaptiveFormats)) {
-                const audioFormats = res.data.adaptiveFormats.filter((f: any) => f.type && f.type.startsWith('audio/'));
-                if (audioFormats.length > 0) {
-                    audioFormats.sort((a: any, b: any) => (parseInt(b.bitrate) || 0) - (parseInt(a.bitrate) || 0));
-                    const best = audioFormats[0].url;
-                    if (best) return best;
-                }
-            }
-        } catch {}
-    }
-
-    for (const instance of PIPED_INSTANCES) {
-        try {
-            const res = await axios.get(`${instance}/streams/${cleanYtId}`, { timeout: 4000 });
-            if (res.data && Array.isArray(res.data.audioStreams) && res.data.audioStreams.length > 0) {
-                res.data.audioStreams.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0));
-                const best = res.data.audioStreams[0].url;
-                if (best) return best;
-            }
-        } catch {}
-    }
-
-    return null;
-}
 
 function getMimeType(filenameOrExt: string): string {
     const ext = filenameOrExt.startsWith('.') ? filenameOrExt.toLowerCase() : path.extname(filenameOrExt).toLowerCase();
@@ -403,46 +360,19 @@ export async function POST(req: Request) {
             cleanYtId = track.id.replace(/^(yt-|online-)/, '');
         }
 
-        const query = cleanYtId ? `https://www.youtube.com/watch?v=${cleanYtId}` : `ytsearch1:${effectiveArtist} ${effectiveTitle} audio`;
+        const dlResult = await downloadAudioFile({
+            targetUrl: cleanYtId ? `https://www.youtube.com/watch?v=${cleanYtId}` : undefined,
+            youtubeId: cleanYtId || undefined,
+            query: `${effectiveArtist} ${effectiveTitle}`,
+            outputPath: targetFile,
+            format: outFormat as any,
+            title: effectiveTitle,
+            artist: effectiveArtist,
+            album: album || track?.album,
+            coverUrl: track?.posterUrl
+        });
 
-        const ytDlpBin = await ensureYtDlpBinary();
-        let downloaded = false;
-
-        // Try yt-dlp
-        try {
-            let cmd = '';
-            if (outFormat === 'mp3' || outFormat === 'flac' || outFormat === 'wav') {
-                cmd = `"${ytDlpBin}" -f "ba/b" --no-playlist --no-check-certificates --no-warnings --extractor-args "youtube:player_client=ios,android,web,mweb" --extract-audio --audio-format ${outFormat} ${outFormat === 'mp3' ? '--audio-quality 320k' : ''} --ffmpeg-location "${ffmpegPath}" --force-overwrites -o "${targetFile}" "${query}"`;
-            } else {
-                cmd = `"${ytDlpBin}" -f "ba/b" --no-playlist --no-check-certificates --no-warnings --extractor-args "youtube:player_client=ios,android,web,mweb" --ffmpeg-location "${ffmpegPath}" --force-overwrites -o "${targetFile}" "${query}"`;
-            }
-            console.log(`[DOWNLOAD TO SERVER] Executing yt-dlp: ${cmd}`);
-            await execPromise(cmd, { timeout: 120000 });
-            if (fs.existsSync(targetFile) && fs.statSync(targetFile).size > 1024) {
-                downloaded = true;
-            }
-        } catch (err: any) {
-            console.warn('[DOWNLOAD TO SERVER] yt-dlp failed, trying fallback API:', err.message);
-        }
-
-        // Fallback: Direct stream extraction via Invidious / Piped + ffmpeg
-        if (!downloaded && cleanYtId) {
-            try {
-                const directAudioUrl = await extractDirectAudioUrl(cleanYtId);
-                if (directAudioUrl) {
-                    const ffmpegCmd = `"${ffmpegPath}" -y -i "${directAudioUrl}" -vn ${outFormat === 'mp3' ? '-b:a 320k -ar 44100' : ''} -f ${outFormat} "${targetFile}"`;
-                    console.log(`[DOWNLOAD TO SERVER] Executing direct stream ffmpeg: ${ffmpegCmd}`);
-                    await execPromise(ffmpegCmd, { timeout: 60000 });
-                    if (fs.existsSync(targetFile) && fs.statSync(targetFile).size > 1024) {
-                        downloaded = true;
-                    }
-                }
-            } catch (fallbackErr: any) {
-                console.error('[DOWNLOAD TO SERVER] Direct stream fallback error:', fallbackErr.message);
-            }
-        }
-
-        if (downloaded && fs.existsSync(targetFile)) {
+        if (dlResult.success && fs.existsSync(targetFile)) {
             const stat = fs.statSync(targetFile);
             return NextResponse.json({
                 success: true,
@@ -453,7 +383,7 @@ export async function POST(req: Request) {
             });
         }
 
-        return NextResponse.json({ error: 'Failed to process audio file for download.' }, { status: 502 });
+        return NextResponse.json({ error: dlResult.error || 'Failed to process audio file for download.' }, { status: 502 });
     } catch (e: any) {
         console.error('[DOWNLOAD TO SERVER] Fatal Error:', e);
         return NextResponse.json({ error: e.message }, { status: 500 });

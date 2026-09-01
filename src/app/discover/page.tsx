@@ -863,8 +863,9 @@ export default function DiscoverPage() {
         let fetchedData: any[] = [];
         try {
             const base = mediaType === 'movie' ? '/api/radarr' : '/api/sonarr';
+            const instId = selectedInstanceIds[0] || availableInstances[0]?.id || '';
             const searchParams = new URLSearchParams({
-                instanceId: selectedInstanceIds[0] || availableInstances[0].id,
+                instanceId: instId,
                 page: (pageNum + 1).toString()
             });
 
@@ -900,7 +901,7 @@ export default function DiscoverPage() {
         setIsSearching(true);
         try {
             const base = mediaType === 'movie' ? '/api/radarr' : '/api/sonarr';
-            const instId = selectedInstanceIds[0] || availableInstances[0].id;
+            const instId = selectedInstanceIds[0] || availableInstances[0]?.id || '';
             const res = await fetch(`${base}/lookup?instanceId=${instId}&term=${encodeURIComponent(query.trim())}`);
             if (res.ok) {
                 const data = await res.json();
@@ -1454,12 +1455,16 @@ export default function DiscoverPage() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     type: mediaType === 'movie' ? 'movie' : 'series',
+                    mediaType: mediaType === 'movie' ? 'movie' : 'series',
                     sourceInstanceId: item.instanceId,
                     targetInstanceId,
                     mediaId: item.id,
+                    item,
                     targetProfileId: profileId,
                     targetRootFolder: rootFolder,
                     copyFiles,
+                    moveFiles: !copyFiles && action === 'transfer',
+                    action,
                     deleteFromSource: action === 'transfer'
                 })
             });
@@ -2048,7 +2053,7 @@ export default function DiscoverPage() {
             )}
 
             {transferTarget && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+                <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
                     <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl relative">
                         <button onClick={() => setTransferTarget(null)} className="absolute top-6 right-6 p-2 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"><X size={20} /></button>
                         <div className="flex items-center gap-4 mb-8">
@@ -2255,7 +2260,11 @@ function TransferForm({ item, instances, targetType, onTransfer, onCancel, loadi
 }
 
 function AddMediaModal({ item, mediaType, instances, onAdd, onClose, loading }: any) {
-    const [targetInstanceId, setTargetInstanceId] = useState('');
+    const availableInstances = useMemo(() => {
+        return (instances || []).filter((i: any) => i.type === (mediaType === 'movie' ? 'radarr' : 'sonarr'));
+    }, [instances, mediaType]);
+
+    const [targetInstanceId, setTargetInstanceId] = useState(() => availableInstances[0]?.id || '');
     const [profiles, setProfiles] = useState<any[]>([]);
     const [selectedProfileId, setSelectedProfileId] = useState<number | null>(null);
     const [rootFolders, setRootFolders] = useState<any[]>([]);
@@ -2263,28 +2272,26 @@ function AddMediaModal({ item, mediaType, instances, onAdd, onClose, loading }: 
     const [loadingConfig, setLoadingConfig] = useState(false);
     const [startSearch, setStartSearch] = useState(true);
 
-    const availableInstances = instances.filter((i: any) => i.type === (mediaType === 'movie' ? 'radarr' : 'sonarr'));
-
     useEffect(() => {
-        if (availableInstances.length > 0) {
+        if (availableInstances.length > 0 && !targetInstanceId) {
             setTargetInstanceId(availableInstances[0].id);
         }
-    }, [availableInstances]);
+    }, [availableInstances, targetInstanceId]);
 
     useEffect(() => {
         if (targetInstanceId) {
             setLoadingConfig(true);
             const base = mediaType === 'movie' ? '/api/radarr' : '/api/sonarr';
             Promise.all([
-                fetch(`/api/instances/profiles?instanceId=${targetInstanceId}`).then(r => r.json()),
-                fetch(`${base}/rootfolder?instanceId=${targetInstanceId}`).then(r => r.json())
+                fetch(`/api/instances/profiles?instanceId=${targetInstanceId}`).then(r => r.ok ? r.json() : []),
+                fetch(`${base}/rootfolder?instanceId=${targetInstanceId}`).then(r => r.ok ? r.json() : [])
             ]).then(([pData, rData]) => {
-                const profiles = Array.isArray(pData) ? pData : [];
-                const folders = Array.isArray(rData) ? rData : [];
-                setProfiles(profiles);
-                setRootFolders(folders);
-                if (profiles.length > 0) setSelectedProfileId(profiles[0].id);
-                if (folders.length > 0) setSelectedRootFolderPath(folders[0].path);
+                const profilesList = Array.isArray(pData) ? pData : [];
+                const foldersList = Array.isArray(rData) ? rData : [];
+                setProfiles(profilesList);
+                setRootFolders(foldersList);
+                if (profilesList.length > 0) setSelectedProfileId(profilesList[0].id);
+                if (foldersList.length > 0) setSelectedRootFolderPath(foldersList[0].path);
             }).catch(e => console.error('Failed to load instance config', e)).finally(() => setLoadingConfig(false));
         }
     }, [targetInstanceId, mediaType]);

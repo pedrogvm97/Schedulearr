@@ -75,7 +75,7 @@ export function DeleteMediaModal({
     };
 
     return (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/90 backdrop-blur-md p-3 sm:p-4 animate-in fade-in duration-300">
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/90 backdrop-blur-md p-3 sm:p-4 animate-in fade-in duration-300">
             <div className="bg-[#0a0a0a] border border-zinc-800/50 rounded-[2rem] sm:rounded-[3rem] w-full max-w-xl max-h-[92vh] flex flex-col shadow-[0_0_50px_rgba(0,0,0,0.5)] overflow-hidden animate-in zoom-in-95 duration-300">
                 {/* Header */}
                 <div className="p-5 sm:p-8 border-b border-zinc-900/50 flex justify-between items-center bg-zinc-900/10 shrink-0">

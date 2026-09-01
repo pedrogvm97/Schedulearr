@@ -21,25 +21,34 @@ export async function POST(request: Request) {
         // If item came from TMDB discovery it may only have tmdbId (no tvdbId).
         // Sonarr needs a tvdbId, so resolve it via Sonarr's own search first.
         let resolvedItem = { ...item };
-        if (!resolvedItem.tvdbId && resolvedItem.title) {
+        let bestLookup: any = null;
+
+        if (resolvedItem.title) {
             try {
                 const searchResults = await searchSeries(instance.url, instance.api_key, resolvedItem.title);
-                // Find the best match: same tmdbId or same year + closest title
-                const best = searchResults.find((s: any) => s.tmdbId === resolvedItem.tmdbId)
-                    || searchResults.find((s: any) => s.year === resolvedItem.year)
-                    || searchResults[0];
-                if (best?.tvdbId) resolvedItem.tvdbId = best.tvdbId;
-                if (best?.seasons && !resolvedItem.seasons) resolvedItem.seasons = best.seasons;
+                if (Array.isArray(searchResults) && searchResults.length > 0) {
+                    bestLookup = (resolvedItem.tvdbId && searchResults.find((s: any) => s.tvdbId === resolvedItem.tvdbId))
+                        || (resolvedItem.tmdbId && searchResults.find((s: any) => s.tmdbId === resolvedItem.tmdbId))
+                        || (resolvedItem.year && searchResults.find((s: any) => s.year === resolvedItem.year))
+                        || searchResults[0];
+
+                    if (bestLookup?.tvdbId && !resolvedItem.tvdbId) resolvedItem.tvdbId = bestLookup.tvdbId;
+                    if (bestLookup?.seasons && !resolvedItem.seasons) resolvedItem.seasons = bestLookup.seasons;
+                    if (bestLookup?.titleSlug && !resolvedItem.titleSlug) resolvedItem.titleSlug = bestLookup.titleSlug;
+                    if (bestLookup?.images && !resolvedItem.images) resolvedItem.images = bestLookup.images;
+                }
             } catch (e) {
-                console.warn('[sonarr/add] Could not resolve tvdbId via search:', e);
+                console.warn('[sonarr/add] Could not resolve lookup via search:', e);
             }
         }
 
         // Build the Sonarr-compatible series payload
         const seriesPayload: any = {
-            title: resolvedItem.title,
-            year: resolvedItem.year,
-            qualityProfileId: qualityProfileId,
+            ...(bestLookup || {}),
+            ...resolvedItem,
+            title: resolvedItem.title || bestLookup?.title,
+            year: resolvedItem.year || bestLookup?.year,
+            qualityProfileId: Number(qualityProfileId),
             rootFolderPath: rootFolderPath,
             monitored: true,
             seasonFolder: true,
@@ -49,9 +58,10 @@ export async function POST(request: Request) {
             }
         };
 
-        if (resolvedItem.tvdbId) seriesPayload.tvdbId = resolvedItem.tvdbId;
-        if (resolvedItem.imdbId) seriesPayload.imdbId = resolvedItem.imdbId;
-        if (resolvedItem.seasons) seriesPayload.seasons = resolvedItem.seasons;
+        if (resolvedItem.tvdbId || bestLookup?.tvdbId) seriesPayload.tvdbId = resolvedItem.tvdbId || bestLookup?.tvdbId;
+        if (resolvedItem.imdbId || bestLookup?.imdbId) seriesPayload.imdbId = resolvedItem.imdbId || bestLookup?.imdbId;
+        if (resolvedItem.seasons || bestLookup?.seasons) seriesPayload.seasons = resolvedItem.seasons || bestLookup?.seasons;
+        if (resolvedItem.titleSlug || bestLookup?.titleSlug) seriesPayload.titleSlug = resolvedItem.titleSlug || bestLookup?.titleSlug;
 
         const result = await addSeries(instance.url, instance.api_key, seriesPayload);
         if (result.success) {
