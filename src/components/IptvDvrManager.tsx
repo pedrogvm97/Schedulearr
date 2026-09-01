@@ -442,7 +442,7 @@ export function IptvDvrManager() {
                             Smart DVR Automated Recording Rules
                         </h3>
                         <p className="text-xs text-zinc-400 mt-0.5">
-                            Automate recording by sports teams (e.g. "Benfica"), tournament events (e.g. "Real Madrid Champions League"), or actor films missing from library.
+                            Automate recording by sports teams (e.g. &quot;Benfica&quot;), tournament events (e.g. &quot;Real Madrid Champions League&quot;), or actor films missing from library.
                         </p>
                     </div>
                     <button
@@ -558,7 +558,7 @@ export function IptvDvrManager() {
                         <div className="col-span-full p-8 text-center bg-zinc-950/50 rounded-2xl border border-zinc-900 text-zinc-500">
                             <Sparkles size={28} className="mx-auto mb-2 text-zinc-700" />
                             <p className="text-xs font-bold text-zinc-400">No automated recording rules active</p>
-                            <p className="text-[11px] mt-0.5">Click "New Smart Rule" to automate recordings for your favorite football clubs, actors, or competitions.</p>
+                            <p className="text-[11px] mt-0.5">Click &quot;New Smart Rule&quot; to automate recordings for your favorite football clubs, actors, or competitions.</p>
                         </div>
                     ) : (
                         rules.map(r => (
@@ -577,7 +577,7 @@ export function IptvDvrManager() {
                                 </div>
                                 <div className="flex flex-wrap gap-2 text-[10px] font-bold">
                                     <span className="px-2 py-0.5 rounded bg-zinc-900 text-purple-300 border border-purple-500/20">
-                                        Query: "{r.query}"
+                                        Query: &quot;{r.query}&quot;
                                     </span>
                                     <span className="px-2 py-0.5 rounded bg-zinc-900 text-zinc-400">
                                         Type: {r.rule_type}

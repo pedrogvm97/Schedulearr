@@ -661,7 +661,7 @@ export default function TheaterLiveTvPlayer({
                                                             {chan.cleanName || chan.name}
                                                         </span>
                                                         {chan.streams?.[0]?.quality && (
-                                                            <span className="px-1.5 py-0.2 text-[9px] font-mono font-bold rounded bg-zinc-900 text-zinc-400">
+                                                            <span className="px-1.5 py-0.5 text-[9px] font-mono font-bold rounded bg-zinc-900 text-zinc-400">
                                                                 {chan.streams[0].quality}
                                                             </span>
                                                         )}

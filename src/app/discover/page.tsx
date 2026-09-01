@@ -12,7 +12,6 @@ import {
     Disc, Music, Radio, ArrowDownToLine
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
-import { useSearchParams } from 'next/navigation';
 import { CustomSelect } from '@/components/CustomSelect';
 import { twColorToHex } from '@/lib/instanceColor';
 import { SchedulerQueuePanel } from '@/components/SchedulerQueuePanel';
@@ -629,12 +628,17 @@ function UnifiedMediaCard({
 // Main Media Page Component
 // ──────────────────────────────────────────────
 export default function DiscoverPage() {
-    const searchParams = useSearchParams();
-    const tabParam = searchParams.get('tab');
-    const [mediaType, setMediaType] = useState<'movie' | 'series' | 'music' | 'iptv_dvr'>(() => {
-        if (tabParam === 'iptv' || tabParam === 'live' || tabParam === 'dvr') return 'iptv_dvr';
-        return 'movie';
-    });
+    const [mediaType, setMediaType] = useState<'movie' | 'series' | 'music' | 'iptv_dvr'>('movie');
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search);
+            const tabParam = params.get('tab');
+            if (tabParam === 'iptv' || tabParam === 'live' || tabParam === 'dvr') {
+                setMediaType('iptv_dvr');
+            }
+        }
+    }, []);
     const [statusFilter, setStatusFilter] = useState<'all' | 'in_library' | 'not_in_library'>('all');
     const [searchQuery, setSearchQuery] = useState('');
     const [isSearching, setIsSearching] = useState(false);
