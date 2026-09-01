@@ -65,9 +65,13 @@ interface MusicPlaylist {
 interface IptvChannel {
     id: string;
     name: string;
+    cleanName?: string;
     logo?: string;
+    rawLogo?: string;
     group: string;
     url: string;
+    tvgId?: string;
+    streams?: Array<{ url: string; quality: string; label: string }>;
 }
 
 interface IptvShortlist {
@@ -228,10 +232,17 @@ function TheaterPageContent() {
     const [shortlists, setShortlists] = useState<IptvShortlist[]>([]);
     const [activeShortlistId, setActiveShortlistId] = useState<string>('ALL');
     const [playingChannel, setPlayingChannel] = useState<IptvChannel | null>(null);
+    const [activeLiveStreamIdx, setActiveLiveStreamIdx] = useState(0);
     const [isShortlistManagerOpen, setIsShortlistManagerOpen] = useState(false);
     const [shortlistEditingName, setShortlistEditingName] = useState('');
     const [shortlistSelectedChanIds, setShortlistSelectedChanIds] = useState<string[]>([]);
     const [editingShortlistId, setEditingShortlistId] = useState<string | null>(null);
+    const [iptvUploadFile, setIptvUploadFile] = useState<File | null>(null);
+    const [iptvEpgInput, setIptvEpgInput] = useState('');
+    const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
+    const [mergePrimaryChanId, setMergePrimaryChanId] = useState<string | null>(null);
+    const [mergeTargetChanIds, setMergeTargetChanIds] = useState<string[]>([]);
+    const [isPlexExportModalOpen, setIsPlexExportModalOpen] = useState(false);
 
     // Music Studio Specific States
     const [musicTab, setMusicTab] = useState<'tracks' | 'albums' | 'artists' | 'playlists' | 'online'>('albums');
@@ -793,11 +804,11 @@ function TheaterPageContent() {
         let allFolders: string[] = [];
 
         if (newLibType === 'live') {
-            if (!iptvUrlInput.trim()) {
-                toast.error('Please enter a valid M3U or M3U8 Live TV URL');
+            if (!iptvUrlInput.trim() && !iptvUploadFile) {
+                toast.error('Please upload an M3U file or enter an M3U Live TV URL');
                 return;
             }
-            allFolders = [iptvUrlInput.trim()];
+            allFolders = [iptvUrlInput.trim() || 'local_file_upload'];
         } else {
             allFolders = [...newLibFolders];
             if (folderInput.trim() && !allFolders.includes(folderInput.trim())) {
@@ -823,14 +834,40 @@ function TheaterPageContent() {
 
             if (res.ok) {
                 const data = await res.json();
+                const newLibId = data.id || data.library?.id;
+
+                // If IPTV Live TV, parse and persist channels into database
+                if (newLibType === 'live' && newLibId) {
+                    try {
+                        const formData = new FormData();
+                        formData.append('libraryId', newLibId);
+                        if (iptvUploadFile) {
+                            formData.append('file', iptvUploadFile);
+                        } else if (iptvUrlInput.trim()) {
+                            formData.append('url', iptvUrlInput.trim());
+                        }
+                        if (iptvEpgInput.trim()) {
+                            formData.append('epgUrl', iptvEpgInput.trim());
+                        }
+                        await fetch('/api/theater/iptv', {
+                            method: 'POST',
+                            body: formData
+                        });
+                    } catch (e: any) {
+                        console.warn('IPTV channel initial parse error:', e.message);
+                    }
+                }
+
                 toast.success(`Library "${newLibName}" created!`);
                 setIsAddLibModalOpen(false);
                 setNewLibName('');
                 setNewLibFolders([]);
                 setFolderInput('');
                 setIptvUrlInput('');
+                setIptvUploadFile(null);
+                setIptvEpgInput('');
                 await fetchLibraries();
-                if (data.id) setActiveLibraryId(data.id);
+                if (newLibId) setActiveLibraryId(newLibId);
             } else {
                 toast.error('Failed to create library');
             }
@@ -838,6 +875,66 @@ function TheaterPageContent() {
             toast.error('Error creating library');
         } finally {
             setIsCreatingLib(false);
+        }
+    };
+
+    // 6.1 Merge IPTV channels with stream redundancy hierarchy
+    const handleMergeChannels = async () => {
+        if (!activeLibrary?.id || !mergePrimaryChanId || mergeTargetChanIds.length === 0) {
+            toast.error('Please choose a primary channel and at least one channel to merge.');
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/theater/iptv/merge', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    libraryId: activeLibrary.id,
+                    primaryChannelId: mergePrimaryChanId,
+                    channelsToMergeIds: mergeTargetChanIds
+                })
+            });
+
+            if (res.ok) {
+                toast.success('Channels merged successfully with redundancy fallback!');
+                setIsMergeModalOpen(false);
+                setMergeTargetChanIds([]);
+                const chanRes = await fetch(`/api/theater/iptv?libraryId=${activeLibrary.id}`);
+                if (chanRes.ok) {
+                    const cData = await chanRes.json();
+                    setIptvChannels(cData.channels || []);
+                }
+            } else {
+                toast.error('Failed to merge channels');
+            }
+        } catch {
+            toast.error('Error merging channels');
+        }
+    };
+
+    const handleSaveReorderedStreams = async (chanId: string, newStreams: any[]) => {
+        if (!activeLibrary?.id) return;
+        try {
+            const res = await fetch('/api/theater/iptv/merge', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    libraryId: activeLibrary.id,
+                    primaryChannelId: chanId,
+                    reorderedStreams: newStreams
+                })
+            });
+            if (res.ok) {
+                toast.success('Stream priority updated!');
+                const chanRes = await fetch(`/api/theater/iptv?libraryId=${activeLibrary.id}`);
+                if (chanRes.ok) {
+                    const cData = await chanRes.json();
+                    setIptvChannels(cData.channels || []);
+                }
+            }
+        } catch {
+            toast.error('Failed to update stream priority');
         }
     };
 
@@ -1165,11 +1262,25 @@ function TheaterPageContent() {
         };
     }, [playingVideo, videoAudioMode, videoQuality]);
 
-    // Live Video HLS Handler
+    // Live Video HLS Handler with Stream Redundancy Fallback
     useEffect(() => {
         if (playingChannel && liveVideoRef.current) {
             const video = liveVideoRef.current;
-            const streamUrl = playingChannel.url;
+            const streams = (playingChannel.streams && playingChannel.streams.length > 0)
+                ? playingChannel.streams
+                : [{ url: playingChannel.url, quality: 'SD', label: 'Default' }];
+
+            const currentStream = streams[activeLiveStreamIdx] || streams[0];
+            const streamUrl = currentStream.url;
+
+            const handleFallback = () => {
+                if (streams.length > activeLiveStreamIdx + 1) {
+                    const nextIdx = activeLiveStreamIdx + 1;
+                    const nextStream = streams[nextIdx];
+                    toast.error(`Primary stream issue. Switching to backup: ${nextStream.quality || nextStream.label}...`);
+                    setActiveLiveStreamIdx(nextIdx);
+                }
+            };
 
             if (Hls.isSupported() && (streamUrl.includes('.m3u8') || streamUrl.includes('.ts') || !video.canPlayType('application/vnd.apple.mpegurl'))) {
                 if (hlsInstanceRef.current) {
@@ -1181,13 +1292,19 @@ function TheaterPageContent() {
                 hls.on(Hls.Events.MANIFEST_PARSED, () => {
                     video.play().catch(() => {});
                 });
+                hls.on(Hls.Events.ERROR, (event, data) => {
+                    if (data.fatal) {
+                        handleFallback();
+                    }
+                });
                 hlsInstanceRef.current = hls;
             } else {
                 video.src = streamUrl;
+                video.onerror = () => handleFallback();
                 video.play().catch(() => {});
             }
         }
-    }, [playingChannel]);
+    }, [playingChannel, activeLiveStreamIdx]);
 
     // Stream Metrics Monitor
     useEffect(() => {
@@ -1948,18 +2065,40 @@ function TheaterPageContent() {
                                         }}
                                         className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-sm font-bold text-emerald-400 hover:bg-emerald-500/10 border border-dashed border-emerald-500/30"
                                     >
-                                        <Plus size={13} /> New Shortlist
+                                        <Plus size={13} /> New Sublist
                                     </button>
                                 </div>
                             </div>
 
-                            <button
-                                onClick={() => handleDeleteLibrary(activeLibrary.id, activeLibrary.name)}
-                                className="p-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition-all text-xs font-bold"
-                                title="Delete Live TV Library"
-                            >
-                                <Trash2 size={14} />
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => {
+                                        setMergePrimaryChanId(iptvChannels[0]?.id || null);
+                                        setMergeTargetChanIds([]);
+                                        setIsMergeModalOpen(true);
+                                    }}
+                                    className="px-3.5 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 transition-all text-xs sm:text-sm font-bold flex items-center gap-1.5 shadow-sm"
+                                    title="Merge multiple channel variants (4K, FHD, HD, SD) with automatic fallback redundancy"
+                                >
+                                    <span>⚡</span> Merge &amp; Redundancy
+                                </button>
+
+                                <button
+                                    onClick={() => setIsPlexExportModalOpen(true)}
+                                    className="px-3.5 py-2 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-400 border border-indigo-500/30 transition-all text-xs sm:text-sm font-bold flex items-center gap-1.5 shadow-sm"
+                                    title="Export M3U & XMLTV EPG URLs for Plex Live TV DVR with CORS remote artwork proxy"
+                                >
+                                    <span>📺</span> Export to Plex
+                                </button>
+
+                                <button
+                                    onClick={() => handleDeleteLibrary(activeLibrary.id, activeLibrary.name)}
+                                    className="p-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition-all text-xs font-bold"
+                                    title="Delete Live TV Library"
+                                >
+                                    <Trash2 size={14} />
+                                </button>
+                            </div>
                         </div>
 
                         {iptvGroups.length > 0 && (
@@ -2739,34 +2878,51 @@ function TheaterPageContent() {
                         </div>
                     ) : (
                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                            {filteredIptvChannels.map(chan => (
-                                <div
-                                    key={chan.id}
-                                    onClick={() => setPlayingChannel(chan)}
-                                    className="p-4 bg-[#09090b] border border-zinc-900 hover:border-red-500/50 rounded-3xl transition-all duration-300 shadow-xl cursor-pointer hover:-translate-y-1 flex flex-col justify-between space-y-3 group"
-                                >
-                                    <div className="flex items-center justify-between">
-                                        <span className="px-2 py-0.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 text-[9px] font-black uppercase flex items-center gap-1">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" /> LIVE
-                                        </span>
-                                        <span className="text-[10px] text-zinc-500 truncate max-w-[80px]">{chan.group}</span>
-                                    </div>
+                            {filteredIptvChannels.map(chan => {
+                                const streamCount = chan.streams?.length || 1;
+                                return (
+                                    <div
+                                        key={chan.id}
+                                        onClick={() => {
+                                            setActiveLiveStreamIdx(0);
+                                            setPlayingChannel(chan);
+                                        }}
+                                        className="p-4 bg-[#09090b] border border-zinc-900 hover:border-red-500/50 rounded-3xl transition-all duration-300 shadow-xl cursor-pointer hover:-translate-y-1 flex flex-col justify-between space-y-3 group"
+                                    >
+                                        <div className="flex items-center justify-between gap-1">
+                                            <span className="px-2 py-0.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 text-[9px] font-black uppercase flex items-center gap-1 shrink-0">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" /> LIVE
+                                            </span>
+                                            {streamCount > 1 ? (
+                                                <span className="px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[9px] font-black shrink-0" title={`${streamCount} redundant streams configured (4K/FHD/HD/SD)`}>
+                                                    ⚡ {streamCount}
+                                                </span>
+                                            ) : (
+                                                <span className="text-[10px] text-zinc-500 truncate max-w-[70px]">{chan.group}</span>
+                                            )}
+                                        </div>
 
-                                    <div className="h-16 flex items-center justify-center">
-                                        {chan.logo ? (
-                                            <img src={chan.logo} alt="" className="max-h-14 max-w-full object-contain" onError={e => (e.currentTarget.style.display = 'none')} />
-                                        ) : (
-                                            <Tv2 size={32} className="text-zinc-700 group-hover:text-red-400 transition-colors" />
-                                        )}
-                                    </div>
+                                        <div className="h-16 flex items-center justify-center">
+                                            {chan.logo ? (
+                                                <img src={chan.logo} alt="" className="max-h-14 max-w-full object-contain" onError={e => (e.currentTarget.style.display = 'none')} />
+                                            ) : (
+                                                <Tv2 size={32} className="text-zinc-700 group-hover:text-red-400 transition-colors" />
+                                            )}
+                                        </div>
 
-                                    <div className="pt-1 border-t border-zinc-900/80">
-                                        <h4 className="font-bold text-white text-xs truncate group-hover:text-red-400 transition-colors">
-                                            {chan.name}
-                                        </h4>
+                                        <div className="pt-1 border-t border-zinc-900/80 space-y-0.5">
+                                            <h4 className="font-bold text-white text-xs truncate group-hover:text-red-400 transition-colors">
+                                                {chan.name}
+                                            </h4>
+                                            {chan.streams && chan.streams.length > 1 && (
+                                                <p className="text-[9px] text-zinc-500 truncate font-semibold">
+                                                    {chan.streams.map(s => s.quality).join(' • ')}
+                                                </p>
+                                            )}
+                                        </div>
                                     </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     )
                 ) : activeTabLibraries.length === 0 ? (
@@ -4488,6 +4644,25 @@ function TheaterPageContent() {
                             </div>
 
                             <div className="flex items-center gap-2">
+                                {playingChannel.streams && playingChannel.streams.length > 1 && (
+                                    <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-xl border border-zinc-800">
+                                        {playingChannel.streams.map((st, idx) => (
+                                            <button
+                                                key={idx}
+                                                onClick={() => setActiveLiveStreamIdx(idx)}
+                                                className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all ${
+                                                    activeLiveStreamIdx === idx
+                                                        ? 'bg-amber-500 text-black shadow-md'
+                                                        : 'text-zinc-400 hover:text-white'
+                                                }`}
+                                                title={`Switch to ${st.label}`}
+                                            >
+                                                {st.quality || `Stream ${idx + 1}`}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+
                                 <button
                                     onClick={() => openCastPicker(playingChannel)}
                                     className="p-2.5 rounded-xl bg-purple-500/15 hover:bg-purple-500 text-purple-400 hover:text-white border border-purple-500/30 text-xs font-bold flex items-center gap-1.5 transition-all"
@@ -4498,13 +4673,14 @@ function TheaterPageContent() {
 
                                 <button
                                     onClick={() => {
-                                        navigator.clipboard.writeText(playingChannel.url);
+                                        const currentStreamUrl = playingChannel.streams?.[activeLiveStreamIdx]?.url || playingChannel.url;
+                                        navigator.clipboard.writeText(currentStreamUrl);
                                         toast.success('Channel URL copied');
                                     }}
                                     className="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 text-xs font-bold flex items-center gap-1.5"
                                     title="Copy Stream Link"
                                 >
-                                    <Copy size={14} /> Copy Stream URL
+                                    <Copy size={14} /> Copy URL
                                 </button>
 
                                 <button
@@ -5058,34 +5234,96 @@ function TheaterPageContent() {
 
                         {/* ── Mode 3: Live TV / IPTV Setup ── */}
                         {modalTab === 'iptv' && (
-                            <div className="space-y-6">
+                            <div className="space-y-5">
                                 <div className="space-y-2">
                                     <label className="text-xs font-black text-zinc-400 uppercase tracking-wider block">
                                         Live TV Library Name
                                     </label>
                                     <input
                                         type="text"
-                                        placeholder="e.g. My IPTV, Live Sports TV, World News"
+                                        placeholder="e.g. My IPTV, Live Sports TV, World Channels"
                                         value={newLibName}
                                         onChange={e => setNewLibName(e.target.value)}
-                                        className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl px-5 py-3.5 text-sm text-white placeholder-zinc-600 outline-none focus:border-red-500"
+                                        className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl px-5 py-3.5 text-sm text-white placeholder-zinc-600 outline-none focus:border-red-500 font-bold"
                                     />
                                 </div>
 
-                                <div className="space-y-2">
+                                <div className="space-y-4 pt-2">
                                     <label className="text-xs font-black text-zinc-400 uppercase tracking-wider block">
-                                        IPTV M3U Playlist URL or File Path
+                                        IPTV Source: Upload Local File or Enter M3U URL
                                     </label>
+
+                                    {/* Local File Upload Dropzone */}
+                                    <div className="p-4 rounded-2xl bg-zinc-950/80 border border-dashed border-zinc-800 hover:border-red-500/50 transition-all text-center space-y-2 relative">
+                                        <input
+                                            type="file"
+                                            accept=".m3u,.m3u8,.txt"
+                                            onChange={e => {
+                                                const f = e.target.files?.[0];
+                                                if (f) {
+                                                    setIptvUploadFile(f);
+                                                    if (!newLibName.trim()) {
+                                                        setNewLibName(f.name.replace(/\.(m3u8?|txt)$/i, ''));
+                                                    }
+                                                }
+                                            }}
+                                            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
+                                        />
+                                        <div className="w-10 h-10 rounded-2xl bg-red-500/10 text-red-400 flex items-center justify-center mx-auto">
+                                            <UploadCloud size={20} />
+                                        </div>
+                                        {iptvUploadFile ? (
+                                            <div>
+                                                <p className="text-sm font-bold text-white flex items-center justify-center gap-2">
+                                                    <CheckCircle2 size={16} className="text-emerald-400" />
+                                                    {iptvUploadFile.name}
+                                                </p>
+                                                <p className="text-[11px] text-zinc-500">{(iptvUploadFile.size / 1024).toFixed(1)} KB • Click or drop to replace</p>
+                                            </div>
+                                        ) : (
+                                            <div>
+                                                <p className="text-xs sm:text-sm font-bold text-zinc-300">Click to browse or drop your local .m3u / .m3u8 file here</p>
+                                                <p className="text-[11px] text-zinc-500">Supports standard M3U &amp; M3U_Plus with tvg-logo and group-title</p>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* OR Divider */}
+                                    <div className="flex items-center gap-3">
+                                        <div className="flex-1 h-px bg-zinc-900" />
+                                        <span className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">OR USE M3U URL</span>
+                                        <div className="flex-1 h-px bg-zinc-900" />
+                                    </div>
+
+                                    {/* M3U URL Input */}
                                     <input
                                         type="text"
                                         placeholder="http://example.com/playlist.m3u8 or https://iptv-org.github.io/iptv/index.m3u"
                                         value={iptvUrlInput}
                                         onChange={e => setIptvUrlInput(e.target.value)}
-                                        className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl px-5 py-3.5 text-sm text-white placeholder-zinc-600 outline-none focus:border-red-500 font-mono"
+                                        className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl px-5 py-3.5 text-sm text-white placeholder-zinc-600 outline-none focus:border-red-500 font-mono text-xs"
                                     />
                                 </div>
 
-                                <div className="flex gap-3 pt-4">
+                                {/* Optional XMLTV EPG Guide URL */}
+                                <div className="space-y-2 pt-2 border-t border-zinc-900">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-xs font-bold text-zinc-400 flex items-center gap-1.5">
+                                            <Calendar size={13} className="text-amber-400" />
+                                            XMLTV EPG Guide URL (Optional)
+                                        </label>
+                                        <span className="text-[10px] text-zinc-600 font-semibold">For channel schedules &amp; Plex guide</span>
+                                    </div>
+                                    <input
+                                        type="text"
+                                        placeholder="http://example.com/epg.xml or https://iptv-org.github.io/epg/guides/pt/nos.pt.epg.xml"
+                                        value={iptvEpgInput}
+                                        onChange={e => setIptvEpgInput(e.target.value)}
+                                        className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl px-5 py-3 text-sm text-white placeholder-zinc-600 outline-none focus:border-amber-500 font-mono text-xs"
+                                    />
+                                </div>
+
+                                <div className="flex gap-3 pt-3">
                                     <button
                                         onClick={() => setIsAddLibModalOpen(false)}
                                         className="flex-1 h-14 bg-zinc-900 border border-zinc-800 text-zinc-400 font-black uppercase text-xs tracking-widest rounded-2xl hover:text-white"
@@ -5098,7 +5336,7 @@ function TheaterPageContent() {
                                         className="flex-[2] h-14 bg-red-600 hover:bg-red-500 text-white font-black uppercase text-xs tracking-widest rounded-2xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-red-500/20 disabled:opacity-50"
                                     >
                                         {isCreatingLib ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Radio size={18} />}
-                                        {isCreatingLib ? 'Parsing...' : 'Add Live TV Library'}
+                                        {isCreatingLib ? 'Parsing channels...' : 'Add Live TV Library'}
                                     </button>
                                 </div>
                             </div>
@@ -5215,6 +5453,238 @@ function TheaterPageContent() {
                         <div className="flex justify-end">
                             <button
                                 onClick={() => setIsVlcModalOpen(false)}
+                                className="px-6 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs rounded-xl transition-all"
+                            >
+                                Done
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* ── IPTV Channel Merging & Redundancy Modal ── */}
+            {isMergeModalOpen && (
+                <div className="fixed inset-0 z-[350] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
+                    <div className="bg-[#0e0e11] border border-amber-500/30 rounded-3xl w-full max-w-2xl p-6 sm:p-8 space-y-6 shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar">
+                        <div className="flex items-start justify-between gap-4">
+                            <div className="flex items-center gap-3">
+                                <div className="w-12 h-12 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0 shadow-lg shadow-amber-500/10">
+                                    <Layers size={24} />
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-black text-white flex items-center gap-2">
+                                        Channel Merging &amp; Redundancy
+                                    </h3>
+                                    <p className="text-xs text-zinc-400">
+                                        Combine quality variants into one channel (e.g. 4K &rarr; FHD &rarr; HD &rarr; SD) for automatic stream fallback.
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setIsMergeModalOpen(false)}
+                                className="p-2 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        {/* Step 1: Select Primary Channel */}
+                        <div className="space-y-2">
+                            <label className="text-xs font-black uppercase tracking-wider text-amber-400 block">
+                                1. Select Primary Master Channel:
+                            </label>
+                            <select
+                                value={mergePrimaryChanId || ''}
+                                onChange={e => setMergePrimaryChanId(e.target.value)}
+                                className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-3 text-sm text-white outline-none focus:border-amber-500 font-bold"
+                            >
+                                {iptvChannels.map(c => (
+                                    <option key={c.id} value={c.id}>
+                                        {c.name} ({c.group}) - {c.streams?.length || 1} stream(s)
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* Step 2: Multi-select Channels to Merge */}
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                                <label className="text-xs font-black uppercase tracking-wider text-zinc-400 block">
+                                    2. Select Channels to Merge into Primary:
+                                </label>
+                                <span className="text-[11px] text-zinc-500 font-bold">
+                                    {mergeTargetChanIds.length} selected
+                                </span>
+                            </div>
+                            <div className="max-h-60 overflow-y-auto custom-scrollbar bg-zinc-950 border border-zinc-800/80 rounded-2xl p-2 space-y-1">
+                                {iptvChannels
+                                    .filter(c => c.id !== mergePrimaryChanId)
+                                    .map(c => {
+                                        const isChecked = mergeTargetChanIds.includes(c.id);
+                                        return (
+                                            <button
+                                                key={c.id}
+                                                type="button"
+                                                onClick={() => {
+                                                    if (isChecked) {
+                                                        setMergeTargetChanIds(mergeTargetChanIds.filter(id => id !== c.id));
+                                                    } else {
+                                                        setMergeTargetChanIds([...mergeTargetChanIds, c.id]);
+                                                    }
+                                                }}
+                                                className={`w-full p-2.5 rounded-xl text-left text-xs font-bold transition-all flex items-center justify-between ${
+                                                    isChecked
+                                                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                                        : 'hover:bg-zinc-900 text-zinc-400'
+                                                }`}
+                                            >
+                                                <div className="flex items-center gap-2 truncate">
+                                                    <div className={`w-4 h-4 rounded border flex items-center justify-center ${
+                                                        isChecked ? 'bg-amber-500 border-amber-400 text-black' : 'border-zinc-700'
+                                                    }`}>
+                                                        {isChecked && <CheckCircle2 size={12} />}
+                                                    </div>
+                                                    <span className="truncate">{c.name}</span>
+                                                </div>
+                                                <span className="text-[10px] text-zinc-500 shrink-0 ml-2">{c.group}</span>
+                                            </button>
+                                        );
+                                    })}
+                            </div>
+                        </div>
+
+                        <div className="flex gap-3 pt-2">
+                            <button
+                                onClick={() => setIsMergeModalOpen(false)}
+                                className="flex-1 py-3.5 bg-zinc-900 border border-zinc-800 text-zinc-400 font-black uppercase text-xs tracking-widest rounded-2xl hover:text-white"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                disabled={!mergePrimaryChanId || mergeTargetChanIds.length === 0}
+                                onClick={handleMergeChannels}
+                                className="flex-[2] py-3.5 bg-amber-500 hover:bg-amber-400 text-black font-black uppercase text-xs tracking-widest rounded-2xl transition-all shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2"
+                            >
+                                <Layers size={16} /> Merge &amp; Enable Stream Redundancy
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Plex Live TV DVR Export Modal ── */}
+            {isPlexExportModalOpen && activeLibrary && (
+                <div className="fixed inset-0 z-[350] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
+                    <div className="bg-[#0e0e11] border border-indigo-500/30 rounded-3xl w-full max-w-2xl p-6 sm:p-8 space-y-6 shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar">
+                        <div className="flex items-start justify-between gap-4">
+                            <div className="flex items-center gap-3">
+                                <div className="w-12 h-12 rounded-2xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0 shadow-lg shadow-indigo-500/10">
+                                    <Tv size={24} />
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-black text-white flex items-center gap-2">
+                                        Plex Live TV &amp; DVR Export
+                                    </h3>
+                                    <p className="text-xs text-zinc-400">
+                                        Add your Schedulearr IPTV lineup and guide to Plex with CORS-enabled artwork.
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setIsPlexExportModalOpen(false)}
+                                className="p-2 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        {/* Export URLs */}
+                        <div className="space-y-4">
+                            {/* 1. M3U Tuner Playlist URL */}
+                            <div className="space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-xs font-black uppercase text-zinc-400 tracking-wider flex items-center gap-1.5">
+                                        <Radio size={14} className="text-indigo-400" />
+                                        1. Plex Tuner M3U Playlist URL
+                                    </label>
+                                    <span className="text-[10px] text-indigo-400 font-bold">Plex Tuner Setup</span>
+                                </div>
+                                <div className="flex items-center gap-2 bg-zinc-950 p-2.5 rounded-2xl border border-zinc-800">
+                                    <input
+                                        type="text"
+                                        readOnly
+                                        value={typeof window !== 'undefined' ? `${window.location.origin}/api/theater/iptv/plex?type=m3u&libraryId=${activeLibrary.id}${activeShortlistId !== 'ALL' ? `&shortlistId=${activeShortlistId}` : ''}` : ''}
+                                        className="bg-transparent text-xs text-zinc-300 font-mono flex-1 outline-none truncate select-all"
+                                    />
+                                    <button
+                                        onClick={() => {
+                                            const u = `${window.location.origin}/api/theater/iptv/plex?type=m3u&libraryId=${activeLibrary.id}${activeShortlistId !== 'ALL' ? `&shortlistId=${activeShortlistId}` : ''}`;
+                                            navigator.clipboard.writeText(u);
+                                            toast.success('Plex M3U URL copied to clipboard!');
+                                        }}
+                                        className="px-3.5 py-1.5 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-black font-black text-xs flex items-center gap-1 transition-all shrink-0"
+                                    >
+                                        <Copy size={12} /> Copy URL
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* 2. XMLTV EPG Guide URL */}
+                            <div className="space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-xs font-black uppercase text-zinc-400 tracking-wider flex items-center gap-1.5">
+                                        <Calendar size={14} className="text-amber-400" />
+                                        2. XMLTV EPG Guide URL
+                                    </label>
+                                    <span className="text-[10px] text-amber-400 font-bold">Plex Electronic Program Guide</span>
+                                </div>
+                                <div className="flex items-center gap-2 bg-zinc-950 p-2.5 rounded-2xl border border-zinc-800">
+                                    <input
+                                        type="text"
+                                        readOnly
+                                        value={typeof window !== 'undefined' ? `${window.location.origin}/api/theater/iptv/plex?type=epg&libraryId=${activeLibrary.id}` : ''}
+                                        className="bg-transparent text-xs text-zinc-300 font-mono flex-1 outline-none truncate select-all"
+                                    />
+                                    <button
+                                        onClick={() => {
+                                            const u = `${window.location.origin}/api/theater/iptv/plex?type=epg&libraryId=${activeLibrary.id}`;
+                                            navigator.clipboard.writeText(u);
+                                            toast.success('Plex EPG XMLTV URL copied to clipboard!');
+                                        }}
+                                        className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs flex items-center gap-1 transition-all shrink-0"
+                                    >
+                                        <Copy size={12} /> Copy URL
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Plex Logo Artwork Proxy Info Banner */}
+                        <div className="p-4 rounded-2xl bg-indigo-950/40 border border-indigo-800/40 space-y-2 text-xs text-indigo-200">
+                            <span className="text-[11px] font-black uppercase text-indigo-300 tracking-wider flex items-center gap-1.5">
+                                <CheckCircle2 size={14} className="text-indigo-400" />
+                                Remote Artwork &amp; CORS Proxy Enabled
+                            </span>
+                            <p className="text-[11px] text-zinc-300 leading-relaxed">
+                                Schedulearr automatically routes all channel logos through a high-speed CORS-compliant HTTPS proxy (<code>/api/theater/iptv/logo</code>), ensuring that channel art displays reliably across remote Plex apps and web clients without SSL/mixed-content blocks.
+                            </p>
+                        </div>
+
+                        {/* Plex Setup Guide */}
+                        <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-2 text-xs text-zinc-400">
+                            <span className="text-[10px] font-black uppercase text-zinc-500 tracking-wider block">
+                                Quick Setup in Plex Server:
+                            </span>
+                            <ol className="list-decimal list-inside space-y-1 text-zinc-300 text-[11px] leading-relaxed">
+                                <li>Open <strong>Plex Web</strong> &rarr; <span className="text-indigo-300">Settings &rarr; Live TV &amp; DVR &rarr; Set Up Plex Tuner</span>.</li>
+                                <li>Select <strong>M3U Tuner</strong> and paste the <strong>M3U Playlist URL</strong> above.</li>
+                                <li>Under Electronic Program Guide (EPG), select <strong>XMLTV</strong> and paste the <strong>XMLTV EPG URL</strong> above.</li>
+                                <li>Save to enjoy live streaming with synced guide data and logos on all Plex devices!</li>
+                            </ol>
+                        </div>
+
+                        <div className="flex justify-end">
+                            <button
+                                onClick={() => setIsPlexExportModalOpen(false)}
                                 className="px-6 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs rounded-xl transition-all"
                             >
                                 Done

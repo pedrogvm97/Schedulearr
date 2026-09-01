@@ -205,6 +205,30 @@ function initializeSchema(d: any) {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
 
+      CREATE TABLE IF NOT EXISTS iptv_channels (
+        id TEXT PRIMARY KEY,
+        library_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        clean_name TEXT NOT NULL,
+        logo TEXT,
+        group_title TEXT NOT NULL,
+        tvg_id TEXT,
+        tvg_name TEXT,
+        streams_json TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS iptv_epg (
+        id TEXT PRIMARY KEY,
+        library_id TEXT NOT NULL,
+        channel_tvg_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT,
+        start_time DATETIME NOT NULL,
+        end_time DATETIME NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
       CREATE TABLE IF NOT EXISTS music_playlists (
         id TEXT PRIMARY KEY,
         library_id TEXT NOT NULL,
@@ -752,6 +776,176 @@ export const deleteIptvShortlist = (id: string) => {
     } catch (e) {
         console.error('Error deleting IPTV shortlist:', e);
         return false;
+    }
+};
+
+// ── IPTV Channels & Merged Redundancy Management ──
+export interface StoredIptvChannel {
+    id: string;
+    libraryId: string;
+    name: string;
+    cleanName: string;
+    logo?: string;
+    group: string;
+    tvgId?: string;
+    tvgName?: string;
+    streams: Array<{ url: string; quality: string; label: string }>;
+}
+
+export const saveIptvChannels = (libraryId: string, channels: StoredIptvChannel[]): boolean => {
+    try {
+        const deleteStmt = db.prepare('DELETE FROM iptv_channels WHERE library_id = ?');
+        deleteStmt.run(libraryId);
+
+        const insertStmt = db.prepare(`
+            INSERT INTO iptv_channels (id, library_id, name, clean_name, logo, group_title, tvg_id, tvg_name, streams_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        const insertMany = db.transaction((chanList: StoredIptvChannel[]) => {
+            for (const c of chanList) {
+                insertStmt.run(
+                    c.id,
+                    libraryId,
+                    c.name,
+                    c.cleanName || c.name,
+                    c.logo || null,
+                    c.group || 'General',
+                    c.tvgId || null,
+                    c.tvgName || null,
+                    JSON.stringify(c.streams || [])
+                );
+            }
+        });
+
+        insertMany(channels);
+        return true;
+    } catch (e) {
+        console.error('Error saving IPTV channels:', e);
+        return false;
+    }
+};
+
+export const getIptvChannels = (libraryId: string): StoredIptvChannel[] => {
+    try {
+        const rows = db.prepare('SELECT * FROM iptv_channels WHERE library_id = ? ORDER BY id ASC').all(libraryId) as any[];
+        return (rows || []).map(r => ({
+            id: r.id,
+            libraryId: r.library_id,
+            name: r.name,
+            cleanName: r.clean_name,
+            logo: r.logo || undefined,
+            group: r.group_title,
+            tvgId: r.tvg_id || undefined,
+            tvgName: r.tvg_name || undefined,
+            streams: JSON.parse(r.streams_json || '[]')
+        }));
+    } catch (e) {
+        console.error('Error fetching IPTV channels:', e);
+        return [];
+    }
+};
+
+export const mergeIptvChannels = (
+    libraryId: string,
+    primaryChannelId: string,
+    channelsToMergeIds: string[]
+): boolean => {
+    try {
+        const allChannels = getIptvChannels(libraryId);
+        const primary = allChannels.find(c => c.id === primaryChannelId);
+        if (!primary) return false;
+
+        const otherChannels = allChannels.filter(c => channelsToMergeIds.includes(c.id) && c.id !== primaryChannelId);
+        const combinedStreams = [...primary.streams];
+
+        for (const other of otherChannels) {
+            for (const st of other.streams) {
+                if (!combinedStreams.some(s => s.url === st.url)) {
+                    combinedStreams.push(st);
+                }
+            }
+        }
+
+        // Sort streams by quality: 4K (2160p) > FHD (1080p) > HD (720p) > SD (576p/480p)
+        const qualityRank = (q: string) => {
+            const l = (q || '').toLowerCase();
+            if (l.includes('8k')) return 5;
+            if (l.includes('4k') || l.includes('uhd') || l.includes('2160')) return 4;
+            if (l.includes('fhd') || l.includes('1080')) return 3;
+            if (l.includes('hd') || l.includes('720')) return 2;
+            return 1;
+        };
+
+        combinedStreams.sort((a, b) => qualityRank(b.quality) - qualityRank(a.quality));
+
+        // Update primary channel with merged streams
+        db.prepare('UPDATE iptv_channels SET streams_json = ? WHERE id = ?').run(
+            JSON.stringify(combinedStreams),
+            primaryChannelId
+        );
+
+        // Delete the merged channels from the channel list
+        for (const other of otherChannels) {
+            db.prepare('DELETE FROM iptv_channels WHERE id = ?').run(other.id);
+        }
+
+        return true;
+    } catch (e) {
+        console.error('Error merging IPTV channels:', e);
+        return false;
+    }
+};
+
+// ── IPTV EPG Guide Data Persistence ──
+export const saveIptvEpg = (libraryId: string, epgList: Array<{
+    channelTvgId: string;
+    title: string;
+    description?: string;
+    startTime: string;
+    endTime: string;
+}>): boolean => {
+    try {
+        const stmt = db.prepare(`
+            INSERT INTO iptv_epg (id, library_id, channel_tvg_id, title, description, start_time, end_time)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        const insertMany = db.transaction((items: any[]) => {
+            for (const item of items) {
+                const id = `epg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+                stmt.run(
+                    id,
+                    libraryId,
+                    item.channelTvgId,
+                    item.title,
+                    item.description || '',
+                    item.startTime,
+                    item.endTime
+                );
+            }
+        });
+
+        insertMany(epgList);
+        return true;
+    } catch (e) {
+        console.error('Error saving IPTV EPG:', e);
+        return false;
+    }
+};
+
+export const getIptvEpgForChannel = (libraryId: string, tvgId: string): any[] => {
+    try {
+        const now = new Date().toISOString();
+        const rows = db.prepare(`
+            SELECT * FROM iptv_epg 
+            WHERE library_id = ? AND channel_tvg_id = ? AND end_time >= ?
+            ORDER BY start_time ASC LIMIT 10
+        `).all(libraryId, tvgId, now) as any[];
+        return rows || [];
+    } catch (e) {
+        console.error('Error fetching IPTV EPG:', e);
+        return [];
     }
 };
 
