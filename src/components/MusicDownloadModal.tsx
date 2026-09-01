@@ -147,14 +147,27 @@ export function MusicDownloadModal({
         }
 
         setIsDownloading(true);
-        setDownloadProgress(5);
+        setDownloadProgress(10);
         let successCount = 0;
 
         for (let i = 0; i < tracksToProcess.length; i++) {
             const currentTrack = tracksToProcess[i];
             const tArtist = (currentTrack.artist || initialArtist || 'Artist').replace(/[/\\?%*:|"<>]/g, '').trim();
             const tTitle = (currentTrack.title || currentTrack.name || 'Track').replace(/[/\\?%*:|"<>]/g, '').trim();
-            setCurrentDownloadStatus(`Processing on server (${i + 1}/${tracksToProcess.length}): ${tArtist} - ${tTitle}`);
+            setCurrentDownloadStatus(`1/3: Contacting streaming engine for "${tArtist} - ${tTitle}"...`);
+
+            // Smooth progress increment ticker while waiting for server processing
+            let curPct = 15;
+            setDownloadProgress(curPct);
+            const progressTimer = setInterval(() => {
+                curPct = Math.min(curPct + Math.floor(Math.random() * 8) + 4, 88);
+                setDownloadProgress(curPct);
+                if (curPct > 35 && curPct < 65) {
+                    setCurrentDownloadStatus(`2/3: Extracting audio stream & encoding ${saveFormat.toUpperCase()}...`);
+                } else if (curPct >= 65) {
+                    setCurrentDownloadStatus(`3/3: Finalizing tags and album artwork...`);
+                }
+            }, 600);
 
             try {
                 // Step 1: Tell server to download and convert to server disk
@@ -169,37 +182,43 @@ export function MusicDownloadModal({
                         album: currentTrack.album || albumName,
                         saveFormat,
                         path: currentTrack.path,
-                        streamUrl: currentTrack.streamUrl,
+                        streamUrl: currentTrack.streamUrl || currentTrack.previewUrl,
                         plexPart: currentTrack.plexPart || currentTrack.key,
                         instanceId: currentTrack.instanceId
                     })
                 });
 
+                clearInterval(progressTimer);
+
                 if (prepRes.ok) {
                     const prepData = await prepRes.json();
                     if (prepData.downloadUrl) {
-                        setCurrentDownloadStatus(`Sending to device: ${prepData.filename || tTitle}`);
+                        setCurrentDownloadStatus(`Delivering file to device: ${prepData.filename || tTitle}`);
+                        setDownloadProgress(95);
 
                         // Step 2: Fetch the completed file as blob and trigger instant browser save
                         const fileRes = await fetch(prepData.downloadUrl);
-                        if (!fileRes.ok) throw new Error(`File fetch failed (HTTP ${fileRes.status})`);
-                        const blob = await fileRes.blob();
-                        const blobUrl = window.URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = blobUrl;
-                        a.download = prepData.filename || `${tArtist} - ${tTitle}.${saveFormat === 'original' ? 'mp3' : saveFormat}`;
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
-                        setTimeout(() => window.URL.revokeObjectURL(blobUrl), 20000);
-                        successCount++;
-                        continue;
+                        if (fileRes.ok) {
+                            const blob = await fileRes.blob();
+                            const blobUrl = window.URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = blobUrl;
+                            a.download = prepData.filename || `${tArtist} - ${tTitle}.${saveFormat === 'original' ? 'mp3' : saveFormat}`;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            setTimeout(() => window.URL.revokeObjectURL(blobUrl), 20000);
+                            successCount++;
+                            setDownloadProgress(100);
+                            continue;
+                        }
                     }
                 }
 
                 // Fallback: Direct stream / local file endpoint
                 const { url: directUrl, filename: directFilename } = getDownloadUrlForTrack(currentTrack);
-                setCurrentDownloadStatus(`Retrieving file: ${directFilename}`);
+                setCurrentDownloadStatus(`Direct retrieving file: ${directFilename}`);
+                setDownloadProgress(90);
                 const directRes = await fetch(directUrl);
                 if (!directRes.ok) throw new Error(`Direct download failed (HTTP ${directRes.status})`);
                 const blob = await directRes.blob();
@@ -212,7 +231,9 @@ export function MusicDownloadModal({
                 document.body.removeChild(a);
                 setTimeout(() => window.URL.revokeObjectURL(blobUrl), 20000);
                 successCount++;
+                setDownloadProgress(100);
             } catch (err: any) {
+                clearInterval(progressTimer);
                 console.error(`Failed to download ${tTitle}:`, err);
                 toast.error(`Failed to download "${tTitle}": ${err.message}`);
             }
@@ -236,7 +257,7 @@ export function MusicDownloadModal({
     const handleSaveToServerLibrary = async () => {
         const targetDirectory = selectedDest?.path || './data/music';
         setIsDownloading(true);
-        setDownloadProgress(5);
+        setDownloadProgress(10);
         let savedCount = 0;
 
         for (let i = 0; i < tracksToProcess.length; i++) {
@@ -248,13 +269,20 @@ export function MusicDownloadModal({
 
             setCurrentDownloadStatus(`Saving to server (${i + 1}/${tracksToProcess.length}): ${tTitle}`);
 
+            let curPct = 15;
+            setDownloadProgress(curPct);
+            const progressTimer = setInterval(() => {
+                curPct = Math.min(curPct + Math.floor(Math.random() * 8) + 4, 88);
+                setDownloadProgress(curPct);
+            }, 600);
+
             try {
                 const res = await fetch('/api/theater/music/grab', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         youtubeId: ytId,
-                        streamUrl: currentTrack.streamUrl,
+                        streamUrl: currentTrack.streamUrl || currentTrack.previewUrl,
                         title: tTitle,
                         artist: tArtist,
                         album: tAlbum,
@@ -263,8 +291,14 @@ export function MusicDownloadModal({
                         coverUrl: currentTrack.posterUrl || initialPosterUrl
                     })
                 });
-                if (res.ok) savedCount++;
-            } catch {}
+                clearInterval(progressTimer);
+                if (res.ok) {
+                    savedCount++;
+                    setDownloadProgress(100);
+                }
+            } catch {
+                clearInterval(progressTimer);
+            }
 
             setDownloadProgress(Math.round(((i + 1) / tracksToProcess.length) * 100));
         }
