@@ -59,14 +59,13 @@ export async function GET(req: NextRequest) {
             }
 
             const fullPath = path.join(tempDir, matchedFile);
-            const stat = fs.statSync(fullPath);
             const ext = path.extname(fullPath);
             const mimeType = getMimeType(ext);
             const downloadFilename = filenameParam || matchedFile;
-            const asciiFilename = downloadFilename.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '');
+            const asciiFilename = downloadFilename.replace(/[^a-zA-Z0-9._-]/g, '_');
             const encodedFilename = encodeURIComponent(downloadFilename);
 
-            const fileStream = fs.createReadStream(fullPath);
+            const fileBuffer = fs.readFileSync(fullPath);
 
             // Clean up old downloads after 30 minutes in the background
             setTimeout(() => {
@@ -83,14 +82,13 @@ export async function GET(req: NextRequest) {
                 } catch {}
             }, 5000);
 
-            return new Response(Readable.toWeb(fileStream) as any, {
+            return new Response(fileBuffer, {
                 status: 200,
                 headers: {
                     'Content-Type': mimeType,
-                    'Content-Length': stat.size.toString(),
+                    'Content-Length': fileBuffer.length.toString(),
                     'Content-Disposition': `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodedFilename}`,
-                    'Accept-Ranges': 'bytes',
-                    'Cache-Control': 'public, max-age=3600'
+                    'Cache-Control': 'no-cache, no-store, must-revalidate'
                 }
             });
         }

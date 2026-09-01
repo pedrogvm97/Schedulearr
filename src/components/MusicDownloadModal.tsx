@@ -193,10 +193,36 @@ export function MusicDownloadModal({
                 if (prepRes.ok) {
                     const prepData = await prepRes.json();
                     if (prepData.downloadUrl) {
-                        setCurrentDownloadStatus(`Delivering file: ${prepData.filename || tTitle}`);
-                        setDownloadProgress(100);
+                        setCurrentDownloadStatus(`Saving "${prepData.filename || tTitle}" to device...`);
+                        setDownloadProgress(98);
 
-                        // Trigger native browser file delivery directly
+                        // Fetch in-memory Blob to prevent browser DLP/SmartScreen security blocks
+                        try {
+                            const blobRes = await fetch(prepData.downloadUrl);
+                            if (blobRes.ok) {
+                                const blobData = await blobRes.blob();
+                                const blobUrl = window.URL.createObjectURL(blobData);
+                                const a = document.createElement('a');
+                                a.href = blobUrl;
+                                a.download = prepData.filename || `${tArtist} - ${tTitle}.${saveFormat === 'original' ? 'mp3' : saveFormat}`;
+                                document.body.appendChild(a);
+                                a.click();
+                                setTimeout(() => {
+                                    try {
+                                        window.URL.revokeObjectURL(blobUrl);
+                                        if (a.parentNode) a.parentNode.removeChild(a);
+                                    } catch {}
+                                }, 5000);
+
+                                setDownloadProgress(100);
+                                successCount++;
+                                continue;
+                            }
+                        } catch (blobErr) {
+                            console.warn('Blob fetch failed, falling back to direct anchor:', blobErr);
+                        }
+
+                        // Fallback: Direct anchor download
                         const a = document.createElement('a');
                         a.href = prepData.downloadUrl;
                         a.download = prepData.filename || `${tArtist} - ${tTitle}.${saveFormat === 'original' ? 'mp3' : saveFormat}`;
@@ -207,6 +233,7 @@ export function MusicDownloadModal({
                             try { if (a.parentNode) a.parentNode.removeChild(a); } catch {}
                         }, 3000);
 
+                        setDownloadProgress(100);
                         successCount++;
                         continue;
                     }
