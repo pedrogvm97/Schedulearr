@@ -311,7 +311,8 @@ export async function POST(req: Request) {
                 targetStreamUrl = new URL(targetStreamUrl, req.url).toString();
             }
 
-            if (targetStreamUrl.startsWith('http')) {
+            const isPreviewUrl = targetStreamUrl.includes('preview') || targetStreamUrl.includes('dzcdn.net') || targetStreamUrl.includes('mzstatic.com');
+            if (targetStreamUrl.startsWith('http') && !isPreviewUrl) {
                 try {
                     console.log(`[DOWNLOAD TO SERVER] Fetching remote audio stream: ${targetStreamUrl}`);
                     const remoteRes = await axios.get(targetStreamUrl, {

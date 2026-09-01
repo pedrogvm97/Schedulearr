@@ -165,8 +165,9 @@ export async function POST(req: Request) {
         }
 
         // 2. Download Track Audio using Multi-Tier Downloader Engine
+        const isPreview = body.streamUrl && (body.streamUrl.includes('preview') || body.streamUrl.includes('dzcdn.net') || body.streamUrl.includes('mzstatic.com'));
         const dlResult = await downloadAudioFile({
-            targetUrl: cleanYtId ? `https://www.youtube.com/watch?v=${cleanYtId}` : (body.streamUrl?.startsWith('http') ? body.streamUrl : undefined),
+            targetUrl: cleanYtId ? `https://www.youtube.com/watch?v=${cleanYtId}` : (body.streamUrl?.startsWith('http') && !isPreview ? body.streamUrl : undefined),
             youtubeId: cleanYtId || undefined,
             query: `${cleanArtist} ${cleanTitle}`,
             outputPath: finalAudioPath,

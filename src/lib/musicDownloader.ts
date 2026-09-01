@@ -147,11 +147,18 @@ export async function downloadAudioFile(options: DownloadOptions): Promise<{ suc
     let cleanId = (youtubeId || '').replace(/^yt-/, '').trim();
     let effectiveTarget = targetUrl || '';
 
+    // If targetUrl points to a 30s preview/sample stream (Deezer preview, Apple preview, etc.), ignore it to download the full song!
+    if (effectiveTarget && (effectiveTarget.includes('preview') || effectiveTarget.includes('dzcdn.net') || effectiveTarget.includes('apple.com') || effectiveTarget.includes('mzstatic.com'))) {
+        effectiveTarget = '';
+    }
+
     if (!effectiveTarget) {
         if (cleanId) {
             effectiveTarget = `https://www.youtube.com/watch?v=${cleanId}`;
         } else if (query) {
-            effectiveTarget = `ytsearch1:${query}`;
+            effectiveTarget = `ytsearch1:${query} audio`;
+        } else if (artist && title) {
+            effectiveTarget = `ytsearch1:${artist} ${title} audio`;
         } else {
             return { success: false, error: 'No targetUrl, youtubeId, or query provided.' };
         }

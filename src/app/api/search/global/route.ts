@@ -155,7 +155,7 @@ export async function GET(req: Request) {
                                     posterUrl: item.album?.cover_xl || item.album?.cover_medium || item.artist?.picture_medium || '',
                                     source: 'Deezer / Studio',
                                     previewUrl: item.preview || '',
-                                    streamUrl: item.preview || `/api/theater/music/stream?q=${encodeURIComponent(`${artist} ${title}`)}`,
+                                    streamUrl: `/api/theater/music/stream?q=${encodeURIComponent(`${artist} ${title}`)}`,
                                     isLocal: false
                                 });
                             }
