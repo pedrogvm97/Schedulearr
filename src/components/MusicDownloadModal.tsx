@@ -203,29 +203,23 @@ export function MusicDownloadModal({
                         setCurrentDownloadStatus(`Ready: ${finalName}`);
                         setDownloadProgress(100);
 
-                        // 1. Trigger via hidden iframe (Safari & Chrome safe)
+                        // 1. Direct browser attachment navigation (Guarantees native download prompt on iOS, Android, and Desktop)
                         try {
-                            const iframe = document.createElement('iframe');
-                            iframe.style.display = 'none';
-                            iframe.src = prepData.downloadUrl;
-                            document.body.appendChild(iframe);
-                            setTimeout(() => {
-                                try { if (iframe.parentNode) iframe.parentNode.removeChild(iframe); } catch {}
-                            }, 30000);
-                        } catch {}
-
-                        // 2. Trigger via direct anchor click
-                        try {
-                            const a = document.createElement('a');
-                            a.href = prepData.downloadUrl;
-                            a.download = finalName;
-                            a.target = '_self';
-                            document.body.appendChild(a);
-                            a.click();
-                            setTimeout(() => {
-                                try { if (a.parentNode) a.parentNode.removeChild(a); } catch {}
-                            }, 3000);
-                        } catch {}
+                            window.location.assign(prepData.downloadUrl);
+                        } catch {
+                            // Fallback to anchor click if navigation is blocked
+                            try {
+                                const a = document.createElement('a');
+                                a.href = prepData.downloadUrl;
+                                a.download = finalName;
+                                a.target = '_self';
+                                document.body.appendChild(a);
+                                a.click();
+                                setTimeout(() => {
+                                    try { if (a.parentNode) a.parentNode.removeChild(a); } catch {}
+                                }, 3000);
+                            } catch {}
+                        }
 
                         successCount++;
                         continue;
