@@ -124,6 +124,43 @@ export async function GET(req: Request) {
             );
         }
 
+        // 2.5 TMDB Direct Search (guarantees movie and TV series results even if Radarr/Sonarr are offline)
+        promises.push(
+            axios.get(`https://api.themoviedb.org/3/search/multi?api_key=45dbdd59a37121e50c890834ba73055e&query=${cleanQ}&include_adult=false`, {
+                timeout: 5000
+            }).then(res => {
+                if (Array.isArray(res.data?.results)) {
+                    for (const item of res.data.results) {
+                        if (item.media_type !== 'movie' && item.media_type !== 'tv') continue;
+                        const isMovie = item.media_type === 'movie';
+                        const title = isMovie ? item.title : item.name;
+                        const year = (isMovie ? item.release_date : item.first_air_date)?.split('-')[0];
+                        const poster = item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : null;
+                        
+                        const exists = externalAvailable.some(e => e.title?.toLowerCase() === title?.toLowerCase()) ||
+                                       inLibraries.some(e => e.title?.toLowerCase() === title?.toLowerCase());
+                        if (!exists) {
+                            externalAvailable.push({
+                                id: `tmdb-${item.id}`,
+                                tmdbId: item.id,
+                                isTmdb: true,
+                                title,
+                                year,
+                                overview: item.overview,
+                                posterUrl: poster,
+                                category: 'video',
+                                type: isMovie ? 'movie' : 'series',
+                                source: 'Streaming & Online',
+                                isLocal: false,
+                                ratings: item.vote_average,
+                                raw: item
+                            });
+                        }
+                    }
+                }
+            }).catch(() => null)
+        );
+
         // 3. Query Online Music (Deezer + iTunes + YouTube Scrape)
         promises.push(
             (async () => {

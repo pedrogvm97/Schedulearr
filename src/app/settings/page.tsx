@@ -1019,6 +1019,101 @@ export default function Settings() {
                         )}
                         <p className="text-[10px] text-zinc-500 mt-2">Enable this for better trending and discovery results on the discovery page.</p>
                     </div>
+
+                    {/* Streaming Availability & Country Shortlist */}
+                    <div className="pt-4 border-t border-zinc-800 space-y-4">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                                    <span>🌐</span> Streaming Availability &amp; Preferred Regions
+                                </h3>
+                                <p className="text-xs text-zinc-400 mt-0.5">
+                                    Choose your primary countries (e.g. Portugal, Spain, France) to prioritize which streaming providers (Netflix, HBO Max, Disney+, Prime) are displayed first on movie &amp; series cards.
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Active Shortlist Badges */}
+                        <div className="space-y-2 bg-zinc-950/70 border border-zinc-800 p-4 rounded-xl">
+                            <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block">
+                                Prioritized Countries Shortlist (Shown on top of availability checkers)
+                            </label>
+                            <div className="flex flex-wrap gap-2 pt-1">
+                                {(() => {
+                                    let currentList: string[] = ['PT', 'ES', 'FR', 'US', 'GB'];
+                                    try {
+                                        const raw = getSettingValue('streaming_countries_shortlist');
+                                        if (raw) {
+                                            const p = JSON.parse(raw);
+                                            if (Array.isArray(p) && p.length > 0) currentList = p;
+                                        }
+                                    } catch {}
+
+                                    const available = [
+                                        { code: 'PT', name: 'Portugal', flag: '🇵🇹' },
+                                        { code: 'ES', name: 'Spain', flag: '🇪🇸' },
+                                        { code: 'FR', name: 'France', flag: '🇫🇷' },
+                                        { code: 'US', name: 'United States', flag: '🇺🇸' },
+                                        { code: 'GB', name: 'United Kingdom', flag: '🇬🇧' },
+                                        { code: 'DE', name: 'Germany', flag: '🇩🇪' },
+                                        { code: 'IT', name: 'Italy', flag: '🇮🇹' },
+                                        { code: 'BR', name: 'Brazil', flag: '🇧🇷' },
+                                        { code: 'CA', name: 'Canada', flag: '🇨🇦' },
+                                        { code: 'AU', name: 'Australia', flag: '🇦🇺' },
+                                        { code: 'NL', name: 'Netherlands', flag: '🇳🇱' },
+                                        { code: 'SE', name: 'Sweden', flag: '🇸🇪' },
+                                        { code: 'NO', name: 'Norway', flag: '🇳🇴' },
+                                        { code: 'DK', name: 'Denmark', flag: '🇩🇰' },
+                                        { code: 'FI', name: 'Finland', flag: '🇫🇮' },
+                                        { code: 'IE', name: 'Ireland', flag: '🇮🇪' },
+                                        { code: 'CH', name: 'Switzerland', flag: '🇨🇭' },
+                                        { code: 'AT', name: 'Austria', flag: '🇦🇹' },
+                                        { code: 'BE', name: 'Belgium', flag: '🇧🇪' },
+                                        { code: 'PL', name: 'Poland', flag: '🇵🇱' },
+                                        { code: 'JP', name: 'Japan', flag: '🇯🇵' },
+                                        { code: 'KR', name: 'South Korea', flag: '🇰🇷' },
+                                        { code: 'MX', name: 'Mexico', flag: '🇲🇽' },
+                                        { code: 'AR', name: 'Argentina', flag: '🇦🇷' }
+                                    ];
+
+                                    return available.map(c => {
+                                        const isSelected = currentList.includes(c.code);
+                                        const rank = currentList.indexOf(c.code);
+                                        return (
+                                            <button
+                                                key={c.code}
+                                                onClick={async () => {
+                                                    let next = [...currentList];
+                                                    if (isSelected) {
+                                                        next = next.filter(code => code !== c.code);
+                                                    } else {
+                                                        next.push(c.code);
+                                                    }
+                                                    if (next.length === 0) next = ['PT'];
+                                                    await updateSetting('streaming_countries_shortlist', JSON.stringify(next));
+                                                    toast.success(`${isSelected ? 'Removed' : 'Added'} ${c.name} (${c.code})`);
+                                                }}
+                                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                                    isSelected
+                                                        ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 shadow-sm'
+                                                        : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700'
+                                                }`}
+                                            >
+                                                <span className="text-base leading-none">{c.flag}</span>
+                                                <span>{c.name}</span>
+                                                <span className="text-[10px] opacity-60">({c.code})</span>
+                                                {isSelected && (
+                                                    <span className="w-4 h-4 rounded-full bg-amber-500 text-black text-[10px] font-black flex items-center justify-center ml-0.5">
+                                                        {rank + 1}
+                                                    </span>
+                                                )}
+                                            </button>
+                                        );
+                                    });
+                                })()}
+                            </div>
+                        </div>
+                    </div>
                     <div className="pt-4 border-t border-zinc-800 space-y-4">
                         <h3 className="text-sm font-bold text-white mb-2">Scheduler Configuration</h3>
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">

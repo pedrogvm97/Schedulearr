@@ -6,7 +6,8 @@ import {
     Search, PlayCircle, Play, MoveHorizontal, Trash2, ChevronUp,
     ListOrdered, Clock, HardDrive, Radio, FileText, Layers, Monitor,
     AlertCircle, Sparkles, ShieldCheck, Volume2, Video, Subtitles,
-    Folder, CheckCircle2, ArrowDownToLine, Tv
+    Folder, CheckCircle2, ArrowDownToLine, Tv, Globe, ExternalLink,
+    Clapperboard, Download
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -466,6 +467,25 @@ function MediaDetailsPanelInner({
     const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
     const [localWatchHistory, setLocalWatchHistory] = useState<any[]>([]);
 
+    // Streaming Availability & Web Stream Resolver States
+    const [providersData, setProvidersData] = useState<{
+        shortlist: string[];
+        sortedCountries: string[];
+        providers: Record<string, any>;
+    } | null>(null);
+    const [selectedCountry, setSelectedCountry] = useState<string>('PT');
+    const [streamData, setStreamData] = useState<{
+        available: boolean;
+        sources: Array<{ name: string; url: string; type: string; quality: string }>;
+        imdbId?: string;
+        tmdbId?: string;
+    } | null>(null);
+    const [isWatchingWebStream, setIsWatchingWebStream] = useState(false);
+    const [activeStreamSourceIdx, setActiveStreamSourceIdx] = useState(0);
+    const [streamSeason, setStreamSeason] = useState(1);
+    const [streamEpisode, setStreamEpisode] = useState(1);
+    const [isAddingToLibrary, setIsAddingToLibrary] = useState(false);
+
     const isSeries = item.type === 'series' || item.mediaType === 'series' || !!item.tvdbId || !!item.seasons;
     // tmdbId is only valid if explicitly tagged as tmdbId or if item came from TMDB
     const tmdbId = item.tmdbId || (item.isTmdb ? item.id : null);
@@ -546,7 +566,7 @@ function MediaDetailsPanelInner({
             try {
                 const type = isSeries ? 'tv' : 'movie';
                 const [detailsRes, creditsRes, recRes] = await Promise.all([
-                    fetch(`https://api.themoviedb.org/3/${type}/${id}?api_key=${tmdbApiKey}&append_to_response=videos,images`).catch(() => null),
+                    fetch(`https://api.themoviedb.org/3/${type}/${id}?api_key=${tmdbApiKey}&append_to_response=videos,images,external_ids`).catch(() => null),
                     fetch(`https://api.themoviedb.org/3/${type}/${id}/credits?api_key=${tmdbApiKey}`).catch(() => null),
                     fetch(`https://api.themoviedb.org/3/${type}/${id}/recommendations?api_key=${tmdbApiKey}`).catch(() => null)
                 ]);
@@ -574,6 +594,45 @@ function MediaDetailsPanelInner({
             isCancelled = true;
         };
     }, [tmdbId, tmdbApiKey, isSeries, item.title, item.name, item.tvdbId, item.year]);
+
+    // Fetch Streaming Watch Providers & Web Stream Resolver (IMDb / TMDB)
+    useEffect(() => {
+        const resolvedTmdb = details?.id || tmdbId || item.tmdbId;
+        const resolvedImdb = details?.external_ids?.imdb_id || details?.imdb_id || item.imdbId || (item.id && String(item.id).startsWith('tt') ? item.id : null);
+        const type = isSeries ? 'tv' : 'movie';
+
+        if (resolvedTmdb || resolvedImdb || item.title || item.name) {
+            const params = new URLSearchParams();
+            if (resolvedTmdb) params.set('tmdbId', String(resolvedTmdb));
+            if (resolvedImdb) params.set('imdbId', String(resolvedImdb));
+            params.set('type', type);
+            if (isSeries) {
+                params.set('season', String(streamSeason));
+                params.set('episode', String(streamEpisode));
+            }
+
+            fetch(`/api/media/providers?${params.toString()}`)
+                .then(r => r.ok ? r.json() : null)
+                .then(data => {
+                    if (data && data.providers) {
+                        setProvidersData(data);
+                        if (data.sortedCountries && data.sortedCountries.length > 0) {
+                            setSelectedCountry(data.sortedCountries[0]);
+                        }
+                    }
+                })
+                .catch(() => {});
+
+            fetch(`/api/media/stream-resolver?${params.toString()}`)
+                .then(r => r.ok ? r.json() : null)
+                .then(data => {
+                    if (data && data.sources) {
+                        setStreamData(data);
+                    }
+                })
+                .catch(() => {});
+        }
+    }, [details, tmdbId, item.tmdbId, item.imdbId, item.id, item.title, item.name, isSeries, streamSeason, streamEpisode]);
 
     // Fetch Quality Profiles for the instance
     useEffect(() => {
@@ -836,6 +895,127 @@ function MediaDetailsPanelInner({
                                 >
                                     <Plus size={18} /> Add to Library
                                 </button>
+                            </div>
+                        )}
+
+                        {/* Web Stream & IMDb Player Action Card */}
+                        <div className="pt-3 border-t border-white/5 space-y-2">
+                            <span className="text-[11px] font-black text-zinc-500 uppercase tracking-widest block">Web Stream &amp; Playback</span>
+                            {streamData?.available && streamData.sources.length > 0 ? (
+                                <button
+                                    onClick={() => setIsWatchingWebStream(true)}
+                                    className="w-full h-12 flex items-center justify-center gap-2.5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black uppercase text-xs sm:text-sm tracking-wider transition-all shadow-xl shadow-amber-500/20 active:scale-95"
+                                >
+                                    <Clapperboard size={18} /> Watch Web Stream (IMDb / Multi-Server)
+                                </button>
+                            ) : (
+                                <div className="p-3 bg-zinc-900/60 rounded-xl border border-zinc-800 text-center">
+                                    <p className="text-xs text-zinc-500 font-medium">No direct web stream available for this title</p>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Streaming Availability by Region (Netflix, HBO, Disney, Prime, etc.) */}
+                        {providersData && Object.keys(providersData.providers).length > 0 && (
+                            <div className="pt-3 border-t border-white/5 space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-1.5">
+                                        <Globe size={14} className="text-amber-400" /> Streaming Availability
+                                    </span>
+                                    {providersData.shortlist && (
+                                        <span className="text-[10px] text-zinc-500 font-bold">Shortlist Top</span>
+                                    )}
+                                </div>
+
+                                {/* Country Selector Pills (Shortlist Prioritized on Top) */}
+                                <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-1">
+                                    {providersData.sortedCountries.map(cc => {
+                                        const isSelected = selectedCountry === cc;
+                                        const isShortlisted = providersData.shortlist.includes(cc);
+                                        const countryFlags: Record<string, string> = {
+                                            PT: '🇵🇹', ES: '🇪🇸', FR: '🇫🇷', US: '🇺🇸', GB: '🇬🇧',
+                                            DE: '🇩🇪', IT: '🇮🇹', BR: '🇧🇷', CA: '🇨🇦', AU: '🇦🇺',
+                                            NL: '🇳🇱', SE: '🇸🇪', NO: '🇳🇴', DK: '🇩🇰', FI: '🇫🇮',
+                                            IE: '🇮🇪', CH: '🇨🇭', AT: '🇦🇹', BE: '🇧🇪', PL: '🇵🇱',
+                                            JP: '🇯🇵', KR: '🇰🇷', MX: '🇲🇽', AR: '🇦🇷'
+                                        };
+                                        const flag = countryFlags[cc] || '🌐';
+
+                                        return (
+                                            <button
+                                                key={cc}
+                                                onClick={() => setSelectedCountry(cc)}
+                                                className={`px-2.5 py-1 rounded-xl text-xs font-bold shrink-0 transition-all flex items-center gap-1 border ${
+                                                    isSelected
+                                                        ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 shadow-sm'
+                                                        : isShortlisted
+                                                            ? 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:text-white'
+                                                            : 'bg-zinc-950 border-zinc-900 text-zinc-600 hover:text-zinc-400'
+                                                }`}
+                                            >
+                                                <span>{flag}</span>
+                                                <span>{cc}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+
+                                {/* Active Country Providers Display */}
+                                {(() => {
+                                    const current = providersData.providers[selectedCountry];
+                                    if (!current) return <p className="text-xs text-zinc-600 italic">No provider info for {selectedCountry}</p>;
+
+                                    const flatrate = current.flatrate || [];
+                                    const rent = current.rent || [];
+                                    const buy = current.buy || [];
+
+                                    return (
+                                        <div className="space-y-2 bg-zinc-900/60 border border-zinc-800/80 p-3.5 rounded-2xl">
+                                            {flatrate.length > 0 ? (
+                                                <div className="space-y-1.5">
+                                                    <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider block">
+                                                        Included with Subscription ({selectedCountry}):
+                                                    </span>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {flatrate.map((p: any) => (
+                                                            <div key={p.id} className="flex items-center gap-1.5 px-2.5 py-1 bg-zinc-950 rounded-xl border border-zinc-800 shadow-sm" title={p.name}>
+                                                                {p.logoUrl ? (
+                                                                    <img src={p.logoUrl} alt={p.name} className="w-5 h-5 rounded-md object-cover" />
+                                                                ) : null}
+                                                                <span className="text-xs font-bold text-white">{p.name}</span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <p className="text-xs text-zinc-500 font-medium">
+                                                    Not currently included on subscription services in {selectedCountry}.
+                                                </p>
+                                            )}
+
+                                            {(rent.length > 0 || buy.length > 0) && (
+                                                <div className="pt-2 border-t border-zinc-800/60 flex items-center justify-between text-[11px] text-zinc-400">
+                                                    <span>Available to Rent / Buy:</span>
+                                                    <span className="text-zinc-300 font-bold truncate max-w-[180px]">
+                                                        {[...rent, ...buy].map((p: any) => p.name).slice(0, 3).join(', ')}
+                                                    </span>
+                                                </div>
+                                            )}
+
+                                            {current.link && (
+                                                <a
+                                                    href={current.link}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="pt-1.5 flex items-center justify-end gap-1 text-[11px] text-amber-400/80 hover:text-amber-300 font-bold transition-colors"
+                                                >
+                                                    <span>View details on JustWatch</span>
+                                                    <ExternalLink size={12} />
+                                                </a>
+                                            )}
+                                        </div>
+                                    );
+                                })()}
                             </div>
                         )}
                     </div>
@@ -1168,6 +1348,110 @@ function MediaDetailsPanelInner({
                         )}
                     </div>
                 </div>
+
+                {/* ── Embedded Web Stream Player Modal ── */}
+                {isWatchingWebStream && streamData?.sources && streamData.sources.length > 0 && (
+                    <div className="fixed inset-0 z-[150] flex flex-col bg-black/95 backdrop-blur-3xl p-3 sm:p-6 animate-in fade-in duration-200">
+                        {/* Player Header Bar */}
+                        <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
+                            <div className="flex items-center gap-3 min-w-0">
+                                <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                                    <Clapperboard size={20} />
+                                </div>
+                                <div className="min-w-0">
+                                    <h3 className="text-base sm:text-lg font-black text-white truncate">
+                                        {item.title || item.name || details?.title || details?.name}
+                                    </h3>
+                                    <p className="text-xs text-zinc-400">
+                                        {isSeries ? `Season ${streamSeason} Episode ${streamEpisode}` : 'Full Movie'} • Web Stream Player
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                {/* Server Switcher Desktop */}
+                                <div className="hidden sm:flex items-center gap-1.5 bg-zinc-900 p-1 rounded-xl border border-zinc-800">
+                                    {streamData.sources.map((src, idx) => (
+                                        <button
+                                            key={idx}
+                                            onClick={() => setActiveStreamSourceIdx(idx)}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                                activeStreamSourceIdx === idx
+                                                    ? 'bg-amber-500 text-black shadow-md'
+                                                    : 'text-zinc-400 hover:text-white'
+                                            }`}
+                                        >
+                                            {src.name}
+                                        </button>
+                                    ))}
+                                </div>
+
+                                <button
+                                    onClick={() => setIsWatchingWebStream(false)}
+                                    className="p-2.5 rounded-full bg-zinc-800 hover:bg-zinc-700 text-white transition-all shadow-md active:scale-95"
+                                    aria-label="Close Stream Player"
+                                >
+                                    <X size={20} />
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Server Switcher Mobile Bar */}
+                        <div className="flex sm:hidden items-center gap-1.5 overflow-x-auto py-2 border-b border-zinc-800/60 custom-scrollbar">
+                            {streamData.sources.map((src, idx) => (
+                                <button
+                                    key={idx}
+                                    onClick={() => setActiveStreamSourceIdx(idx)}
+                                    className={`px-2.5 py-1 rounded-lg text-xs font-bold shrink-0 transition-all ${
+                                        activeStreamSourceIdx === idx
+                                            ? 'bg-amber-500 text-black shadow-md'
+                                            : 'bg-zinc-900 text-zinc-400 border border-zinc-800'
+                                    }`}
+                                >
+                                    {src.name}
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* TV Series Episode & Season Quick Selector */}
+                        {isSeries && (
+                            <div className="flex items-center gap-3 py-2 text-xs font-bold text-zinc-400">
+                                <span className="text-zinc-500 uppercase tracking-wider">Episode:</span>
+                                <div className="flex items-center gap-2">
+                                    <label className="text-zinc-400">S</label>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={50}
+                                        value={streamSeason}
+                                        onChange={e => setStreamSeason(Math.max(1, parseInt(e.target.value) || 1))}
+                                        className="w-14 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-white text-center"
+                                    />
+                                    <label className="text-zinc-400">E</label>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={100}
+                                        value={streamEpisode}
+                                        onChange={e => setStreamEpisode(Math.max(1, parseInt(e.target.value) || 1))}
+                                        className="w-14 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-white text-center"
+                                    />
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Embedded Iframe Player with sandboxed popups */}
+                        <div className="flex-1 w-full bg-black rounded-2xl overflow-hidden mt-3 border border-zinc-800/80 relative shadow-2xl">
+                            <iframe
+                                src={streamData.sources[activeStreamSourceIdx]?.url || streamData.sources[0]?.url}
+                                className="w-full h-full border-0"
+                                allowFullScreen
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                                sandbox="allow-scripts allow-same-origin allow-forms allow-presentation allow-fullscreen"
+                            />
+                        </div>
+                    </div>
+                )}
             </div>
 
             <style jsx>{`

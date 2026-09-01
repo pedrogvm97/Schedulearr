@@ -2939,6 +2939,100 @@ function TheaterPageContent() {
                         })}
                     </div>
                 )}
+
+                {/* ── External Movies & Series Results from Providers (Netflix, HBO, Disney, Prime, etc.) ── */}
+                {searchQuery.trim() && (activeContentTab === 'movie' || activeContentTab === 'show' || activeContentTab === 'all') && (
+                    <div className="pt-8 space-y-4 border-t border-zinc-900 mt-6">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <h3 className="text-lg font-black text-white flex items-center gap-2">
+                                    <Globe size={18} className="text-amber-400" />
+                                    Available on Streaming &amp; External Providers (Netflix, HBO Max, Disney+, Prime, etc.)
+                                </h3>
+                                <p className="text-xs text-zinc-400 mt-0.5">
+                                    {filteredItems.length === 0
+                                        ? `No local files found for "${searchQuery}". You can watch web streams, check country availability, or add to library below:`
+                                        : `Streaming & provider matches for "${searchQuery}":`}
+                                </p>
+                            </div>
+                            {isSearchingGlobal && (
+                                <span className="px-3 py-1 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20 text-xs font-bold flex items-center gap-1.5">
+                                    <RefreshCw size={13} className="animate-spin" /> Searching providers...
+                                </span>
+                            )}
+                        </div>
+
+                        {globalSearchResults?.externalAvailable && globalSearchResults.externalAvailable.filter(item => item.category === 'video' || item.type === 'movie' || item.type === 'series').length > 0 ? (
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5">
+                                {globalSearchResults.externalAvailable
+                                    .filter(item => item.category === 'video' || item.type === 'movie' || item.type === 'series')
+                                    .map(item => (
+                                        <div
+                                            key={item.id}
+                                            onClick={() => setSelectedItemForDetails({
+                                                ...item,
+                                                isTmdb: true,
+                                                tmdbId: item.tmdbId,
+                                                title: item.title,
+                                                year: item.year,
+                                                poster: item.posterUrl,
+                                                type: item.type
+                                            })}
+                                            className="group flex flex-col bg-[#09090b] border border-zinc-900 hover:border-amber-500/50 rounded-3xl overflow-hidden transition-all duration-300 shadow-xl cursor-pointer hover:-translate-y-1.5"
+                                        >
+                                            <div className="relative aspect-[2/3] bg-zinc-900 overflow-hidden flex items-center justify-center border-b border-zinc-900">
+                                                {item.posterUrl ? (
+                                                    <img
+                                                        src={item.posterUrl}
+                                                        alt={item.title}
+                                                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                                        loading="lazy"
+                                                    />
+                                                ) : (
+                                                    <div className="text-zinc-700 flex flex-col items-center gap-2 p-4 text-center">
+                                                        <Film size={48} />
+                                                        <span className="text-xs font-bold text-zinc-500 line-clamp-2">{item.title}</span>
+                                                    </div>
+                                                )}
+
+                                                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all duration-300">
+                                                    <div className="px-4 py-2 rounded-2xl bg-amber-500 text-black text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-2xl scale-95 group-hover:scale-100 transition-transform">
+                                                        <Clapperboard size={14} /> Stream / Details
+                                                    </div>
+                                                </div>
+
+                                                <div className="absolute top-3 right-3 px-2.5 py-1 rounded-xl bg-amber-500/90 text-black text-[9px] font-black uppercase shadow">
+                                                    {item.type === 'series' ? 'TV Series' : 'Movie'}
+                                                </div>
+
+                                                {item.year && (
+                                                    <div className="absolute top-3 left-3 px-2 py-0.5 rounded-lg bg-black/70 backdrop-blur-sm text-[9px] font-bold text-zinc-300">
+                                                        {item.year}
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            <div className="p-4 space-y-1">
+                                                <h3 className="font-bold text-white text-base leading-snug line-clamp-1 group-hover:text-amber-400 transition-colors">
+                                                    {item.title}
+                                                </h3>
+                                                <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold pt-0.5">
+                                                    <span className="text-amber-400/90 font-bold text-[11px]">Online Stream Available</span>
+                                                    {item.ratings && (
+                                                        <span className="text-amber-400 font-bold text-[11px]">★ {Number(item.ratings).toFixed(1)}</span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                            </div>
+                        ) : !isSearchingGlobal ? (
+                            <div className="p-8 text-center bg-zinc-950/40 rounded-3xl border border-zinc-900 text-zinc-500 text-sm">
+                                No external provider results found for "{searchQuery}".
+                            </div>
+                        ) : null}
+                    </div>
+                )}
             </div>
 
             {/* ── Album Detail Modal ── */}

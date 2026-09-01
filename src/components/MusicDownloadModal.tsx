@@ -193,45 +193,41 @@ export function MusicDownloadModal({
                 if (prepRes.ok) {
                     const prepData = await prepRes.json();
                     if (prepData.downloadUrl) {
-                        setCurrentDownloadStatus(`Delivering file to device: ${prepData.filename || tTitle}`);
-                        setDownloadProgress(95);
+                        setCurrentDownloadStatus(`Delivering file: ${prepData.filename || tTitle}`);
+                        setDownloadProgress(100);
 
-                        // Step 2: Fetch the completed file as blob and trigger instant browser save
-                        const fileRes = await fetch(prepData.downloadUrl);
-                        if (fileRes.ok) {
-                            const blob = await fileRes.blob();
-                            const blobUrl = window.URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = blobUrl;
-                            a.download = prepData.filename || `${tArtist} - ${tTitle}.${saveFormat === 'original' ? 'mp3' : saveFormat}`;
-                            document.body.appendChild(a);
-                            a.click();
-                            document.body.removeChild(a);
-                            setTimeout(() => window.URL.revokeObjectURL(blobUrl), 20000);
-                            successCount++;
-                            setDownloadProgress(100);
-                            continue;
-                        }
+                        // Trigger native browser file delivery directly
+                        const a = document.createElement('a');
+                        a.href = prepData.downloadUrl;
+                        a.download = prepData.filename || `${tArtist} - ${tTitle}.${saveFormat === 'original' ? 'mp3' : saveFormat}`;
+                        a.style.display = 'none';
+                        document.body.appendChild(a);
+                        a.click();
+                        setTimeout(() => {
+                            try { if (a.parentNode) a.parentNode.removeChild(a); } catch {}
+                        }, 2000);
+
+                        successCount++;
+                        continue;
                     }
                 }
 
                 // Fallback: Direct stream / local file endpoint
                 const { url: directUrl, filename: directFilename } = getDownloadUrlForTrack(currentTrack);
-                setCurrentDownloadStatus(`Direct retrieving file: ${directFilename}`);
-                setDownloadProgress(90);
-                const directRes = await fetch(directUrl);
-                if (!directRes.ok) throw new Error(`Direct download failed (HTTP ${directRes.status})`);
-                const blob = await directRes.blob();
-                const blobUrl = window.URL.createObjectURL(blob);
+                setCurrentDownloadStatus(`Delivering file: ${directFilename}`);
+                setDownloadProgress(100);
+
                 const a = document.createElement('a');
-                a.href = blobUrl;
+                a.href = directUrl;
                 a.download = directFilename;
+                a.style.display = 'none';
                 document.body.appendChild(a);
                 a.click();
-                document.body.removeChild(a);
-                setTimeout(() => window.URL.revokeObjectURL(blobUrl), 20000);
+                setTimeout(() => {
+                    try { if (a.parentNode) a.parentNode.removeChild(a); } catch {}
+                }, 2000);
+
                 successCount++;
-                setDownloadProgress(100);
             } catch (err: any) {
                 clearInterval(progressTimer);
                 console.error(`Failed to download ${tTitle}:`, err);
