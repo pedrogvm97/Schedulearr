@@ -24,6 +24,7 @@ import { useMusicPlayer } from '@/context/MusicPlayerContext';
 import { AddIptvProviderModal } from '@/components/AddIptvProviderModal';
 import { IptvChannelSourcesModal } from '@/components/IptvChannelSourcesModal';
 import IptvSettingsModal from '@/components/IptvSettingsModal';
+import IptvAutoGroupingModal from '@/components/IptvAutoGroupingModal';
 
 interface TheaterLibrary {
     id: string;
@@ -255,6 +256,7 @@ function TheaterPageContent() {
     const [isAddIptvModalOpen, setIsAddIptvModalOpen] = useState(false);
     const [sourcesModalChannel, setSourcesModalChannel] = useState<IptvChannel | null>(null);
     const [isIptvSettingsOpen, setIsIptvSettingsOpen] = useState(false);
+    const [isAutoGroupingModalOpen, setIsAutoGroupingModalOpen] = useState(false);
     const [iptvPage, setIptvPage] = useState(1);
     const iptvPageSize = 60;
 
@@ -1276,7 +1278,7 @@ function TheaterPageContent() {
         };
     }, [playingVideo, videoAudioMode, videoQuality]);
 
-    // Live Video HLS Handler with Stream Redundancy Fallback
+    // Live Video Player with Server-Side Transmuxer & Redundancy Fallback
     useEffect(() => {
         if (playingChannel && liveVideoRef.current) {
             const video = liveVideoRef.current;
@@ -1285,7 +1287,12 @@ function TheaterPageContent() {
                 : [{ url: playingChannel.url, quality: 'SD', label: 'Default' }];
 
             const currentStream = streams[activeLiveStreamIdx] || streams[0];
-            const streamUrl = currentStream.url;
+            const rawStreamUrl = currentStream?.url || '';
+
+            if (!rawStreamUrl) return;
+
+            // Route through server-side transmuxer/proxy to eliminate CORS, Mixed Content, and TS decode errors
+            const proxiedUrl = `/api/theater/iptv/stream?url=${encodeURIComponent(rawStreamUrl)}`;
 
             const handleFallback = () => {
                 if (streams.length > activeLiveStreamIdx + 1) {
@@ -1296,12 +1303,15 @@ function TheaterPageContent() {
                 }
             };
 
-            if (Hls.isSupported() && (streamUrl.includes('.m3u8') || streamUrl.includes('.ts') || !video.canPlayType('application/vnd.apple.mpegurl'))) {
-                if (hlsInstanceRef.current) {
-                    hlsInstanceRef.current.destroy();
-                }
+            if (hlsInstanceRef.current) {
+                hlsInstanceRef.current.destroy();
+                hlsInstanceRef.current = null;
+            }
+
+            // If explicit M3U8 playlist and HLS supported
+            if (rawStreamUrl.toLowerCase().includes('.m3u8') && Hls.isSupported()) {
                 const hls = new Hls({ enableWorker: true });
-                hls.loadSource(streamUrl);
+                hls.loadSource(proxiedUrl);
                 hls.attachMedia(video);
                 hls.on(Hls.Events.MANIFEST_PARSED, () => {
                     video.play().catch(() => {});
@@ -1313,10 +1323,21 @@ function TheaterPageContent() {
                 });
                 hlsInstanceRef.current = hls;
             } else {
-                video.src = streamUrl;
+                // Fragmented MP4 stream via server-side transmuxer (universal 0% CPU playback in HTML5 video)
+                video.src = proxiedUrl;
                 video.onerror = () => handleFallback();
                 video.play().catch(() => {});
             }
+
+            return () => {
+                if (hlsInstanceRef.current) {
+                    hlsInstanceRef.current.destroy();
+                    hlsInstanceRef.current = null;
+                }
+                video.pause();
+                video.removeAttribute('src');
+                video.load();
+            };
         }
     }, [playingChannel, activeLiveStreamIdx]);
 
@@ -2144,6 +2165,14 @@ function TheaterPageContent() {
                                     title="Merge multiple channel variants (4K, FHD, HD, SD) with automatic fallback redundancy"
                                 >
                                     <span>⚡</span> Merge &amp; Redundancy
+                                </button>
+
+                                <button
+                                    onClick={() => setIsAutoGroupingModalOpen(true)}
+                                    className="px-3.5 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 transition-all text-xs sm:text-sm font-bold flex items-center gap-1.5 shadow-sm cursor-pointer"
+                                    title="Automatically detect duplicate sources of the same channel and review grouping"
+                                >
+                                    <Sparkles size={14} className="text-amber-400" /> Auto-Group Suggestions
                                 </button>
 
                                 <button
@@ -5851,6 +5880,16 @@ function TheaterPageContent() {
                                     <p className="text-xs text-zinc-400">
                                         Combine quality variants into one channel (e.g. 4K &rarr; FHD &rarr; HD &rarr; SD) for automatic stream fallback.
                                     </p>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setIsMergeModalOpen(false);
+                                            setIsAutoGroupingModalOpen(true);
+                                        }}
+                                        className="mt-1 text-xs font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1.5 underline cursor-pointer"
+                                    >
+                                        <Sparkles size={13} /> Or click here to auto-detect &amp; review channel grouping suggestions
+                                    </button>
                                 </div>
                             </div>
                             <button
@@ -6104,6 +6143,19 @@ function TheaterPageContent() {
                     onClose={() => setIsIptvSettingsOpen(false)}
                     onUpdated={async () => {
                         await fetchLibraries();
+                        await fetchIptvChannels(activeLibrary.id);
+                    }}
+                />
+            )}
+
+            {/* ── Auto-Grouping Suggestions Modal ── */}
+            {activeLibrary && (
+                <IptvAutoGroupingModal
+                    isOpen={isAutoGroupingModalOpen}
+                    libraryId={activeLibrary.id}
+                    channels={iptvChannels}
+                    onClose={() => setIsAutoGroupingModalOpen(false)}
+                    onApplied={async () => {
                         await fetchIptvChannels(activeLibrary.id);
                     }}
                 />

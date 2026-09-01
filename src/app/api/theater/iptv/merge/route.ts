@@ -1,18 +1,32 @@
 import { NextResponse } from 'next/server';
-import { mergeIptvChannels, getIptvChannels, saveIptvChannels } from '@/lib/db';
+import { mergeIptvChannels, batchMergeIptvChannels, getIptvChannels, saveIptvChannels } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
     try {
         const body = await req.json();
-        const { libraryId, primaryChannelId, channelsToMergeIds, reorderedStreams } = body;
+        const { libraryId, primaryChannelId, channelsToMergeIds, reorderedStreams, batchMerges } = body;
 
         if (!libraryId) {
             return NextResponse.json({ error: 'libraryId is required' }, { status: 400 });
         }
 
-        // 1. Reorder streams for a specific channel
+        // 1. Batch Merge from Auto-Grouping Suggestions
+        if (Array.isArray(batchMerges) && batchMerges.length > 0) {
+            const result = batchMergeIptvChannels(libraryId, batchMerges);
+            if (result.success) {
+                return NextResponse.json({
+                    success: true,
+                    mergedGroupsCount: result.mergedGroupsCount,
+                    mergedChannelsCount: result.mergedChannelsCount,
+                    message: `Merged ${result.mergedChannelsCount} channels across ${result.mergedGroupsCount} groups.`
+                });
+            }
+            return NextResponse.json({ error: 'Failed to process batch merges' }, { status: 500 });
+        }
+
+        // 2. Reorder streams for a specific channel
         if (primaryChannelId && Array.isArray(reorderedStreams)) {
             const channels = getIptvChannels(libraryId);
             const target = channels.find(c => c.id === primaryChannelId);
@@ -26,7 +40,7 @@ export async function POST(req: Request) {
             return NextResponse.json({ success: true, channel: target });
         }
 
-        // 2. Merge multiple channels into one
+        // 3. Single Merge multiple channels into one
         if (!primaryChannelId || !Array.isArray(channelsToMergeIds) || channelsToMergeIds.length === 0) {
             return NextResponse.json({ error: 'primaryChannelId and channelsToMergeIds array are required' }, { status: 400 });
         }

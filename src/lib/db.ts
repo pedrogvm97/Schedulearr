@@ -913,6 +913,74 @@ export const mergeIptvChannels = (
     }
 };
 
+export const batchMergeIptvChannels = (
+    libraryId: string,
+    merges: Array<{ primaryChannelId: string; channelsToMergeIds: string[]; newName?: string }>
+): { success: boolean; mergedGroupsCount: number; mergedChannelsCount: number } => {
+    try {
+        const allChannels = getIptvChannels(libraryId);
+        const channelMap = new Map(allChannels.map(c => [c.id, c]));
+        const deletedIds = new Set<string>();
+
+        const qualityRank = (q: string) => {
+            const l = (q || '').toLowerCase();
+            if (l.includes('8k')) return 5;
+            if (l.includes('4k') || l.includes('uhd') || l.includes('2160')) return 4;
+            if (l.includes('fhd') || l.includes('1080')) return 3;
+            if (l.includes('hd') || l.includes('720')) return 2;
+            return 1;
+        };
+
+        const updatePrimary = db.prepare('UPDATE iptv_channels SET streams_json = ?, name = COALESCE(?, name), clean_name = COALESCE(?, clean_name) WHERE id = ?');
+        const deleteChan = db.prepare('DELETE FROM iptv_channels WHERE id = ?');
+
+        const transaction = db.transaction(() => {
+            let mergedGroups = 0;
+            let mergedChannels = 0;
+
+            for (const item of merges) {
+                const primary = channelMap.get(item.primaryChannelId);
+                if (!primary || deletedIds.has(primary.id)) continue;
+
+                const combinedStreams = [...primary.streams];
+                const toMerge = (item.channelsToMergeIds || []).filter(id => id !== primary.id && !deletedIds.has(id));
+                if (toMerge.length === 0) continue;
+
+                for (const otherId of toMerge) {
+                    const other = channelMap.get(otherId);
+                    if (!other) continue;
+                    for (const st of other.streams) {
+                        if (!combinedStreams.some(s => s.url === st.url)) {
+                            combinedStreams.push(st);
+                        }
+                    }
+                    deleteChan.run(otherId);
+                    deletedIds.add(otherId);
+                    mergedChannels++;
+                }
+
+                combinedStreams.sort((a, b) => qualityRank(b.quality) - qualityRank(a.quality));
+
+                updatePrimary.run(
+                    JSON.stringify(combinedStreams),
+                    item.newName || null,
+                    item.newName || null,
+                    primary.id
+                );
+                mergedGroups++;
+            }
+
+            return { mergedGroups, mergedChannels };
+        });
+
+        const res = transaction();
+        return { success: true, mergedGroupsCount: res.mergedGroups, mergedChannelsCount: res.mergedChannels };
+    } catch (e) {
+        console.error('Error in batchMergeIptvChannels:', e);
+        return { success: false, mergedGroupsCount: 0, mergedChannelsCount: 0 };
+    }
+};
+
 // ── IPTV EPG Guide Data Persistence ──
 export const saveIptvEpg = (libraryId: string, epgList: Array<{
     channelTvgId: string;
