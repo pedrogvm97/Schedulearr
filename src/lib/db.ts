@@ -740,6 +740,22 @@ export const deleteTheaterLibrary = (id: string) => {
     }
 };
 
+export const updateTheaterLibrary = (id: string, folders: string[], name?: string): boolean => {
+    try {
+        if (name) {
+            const stmt = db.prepare('UPDATE theater_libraries SET folders = ?, name = ? WHERE id = ?');
+            stmt.run(JSON.stringify(folders), name.trim(), id);
+        } else {
+            const stmt = db.prepare('UPDATE theater_libraries SET folders = ? WHERE id = ?');
+            stmt.run(JSON.stringify(folders), id);
+        }
+        return true;
+    } catch (e) {
+        console.error('Error updating theater library:', e);
+        return false;
+    }
+};
+
 export const getIptvShortlists = (libraryId: string): any[] => {
     try {
         const rows = db.prepare('SELECT * FROM iptv_shortlists WHERE library_id = ? ORDER BY created_at ASC').all(libraryId) as any[];

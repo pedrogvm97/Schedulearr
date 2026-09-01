@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getTheaterLibraries, createTheaterLibrary, deleteTheaterLibrary } from '@/lib/db';
+import { getTheaterLibraries, createTheaterLibrary, deleteTheaterLibrary, updateTheaterLibrary } from '@/lib/db';
 import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
@@ -33,6 +33,27 @@ export async function POST(req: Request) {
         }
     } catch (error: any) {
         console.error('API /theater/libraries POST error:', error);
+        return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+}
+
+export async function PATCH(req: Request) {
+    try {
+        const body = await req.json();
+        const { id, folders, name } = body;
+
+        if (!id || !Array.isArray(folders)) {
+            return NextResponse.json({ error: 'id and folders array are required' }, { status: 400 });
+        }
+
+        const success = updateTheaterLibrary(id, folders, name);
+        if (success) {
+            return NextResponse.json({ success: true });
+        } else {
+            return NextResponse.json({ error: 'Failed to update theater library' }, { status: 500 });
+        }
+    } catch (error: any) {
+        console.error('API /theater/libraries PATCH error:', error);
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }
