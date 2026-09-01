@@ -466,6 +466,23 @@ function MediaDetailsPanelInner({
     const [availableProfiles, setAvailableProfiles] = useState<any[]>([]);
     const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
     const [localWatchHistory, setLocalWatchHistory] = useState<any[]>([]);
+    const [effectiveTmdbKey, setEffectiveTmdbKey] = useState<string>(tmdbApiKey || '');
+
+    // Auto-resolve TMDB API Key from settings if not passed via props
+    useEffect(() => {
+        if (tmdbApiKey) {
+            setEffectiveTmdbKey(tmdbApiKey);
+        } else {
+            fetch('/api/settings')
+                .then(r => r.ok ? r.json() : null)
+                .then(data => {
+                    if (data?.tmdb_api_key) {
+                        setEffectiveTmdbKey(data.tmdb_api_key);
+                    }
+                })
+                .catch(() => {});
+        }
+    }, [tmdbApiKey]);
 
     // Streaming Availability & Web Stream Resolver States
     const [providersData, setProvidersData] = useState<{
@@ -486,7 +503,7 @@ function MediaDetailsPanelInner({
     const [streamEpisode, setStreamEpisode] = useState(1);
     const [isAddingToLibrary, setIsAddingToLibrary] = useState(false);
 
-    const isSeries = item.type === 'series' || item.mediaType === 'series' || !!item.tvdbId || !!item.seasons;
+    const isSeries = item.type === 'series' || item.mediaType === 'series' || !!item.tvdbId || !!item.seasons || !!item.seriesId;
     // tmdbId is only valid if explicitly tagged as tmdbId or if item came from TMDB
     const tmdbId = item.tmdbId || (item.isTmdb ? item.id : null);
 
@@ -495,7 +512,7 @@ function MediaDetailsPanelInner({
         let isCancelled = false;
 
         const performSearch = async () => {
-            if (!tmdbApiKey) {
+            if (!effectiveTmdbKey) {
                 setLoading(false);
                 return;
             }
@@ -510,7 +527,7 @@ function MediaDetailsPanelInner({
                 // Strategy 2: TVDB ID Lookup for Series
                 if (item.tvdbId && Number(item.tvdbId) > 0) {
                     try {
-                        const findRes = await fetch(`https://api.themoviedb.org/3/find/${item.tvdbId}?api_key=${tmdbApiKey}&external_source=tvdb_id`);
+                        const findRes = await fetch(`https://api.themoviedb.org/3/find/${item.tvdbId}?api_key=${effectiveTmdbKey}&external_source=tvdb_id`);
                         if (findRes.ok) {
                             const findData = await findRes.json();
                             const tvResult = findData.tv_results?.[0] || findData.movie_results?.[0];
@@ -529,7 +546,7 @@ function MediaDetailsPanelInner({
                 if (titleToSearch) {
                     const searchType = isSeries ? 'tv' : 'movie';
                     const year = item.year || (item.releaseDate ? item.releaseDate.split('-')[0] : null);
-                    let url = `https://api.themoviedb.org/3/search/${searchType}?api_key=${tmdbApiKey}&query=${encodeURIComponent(titleToSearch)}`;
+                    let url = `https://api.themoviedb.org/3/search/${searchType}?api_key=${effectiveTmdbKey}&query=${encodeURIComponent(titleToSearch)}`;
                     if (year) {
                         url += `&${searchType === 'tv' ? 'first_air_date_year' : 'year'}=${year}`;
                     }
@@ -545,7 +562,7 @@ function MediaDetailsPanelInner({
 
                     // Fallback search without year filter
                     if (year) {
-                        const fallbackRes = await fetch(`https://api.themoviedb.org/3/search/${searchType}?api_key=${tmdbApiKey}&query=${encodeURIComponent(titleToSearch)}`);
+                        const fallbackRes = await fetch(`https://api.themoviedb.org/3/search/${searchType}?api_key=${effectiveTmdbKey}&query=${encodeURIComponent(titleToSearch)}`);
                         if (fallbackRes.ok) {
                             const fbData = await fallbackRes.json();
                             if (fbData.results && fbData.results.length > 0) {
@@ -566,9 +583,9 @@ function MediaDetailsPanelInner({
             try {
                 const type = isSeries ? 'tv' : 'movie';
                 const [detailsRes, creditsRes, recRes] = await Promise.all([
-                    fetch(`https://api.themoviedb.org/3/${type}/${id}?api_key=${tmdbApiKey}&append_to_response=videos,images,external_ids`).catch(() => null),
-                    fetch(`https://api.themoviedb.org/3/${type}/${id}/credits?api_key=${tmdbApiKey}`).catch(() => null),
-                    fetch(`https://api.themoviedb.org/3/${type}/${id}/recommendations?api_key=${tmdbApiKey}`).catch(() => null)
+                    fetch(`https://api.themoviedb.org/3/${type}/${id}?api_key=${effectiveTmdbKey}&append_to_response=videos,images,external_ids`).catch(() => null),
+                    fetch(`https://api.themoviedb.org/3/${type}/${id}/credits?api_key=${effectiveTmdbKey}`).catch(() => null),
+                    fetch(`https://api.themoviedb.org/3/${type}/${id}/recommendations?api_key=${effectiveTmdbKey}`).catch(() => null)
                 ]);
 
                 if (detailsRes && detailsRes.ok) setDetails(await detailsRes.json());
@@ -593,7 +610,7 @@ function MediaDetailsPanelInner({
         return () => {
             isCancelled = true;
         };
-    }, [tmdbId, tmdbApiKey, isSeries, item.title, item.name, item.tvdbId, item.year]);
+    }, [tmdbId, effectiveTmdbKey, isSeries, item.title, item.name, item.tvdbId, item.year]);
 
     // Fetch Streaming Watch Providers & Web Stream Resolver (IMDb / TMDB)
     useEffect(() => {
@@ -707,7 +724,7 @@ function MediaDetailsPanelInner({
     const poster = rawPoster ? (rawPoster.startsWith('http') ? `/api/proxy?url=${encodeURIComponent(rawPoster)}` : rawPoster) : null;
 
     // Resolved identifiers
-    const resolvedInternalId = libStatus?.instances?.[0]?.internalId || item.id;
+    const resolvedInternalId = libStatus?.instances?.[0]?.internalId || item.seriesId || item.id;
     const resolvedInstanceId = libStatus?.instances?.[0]?.id || item.instanceId;
     const resolvedInstanceName = libStatus?.instances?.[0]?.name || item.instanceName || 'Arr Instance';
 
@@ -726,8 +743,10 @@ function MediaDetailsPanelInner({
         || item.inCinemas
         || item.physicalRelease
         || item.firstAired
+        || item.airDateUtc
+        || item.airDate
         || item.year;
-    const formattedReleaseYear = rawReleaseDate ? String(rawReleaseDate).split('-')[0] : 'N/A';
+    const formattedReleaseYear = rawReleaseDate ? String(rawReleaseDate).split('-')[0] : (item.year ? String(item.year) : 'N/A');
 
     // Size on disk
     const diskSizeBytes = libStatus?.sizeOnDisk || item.statistics?.sizeOnDisk || item.sizeOnDisk || item.movieFile?.size || 0;

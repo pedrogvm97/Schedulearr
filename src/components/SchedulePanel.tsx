@@ -1384,14 +1384,19 @@ export function SchedulePanel() {
             {selectedEvent && (
                 <MediaDetailsPanel
                     item={selectedEvent.mediaItem}
-                    tmdbApiKey={''}
                     libStatus={{
                         exists: true,
                         hasFile: selectedEvent.hasFile,
                         isDownloading: false,
-                        sizeOnDisk: 0,
+                        sizeOnDisk: selectedEvent.mediaItem?.sizeOnDisk || 0,
                         percentage: selectedEvent.hasFile ? 100 : 0,
-                        instances: [{ id: selectedEvent.instanceId, name: selectedEvent.instanceName }]
+                        qualityProfileId: selectedEvent.mediaItem?.qualityProfileId,
+                        instances: [{
+                            id: selectedEvent.instanceId,
+                            name: selectedEvent.instanceName,
+                            internalId: selectedEvent.mediaItem?.id || selectedEvent.mediaItem?.seriesId,
+                            colorHex: selectedEvent.instanceColor
+                        }]
                     }}
                     onClose={() => setSelectedEvent(null)}
                     onAdd={() => {}}

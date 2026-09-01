@@ -15,11 +15,14 @@ import {
     ListPlus, Copy, Download, Shuffle, Repeat, SkipForward, SkipBack,
     Disc, User, ListMusic, Youtube, Globe, Heart, PlaySquare, ArrowDownToLine,
     Headphones, RadioTower, Info, Mic2, FileText, Edit3, ChevronDown,
-    Terminal, AlertTriangle, Bug, Code, Cpu, Monitor, RefreshCcw, CheckCheck, Zap
+    Terminal, AlertTriangle, Bug, Code, Cpu, Monitor, RefreshCcw, CheckCheck, Zap,
+    UploadCloud
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import Hls from 'hls.js';
 import { useMusicPlayer } from '@/context/MusicPlayerContext';
+import { AddIptvProviderModal } from '@/components/AddIptvProviderModal';
+import { IptvChannelSourcesModal } from '@/components/IptvChannelSourcesModal';
 
 interface TheaterLibrary {
     id: string;
@@ -243,6 +246,8 @@ function TheaterPageContent() {
     const [mergePrimaryChanId, setMergePrimaryChanId] = useState<string | null>(null);
     const [mergeTargetChanIds, setMergeTargetChanIds] = useState<string[]>([]);
     const [isPlexExportModalOpen, setIsPlexExportModalOpen] = useState(false);
+    const [isAddIptvModalOpen, setIsAddIptvModalOpen] = useState(false);
+    const [sourcesModalChannel, setSourcesModalChannel] = useState<IptvChannel | null>(null);
 
     // Music Studio Specific States
     const [musicTab, setMusicTab] = useState<'tracks' | 'albums' | 'artists' | 'playlists' | 'online'>('albums');
@@ -1861,20 +1866,31 @@ function TheaterPageContent() {
                             {activeLibrary && (
                                 <button
                                     onClick={() => fetchLibraryItems(activeLibrary)}
-                                    title="Rescan Library"
+                                    title={activeContentTab === 'live' ? 'Rescan Provider' : 'Rescan Library'}
                                     className="p-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white transition-colors shrink-0"
                                 >
                                     <RefreshCw size={16} className={loadingItems ? 'animate-spin text-emerald-400' : ''} />
                                 </button>
                             )}
 
-                            {/* Add Library button */}
-                            <button
-                                onClick={() => setIsAddLibModalOpen(true)}
-                                className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-black rounded-2xl text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 border border-dashed border-emerald-500/30 transition-all shadow-sm"
-                            >
-                                <Plus size={14} /> Add Library
-                            </button>
+                            {/* Add Button - IPTV Provider vs Theater Library */}
+                            {activeContentTab === 'live' ? (
+                                activeTabLibraries.length > 0 ? (
+                                    <button
+                                        onClick={() => setIsAddIptvModalOpen(true)}
+                                        className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-black rounded-2xl text-red-400 hover:text-red-300 hover:bg-red-500/10 border border-dashed border-red-500/30 transition-all shadow-sm active:scale-95"
+                                    >
+                                        <Plus size={14} /> Add Provider
+                                    </button>
+                                ) : null
+                            ) : (
+                                <button
+                                    onClick={() => setIsAddLibModalOpen(true)}
+                                    className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-black rounded-2xl text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 border border-dashed border-emerald-500/30 transition-all shadow-sm active:scale-95"
+                                >
+                                    <Plus size={14} /> Add Library
+                                </button>
+                            )}
                         </div>
                     </div>
 
@@ -2099,7 +2115,7 @@ function TheaterPageContent() {
                                 <button
                                     onClick={() => handleDeleteLibrary(activeLibrary.id, activeLibrary.name)}
                                     className="p-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition-all text-xs font-bold"
-                                    title="Delete Live TV Library"
+                                    title="Delete Live TV Provider"
                                 >
                                     <Trash2 size={14} />
                                 </button>
@@ -2898,13 +2914,21 @@ function TheaterPageContent() {
                                             <span className="px-2 py-0.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 text-[9px] font-black uppercase flex items-center gap-1 shrink-0">
                                                 <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" /> LIVE
                                             </span>
-                                            {streamCount > 1 ? (
-                                                <span className="px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[9px] font-black shrink-0" title={`${streamCount} redundant streams configured (4K/FHD/HD/SD)`}>
-                                                    ⚡ {streamCount}
-                                                </span>
-                                            ) : (
-                                                <span className="text-[10px] text-zinc-500 truncate max-w-[70px]">{chan.group}</span>
-                                            )}
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setSourcesModalChannel(chan);
+                                                }}
+                                                className={`px-1.5 py-0.5 rounded-md text-[9px] font-black shrink-0 transition-all flex items-center gap-1 cursor-pointer hover:scale-105 active:scale-95 ${
+                                                    streamCount > 1
+                                                        ? 'bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/30'
+                                                        : 'bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400 hover:text-white border border-zinc-700'
+                                                }`}
+                                                title="Manage Stream Priorities & Secondary Sources (8K, 4K, FHD, HD, SD)"
+                                            >
+                                                <span>⚡</span> {streamCount > 1 ? `${streamCount} Streams` : 'Sources'}
+                                            </button>
                                         </div>
 
                                         <div className="h-16 flex items-center justify-center">
@@ -2916,9 +2940,12 @@ function TheaterPageContent() {
                                         </div>
 
                                         <div className="pt-1 border-t border-zinc-900/80 space-y-0.5">
-                                            <h4 className="font-bold text-white text-xs truncate group-hover:text-red-400 transition-colors">
-                                                {chan.name}
-                                            </h4>
+                                            <div className="flex items-center justify-between gap-1">
+                                                <h4 className="font-bold text-white text-xs truncate group-hover:text-red-400 transition-colors flex-1">
+                                                    {chan.name}
+                                                </h4>
+                                                <span className="text-[10px] text-zinc-500 truncate max-w-[60px]">{chan.group}</span>
+                                            </div>
                                             {chan.streams && chan.streams.length > 1 && (
                                                 <p className="text-[9px] text-zinc-500 truncate font-semibold">
                                                     {chan.streams.map(s => s.quality).join(' • ')}
@@ -2931,23 +2958,43 @@ function TheaterPageContent() {
                         </div>
                     )
                 ) : activeTabLibraries.length === 0 ? (
-                    <div className="p-16 bg-zinc-950/40 rounded-[2.5rem] border border-zinc-900 text-center space-y-4 max-w-xl mx-auto my-12 shadow-2xl">
-                        <div className="w-16 h-16 rounded-3xl bg-zinc-800 flex items-center justify-center text-zinc-500 mx-auto">
-                            {activeContentTab === 'movie' ? <Film size={32} /> : activeContentTab === 'show' ? <Tv size={32} /> : activeContentTab === 'live' ? <RadioTower size={32} /> : <Music size={32} />}
+                    activeContentTab === 'live' ? (
+                        <div className="p-12 sm:p-16 bg-zinc-950/40 rounded-[2.5rem] border border-red-500/20 text-center space-y-4 max-w-xl mx-auto my-12 shadow-2xl animate-in fade-in">
+                            <div className="w-16 h-16 rounded-3xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 mx-auto">
+                                <RadioTower size={32} />
+                            </div>
+                            <div>
+                                <h2 className="text-xl sm:text-2xl font-black text-white">No IPTV Providers Configured</h2>
+                                <p className="text-xs sm:text-sm text-zinc-400 mt-1.5 leading-relaxed">
+                                    Connect an M3U playlist file, live stream URL, or Xtream Codes server to start watching live TV with guide schedules and redundant stream fallback.
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => setIsAddIptvModalOpen(true)}
+                                className="px-6 py-3 bg-red-600 hover:bg-red-500 text-white font-black uppercase text-xs tracking-widest rounded-2xl transition-all shadow-lg shadow-red-500/20 flex items-center gap-2 mx-auto active:scale-95"
+                            >
+                                <Plus size={16} /> Add IPTV Provider
+                            </button>
                         </div>
-                        <div>
-                            <h2 className="text-xl font-bold text-white">No {activeContentTab === 'movie' ? 'Movie' : activeContentTab === 'show' ? 'Series' : activeContentTab === 'live' ? 'Live TV' : 'Music'} Libraries</h2>
-                            <p className="text-sm text-zinc-500 mt-1">
-                                Add a {activeContentTab === 'movie' ? 'movie' : activeContentTab === 'show' ? 'series' : activeContentTab === 'live' ? 'live TV' : 'music'} library to get started.
-                            </p>
+                    ) : (
+                        <div className="p-16 bg-zinc-950/40 rounded-[2.5rem] border border-zinc-900 text-center space-y-4 max-w-xl mx-auto my-12 shadow-2xl">
+                            <div className="w-16 h-16 rounded-3xl bg-zinc-800 flex items-center justify-center text-zinc-500 mx-auto">
+                                {activeContentTab === 'movie' ? <Film size={32} /> : activeContentTab === 'show' ? <Tv size={32} /> : <Music size={32} />}
+                            </div>
+                            <div>
+                                <h2 className="text-xl font-bold text-white">No {activeContentTab === 'movie' ? 'Movie' : activeContentTab === 'show' ? 'Series' : activeContentTab === 'music' ? 'Music' : 'Photos'} Libraries</h2>
+                                <p className="text-sm text-zinc-500 mt-1">
+                                    Add a {activeContentTab === 'movie' ? 'movie' : activeContentTab === 'show' ? 'series' : activeContentTab === 'music' ? 'music' : 'photos'} library to get started.
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => setIsAddLibModalOpen(true)}
+                                className="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black uppercase text-xs tracking-widest rounded-2xl transition-all shadow-lg shadow-emerald-500/20 flex items-center gap-2 mx-auto active:scale-95"
+                            >
+                                <Plus size={16} /> Add Library
+                            </button>
                         </div>
-                        <button
-                            onClick={() => setIsAddLibModalOpen(true)}
-                            className="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black uppercase text-xs tracking-widest rounded-2xl transition-all shadow-lg shadow-emerald-500/20 flex items-center gap-2 mx-auto"
-                        >
-                            <Plus size={16} /> Add Library
-                        </button>
-                    </div>
+                    )
                 ) : filteredItems.length === 0 ? (
                     <div className="p-16 bg-zinc-950/40 rounded-[2.5rem] border border-zinc-900 text-center space-y-2">
                         <Folder size={40} className="mx-auto text-zinc-700" />
@@ -5697,6 +5744,34 @@ function TheaterPageContent() {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* ── Dedicated Single IPTV Provider Setup Modal ── */}
+            <AddIptvProviderModal
+                isOpen={isAddIptvModalOpen}
+                onClose={() => setIsAddIptvModalOpen(false)}
+                onProviderCreated={async (newId) => {
+                    await fetchLibraries();
+                    setActiveContentTab('live');
+                    if (newId) setActiveLibraryId(newId);
+                }}
+            />
+
+            {/* ── Dedicated Channel Sources & Priority Fallback Manager Modal ── */}
+            {sourcesModalChannel && (
+                <IptvChannelSourcesModal
+                    isOpen={!!sourcesModalChannel}
+                    channel={sourcesModalChannel}
+                    libraryId={activeLibrary?.id || ''}
+                    allChannels={iptvChannels}
+                    onClose={() => setSourcesModalChannel(null)}
+                    onChannelUpdated={(updated) => {
+                        setIptvChannels(prev => prev.map(c => c.id === updated.id ? updated : c));
+                        if (playingChannel?.id === updated.id) {
+                            setPlayingChannel(updated);
+                        }
+                    }}
+                />
             )}
         </>
     );

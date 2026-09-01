@@ -30,6 +30,7 @@ export async function GET(request: Request) {
                                    movie.images?.find((img: any) => img.coverType === 'poster')?.url || 
                                    movie.remotePoster || '';
 
+                    const sizeOnDisk = movie.sizeOnDisk || movie.movieFile?.size || 0;
                     const addEvent = (dateStr: string | undefined, type: 'cinemas' | 'physical' | 'digital') => {
                         if (dateStr) {
                             events.push({
@@ -51,6 +52,10 @@ export async function GET(request: Request) {
                                 genres: movie.genres || [],
                                 mediaItem: {
                                     ...movie,
+                                    id: movie.id,
+                                    sizeOnDisk,
+                                    type: 'movie',
+                                    mediaType: 'movie',
                                     remotePoster: poster
                                 }
                             });
@@ -64,12 +69,15 @@ export async function GET(request: Request) {
             ...sonarrInstances.map(async (instance) => {
                 const data = await getSonarrCalendar(instance.url, instance.api_key, start, end, unmonitored);
                 (Array.isArray(data) ? data : []).forEach((ep: any) => {
-                    const seriesTitle = ep.series?.title || ep.seriesTitle || 'Unknown Series';
-                    const seriesPoster = ep.series?.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || 
-                                         ep.series?.images?.find((img: any) => img.coverType === 'poster')?.url || 
-                                         ep.series?.remotePoster ||
+                    const series = ep.series || {};
+                    const seriesId = ep.seriesId || series.id;
+                    const seriesTitle = series.title || ep.seriesTitle || 'Unknown Series';
+                    const seriesPoster = series.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || 
+                                         series.images?.find((img: any) => img.coverType === 'poster')?.url || 
+                                         series.remotePoster ||
                                          ep.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || 
                                          ep.images?.find((img: any) => img.coverType === 'poster')?.url || '';
+                    const sizeOnDisk = series.statistics?.sizeOnDisk || ep.episodeFile?.size || 0;
 
                     events.push({
                         id: `${instance.id}-sonarr-${ep.id}`,
@@ -88,15 +96,30 @@ export async function GET(request: Request) {
                         releaseType: 'tv',
                         monitored: ep.monitored,
                         hasFile: ep.hasFile,
-                        overview: ep.overview || ep.series?.overview,
+                        overview: ep.overview || series.overview,
                         posterUrl: seriesPoster,
-                        rating: ep.series?.ratings?.value,
-                        genres: ep.series?.genres || [],
+                        rating: series.ratings?.value || ep.ratings?.value,
+                        genres: series.genres || ep.genres || [],
                         mediaItem: {
+                            ...series,
                             ...ep,
+                            id: seriesId,
+                            seriesId: seriesId,
                             title: seriesTitle,
+                            year: series.year || ep.year,
+                            tvdbId: series.tvdbId || ep.tvdbId,
+                            tmdbId: series.tmdbId || ep.tmdbId,
+                            imdbId: series.imdbId || ep.imdbId,
+                            overview: series.overview || ep.overview,
+                            ratings: series.ratings || ep.ratings,
+                            genres: series.genres || ep.genres || [],
+                            seasons: series.seasons || [],
+                            sizeOnDisk,
+                            qualityProfileId: series.qualityProfileId || ep.qualityProfileId,
                             remotePoster: seriesPoster,
-                            images: ep.series?.images || []
+                            images: series.images || ep.images || [],
+                            type: 'series',
+                            mediaType: 'series'
                         }
                     });
                 });

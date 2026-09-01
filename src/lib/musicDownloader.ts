@@ -178,26 +178,37 @@ export async function downloadAudioFile(options: DownloadOptions): Promise<{ suc
     const tempFile = path.join(os.tmpdir(), `dl_temp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${outFormat}`);
     let downloaded = false;
 
-    // ── TIER 1: yt-dlp Raw Audio Download + Dedicated FFmpeg Transcode (Fastest & 100% Reliable) ──
+    // ── TIER 1: Direct yt-dlp Single-Pass Audio Extraction (Fastest, High-Quality, Bot Bypass) ──
     try {
         const ytDlpBin = await ensureYtDlpBinary();
-        console.log(`[MusicDownloader Tier 1] Spawning yt-dlp for ${ytVideoUrl}`);
-        const ytCmd = `"${ytDlpBin}" -f "ba/b" --no-playlist --no-check-certificates --force-overwrites -o "${tempRawFile}" "${ytVideoUrl}"`;
-        await execPromise(ytCmd, { timeout: 30000 });
+        console.log(`[MusicDownloader Tier 1] Spawning single-pass yt-dlp for ${ytVideoUrl}`);
+        const ytCmd = `"${ytDlpBin}" -x --audio-format ${outFormat} ${outFormat === 'mp3' ? '--audio-quality 0' : ''} --no-playlist --no-check-certificates --no-warnings --extractor-args "youtube:player_client=android,web,tv,ios" --ffmpeg-location "${binDir}" --force-overwrites -o "${tempFile}" "${ytVideoUrl}"`;
+        await execPromise(ytCmd, { timeout: 35000 });
 
-        if (fs.existsSync(tempRawFile) && fs.statSync(tempRawFile).size > 2048) {
-            console.log(`[MusicDownloader Tier 1] Raw stream captured (${fs.statSync(tempRawFile).size} bytes), converting to ${outFormat}...`);
-            const ffmpegCmd = `"${ffmpegPath}" -y -i "${tempRawFile}" -vn ${outFormat === 'mp3' ? '-b:a 320k -ar 44100' : ''} "${tempFile}"`;
-            await execPromise(ffmpegCmd, { timeout: 20000 });
-
-            if (fs.existsSync(tempFile) && fs.statSync(tempFile).size > 2048) {
-                downloaded = true;
-            }
+        if (fs.existsSync(tempFile) && fs.statSync(tempFile).size > 2048) {
+            downloaded = true;
         }
     } catch (tier1Err: any) {
-        console.warn('[MusicDownloader Tier 1] yt-dlp raw download error:', tier1Err.message);
-    } finally {
-        try { if (fs.existsSync(tempRawFile)) fs.unlinkSync(tempRawFile); } catch {}
+        console.warn('[MusicDownloader Tier 1] yt-dlp single-pass error:', tier1Err.message);
+
+        // Tier 1b: Fallback to raw stream capture + ffmpeg transcode
+        try {
+            const ytDlpBin = await ensureYtDlpBinary();
+            const rawCmd = `"${ytDlpBin}" -f "ba/b" --no-playlist --no-check-certificates --no-warnings --extractor-args "youtube:player_client=android,web,tv,ios" --force-overwrites -o "${tempRawFile}" "${ytVideoUrl}"`;
+            await execPromise(rawCmd, { timeout: 30000 });
+
+            if (fs.existsSync(tempRawFile) && fs.statSync(tempRawFile).size > 2048) {
+                const ffmpegCmd = `"${ffmpegPath}" -y -i "${tempRawFile}" -vn ${outFormat === 'mp3' ? '-b:a 320k -ar 44100' : ''} "${tempFile}"`;
+                await execPromise(ffmpegCmd, { timeout: 20000 });
+                if (fs.existsSync(tempFile) && fs.statSync(tempFile).size > 2048) {
+                    downloaded = true;
+                }
+            }
+        } catch (tier1bErr: any) {
+            console.warn('[MusicDownloader Tier 1b] raw yt-dlp error:', tier1bErr.message);
+        } finally {
+            try { if (fs.existsSync(tempRawFile)) fs.unlinkSync(tempRawFile); } catch {}
+        }
     }
 
     // ── TIER 2: In-process @distube/ytdl-core + FFmpeg ──
@@ -283,30 +294,53 @@ export async function downloadAudioFile(options: DownloadOptions): Promise<{ suc
         }
     }
 
-    // ── TIER 4: Cobalt REST API Fallback ──
+    // ── TIER 4: Cobalt REST API Fallback (v10 & legacy) ──
     if (!downloaded && cleanId) {
         for (const endpoint of COBALT_INSTANCES) {
             try {
                 console.log(`[MusicDownloader Tier 4] Trying Cobalt ${endpoint}`);
-                const res = await axios.post(
-                    `${endpoint}/api/json`,
-                    {
-                        url: `https://www.youtube.com/watch?v=${cleanId}`,
-                        downloadMode: 'audio',
-                        audioFormat: outFormat === 'flac' || outFormat === 'wav' ? 'wav' : 'mp3',
-                        audioBitrate: '320'
-                    },
-                    {
-                        headers: {
-                            Accept: 'application/json',
-                            'Content-Type': 'application/json',
-                            'User-Agent': 'Schedulearr/0.5.33'
+                // Try modern Cobalt endpoint first, then legacy
+                let streamUrl: string | null = null;
+                try {
+                    const res = await axios.post(
+                        endpoint,
+                        {
+                            url: `https://www.youtube.com/watch?v=${cleanId}`,
+                            downloadMode: 'audio',
+                            audioFormat: outFormat === 'flac' || outFormat === 'wav' ? 'wav' : 'mp3',
+                            audioBitrate: '320'
                         },
-                        timeout: 8000
-                    }
-                );
+                        {
+                            headers: {
+                                Accept: 'application/json',
+                                'Content-Type': 'application/json',
+                                'User-Agent': 'Schedulearr/0.5.33'
+                            },
+                            timeout: 8000
+                        }
+                    );
+                    streamUrl = res.data?.url || res.data?.stream;
+                } catch {
+                    const legacyRes = await axios.post(
+                        `${endpoint}/api/json`,
+                        {
+                            url: `https://www.youtube.com/watch?v=${cleanId}`,
+                            downloadMode: 'audio',
+                            audioFormat: outFormat === 'flac' || outFormat === 'wav' ? 'wav' : 'mp3',
+                            audioBitrate: '320'
+                        },
+                        {
+                            headers: {
+                                Accept: 'application/json',
+                                'Content-Type': 'application/json',
+                                'User-Agent': 'Schedulearr/0.5.33'
+                            },
+                            timeout: 8000
+                        }
+                    );
+                    streamUrl = legacyRes.data?.url;
+                }
 
-                const streamUrl = res.data?.url;
                 if (streamUrl) {
                     const writer = fs.createWriteStream(tempFile);
                     const fileRes = await axios({
