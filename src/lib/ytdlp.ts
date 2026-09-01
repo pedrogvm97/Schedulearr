@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import https from 'https';
 import { execSync } from 'child_process';
+import ffmpegStatic from 'ffmpeg-static';
+import ffprobeStatic from 'ffprobe-static';
 
 let isBootstrapping = false;
 
@@ -26,6 +28,52 @@ function downloadFile(url: string, dest: string): Promise<string> {
             fileStream.on('error', reject);
         }).on('error', reject);
     });
+}
+
+/**
+ * Ensure ffmpeg and ffprobe binaries are co-located in the local / container bin folder
+ * so that yt-dlp post-processing can find both in a single --ffmpeg-location directory.
+ */
+export function ensureFfmpegBinaries(): { binDir: string; ffmpegPath: string; ffprobePath: string } {
+    const isWin = process.platform === 'win32';
+    const binDir = path.join(process.cwd(), 'bin');
+    if (!fs.existsSync(binDir)) {
+        fs.mkdirSync(binDir, { recursive: true });
+    }
+
+    const ffmpegDest = path.join(binDir, isWin ? 'ffmpeg.exe' : 'ffmpeg');
+    const ffprobeDest = path.join(binDir, isWin ? 'ffprobe.exe' : 'ffprobe');
+
+    // 1. Copy ffmpeg if not present in bin
+    if (!fs.existsSync(ffmpegDest)) {
+        const srcFfmpeg = typeof ffmpegStatic === 'string' ? ffmpegStatic : null;
+        if (srcFfmpeg && fs.existsSync(srcFfmpeg)) {
+            try {
+                fs.copyFileSync(srcFfmpeg, ffmpegDest);
+                if (!isWin) try { fs.chmodSync(ffmpegDest, 0o755); } catch {}
+            } catch {}
+        }
+    }
+
+    // 2. Copy ffprobe if not present in bin
+    if (!fs.existsSync(ffprobeDest)) {
+        const srcFfprobe = (ffprobeStatic as any)?.path || (typeof ffprobeStatic === 'string' ? ffprobeStatic : null);
+        if (srcFfprobe && fs.existsSync(srcFfprobe)) {
+            try {
+                fs.copyFileSync(srcFfprobe, ffprobeDest);
+                if (!isWin) try { fs.chmodSync(ffprobeDest, 0o755); } catch {}
+            } catch {}
+        }
+    }
+
+    const effectiveFfmpeg = fs.existsSync(ffmpegDest) ? ffmpegDest : (ffmpegStatic || 'ffmpeg');
+    const effectiveFfprobe = fs.existsSync(ffprobeDest) ? ffprobeDest : ((ffprobeStatic as any)?.path || 'ffprobe');
+
+    return {
+        binDir,
+        ffmpegPath: effectiveFfmpeg,
+        ffprobePath: effectiveFfprobe
+    };
 }
 
 export async function ensureYtDlpBinary(): Promise<string> {

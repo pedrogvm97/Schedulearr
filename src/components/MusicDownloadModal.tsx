@@ -160,14 +160,14 @@ export function MusicDownloadModal({
             let curPct = 15;
             setDownloadProgress(curPct);
             const progressTimer = setInterval(() => {
-                curPct = Math.min(curPct + Math.floor(Math.random() * 8) + 4, 88);
+                curPct = Math.min(curPct + 4, 95);
                 setDownloadProgress(curPct);
                 if (curPct > 35 && curPct < 65) {
                     setCurrentDownloadStatus(`2/3: Extracting audio stream & encoding ${saveFormat.toUpperCase()}...`);
                 } else if (curPct >= 65) {
                     setCurrentDownloadStatus(`3/3: Finalizing tags and album artwork...`);
                 }
-            }, 600);
+            }, 500);
 
             try {
                 // Step 1: Tell server to download and convert to server disk
@@ -271,9 +271,9 @@ export function MusicDownloadModal({
             let curPct = 15;
             setDownloadProgress(curPct);
             const progressTimer = setInterval(() => {
-                curPct = Math.min(curPct + Math.floor(Math.random() * 8) + 4, 88);
+                curPct = Math.min(curPct + 4, 95);
                 setDownloadProgress(curPct);
-            }, 600);
+            }, 500);
 
             try {
                 const res = await fetch('/api/theater/music/grab', {

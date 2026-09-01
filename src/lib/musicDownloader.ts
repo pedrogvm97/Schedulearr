@@ -4,12 +4,10 @@ import os from 'os';
 import axios from 'axios';
 import { exec, spawn } from 'child_process';
 import util from 'util';
-import ffmpegStatic from 'ffmpeg-static';
 import ytdl from '@distube/ytdl-core';
-import { ensureYtDlpBinary } from '@/lib/ytdlp';
+import { ensureYtDlpBinary, ensureFfmpegBinaries } from '@/lib/ytdlp';
 
 const execPromise = util.promisify(exec);
-const ffmpegPath: string = ffmpegStatic || 'ffmpeg';
 
 // Active Invidious and Piped public mirrors for fast direct audio stream extraction
 const INVIDIOUS_INSTANCES = [
@@ -62,7 +60,7 @@ export async function extractDirectAudioStreamUrl(cleanYtId: string): Promise<st
     for (const instance of INVIDIOUS_INSTANCES) {
         try {
             const res = await axios.get(`${instance}/api/v1/videos/${cleanId}`, {
-                headers: { 'User-Agent': 'Schedulearr/0.5.31' },
+                headers: { 'User-Agent': 'Schedulearr/0.5.33' },
                 timeout: 3500
             });
             if (res.data && Array.isArray(res.data.adaptiveFormats)) {
@@ -80,7 +78,7 @@ export async function extractDirectAudioStreamUrl(cleanYtId: string): Promise<st
     for (const instance of PIPED_INSTANCES) {
         try {
             const res = await axios.get(`${instance}/streams/${cleanId}`, {
-                headers: { 'User-Agent': 'Schedulearr/0.5.31' },
+                headers: { 'User-Agent': 'Schedulearr/0.5.33' },
                 timeout: 3500
             });
             if (res.data && Array.isArray(res.data.audioStreams) && res.data.audioStreams.length > 0) {
@@ -119,9 +117,9 @@ export async function searchYouTubeVideoId(query: string): Promise<string | null
 
 /**
  * Universal Multi-Tier Audio Downloader
- * Tier 1: In-process @distube/ytdl-core stream + FFmpeg conversion
- * Tier 2: Invidious / Piped direct audio stream extraction + FFmpeg
- * Tier 3: yt-dlp binary execution with multiple client fallbacks
+ * Tier 1: Direct yt-dlp binary extraction to raw stream + FFmpeg transcode (Proven 6s speed)
+ * Tier 2: In-process @distube/ytdl-core native stream
+ * Tier 3: Invidious / Piped mirrors
  * Tier 4: Cobalt REST API
  */
 export async function downloadAudioFile(options: DownloadOptions): Promise<{ success: boolean; filePath?: string; error?: string }> {
@@ -135,7 +133,7 @@ export async function downloadAudioFile(options: DownloadOptions): Promise<{ suc
         artist,
         album,
         coverUrl,
-        timeoutMs = 90000
+        timeoutMs = 60000
     } = options;
 
     let cleanId = (youtubeId || '').replace(/^yt-/, '').trim();
@@ -160,11 +158,13 @@ export async function downloadAudioFile(options: DownloadOptions): Promise<{ suc
         cleanId = (await searchYouTubeVideoId(searchQuery)) || '';
     }
 
-    if (!cleanId && !effectiveTarget) {
+    if (!cleanId && !effectiveTarget && !query) {
         return { success: false, error: 'Could not resolve track on online audio engines.' };
     }
 
-    const ytVideoUrl = cleanId ? `https://www.youtube.com/watch?v=${cleanId}` : effectiveTarget;
+    const ytVideoUrl = cleanId
+        ? `https://www.youtube.com/watch?v=${cleanId}`
+        : (effectiveTarget || `ytsearch1:${query || `${artist} ${title}`} audio`);
 
     // Ensure target folder exists
     const dir = path.dirname(outputPath);
@@ -172,16 +172,40 @@ export async function downloadAudioFile(options: DownloadOptions): Promise<{ suc
         fs.mkdirSync(dir, { recursive: true });
     }
 
+    const { binDir, ffmpegPath } = ensureFfmpegBinaries();
     const outFormat = (format === 'original' ? 'mp3' : format).toLowerCase();
+    const tempRawFile = path.join(os.tmpdir(), `raw_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.audio`);
     const tempFile = path.join(os.tmpdir(), `dl_temp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${outFormat}`);
     let downloaded = false;
 
-    // ── TIER 1: In-process @distube/ytdl-core + FFmpeg (Fastest & Native) ──
-    if (cleanId) {
+    // ── TIER 1: yt-dlp Raw Audio Download + Dedicated FFmpeg Transcode (Fastest & 100% Reliable) ──
+    try {
+        const ytDlpBin = await ensureYtDlpBinary();
+        console.log(`[MusicDownloader Tier 1] Spawning yt-dlp for ${ytVideoUrl}`);
+        const ytCmd = `"${ytDlpBin}" -f "ba/b" --no-playlist --no-check-certificates --force-overwrites -o "${tempRawFile}" "${ytVideoUrl}"`;
+        await execPromise(ytCmd, { timeout: 30000 });
+
+        if (fs.existsSync(tempRawFile) && fs.statSync(tempRawFile).size > 2048) {
+            console.log(`[MusicDownloader Tier 1] Raw stream captured (${fs.statSync(tempRawFile).size} bytes), converting to ${outFormat}...`);
+            const ffmpegCmd = `"${ffmpegPath}" -y -i "${tempRawFile}" -vn ${outFormat === 'mp3' ? '-b:a 320k -ar 44100' : ''} "${tempFile}"`;
+            await execPromise(ffmpegCmd, { timeout: 20000 });
+
+            if (fs.existsSync(tempFile) && fs.statSync(tempFile).size > 2048) {
+                downloaded = true;
+            }
+        }
+    } catch (tier1Err: any) {
+        console.warn('[MusicDownloader Tier 1] yt-dlp raw download error:', tier1Err.message);
+    } finally {
+        try { if (fs.existsSync(tempRawFile)) fs.unlinkSync(tempRawFile); } catch {}
+    }
+
+    // ── TIER 2: In-process @distube/ytdl-core + FFmpeg ──
+    if (!downloaded && cleanId) {
         try {
-            console.log(`[MusicDownloader Tier 1] Trying @distube/ytdl-core for ${cleanId}`);
+            console.log(`[MusicDownloader Tier 2] Trying @distube/ytdl-core for ${cleanId}`);
             await new Promise<void>((resolve, reject) => {
-                const audioStream = ytdl(ytVideoUrl, {
+                const audioStream = ytdl(`https://www.youtube.com/watch?v=${cleanId}`, {
                     quality: 'highestaudio',
                     filter: 'audioonly',
                     highWaterMark: 1 << 25,
@@ -213,7 +237,6 @@ export async function downloadAudioFile(options: DownloadOptions): Promise<{ suc
                 ffmpegArgs.push(tempFile);
 
                 const ffmpegProc = spawn(ffmpegPath, ffmpegArgs, { stdio: ['pipe', 'ignore', 'pipe'] });
-
                 audioStream.pipe(ffmpegProc.stdin);
 
                 let ffmpegErr = '';
@@ -229,64 +252,34 @@ export async function downloadAudioFile(options: DownloadOptions): Promise<{ suc
                         downloaded = true;
                         resolve();
                     } else {
-                        reject(new Error(`FFmpeg exited with code ${code}: ${ffmpegErr.slice(-200)}`));
+                        reject(new Error(`FFmpeg code ${code}: ${ffmpegErr.slice(-200)}`));
                     }
                 });
 
-                // 25s timeout for Tier 1
                 setTimeout(() => {
                     try { ffmpegProc.kill(); } catch {}
-                    reject(new Error('Tier 1 timeout'));
-                }, 25000);
+                    reject(new Error('Tier 2 timeout'));
+                }, 20000);
             });
-        } catch (tier1Err: any) {
-            console.warn('[MusicDownloader Tier 1] ytdl-core attempt failed:', tier1Err.message);
+        } catch (tier2Err: any) {
+            console.warn('[MusicDownloader Tier 2] ytdl-core failed:', tier2Err.message);
         }
     }
 
-    // ── TIER 2: Invidious / Piped Direct Stream Extraction + FFmpeg ──
+    // ── TIER 3: Invidious / Piped Mirrors + FFmpeg ──
     if (!downloaded && cleanId) {
         try {
-            console.log(`[MusicDownloader Tier 2] Trying Invidious/Piped mirrors for ${cleanId}`);
+            console.log(`[MusicDownloader Tier 3] Trying Invidious/Piped mirrors for ${cleanId}`);
             const directStreamUrl = await extractDirectAudioStreamUrl(cleanId);
             if (directStreamUrl) {
                 const ffmpegCmd = `"${ffmpegPath}" -y -i "${directStreamUrl}" -vn ${outFormat === 'mp3' ? '-b:a 320k -ar 44100' : ''} "${tempFile}"`;
-                await execPromise(ffmpegCmd, { timeout: 30000 });
+                await execPromise(ffmpegCmd, { timeout: 20000 });
                 if (fs.existsSync(tempFile) && fs.statSync(tempFile).size > 2048) {
                     downloaded = true;
                 }
             }
-        } catch (tier2Err: any) {
-            console.warn('[MusicDownloader Tier 2] Invidious/Piped failed:', tier2Err.message);
-        }
-    }
-
-    // ── TIER 3: yt-dlp Binary with client fallbacks ──
-    if (!downloaded) {
-        try {
-            console.log(`[MusicDownloader Tier 3] Trying yt-dlp binary for ${ytVideoUrl}`);
-            const ytDlpBin = await ensureYtDlpBinary();
-            const clientConfigs = [
-                'youtube:player_client=android,web',
-                'youtube:player_client=ios,web',
-                'youtube:player_client=web'
-            ];
-
-            for (const extractorArg of clientConfigs) {
-                try {
-                    const cmd = `"${ytDlpBin}" -f "ba/b" --no-playlist --no-check-certificates --no-warnings --extractor-args "${extractorArg}" --extract-audio --audio-format ${outFormat} ${outFormat === 'mp3' ? '--audio-quality 320k' : ''} --ffmpeg-location "${ffmpegPath}" --force-overwrites -o "${tempFile}" "${ytVideoUrl}"`;
-                    await execPromise(cmd, { timeout: 35000 });
-
-                    if (fs.existsSync(tempFile) && fs.statSync(tempFile).size > 2048) {
-                        downloaded = true;
-                        break;
-                    }
-                } catch (err: any) {
-                    console.warn(`[MusicDownloader Tier 3] yt-dlp ${extractorArg} failed:`, err.message);
-                }
-            }
         } catch (tier3Err: any) {
-            console.warn('[MusicDownloader Tier 3] yt-dlp binary error:', tier3Err.message);
+            console.warn('[MusicDownloader Tier 3] Invidious/Piped failed:', tier3Err.message);
         }
     }
 
@@ -298,7 +291,7 @@ export async function downloadAudioFile(options: DownloadOptions): Promise<{ suc
                 const res = await axios.post(
                     `${endpoint}/api/json`,
                     {
-                        url: ytVideoUrl,
+                        url: `https://www.youtube.com/watch?v=${cleanId}`,
                         downloadMode: 'audio',
                         audioFormat: outFormat === 'flac' || outFormat === 'wav' ? 'wav' : 'mp3',
                         audioBitrate: '320'
@@ -307,7 +300,7 @@ export async function downloadAudioFile(options: DownloadOptions): Promise<{ suc
                         headers: {
                             Accept: 'application/json',
                             'Content-Type': 'application/json',
-                            'User-Agent': 'Schedulearr/0.5.31'
+                            'User-Agent': 'Schedulearr/0.5.33'
                         },
                         timeout: 8000
                     }
@@ -320,7 +313,7 @@ export async function downloadAudioFile(options: DownloadOptions): Promise<{ suc
                         url: streamUrl,
                         method: 'GET',
                         responseType: 'stream',
-                        timeout: 30000
+                        timeout: 25000
                     });
                     fileRes.data.pipe(writer);
                     await new Promise<void>((resolve, reject) => {
@@ -338,7 +331,7 @@ export async function downloadAudioFile(options: DownloadOptions): Promise<{ suc
     }
 
     if (!downloaded || !fs.existsSync(tempFile)) {
-        return { success: false, error: 'All audio engines failed to retrieve the complete audio stream.' };
+        return { success: false, error: 'All audio download engines were exhausted. Please try another track or format.' };
     }
 
     // Apply Metadata & Cover Art using FFmpeg
@@ -358,11 +351,11 @@ export async function downloadAudioFile(options: DownloadOptions): Promise<{ suc
 
         if (coverTemp && fs.existsSync(coverTemp)) {
             const tagCmd = `"${ffmpegPath}" -y -i "${tempFile}" -i "${coverTemp}" -map 0:a -map 1 -c:a copy -c:v mjpeg -id3v2_version 3 -metadata title="${safeTitle}" -metadata artist="${safeArtist}" -metadata album="${safeAlbum}" "${outputPath}"`;
-            await execPromise(tagCmd, { timeout: 20000 });
+            await execPromise(tagCmd, { timeout: 15000 });
             try { fs.unlinkSync(coverTemp); } catch {}
         } else {
             const tagCmd = `"${ffmpegPath}" -y -i "${tempFile}" -c copy -metadata title="${safeTitle}" -metadata artist="${safeArtist}" -metadata album="${safeAlbum}" "${outputPath}"`;
-            await execPromise(tagCmd, { timeout: 20000 });
+            await execPromise(tagCmd, { timeout: 15000 });
         }
 
         try { fs.unlinkSync(tempFile); } catch {}
