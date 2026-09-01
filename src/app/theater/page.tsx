@@ -241,6 +241,11 @@ function TheaterPageContent() {
     const [shortlistEditingName, setShortlistEditingName] = useState('');
     const [shortlistSelectedChanIds, setShortlistSelectedChanIds] = useState<string[]>([]);
     const [editingShortlistId, setEditingShortlistId] = useState<string | null>(null);
+    const [shortlistSearch, setShortlistSearch] = useState('');
+    const [shortlistCategoryFilter, setShortlistCategoryFilter] = useState('ALL');
+    const [shortlistViewMode, setShortlistViewMode] = useState<'grid' | 'list'>('grid');
+    const [shortlistPage, setShortlistPage] = useState(1);
+    const shortlistPageSize = 80;
     const [iptvUploadFile, setIptvUploadFile] = useState<File | null>(null);
     const [iptvEpgInput, setIptvEpgInput] = useState('');
     const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
@@ -1818,6 +1823,29 @@ function TheaterPageContent() {
         return filteredIptvChannels.slice(start, start + iptvPageSize);
     }, [filteredIptvChannels, iptvPage, iptvPageSize]);
 
+    // Shortlist Modal Filtering & Pagination
+    const filteredShortlistChannels = useMemo(() => {
+        let list = iptvChannels;
+        if (shortlistCategoryFilter !== 'ALL') {
+            list = list.filter(c => c.group === shortlistCategoryFilter);
+        }
+        if (shortlistSearch.trim()) {
+            const q = shortlistSearch.toLowerCase().trim();
+            list = list.filter(c => c.name.toLowerCase().includes(q) || (c.cleanName && c.cleanName.toLowerCase().includes(q)) || c.group.toLowerCase().includes(q));
+        }
+        return list;
+    }, [iptvChannels, shortlistCategoryFilter, shortlistSearch]);
+
+    useEffect(() => {
+        setShortlistPage(1);
+    }, [shortlistCategoryFilter, shortlistSearch]);
+
+    const totalShortlistPages = Math.ceil(filteredShortlistChannels.length / shortlistPageSize) || 1;
+    const paginatedShortlistChannels = useMemo(() => {
+        const start = (shortlistPage - 1) * shortlistPageSize;
+        return filteredShortlistChannels.slice(start, start + shortlistPageSize);
+    }, [filteredShortlistChannels, shortlistPage, shortlistPageSize]);
+
     const photoItems = useMemo(() => {
         return filteredItems.filter(i => i.category === 'photo');
     }, [filteredItems]);
@@ -2921,64 +2949,123 @@ function TheaterPageContent() {
                         </div>
                     ) : (
                         <div className="space-y-4">
-                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                                {paginatedIptvChannels.map(chan => {
-                                    const streamCount = chan.streams?.length || 1;
-                                    return (
-                                        <div
-                                            key={chan.id}
-                                            onClick={() => {
-                                                setActiveLiveStreamIdx(0);
-                                                setPlayingChannel(chan);
-                                            }}
-                                            className="p-4 bg-[#09090b] border border-zinc-900 hover:border-red-500/50 rounded-3xl transition-all duration-300 shadow-xl cursor-pointer hover:-translate-y-1 flex flex-col justify-between space-y-3 group"
-                                        >
-                                            <div className="flex items-center justify-between gap-1">
-                                                <span className="px-2 py-0.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 text-[9px] font-black uppercase flex items-center gap-1 shrink-0">
-                                                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" /> LIVE
-                                                </span>
-                                                <button
-                                                    type="button"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setSourcesModalChannel(chan);
-                                                    }}
-                                                    className={`px-1.5 py-0.5 rounded-md text-[9px] font-black shrink-0 transition-all flex items-center gap-1 cursor-pointer hover:scale-105 active:scale-95 ${
-                                                        streamCount > 1
-                                                            ? 'bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/30'
-                                                            : 'bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400 hover:text-white border border-zinc-700'
-                                                    }`}
-                                                    title="Manage Stream Priorities & Secondary Sources (8K, 4K, FHD, HD, SD)"
-                                                >
-                                                    <span>⚡</span> {streamCount > 1 ? `${streamCount} Streams` : 'Sources'}
-                                                </button>
-                                            </div>
-
-                                            <div className="h-16 flex items-center justify-center">
-                                                {chan.logo ? (
-                                                    <img src={chan.logo} alt="" className="max-h-14 max-w-full object-contain" onError={e => (e.currentTarget.style.display = 'none')} />
-                                                ) : (
-                                                    <Tv2 size={32} className="text-zinc-700 group-hover:text-red-400 transition-colors" />
-                                                )}
-                                            </div>
-
-                                            <div className="pt-1 border-t border-zinc-900/80 space-y-0.5">
-                                                <div className="flex items-center justify-between gap-1">
-                                                    <h4 className="font-bold text-white text-xs truncate group-hover:text-red-400 transition-colors flex-1">
-                                                        {chan.name}
-                                                    </h4>
-                                                    <span className="text-[10px] text-zinc-500 truncate max-w-[60px]">{chan.group}</span>
+                            {viewMode === 'list' ? (
+                                <div className="space-y-2">
+                                    {paginatedIptvChannels.map(chan => {
+                                        const streamCount = chan.streams?.length || 1;
+                                        return (
+                                            <div
+                                                key={chan.id}
+                                                onClick={() => {
+                                                    setActiveLiveStreamIdx(0);
+                                                    setPlayingChannel(chan);
+                                                }}
+                                                className="p-3.5 bg-[#09090b] border border-zinc-900 hover:border-red-500/50 rounded-2xl transition-all duration-200 shadow-md cursor-pointer hover:bg-zinc-900/40 flex items-center justify-between gap-4 group"
+                                            >
+                                                <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                                                    <span className="px-2 py-0.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 text-[9px] font-black uppercase flex items-center gap-1 shrink-0">
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" /> LIVE
+                                                    </span>
+                                                    <div className="w-10 h-10 rounded-xl bg-zinc-900/80 flex items-center justify-center p-1 shrink-0">
+                                                        {chan.logo ? (
+                                                            <img src={chan.logo} alt="" className="max-h-8 max-w-full object-contain" onError={e => (e.currentTarget.style.display = 'none')} />
+                                                        ) : (
+                                                            <Tv2 size={20} className="text-zinc-600 group-hover:text-red-400" />
+                                                        )}
+                                                    </div>
+                                                    <div className="min-w-0 flex-1">
+                                                        <h4 className="font-bold text-white text-sm truncate group-hover:text-red-400 transition-colors">
+                                                            {chan.name}
+                                                        </h4>
+                                                        <div className="flex items-center gap-2 mt-0.5 text-[11px] text-zinc-500">
+                                                            <span className="bg-zinc-900 px-2 py-0.5 rounded text-[10px] text-zinc-400 font-semibold">{chan.group}</span>
+                                                            {chan.streams && chan.streams.length > 0 && (
+                                                                <span className="text-zinc-500 font-mono text-[10px]">{chan.streams.map(s => s.quality).join(', ')}</span>
+                                                            )}
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                                {chan.streams && chan.streams.length > 1 && (
-                                                    <p className="text-[9px] text-zinc-500 truncate font-semibold">
-                                                        {chan.streams.map(s => s.quality).join(' • ')}
-                                                    </p>
-                                                )}
+
+                                                <div className="flex items-center gap-2 shrink-0">
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setSourcesModalChannel(chan);
+                                                        }}
+                                                        className={`px-2.5 py-1 rounded-xl text-[10px] font-black shrink-0 transition-all flex items-center gap-1 cursor-pointer hover:scale-105 active:scale-95 ${
+                                                            streamCount > 1
+                                                                ? 'bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/30'
+                                                                : 'bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400 hover:text-white border border-zinc-700'
+                                                        }`}
+                                                    >
+                                                        <span>⚡</span> {streamCount > 1 ? `${streamCount} Streams` : 'Sources'}
+                                                    </button>
+                                                </div>
                                             </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                                    {paginatedIptvChannels.map(chan => {
+                                        const streamCount = chan.streams?.length || 1;
+                                        return (
+                                            <div
+                                                key={chan.id}
+                                                onClick={() => {
+                                                    setActiveLiveStreamIdx(0);
+                                                    setPlayingChannel(chan);
+                                                }}
+                                                className="p-4 bg-[#09090b] border border-zinc-900 hover:border-red-500/50 rounded-3xl transition-all duration-300 shadow-xl cursor-pointer hover:-translate-y-1 flex flex-col justify-between space-y-3 group"
+                                            >
+                                                <div className="flex items-center justify-between gap-1">
+                                                    <span className="px-2 py-0.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 text-[9px] font-black uppercase flex items-center gap-1 shrink-0">
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" /> LIVE
+                                                    </span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setSourcesModalChannel(chan);
+                                                        }}
+                                                        className={`px-1.5 py-0.5 rounded-md text-[9px] font-black shrink-0 transition-all flex items-center gap-1 cursor-pointer hover:scale-105 active:scale-95 ${
+                                                            streamCount > 1
+                                                                ? 'bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/30'
+                                                                : 'bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400 hover:text-white border border-zinc-700'
+                                                        }`}
+                                                        title="Manage Stream Priorities & Secondary Sources (8K, 4K, FHD, HD, SD)"
+                                                    >
+                                                        <span>⚡</span> {streamCount > 1 ? `${streamCount} Streams` : 'Sources'}
+                                                    </button>
+                                                </div>
+
+                                                <div className="h-16 flex items-center justify-center">
+                                                    {chan.logo ? (
+                                                        <img src={chan.logo} alt="" className="max-h-14 max-w-full object-contain" onError={e => (e.currentTarget.style.display = 'none')} />
+                                                    ) : (
+                                                        <Tv2 size={32} className="text-zinc-700 group-hover:text-red-400 transition-colors" />
+                                                    )}
+                                                </div>
+
+                                                <div className="pt-1 border-t border-zinc-900/80 space-y-0.5">
+                                                    <div className="flex items-center justify-between gap-1">
+                                                        <h4 className="font-bold text-white text-xs truncate group-hover:text-red-400 transition-colors flex-1">
+                                                            {chan.name}
+                                                        </h4>
+                                                        <span className="text-[10px] text-zinc-500 truncate max-w-[60px]">{chan.group}</span>
+                                                    </div>
+                                                    {chan.streams && chan.streams.length > 1 && (
+                                                        <p className="text-[9px] text-zinc-500 truncate font-semibold">
+                                                            {chan.streams.map(s => s.quality).join(' • ')}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
 
                             {totalIptvPages > 1 && (
                                 <div className="flex flex-wrap items-center justify-between gap-3 pt-6 border-t border-zinc-900 px-2 mt-4">
@@ -4866,55 +4953,239 @@ function TheaterPageContent() {
                                 />
                             </div>
 
-                            <div className="space-y-2">
-                                <div className="flex items-center justify-between">
-                                    <label className="text-xs font-black uppercase text-zinc-400 tracking-wider">
-                                        Select Channels ({shortlistSelectedChanIds.length} selected)
-                                    </label>
-                                    <div className="flex gap-2">
-                                        <button
-                                            onClick={() => setShortlistSelectedChanIds(iptvChannels.map(c => c.id))}
-                                            className="text-[10px] font-bold text-zinc-400 hover:text-white"
+                            <div className="space-y-3">
+                                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+                                    {/* Search Bar */}
+                                    <div className="relative flex-1">
+                                        <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+                                        <input
+                                            type="text"
+                                            placeholder="Search channels by name or category..."
+                                            value={shortlistSearch}
+                                            onChange={e => setShortlistSearch(e.target.value)}
+                                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-zinc-500 outline-none focus:border-red-500 transition-colors"
+                                        />
+                                        {shortlistSearch && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setShortlistSearch('')}
+                                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white p-0.5 cursor-pointer"
+                                            >
+                                                <X size={13} />
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {/* Category Filter & View Toggle */}
+                                    <div className="flex items-center gap-2">
+                                        <select
+                                            value={shortlistCategoryFilter}
+                                            onChange={e => setShortlistCategoryFilter(e.target.value)}
+                                            className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-red-500 max-w-[200px] truncate"
                                         >
-                                            Select All
+                                            <option value="ALL">All Categories ({iptvChannels.length})</option>
+                                            {iptvGroups.map(g => (
+                                                <option key={g.name} value={g.name}>
+                                                    {g.name} ({g.count})
+                                                </option>
+                                            ))}
+                                        </select>
+
+                                        <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800 shrink-0">
+                                            <button
+                                                type="button"
+                                                onClick={() => setShortlistViewMode('grid')}
+                                                className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                                                    shortlistViewMode === 'grid' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                                }`}
+                                                title="Tiles View"
+                                            >
+                                                <LayoutGrid size={14} />
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setShortlistViewMode('list')}
+                                                className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                                                    shortlistViewMode === 'list' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'
+                                                }`}
+                                                title="List View"
+                                            >
+                                                <Rows size={14} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Selection Status & Bulk Actions */}
+                                <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs">
+                                    <span className="font-bold text-zinc-400">
+                                        <span className="text-red-400">{shortlistSelectedChanIds.length}</span> channels selected
+                                        <span className="text-zinc-600 font-normal"> ({filteredShortlistChannels.length} found)</span>
+                                    </span>
+                                    <div className="flex items-center gap-2 text-[11px] font-bold">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const filteredIds = filteredShortlistChannels.map(c => c.id);
+                                                setShortlistSelectedChanIds(prev => Array.from(new Set([...prev, ...filteredIds])));
+                                            }}
+                                            className="text-emerald-400 hover:text-emerald-300 transition-colors cursor-pointer"
+                                        >
+                                            + Select Filtered ({filteredShortlistChannels.length})
                                         </button>
+                                        <span className="text-zinc-700">•</span>
                                         <button
-                                            onClick={() => setShortlistSelectedChanIds([])}
-                                            className="text-[10px] font-bold text-zinc-500 hover:text-white"
+                                            type="button"
+                                            onClick={() => {
+                                                const filteredSet = new Set(filteredShortlistChannels.map(c => c.id));
+                                                setShortlistSelectedChanIds(prev => prev.filter(id => !filteredSet.has(id)));
+                                            }}
+                                            className="text-amber-400 hover:text-amber-300 transition-colors cursor-pointer"
                                         >
-                                            Clear
+                                            - Deselect Filtered
+                                        </button>
+                                        <span className="text-zinc-700">•</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShortlistSelectedChanIds([])}
+                                            className="text-zinc-500 hover:text-white transition-colors cursor-pointer"
+                                        >
+                                            Clear All
                                         </button>
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-72 overflow-y-auto custom-scrollbar p-2 bg-zinc-950 rounded-2xl border border-zinc-900">
-                                    {iptvChannels.map(chan => {
-                                        const isSelected = shortlistSelectedChanIds.includes(chan.id);
-                                        return (
-                                            <div
-                                                key={chan.id}
-                                                onClick={() => {
-                                                    setShortlistSelectedChanIds(prev =>
-                                                        isSelected ? prev.filter(id => id !== chan.id) : [...prev, chan.id]
-                                                    );
-                                                }}
-                                                className={`p-3 rounded-xl border text-xs font-bold cursor-pointer transition-all flex items-center justify-between ${
-                                                    isSelected
-                                                        ? 'bg-red-500/20 text-red-300 border-red-500/40 shadow-sm'
-                                                        : 'bg-zinc-900/50 text-zinc-400 border-zinc-800 hover:border-zinc-700'
-                                                }`}
+                                {/* Channel Items Container: Grid (Tiles) or List View */}
+                                {filteredShortlistChannels.length === 0 ? (
+                                    <div className="p-8 text-center bg-zinc-950 rounded-2xl border border-zinc-900 text-zinc-500 text-xs">
+                                        No channels found matching "{shortlistSearch}".
+                                    </div>
+                                ) : shortlistViewMode === 'grid' ? (
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 max-h-80 overflow-y-auto custom-scrollbar p-2.5 bg-zinc-950 rounded-2xl border border-zinc-900">
+                                        {paginatedShortlistChannels.map(chan => {
+                                            const isSelected = shortlistSelectedChanIds.includes(chan.id);
+                                            const streamCount = chan.streams?.length || 1;
+                                            return (
+                                                <div
+                                                    key={chan.id}
+                                                    onClick={() => {
+                                                        setShortlistSelectedChanIds(prev =>
+                                                            isSelected ? prev.filter(id => id !== chan.id) : [...prev, chan.id]
+                                                        );
+                                                    }}
+                                                    className={`p-3 rounded-xl border text-xs font-bold cursor-pointer transition-all flex flex-col justify-between gap-2 select-none ${
+                                                        isSelected
+                                                            ? 'bg-red-500/20 text-white border-red-500/50 shadow-md'
+                                                            : 'bg-zinc-900/50 text-zinc-400 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <div className="w-8 h-8 rounded-lg bg-zinc-950/80 flex items-center justify-center p-1 shrink-0">
+                                                            {chan.logo ? (
+                                                                <img src={chan.logo} alt="" className="max-h-6 max-w-full object-contain" onError={e => (e.currentTarget.style.display = 'none')} />
+                                                            ) : (
+                                                                <Tv2 size={16} className="text-zinc-600" />
+                                                            )}
+                                                        </div>
+                                                        <div className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 ${isSelected ? 'bg-red-500 border-red-500 text-black' : 'border-zinc-700'}`}>
+                                                            {isSelected && <Check size={13} className="stroke-[3]" />}
+                                                        </div>
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <p className="truncate font-bold text-white text-xs">{chan.name}</p>
+                                                        <div className="flex items-center gap-1.5 text-[10px] text-zinc-500 mt-0.5">
+                                                            <span className="truncate max-w-[90px]">{chan.group}</span>
+                                                            {streamCount > 1 && (
+                                                                <span className="text-amber-400 font-mono">⚡{streamCount}</span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-col gap-1.5 max-h-80 overflow-y-auto custom-scrollbar p-2 bg-zinc-950 rounded-2xl border border-zinc-900">
+                                        {paginatedShortlistChannels.map(chan => {
+                                            const isSelected = shortlistSelectedChanIds.includes(chan.id);
+                                            const streamCount = chan.streams?.length || 1;
+                                            return (
+                                                <div
+                                                    key={chan.id}
+                                                    onClick={() => {
+                                                        setShortlistSelectedChanIds(prev =>
+                                                            isSelected ? prev.filter(id => id !== chan.id) : [...prev, chan.id]
+                                                        );
+                                                    }}
+                                                    className={`p-2.5 px-3 rounded-xl border text-xs font-bold cursor-pointer transition-all flex items-center justify-between gap-3 select-none ${
+                                                        isSelected
+                                                            ? 'bg-red-500/20 text-white border-red-500/50 shadow-sm'
+                                                            : 'bg-zinc-900/40 text-zinc-400 border-zinc-800/80 hover:border-zinc-700 hover:bg-zinc-900'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                                                        <div className={`w-4 h-4 rounded-md border flex items-center justify-center shrink-0 ${isSelected ? 'bg-red-500 border-red-500 text-black' : 'border-zinc-700'}`}>
+                                                            {isSelected && <Check size={12} className="stroke-[3]" />}
+                                                        </div>
+                                                        <div className="w-7 h-7 rounded-lg bg-zinc-950 flex items-center justify-center p-0.5 shrink-0">
+                                                            {chan.logo ? (
+                                                                <img src={chan.logo} alt="" className="max-h-5 max-w-full object-contain" onError={e => (e.currentTarget.style.display = 'none')} />
+                                                            ) : (
+                                                                <Tv2 size={14} className="text-zinc-600" />
+                                                            )}
+                                                        </div>
+                                                        <span className="truncate font-bold text-white text-xs">{chan.name}</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 shrink-0">
+                                                        {chan.streams?.[0]?.quality && (
+                                                            <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-[10px] text-zinc-400 font-mono">
+                                                                {chan.streams[0].quality}
+                                                            </span>
+                                                        )}
+                                                        {streamCount > 1 && (
+                                                            <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-bold">
+                                                                ⚡ {streamCount}
+                                                            </span>
+                                                        )}
+                                                        <span className="text-[10px] text-zinc-500 bg-zinc-900 px-2 py-0.5 rounded-md truncate max-w-[120px]">
+                                                            {chan.group}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+
+                                {/* Shortlist Pagination */}
+                                {totalShortlistPages > 1 && (
+                                    <div className="flex items-center justify-between pt-2 px-1 text-xs">
+                                        <span className="text-[11px] text-zinc-500 font-semibold">
+                                            Showing {((shortlistPage - 1) * shortlistPageSize) + 1}–{Math.min(shortlistPage * shortlistPageSize, filteredShortlistChannels.length)} of {filteredShortlistChannels.length.toLocaleString()} channels
+                                        </span>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => setShortlistPage(p => Math.max(1, p - 1))}
+                                                disabled={shortlistPage === 1}
+                                                className="px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 disabled:opacity-30 disabled:pointer-events-none text-xs font-bold transition-all border border-zinc-800 cursor-pointer"
                                             >
-                                                <div className="truncate">
-                                                    <p className="truncate">{chan.name}</p>
-                                                    <span className="text-[9px] text-zinc-500">{chan.group}</span>
-                                                </div>
-                                                <div className={`w-4 h-4 rounded-md border flex items-center justify-center ${isSelected ? 'bg-red-500 border-red-500 text-black' : 'border-zinc-700'}`}>
-                                                    {isSelected && <Check size={12} />}
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
+                                                &larr; Prev
+                                            </button>
+                                            <span className="text-xs font-mono font-bold text-zinc-400 px-1">
+                                                {shortlistPage} / {totalShortlistPages}
+                                            </span>
+                                            <button
+                                                type="button"
+                                                onClick={() => setShortlistPage(p => Math.min(totalShortlistPages, p + 1))}
+                                                disabled={shortlistPage === totalShortlistPages}
+                                                className="px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 disabled:opacity-30 disabled:pointer-events-none text-xs font-bold transition-all border border-zinc-800 cursor-pointer"
+                                            >
+                                                Next &rarr;
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
 
                             <div className="flex gap-3 pt-2">
