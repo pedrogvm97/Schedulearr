@@ -525,8 +525,6 @@ export function MusicDownloadModal({
                             <a
                                 href={readyFile.url}
                                 download={readyFile.filename}
-                                target="_blank"
-                                rel="noopener noreferrer"
                                 className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs uppercase tracking-wider transition-all flex items-center gap-1.5 shrink-0 shadow-md cursor-pointer"
                             >
                                 <Download size={14} />

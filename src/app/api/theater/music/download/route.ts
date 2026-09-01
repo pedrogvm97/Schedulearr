@@ -66,6 +66,8 @@ export async function GET(req: NextRequest) {
             const encodedFilename = encodeURIComponent(downloadFilename);
 
             const fileBuffer = fs.readFileSync(fullPath);
+            const totalSize = fileBuffer.length;
+            const rangeHeader = req.headers.get('range');
 
             // Clean up old downloads after 30 minutes in the background
             setTimeout(() => {
@@ -82,13 +84,33 @@ export async function GET(req: NextRequest) {
                 } catch {}
             }, 5000);
 
+            if (rangeHeader) {
+                const parts = rangeHeader.replace(/bytes=/, '').split('-');
+                const start = parseInt(parts[0], 10) || 0;
+                const end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1;
+                const chunk = fileBuffer.subarray(start, end + 1);
+
+                return new Response(chunk, {
+                    status: 206,
+                    headers: {
+                        'Content-Type': mimeType,
+                        'Content-Length': chunk.length.toString(),
+                        'Content-Range': `bytes ${start}-${end}/${totalSize}`,
+                        'Accept-Ranges': 'bytes',
+                        'Content-Disposition': `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodedFilename}`,
+                        'Cache-Control': 'public, max-age=86400, immutable'
+                    }
+                });
+            }
+
             return new Response(fileBuffer, {
                 status: 200,
                 headers: {
                     'Content-Type': mimeType,
-                    'Content-Length': fileBuffer.length.toString(),
+                    'Content-Length': totalSize.toString(),
                     'Content-Disposition': `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodedFilename}`,
-                    'Cache-Control': 'no-cache, no-store, must-revalidate'
+                    'Accept-Ranges': 'bytes',
+                    'Cache-Control': 'public, max-age=86400, immutable'
                 }
             });
         }
@@ -225,6 +247,10 @@ export async function GET(req: NextRequest) {
         console.error('Download route fatal error:', e);
         return NextResponse.json({ error: e.message }, { status: 500 });
     }
+}
+
+export async function HEAD(req: NextRequest) {
+    return GET(req);
 }
 
 // ── POST: Download to Server Disk -> Return Instant Download URL ──
