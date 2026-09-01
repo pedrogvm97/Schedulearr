@@ -200,16 +200,19 @@ export function MusicDownloadModal({
                         const a = document.createElement('a');
                         a.href = prepData.downloadUrl;
                         a.download = prepData.filename || `${tArtist} - ${tTitle}.${saveFormat === 'original' ? 'mp3' : saveFormat}`;
-                        a.style.display = 'none';
+                        a.target = '_self';
                         document.body.appendChild(a);
                         a.click();
                         setTimeout(() => {
                             try { if (a.parentNode) a.parentNode.removeChild(a); } catch {}
-                        }, 2000);
+                        }, 3000);
 
                         successCount++;
                         continue;
                     }
+                } else {
+                    const errData = await prepRes.json().catch(() => ({}));
+                    console.warn(`Server prep failed for ${tTitle}:`, errData.error);
                 }
 
                 // Fallback: Direct stream / local file endpoint
@@ -220,12 +223,12 @@ export function MusicDownloadModal({
                 const a = document.createElement('a');
                 a.href = directUrl;
                 a.download = directFilename;
-                a.style.display = 'none';
+                a.target = '_self';
                 document.body.appendChild(a);
                 a.click();
                 setTimeout(() => {
                     try { if (a.parentNode) a.parentNode.removeChild(a); } catch {}
-                }, 2000);
+                }, 3000);
 
                 successCount++;
             } catch (err: any) {

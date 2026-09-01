@@ -63,21 +63,34 @@ export async function GET(req: NextRequest) {
             const ext = path.extname(fullPath);
             const mimeType = getMimeType(ext);
             const downloadFilename = filenameParam || matchedFile;
+            const asciiFilename = downloadFilename.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '');
+            const encodedFilename = encodeURIComponent(downloadFilename);
 
             const fileStream = fs.createReadStream(fullPath);
-            fileStream.on('close', () => {
-                setTimeout(() => {
-                    try { if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath); } catch {}
-                }, 15000);
-            });
+
+            // Clean up old downloads after 30 minutes in the background
+            setTimeout(() => {
+                try {
+                    const now = Date.now();
+                    const allFiles = fs.readdirSync(tempDir);
+                    for (const f of allFiles) {
+                        const fp = path.join(tempDir, f);
+                        const fstat = fs.statSync(fp);
+                        if (now - fstat.mtimeMs > 30 * 60 * 1000) {
+                            fs.unlinkSync(fp);
+                        }
+                    }
+                } catch {}
+            }, 5000);
 
             return new Response(Readable.toWeb(fileStream) as any, {
                 status: 200,
                 headers: {
                     'Content-Type': mimeType,
                     'Content-Length': stat.size.toString(),
-                    'Content-Disposition': `attachment; filename="${encodeURIComponent(downloadFilename)}"; filename*=UTF-8''${encodeURIComponent(downloadFilename)}`,
-                    'Cache-Control': 'no-cache, no-store'
+                    'Content-Disposition': `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodedFilename}`,
+                    'Accept-Ranges': 'bytes',
+                    'Cache-Control': 'public, max-age=3600'
                 }
             });
         }
