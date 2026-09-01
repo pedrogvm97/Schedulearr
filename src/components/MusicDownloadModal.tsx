@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import {
     X, Download, Disc, Music, HardDrive,
     Folder, RefreshCw,
-    Laptop,
+    Laptop, CheckCircle2
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -44,6 +44,7 @@ export function MusicDownloadModal({
     const [isDownloading, setIsDownloading] = useState(false);
     const [downloadProgress, setDownloadProgress] = useState(0);
     const [currentDownloadStatus, setCurrentDownloadStatus] = useState<string>('');
+    const [readyFile, setReadyFile] = useState<{ url: string; filename: string; size?: number } | null>(null);
 
     // Fetch existing server music libraries to populate server save options
     useEffect(() => {
@@ -193,47 +194,39 @@ export function MusicDownloadModal({
                 if (prepRes.ok) {
                     const prepData = await prepRes.json();
                     if (prepData.downloadUrl) {
-                        setCurrentDownloadStatus(`Saving "${prepData.filename || tTitle}" to device...`);
-                        setDownloadProgress(98);
-
-                        // Fetch in-memory Blob to prevent browser DLP/SmartScreen security blocks
-                        try {
-                            const blobRes = await fetch(prepData.downloadUrl);
-                            if (blobRes.ok) {
-                                const blobData = await blobRes.blob();
-                                const blobUrl = window.URL.createObjectURL(blobData);
-                                const a = document.createElement('a');
-                                a.href = blobUrl;
-                                a.download = prepData.filename || `${tArtist} - ${tTitle}.${saveFormat === 'original' ? 'mp3' : saveFormat}`;
-                                document.body.appendChild(a);
-                                a.click();
-                                setTimeout(() => {
-                                    try {
-                                        window.URL.revokeObjectURL(blobUrl);
-                                        if (a.parentNode) a.parentNode.removeChild(a);
-                                    } catch {}
-                                }, 5000);
-
-                                setDownloadProgress(100);
-                                successCount++;
-                                continue;
-                            }
-                        } catch (blobErr) {
-                            console.warn('Blob fetch failed, falling back to direct anchor:', blobErr);
-                        }
-
-                        // Fallback: Direct anchor download
-                        const a = document.createElement('a');
-                        a.href = prepData.downloadUrl;
-                        a.download = prepData.filename || `${tArtist} - ${tTitle}.${saveFormat === 'original' ? 'mp3' : saveFormat}`;
-                        a.target = '_self';
-                        document.body.appendChild(a);
-                        a.click();
-                        setTimeout(() => {
-                            try { if (a.parentNode) a.parentNode.removeChild(a); } catch {}
-                        }, 3000);
-
+                        const finalName = prepData.filename || `${tArtist} - ${tTitle}.${saveFormat === 'original' ? 'mp3' : saveFormat}`;
+                        setReadyFile({
+                            url: prepData.downloadUrl,
+                            filename: finalName,
+                            size: prepData.size
+                        });
+                        setCurrentDownloadStatus(`Ready: ${finalName}`);
                         setDownloadProgress(100);
+
+                        // 1. Trigger via hidden iframe (Safari & Chrome safe)
+                        try {
+                            const iframe = document.createElement('iframe');
+                            iframe.style.display = 'none';
+                            iframe.src = prepData.downloadUrl;
+                            document.body.appendChild(iframe);
+                            setTimeout(() => {
+                                try { if (iframe.parentNode) iframe.parentNode.removeChild(iframe); } catch {}
+                            }, 30000);
+                        } catch {}
+
+                        // 2. Trigger via direct anchor click
+                        try {
+                            const a = document.createElement('a');
+                            a.href = prepData.downloadUrl;
+                            a.download = finalName;
+                            a.target = '_self';
+                            document.body.appendChild(a);
+                            a.click();
+                            setTimeout(() => {
+                                try { if (a.parentNode) a.parentNode.removeChild(a); } catch {}
+                            }, 3000);
+                        } catch {}
+
                         successCount++;
                         continue;
                     }
@@ -244,6 +237,10 @@ export function MusicDownloadModal({
 
                 // Fallback: Direct stream / local file endpoint
                 const { url: directUrl, filename: directFilename } = getDownloadUrlForTrack(currentTrack);
+                setReadyFile({
+                    url: directUrl,
+                    filename: directFilename
+                });
                 setCurrentDownloadStatus(`Delivering file: ${directFilename}`);
                 setDownloadProgress(100);
 
@@ -272,8 +269,7 @@ export function MusicDownloadModal({
 
         setIsDownloading(false);
         if (successCount > 0) {
-            toast.success(`Successfully downloaded ${successCount} track${successCount > 1 ? 's' : ''}!`);
-            setTimeout(() => onClose(), 1200);
+            toast.success(`Download ready! Click "Save to Device" below if not prompted.`);
         } else {
             toast.error('Download failed. Please check server logs.');
         }
@@ -522,6 +518,29 @@ export function MusicDownloadModal({
 
                 {/* Progress & Actions Footer */}
                 <div className="pt-3 border-t border-zinc-900 space-y-3 shrink-0">
+                    {/* Ready File Download Card */}
+                    {readyFile && !isDownloading && (
+                        <div className="p-3.5 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-between gap-3 animate-in fade-in">
+                            <div className="min-w-0">
+                                <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider flex items-center gap-1.5">
+                                    <CheckCircle2 size={13} /> Ready on Server
+                                </span>
+                                <span className="text-xs font-bold text-white truncate block">{readyFile.filename}</span>
+                                {readyFile.size && <span className="text-[10px] text-zinc-400 font-mono">{(readyFile.size / (1024 * 1024)).toFixed(2)} MB</span>}
+                            </div>
+                            <a
+                                href={readyFile.url}
+                                download={readyFile.filename}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs uppercase tracking-wider transition-all flex items-center gap-1.5 shrink-0 shadow-md cursor-pointer"
+                            >
+                                <Download size={14} />
+                                <span>Save File</span>
+                            </a>
+                        </div>
+                    )}
+
                     {isDownloading && (
                         <div className="space-y-1.5">
                             <div className="flex items-center justify-between text-xs font-bold text-zinc-400">
@@ -548,7 +567,7 @@ export function MusicDownloadModal({
                             }}
                             className="flex-1 py-3 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-black text-xs uppercase tracking-wider transition-all border border-zinc-800 cursor-pointer"
                         >
-                            {isDownloading ? 'Run in Background' : 'Cancel'}
+                            {isDownloading ? 'Run in Background' : readyFile ? 'Close' : 'Cancel'}
                         </button>
                         <button
                             type="button"
@@ -559,7 +578,12 @@ export function MusicDownloadModal({
                             {isDownloading ? (
                                 <>
                                     <RefreshCw size={15} className="animate-spin" />
-                                    <span>Downloading ({downloadProgress}%)</span>
+                                    <span>Processing ({downloadProgress}%)</span>
+                                </>
+                            ) : readyFile ? (
+                                <>
+                                    <RefreshCw size={15} />
+                                    <span>Download Again</span>
                                 </>
                             ) : (
                                 <>
