@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import {
     X, Radio, UploadCloud, Link as LinkIcon, Key,
-    Calendar, CheckCircle2, AlertCircle, Tv, Sparkles, Server
+    Calendar, CheckCircle2, AlertCircle, Tv, Sparkles, Server, Zap
 } from 'lucide-react';
 import { toast } from 'sonner';
 
