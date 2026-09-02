@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getTheaterLibraries, getInstances } from '@/lib/db';
+import { getTheaterLibraries, getInstances, getCachedTheaterItems, saveCachedTheaterItems } from '@/lib/db';
 import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
@@ -91,6 +91,7 @@ export async function GET(req: Request) {
         const { searchParams } = new URL(req.url);
         const libraryId = searchParams.get('libraryId');
         const browsePath = searchParams.get('browsePath');
+        const refresh = searchParams.get('refresh') === 'true';
 
         // ── 1. Directory Browser ──
         if (browsePath !== null) {
@@ -136,6 +137,20 @@ export async function GET(req: Request) {
 
         if (!lib) {
             return NextResponse.json({ error: 'Library not found' }, { status: 404 });
+        }
+
+        // Check local SQLite cache first for instant (<5ms) responses
+        if (!refresh) {
+            const cached = getCachedTheaterItems(libraryId);
+            if (cached && cached.items && cached.items.length > 0) {
+                return NextResponse.json({
+                    library: lib,
+                    items: cached.items,
+                    total: cached.items.length,
+                    cached: true,
+                    cachedAt: cached.updatedAt
+                });
+            }
         }
 
         let allItems: any[] = [];
@@ -275,10 +290,15 @@ export async function GET(req: Request) {
 
         allItems.sort((a, b) => a.title.localeCompare(b.title));
 
+        if (allItems.length > 0) {
+            saveCachedTheaterItems(libraryId, allItems);
+        }
+
         return NextResponse.json({
             library: lib,
             items: allItems,
-            total: allItems.length
+            total: allItems.length,
+            cached: false
         });
     } catch (error: any) {
         console.error('API /theater/items error:', error);

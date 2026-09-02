@@ -197,6 +197,12 @@ function initializeSchema(d: any) {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
 
+      CREATE TABLE IF NOT EXISTS theater_items_cache (
+        library_id TEXT PRIMARY KEY,
+        items_json TEXT NOT NULL,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
       CREATE TABLE IF NOT EXISTS iptv_shortlists (
         id TEXT PRIMARY KEY,
         library_id TEXT NOT NULL,
@@ -836,6 +842,37 @@ export const deleteIptvShortlist = (id: string) => {
         return true;
     } catch (e) {
         console.error('Error deleting IPTV shortlist:', e);
+        return false;
+    }
+};
+
+// ── Theater Items Cache (Local SQLite Storage) ──
+export const getCachedTheaterItems = (libraryId: string): { items: any[]; updatedAt: string } | null => {
+    try {
+        const row = db.prepare('SELECT items_json, updated_at FROM theater_items_cache WHERE library_id = ?').get(libraryId) as any;
+        if (!row || !row.items_json) return null;
+        return {
+            items: JSON.parse(row.items_json),
+            updatedAt: row.updated_at
+        };
+    } catch (e) {
+        console.error('Error fetching cached theater items:', e);
+        return null;
+    }
+};
+
+export const saveCachedTheaterItems = (libraryId: string, items: any[]): boolean => {
+    try {
+        const json = JSON.stringify(items);
+        const now = new Date().toISOString();
+        db.prepare(`
+            INSERT INTO theater_items_cache (library_id, items_json, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(library_id) DO UPDATE SET items_json = excluded.items_json, updated_at = excluded.updated_at
+        `).run(libraryId, json, now);
+        return true;
+    } catch (e) {
+        console.error('Error saving cached theater items:', e);
         return false;
     }
 };
