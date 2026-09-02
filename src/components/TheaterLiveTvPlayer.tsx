@@ -172,12 +172,34 @@ export default function TheaterLiveTvPlayer({
         });
     };
 
-    // Auto-select first shortlist if available on initial load
-    useEffect(() => {
-        if (!activeShortlistId && shortlists.length > 0) {
-            onSelectShortlist(shortlists[0].id);
+    // Disabled shortlists in Theater
+    const [disabledShortlistIds, setDisabledShortlistIds] = useState<string[]>(() => {
+        try {
+            const saved = localStorage.getItem('theater_disabled_shortlists');
+            return saved ? JSON.parse(saved) : [];
+        } catch {
+            return [];
         }
-    }, [shortlists, activeShortlistId, onSelectShortlist]);
+    });
+
+    const toggleShortlistEnabled = (id: string) => {
+        setDisabledShortlistIds(prev => {
+            const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
+            try { localStorage.setItem('theater_disabled_shortlists', JSON.stringify(next)); } catch {}
+            return next;
+        });
+    };
+
+    const enabledShortlists = useMemo(() => {
+        return shortlists.filter(sl => !disabledShortlistIds.includes(sl.id));
+    }, [shortlists, disabledShortlistIds]);
+
+    // Auto-select first enabled shortlist if available on initial load
+    useEffect(() => {
+        if (!activeShortlistId && enabledShortlists.length > 0) {
+            onSelectShortlist(enabledShortlists[0].id);
+        }
+    }, [enabledShortlists, activeShortlistId, onSelectShortlist]);
 
     // Available Providers / Libraries (excluding disabled ones)
     const allAvailableProviders = useMemo(() => {
@@ -665,7 +687,7 @@ export default function TheaterLiveTvPlayer({
         <div className="space-y-4">
             {/* ── Top Bar: Shortlist Picker + Full Guide Button + Setup Link ── */}
             <div className="flex flex-wrap items-center justify-between gap-3 bg-zinc-950 p-3 rounded-2xl border border-zinc-900">
-                {/* Shortlist selector pills (Only Shortlists shown when Full List is disabled) */}
+                {/* Shortlist selector pills (Only enabled Shortlists shown) */}
                 <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar">
                     {!hideFullList && (
                         <button
@@ -680,12 +702,12 @@ export default function TheaterLiveTvPlayer({
                         </button>
                     )}
 
-                    {shortlists.map(sl => (
+                    {enabledShortlists.map(sl => (
                         <button
                             key={sl.id}
                             onClick={() => onSelectShortlist(sl.id)}
                             className={`px-3.5 py-1.5 rounded-xl text-xs font-black shrink-0 transition-all flex items-center gap-1.5 cursor-pointer ${
-                                activeShortlistId === sl.id || (!activeShortlistId && hideFullList && shortlists[0]?.id === sl.id)
+                                activeShortlistId === sl.id || (!activeShortlistId && hideFullList && enabledShortlists[0]?.id === sl.id)
                                     ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
                                     : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
                             }`}
@@ -694,27 +716,25 @@ export default function TheaterLiveTvPlayer({
                         </button>
                     ))}
 
-                    <Link
-                        href="/discover?tab=iptv"
+                    <button
+                        onClick={onOpenShortlistManager}
                         className="px-3 py-1.5 rounded-xl text-xs font-bold text-amber-400 hover:bg-amber-500/10 border border-dashed border-amber-500/30 flex items-center gap-1 shrink-0 cursor-pointer"
-                        title="Manage Shortlists in Media Hub"
+                        title="Create or Curate Channel Shortlists"
                     >
-                        <Plus size={12} /> Shortlists
-                    </Link>
+                        <Plus size={12} /> New Shortlist
+                    </button>
                 </div>
 
                 {/* Right Top Actions: Manage Active Lists, Full TV Guide Button & Setup */}
                 <div className="flex items-center gap-2 shrink-0">
-                    {allAvailableProviders.length > 0 && (
-                        <button
-                            onClick={() => setIsManageLibsOpen(true)}
-                            className="px-3.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs font-bold flex items-center gap-1.5 transition-colors shrink-0 cursor-pointer"
-                            title="Enable or disable specific IPTV lists in Theater"
-                        >
-                            <Layers size={13} className="text-amber-400" />
-                            <span>Lists ({activeProviders.length}/{allAvailableProviders.length})</span>
-                        </button>
-                    )}
+                    <button
+                        onClick={() => setIsManageLibsOpen(true)}
+                        className="px-3.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs font-bold flex items-center gap-1.5 transition-colors shrink-0 cursor-pointer"
+                        title="Choose exactly which lists and shortlists are active in Theater"
+                    >
+                        <Layers size={13} className="text-amber-400" />
+                        <span>Lists &amp; Shortlists ({activeProviders.length + enabledShortlists.length})</span>
+                    </button>
 
                     <button
                         onClick={() => {
@@ -1322,8 +1342,8 @@ export default function TheaterLiveTvPlayer({
                                     <Layers size={18} />
                                 </div>
                                 <div>
-                                    <h3 className="text-sm font-black text-white">Active IPTV Lists in Theater</h3>
-                                    <p className="text-[11px] text-zinc-400">Toggle which channel lists are active</p>
+                                    <h3 className="text-sm font-black text-white">Choose Active Lists &amp; Shortlists</h3>
+                                    <p className="text-[11px] text-zinc-400">Choose exactly which lists and curated packs appear in Theater</p>
                                 </div>
                             </div>
                             <button onClick={() => setIsManageLibsOpen(false)} className="text-zinc-500 hover:text-white p-1">
@@ -1342,50 +1362,101 @@ export default function TheaterLiveTvPlayer({
                                 }`}
                             >
                                 <div>
-                                    <p className="text-xs font-black text-white">Shortlists Only (Hide 30k Full List)</p>
-                                    <p className="text-[10px] text-zinc-400">Only show active curated shortlists in Theater for maximum speed</p>
+                                    <p className="text-xs font-black text-white">Full Provider Channels (30,384)</p>
+                                    <p className="text-[10px] text-zinc-400">Toggle whether the full raw 30k list is visible alongside your shortlists</p>
                                 </div>
                                 <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase shrink-0 ${
-                                    hideFullList
-                                        ? 'bg-amber-500 text-black'
+                                    !hideFullList
+                                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
                                         : 'bg-zinc-800 text-zinc-400'
                                 }`}>
-                                    {hideFullList ? '✓ Shortlists Only' : 'Full List (30k)'}
+                                    {!hideFullList ? 'Shown' : 'Hidden'}
                                 </span>
                             </div>
                         )}
 
-                        <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-1">
-                            {allAvailableProviders.map(prov => {
-                                const isEnabled = !disabledLibIds.includes(prov.id);
-                                return (
-                                    <div
-                                        key={prov.id}
-                                        onClick={() => toggleLibraryEnabled(prov.id)}
-                                        className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 cursor-pointer transition-all ${
-                                            isEnabled
-                                                ? 'bg-zinc-900/90 border-amber-500/40 text-white'
-                                                : 'bg-zinc-950 border-zinc-800/80 text-zinc-500 opacity-60 hover:opacity-100'
-                                        }`}
+                        {/* Curated Shortlists Section */}
+                        {shortlists.length > 0 && (
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-black uppercase tracking-wider text-zinc-400">Curated Shortlists</span>
+                                    <button
+                                        onClick={() => {
+                                            setIsManageLibsOpen(false);
+                                            onOpenShortlistManager();
+                                        }}
+                                        className="text-[11px] font-bold text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
                                     >
-                                        <div className="min-w-0 flex-1">
-                                            <p className="text-xs font-black truncate">{prov.name}</p>
-                                            <span className="text-[10px] text-zinc-400 font-mono">{prov.count} total channels</span>
+                                        <Plus size={11} /> New Shortlist
+                                    </button>
+                                </div>
+                                <div className="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar pr-1">
+                                    {shortlists.map(sl => {
+                                        const isEnabled = !disabledShortlistIds.includes(sl.id);
+                                        return (
+                                            <div
+                                                key={sl.id}
+                                                onClick={() => toggleShortlistEnabled(sl.id)}
+                                                className={`p-3 rounded-2xl border flex items-center justify-between gap-3 cursor-pointer transition-all ${
+                                                    isEnabled
+                                                        ? 'bg-zinc-900/90 border-amber-500/40 text-white'
+                                                        : 'bg-zinc-950 border-zinc-800/80 text-zinc-500 opacity-60 hover:opacity-100'
+                                                }`}
+                                            >
+                                                <div className="min-w-0 flex-1 flex items-center gap-2">
+                                                    <span className="text-amber-400">⭐</span>
+                                                    <p className="text-xs font-black truncate">{sl.name}</p>
+                                                    <span className="text-[10px] text-zinc-400 font-mono">({sl.channelIds.length} channels)</span>
+                                                </div>
+                                                <span className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase shrink-0 ${
+                                                    isEnabled
+                                                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                                                        : 'bg-zinc-800 text-zinc-400'
+                                                }`}>
+                                                    {isEnabled ? 'Active' : 'Disabled'}
+                                                </span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Connected Providers / Playlists */}
+                        <div className="space-y-2">
+                            <span className="text-[11px] font-black uppercase tracking-wider text-zinc-400">Connected Playlists &amp; Providers</span>
+                            <div className="space-y-1.5 max-h-44 overflow-y-auto custom-scrollbar pr-1">
+                                {allAvailableProviders.map(prov => {
+                                    const isEnabled = !disabledLibIds.includes(prov.id);
+                                    return (
+                                        <div
+                                            key={prov.id}
+                                            onClick={() => toggleLibraryEnabled(prov.id)}
+                                            className={`p-3 rounded-2xl border flex items-center justify-between gap-3 cursor-pointer transition-all ${
+                                                isEnabled
+                                                    ? 'bg-zinc-900/90 border-amber-500/40 text-white'
+                                                    : 'bg-zinc-950 border-zinc-800/80 text-zinc-500 opacity-60 hover:opacity-100'
+                                            }`}
+                                        >
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-xs font-black truncate">{prov.name}</p>
+                                                <span className="text-[10px] text-zinc-400 font-mono">{prov.count} total channels</span>
+                                            </div>
+                                            <span className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase shrink-0 ${
+                                                isEnabled
+                                                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                                                    : 'bg-zinc-800 text-zinc-400'
+                                            }`}>
+                                                {isEnabled ? 'Active' : 'Disabled'}
+                                            </span>
                                         </div>
-                                        <div className="shrink-0">
-                                            {isEnabled ? (
-                                                <span className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-[10px] font-black uppercase">Active</span>
-                                            ) : (
-                                                <span className="px-2.5 py-1 rounded-lg bg-zinc-800 text-zinc-400 text-[10px] font-black uppercase">Disabled</span>
-                                            )}
-                                        </div>
-                                    </div>
-                                );
-                            })}
+                                    );
+                                })}
+                            </div>
                         </div>
 
                         <div className="flex items-center justify-between pt-2 border-t border-zinc-900 text-xs text-zinc-500">
-                            <span>{activeProviders.length} of {allAvailableProviders.length} lists enabled</span>
+                            <span>{activeProviders.length} lists &amp; {enabledShortlists.length} shortlists active</span>
                             <button
                                 onClick={() => setIsManageLibsOpen(false)}
                                 className="px-4 py-2 rounded-xl bg-amber-500 text-black font-black text-xs hover:bg-amber-400 cursor-pointer"
