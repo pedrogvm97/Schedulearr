@@ -926,7 +926,7 @@ export const saveIptvChannels = (libraryId: string, channels: StoredIptvChannel[
 
 export const getIptvChannels = (libraryId: string): StoredIptvChannel[] => {
     try {
-        const rows = db.prepare('SELECT * FROM iptv_channels WHERE library_id = ? ORDER BY id ASC').all(libraryId) as any[];
+        const rows = db.prepare('SELECT * FROM iptv_channels WHERE library_id = ? ORDER BY rowid ASC').all(libraryId) as any[];
         return (rows || []).map(r => ({
             id: r.id,
             libraryId: r.library_id,

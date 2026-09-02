@@ -228,11 +228,23 @@ export default function TheaterLiveTvPlayer({
             const sl = shortlists.find(s => s.id === activeShortlistId);
             if (sl && sl.channelIds.length > 0) {
                 const idSet = new Set(sl.channelIds);
-                baseList = baseList.filter(c => idSet.has(c.id));
+                const lowerNames = new Set(sl.channelIds.map(x => String(x).toLowerCase()));
+                baseList = baseList.filter(c =>
+                    idSet.has(c.id) ||
+                    (c.tvgId && idSet.has(c.tvgId)) ||
+                    (c.cleanName && lowerNames.has(c.cleanName.toLowerCase())) ||
+                    (c.name && lowerNames.has(c.name.toLowerCase()))
+                );
             }
         } else if (hideFullList && shortlists.length > 0) {
             const allShortlistChanIds = new Set(shortlists.flatMap(s => s.channelIds));
-            baseList = baseList.filter(c => allShortlistChanIds.has(c.id));
+            const allLowerNames = new Set(shortlists.flatMap(s => s.channelIds).map(x => String(x).toLowerCase()));
+            baseList = baseList.filter(c =>
+                allShortlistChanIds.has(c.id) ||
+                (c.tvgId && allShortlistChanIds.has(c.tvgId)) ||
+                (c.cleanName && allLowerNames.has(c.cleanName.toLowerCase())) ||
+                (c.name && allLowerNames.has(c.name.toLowerCase()))
+            );
         }
 
         // 2. Filter out disabled libraries
@@ -334,7 +346,13 @@ export default function TheaterLiveTvPlayer({
             const sl = shortlists.find(s => s.id === activeShortlistId);
             if (sl && sl.channelIds.length > 0) {
                 const set = new Set(sl.channelIds);
-                list = list.filter(c => set.has(c.id));
+                const lowerNames = new Set(sl.channelIds.map(x => String(x).toLowerCase()));
+                list = list.filter(c =>
+                    set.has(c.id) ||
+                    (c.tvgId && set.has(c.tvgId)) ||
+                    (c.cleanName && lowerNames.has(c.cleanName.toLowerCase())) ||
+                    (c.name && lowerNames.has(c.name.toLowerCase()))
+                );
             }
         }
 
@@ -748,14 +766,14 @@ export default function TheaterLiveTvPlayer({
                         <span>TV Guide</span>
                     </button>
 
-                    <Link
-                        href="/discover?tab=iptv"
-                        className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-amber-300 border border-zinc-800 text-xs font-bold flex items-center gap-1.5 transition-colors shrink-0"
-                        title="Setup Providers, Shortlists & DVR in Media Tab"
+                    <button
+                        onClick={() => setIsManageLibsOpen(true)}
+                        className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-amber-300 border border-zinc-800 text-xs font-bold flex items-center gap-1.5 transition-colors shrink-0 cursor-pointer"
+                        title="Manage Active Providers and Curated Shortlists in Theater"
                     >
                         <Settings size={13} />
                         <span>Setup</span>
-                    </Link>
+                    </button>
                 </div>
             </div>
 

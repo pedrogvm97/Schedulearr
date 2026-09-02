@@ -215,7 +215,13 @@ export function IptvDvrManager() {
             const sl = shortlists.find(s => s.id === guideShortlist);
             if (sl && sl.channelIds.length > 0) {
                 const set = new Set(sl.channelIds);
-                list = list.filter(c => set.has(c.id));
+                const lowerNames = new Set(sl.channelIds.map(x => String(x).toLowerCase()));
+                list = list.filter(c =>
+                    set.has(c.id) ||
+                    (c.tvgId && set.has(c.tvgId)) ||
+                    (c.cleanName && lowerNames.has(c.cleanName.toLowerCase())) ||
+                    (c.name && lowerNames.has(c.name.toLowerCase()))
+                );
             }
         }
         if (guideGroup !== 'ALL') {
