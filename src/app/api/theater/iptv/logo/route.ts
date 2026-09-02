@@ -52,6 +52,89 @@ function generateSvgBadge(name: string): Response {
     });
 }
 
+const KNOWN_CHANNEL_LOGOS: Record<string, string> = {
+    'rtp 1': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/rtp-1-pt.png',
+    'rtp 2': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/rtp-2-pt.png',
+    'rtp 3': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/rtp-3-pt.png',
+    'rtp memoria': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/rtp-memoria-pt.png',
+    'rtp acores': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/rtp-acores-pt.png',
+    'rtp madeira': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/rtp-madeira-pt.png',
+    'rtp africa': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/rtp-africa-pt.png',
+    'rtp internacional': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/rtp-internacional-pt.png',
+    'sic': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/sic-pt.png',
+    'sic noticias': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/sic-noticias-pt.png',
+    'sic radical': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/sic-radical-pt.png',
+    'sic mulher': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/sic-mulher-pt.png',
+    'sic caras': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/sic-caras-pt.png',
+    'sic k': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/sic-k-pt.png',
+    'sic novelas': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/sic-novelas-pt.png',
+    'sic international': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/sic-internacional-pt.png',
+    'sic internacional': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/sic-internacional-pt.png',
+    'tvi': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/tvi-pt.png',
+    'tvi reality': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/tvi-reality-pt.png',
+    'tvi ficcao': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/tvi-ficcao-pt.png',
+    'tvi internacional': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/tvi-internacional-pt.png',
+    'cnn portugal': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/cnn-portugal-pt.png',
+    'cmtv': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/cmtv-pt.png',
+    'sport tv 1': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/sport-tv-1-pt.png',
+    'sport tv 2': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/sport-tv-2-pt.png',
+    'sport tv 3': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/sport-tv-3-pt.png',
+    'sport tv 4': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/sport-tv-4-pt.png',
+    'sport tv 5': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/sport-tv-5-pt.png',
+    'sport tv 6': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/sport-tv-6-pt.png',
+    'sport tv +': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/sport-tv-plus-pt.png',
+    'canal 11': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/canal-11-pt.png',
+    'canal hollywood': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/canal-hollywood-pt.png',
+    'hollywood': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/canal-hollywood-pt.png',
+    'fox': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/star-channel-pt.png',
+    'star channel': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/star-channel-pt.png',
+    'axn': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/axn-pt.png',
+    'axn white': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/axn-white-pt.png',
+    'axn movies': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/axn-movies-pt.png',
+    'discovery': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/discovery-channel-pt.png',
+    'national geographic': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/national-geographic-pt.png',
+    'canal historia': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/canal-historia-pt.png',
+    'historia': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/canal-historia-pt.png',
+    'odisseia': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/odisseia-pt.png',
+    'canal panda': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/canal-panda-pt.png',
+    'panda': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/canal-panda-pt.png',
+    'cartoon network': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/cartoon-network-pt.png',
+    'disney channel': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/disney-channel-pt.png',
+    'disney junior': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/disney-junior-pt.png',
+    'globo': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/globo-pt.png',
+    'porto canal': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/porto-canal-pt.png',
+    'btv': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/btv-pt.png',
+    'benfica tv': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/btv-pt.png',
+    'sporting tv': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/sporting-tv-pt.png',
+    'dazn 1': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/dazn-1-pt.png',
+    'dazn 2': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/dazn-2-pt.png',
+    'dazn 3': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/dazn-3-pt.png',
+    'dazn 4': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/dazn-4-pt.png',
+    'dazn 5': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/dazn-5-pt.png',
+    'dazn 6': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/dazn-6-pt.png',
+    'eurosport 1': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/eurosport-1-pt.png',
+    'eurosport 2': 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/portugal/eurosport-2-pt.png'
+};
+
+function getKnownChannelLogo(name: string): string | null {
+    if (!name) return null;
+    const clean = name
+        .toLowerCase()
+        .replace(/^(\s*\|?\s*(?:vo|vodafone|meo|nos|nowo|pt|uk|us|es|fr|de)\s*\|?\s*[:\-\|\/])+/i, '')
+        .replace(/^(\s*\|[a-z0-9]+\|\s*)/i, '')
+        .replace(/^(\[[a-z0-9]+\]|\([a-z0-9]+\))\s*/i, '')
+        .replace(/\b(8k|4k|uhd|fhd|hd|sd|hevc|h\.?265|1080p|720p|576p|480p|2160p|raw|backup|alt|50fps|60fps|vip)\b/gi, '')
+        .trim();
+
+    if (KNOWN_CHANNEL_LOGOS[clean]) return KNOWN_CHANNEL_LOGOS[clean];
+    for (const [k, url] of Object.entries(KNOWN_CHANNEL_LOGOS)) {
+        if (clean === k || clean.startsWith(k + ' ') || clean.endsWith(' ' + k)) {
+            return url;
+        }
+    }
+    return null;
+}
+
 function returnFallback(name?: string) {
     if (name) {
         return generateSvgBadge(name);
@@ -74,7 +157,12 @@ export async function GET(req: NextRequest) {
         const channelName = searchParams.get('name') || searchParams.get('channel') || '';
 
         if (!logoUrl) {
-            return returnFallback(channelName);
+            const known = getKnownChannelLogo(channelName);
+            if (known) {
+                logoUrl = known;
+            } else {
+                return returnFallback(channelName);
+            }
         }
 
         // Unwrap if accidentally passed a nested proxy URL (e.g. /api/theater/iptv/logo?url=https...)
@@ -84,7 +172,12 @@ export async function GET(req: NextRequest) {
         }
 
         if (!logoUrl.startsWith('http://') && !logoUrl.startsWith('https://')) {
-            return returnFallback(channelName);
+            const known = getKnownChannelLogo(channelName);
+            if (known) {
+                logoUrl = known;
+            } else {
+                return returnFallback(channelName);
+            }
         }
 
         const now = Date.now();

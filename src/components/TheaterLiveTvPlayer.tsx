@@ -332,36 +332,21 @@ export default function TheaterLiveTvPlayer({
         return list;
     }, [channels, activeShortlistId, shortlists, hideFullList, disabledLibIds]);
 
-    // Filter channels by provider, shortlist, category, and search
+    // Filter channels by provider, category, and search (Shortlist already filtered in aggregatedChannels)
     const visibleChannels = useMemo(() => {
         let list = aggregatedChannels;
 
         // 0. Provider library filter
-        if (selectedProviderId !== 'ALL') {
+        if (selectedProviderId !== 'ALL' && list.some(c => c.libraryId === selectedProviderId)) {
             list = list.filter(c => c.libraryId === selectedProviderId);
         }
 
-        // 1. Shortlist filter
-        if (activeShortlistId) {
-            const sl = shortlists.find(s => s.id === activeShortlistId);
-            if (sl && sl.channelIds.length > 0) {
-                const set = new Set(sl.channelIds);
-                const lowerNames = new Set(sl.channelIds.map(x => String(x).toLowerCase()));
-                list = list.filter(c =>
-                    set.has(c.id) ||
-                    (c.tvgId && set.has(c.tvgId)) ||
-                    (c.cleanName && lowerNames.has(c.cleanName.toLowerCase())) ||
-                    (c.name && lowerNames.has(c.name.toLowerCase()))
-                );
-            }
-        }
-
-        // 2. Category filter
-        if (zapperGroup !== 'ALL') {
+        // 1. Category filter
+        if (zapperGroup !== 'ALL' && list.some(c => c.group === zapperGroup)) {
             list = list.filter(c => c.group === zapperGroup);
         }
 
-        // 3. Search query
+        // 2. Search query
         if (zapperSearch.trim()) {
             const q = zapperSearch.toLowerCase().trim();
             list = list.filter(c =>
@@ -372,7 +357,7 @@ export default function TheaterLiveTvPlayer({
         }
 
         return list;
-    }, [aggregatedChannels, selectedProviderId, activeShortlistId, shortlists, zapperGroup, zapperSearch]);
+    }, [aggregatedChannels, selectedProviderId, zapperGroup, zapperSearch]);
 
     // Unique groups for filter pills
     const channelGroups = useMemo(() => {
