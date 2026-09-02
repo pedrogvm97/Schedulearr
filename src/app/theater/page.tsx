@@ -16,15 +16,11 @@ import {
     Disc, User, ListMusic, Youtube, Globe, Heart, PlaySquare, ArrowDownToLine,
     Headphones, RadioTower, Info, Mic2, FileText, Edit3, ChevronDown,
     Terminal, AlertTriangle, Bug, Code, Cpu, Monitor, RefreshCcw, CheckCheck, Zap,
-    UploadCloud
+    UploadCloud, Clapperboard
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import Hls from 'hls.js';
 import { useMusicPlayer } from '@/context/MusicPlayerContext';
-import { AddIptvProviderModal } from '@/components/AddIptvProviderModal';
-import { IptvChannelSourcesModal } from '@/components/IptvChannelSourcesModal';
-import IptvSettingsModal from '@/components/IptvSettingsModal';
-import IptvAutoGroupingModal from '@/components/IptvAutoGroupingModal';
 import TheaterLiveTvPlayer from '@/components/TheaterLiveTvPlayer';
 
 interface TheaterLibrary {
@@ -2868,12 +2864,12 @@ function TheaterPageContent() {
                                     Connect an M3U playlist file, live stream URL, or Xtream Codes server to start watching live TV with guide schedules and redundant stream fallback.
                                 </p>
                             </div>
-                            <button
-                                onClick={() => setIsAddIptvModalOpen(true)}
-                                className="px-6 py-3 bg-red-600 hover:bg-red-500 text-white font-black uppercase text-xs tracking-widest rounded-2xl transition-all shadow-lg shadow-red-500/20 flex items-center gap-2 mx-auto active:scale-95"
+                            <Link
+                                href="/discover?tab=iptv"
+                                className="px-6 py-3 bg-amber-500 hover:bg-amber-400 text-black font-black uppercase text-xs tracking-widest rounded-2xl transition-all shadow-lg shadow-amber-500/20 flex items-center gap-2 mx-auto active:scale-95"
                             >
-                                <Plus size={16} /> Add IPTV Provider
-                            </button>
+                                <Plus size={16} /> Setup IPTV &amp; DVR
+                            </Link>
                         </div>
                     ) : (
                         <div className="p-16 bg-zinc-950/40 rounded-[2.5rem] border border-zinc-900 text-center space-y-4 max-w-xl mx-auto my-12 shadow-2xl">
@@ -5837,60 +5833,6 @@ function TheaterPageContent() {
                         </div>
                     </div>
                 </div>
-            )}
-
-            {/* ── Dedicated Single IPTV Provider Setup Modal ── */}
-            <AddIptvProviderModal
-                isOpen={isAddIptvModalOpen}
-                onClose={() => setIsAddIptvModalOpen(false)}
-                onProviderCreated={async (newId) => {
-                    await fetchLibraries();
-                    setActiveContentTab('live');
-                    if (newId) setActiveLibraryId(newId);
-                }}
-            />
-
-            {/* ── Dedicated Channel Sources & Priority Fallback Manager Modal ── */}
-            {sourcesModalChannel && (
-                <IptvChannelSourcesModal
-                    isOpen={!!sourcesModalChannel}
-                    channel={sourcesModalChannel}
-                    libraryId={activeLibrary?.id || ''}
-                    allChannels={iptvChannels}
-                    onClose={() => setSourcesModalChannel(null)}
-                    onChannelUpdated={(updated) => {
-                        setIptvChannels(prev => prev.map(c => c.id === updated.id ? updated : c));
-                        if (playingChannel?.id === updated.id) {
-                            setPlayingChannel(updated);
-                        }
-                    }}
-                />
-            )}
-
-            {/* ── EPG & Provider Settings Modal ── */}
-            {activeLibrary && (
-                <IptvSettingsModal
-                    isOpen={isIptvSettingsOpen}
-                    library={activeLibrary}
-                    onClose={() => setIsIptvSettingsOpen(false)}
-                    onUpdated={async () => {
-                        await fetchLibraries();
-                        await fetchIptvChannels(activeLibrary.id);
-                    }}
-                />
-            )}
-
-            {/* ── Auto-Grouping Suggestions Modal ── */}
-            {activeLibrary && (
-                <IptvAutoGroupingModal
-                    isOpen={isAutoGroupingModalOpen}
-                    libraryId={activeLibrary.id}
-                    channels={iptvChannels}
-                    onClose={() => setIsAutoGroupingModalOpen(false)}
-                    onApplied={async () => {
-                        await fetchIptvChannels(activeLibrary.id);
-                    }}
-                />
             )}
         </>
     );

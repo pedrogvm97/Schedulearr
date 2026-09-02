@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
     Tv, Folder, Plus, Trash2, Settings, RefreshCw, Layers,
-    Sparkles, Film, Calendar, Check, AlertCircle, Play, X,
-    HardDrive, Clock, CheckCircle2, ShieldCheck, Search
+    Sparkles, Calendar, Check, AlertCircle, Play, X,
+    HardDrive, Clock, CheckCircle2, ShieldCheck, Search,
+    Bookmark, LayoutGrid, List as Rows, Tv2, Edit3, ArrowRight
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AddIptvProviderModal } from './AddIptvProviderModal';
@@ -46,53 +47,78 @@ interface DvrRecording {
     error_message?: string;
 }
 
+interface IptvShortlist {
+    id: string;
+    library_id: string;
+    name: string;
+    channelIds: string[];
+}
+
 export function IptvDvrManager() {
     const [libraries, setLibraries] = useState<any[]>([]);
     const [selectedLibraryId, setSelectedLibraryId] = useState<string>('');
     const [channels, setChannels] = useState<IptvChannel[]>([]);
+    const [groups, setGroups] = useState<{ name: string; count: number }[]>([]);
+    const [shortlists, setShortlists] = useState<IptvShortlist[]>([]);
     const [folders, setFolders] = useState<DvrStorageFolder[]>([]);
     const [rules, setRules] = useState<DvrRule[]>([]);
     const [recordings, setRecordings] = useState<DvrRecording[]>([]);
     const [loading, setLoading] = useState(true);
 
-    // Modals
+    const [activeTab, setActiveTab] = useState<'providers' | 'shortlists' | 'storage' | 'rules' | 'recordings'>('shortlists');
+
     const [isAddProviderOpen, setIsAddProviderOpen] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [isAutoGroupOpen, setIsAutoGroupOpen] = useState(false);
     const [isNewRuleOpen, setIsNewRuleOpen] = useState(false);
     const [isNewFolderOpen, setIsNewFolderOpen] = useState(false);
 
-    // New folder form
+    const [isShortlistModalOpen, setIsShortlistModalOpen] = useState(false);
+    const [editingShortlistId, setEditingShortlistId] = useState<string | null>(null);
+    const [shortlistName, setShortlistName] = useState('');
+    const [shortlistSelectedIds, setShortlistSelectedIds] = useState<string[]>([]);
+    const [shortlistSearch, setShortlistSearch] = useState('');
+    const [shortlistCategory, setShortlistCategory] = useState('ALL');
+    const [shortlistViewMode, setShortlistViewMode] = useState<'grid' | 'list'>('grid');
+    const [isSavingShortlist, setIsSavingShortlist] = useState(false);
+
     const [newFolderPath, setNewFolderPath] = useState('');
     const [newFolderName, setNewFolderName] = useState('');
     const [newFolderDefault, setNewFolderDefault] = useState(false);
 
-    // New rule form
     const [ruleName, setRuleName] = useState('');
     const [ruleQuery, setRuleQuery] = useState('');
     const [ruleType, setRuleType] = useState<'sports' | 'actor' | 'keyword' | 'title'>('sports');
-    const [ruleChannelScope, setRuleChannelScope] = useState('all');
     const [ruleMissingOnly, setRuleMissingOnly] = useState(true);
     const [ruleFolder, setRuleFolder] = useState('');
     const [rulePadding, setRulePadding] = useState(15);
 
     const activeLibrary = libraries.find(l => l.id === selectedLibraryId) || libraries[0];
 
-    const fetchAllData = async () => {
+    const fetchAllData = async (targetLibId?: string) => {
         setLoading(true);
         try {
             const libRes = await fetch('/api/theater/libraries');
             const libData = await libRes.json();
             const liveLibs = (libData.libraries || []).filter((l: any) => l.type === 'live');
             setLibraries(liveLibs);
-            const activeId = selectedLibraryId || liveLibs[0]?.id || '';
+            const activeId = targetLibId || selectedLibraryId || liveLibs[0]?.id || '';
             setSelectedLibraryId(activeId);
 
             if (activeId) {
-                const chanRes = await fetch(`/api/theater/iptv?libraryId=${activeId}`);
-                if (chanRes.ok) {
+                const [chanRes, shortRes] = await Promise.all([
+                    fetch(`/api/theater/iptv?libraryId=${activeId}`).catch(() => null),
+                    fetch(`/api/theater/iptv/shortlists?libraryId=${activeId}`).catch(() => null)
+                ]);
+
+                if (chanRes && chanRes.ok) {
                     const chanData = await chanRes.json();
                     setChannels(chanData.channels || []);
+                    setGroups(chanData.groups || []);
+                }
+                if (shortRes && shortRes.ok) {
+                    const sData = await shortRes.json();
+                    setShortlists(sData.shortlists || []);
                 }
             }
 
@@ -107,7 +133,7 @@ export function IptvDvrManager() {
                 }
             }
         } catch (e) {
-            console.error('Failed to load IPTV/DVR data:', e);
+            console.error('Failed to load data:', e);
         } finally {
             setLoading(false);
         }
@@ -116,6 +142,93 @@ export function IptvDvrManager() {
     useEffect(() => {
         fetchAllData();
     }, []);
+
+    const handleSelectLibrary = (libId: string) => {
+        setSelectedLibraryId(libId);
+        fetchAllData(libId);
+    };
+
+    const openCreateShortlist = () => {
+        setEditingShortlistId(null);
+        setShortlistName('');
+        setShortlistSelectedIds([]);
+        setShortlistSearch('');
+        setShortlistCategory('ALL');
+        setIsShortlistModalOpen(true);
+    };
+
+    const openEditShortlist = (sl: IptvShortlist) => {
+        setEditingShortlistId(sl.id);
+        setShortlistName(sl.name);
+        setShortlistSelectedIds(sl.channelIds || []);
+        setShortlistSearch('');
+        setShortlistCategory('ALL');
+        setIsShortlistModalOpen(true);
+    };
+
+    const handleSaveShortlist = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!shortlistName.trim() || !activeLibrary?.id) {
+            toast.error('Shortlist name is required');
+            return;
+        }
+
+        setIsSavingShortlist(true);
+        try {
+            const res = await fetch('/api/theater/iptv/shortlists', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id: editingShortlistId || undefined,
+                    libraryId: activeLibrary.id,
+                    name: shortlistName.trim(),
+                    channelIds: shortlistSelectedIds
+                })
+            });
+
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error);
+
+            toast.success(`Shortlist "${shortlistName.trim()}" saved!`);
+            setIsShortlistModalOpen(false);
+            fetchAllData(activeLibrary.id);
+        } catch (err: any) {
+            toast.error(err.message || 'Failed to save shortlist');
+        } finally {
+            setIsSavingShortlist(false);
+        }
+    };
+
+    const handleDeleteShortlist = async (id: string, name: string) => {
+        if (!confirm(`Delete shortlist "${name}"?`)) return;
+        try {
+            const res = await fetch(`/api/theater/iptv/shortlists?id=${id}`, {
+                method: 'DELETE'
+            });
+            if (res.ok) {
+                toast.success('Shortlist deleted');
+                fetchAllData(activeLibrary?.id);
+            }
+        } catch {
+            toast.error('Failed to delete shortlist');
+        }
+    };
+
+    const filteredShortlistChannels = useMemo(() => {
+        let list = channels;
+        if (shortlistCategory !== 'ALL') {
+            list = list.filter(c => c.group === shortlistCategory);
+        }
+        if (shortlistSearch.trim()) {
+            const q = shortlistSearch.toLowerCase().trim();
+            list = list.filter(c =>
+                c.name.toLowerCase().includes(q) ||
+                (c.cleanName && c.cleanName.toLowerCase().includes(q)) ||
+                c.group.toLowerCase().includes(q)
+            );
+        }
+        return list;
+    }, [channels, shortlistCategory, shortlistSearch]);
 
     const handleAddFolder = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -133,7 +246,7 @@ export function IptvDvrManager() {
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error);
-            toast.success('DVR folder added');
+            toast.success('Storage folder added');
             setNewFolderPath('');
             setNewFolderName('');
             setNewFolderDefault(false);
@@ -175,7 +288,7 @@ export function IptvDvrManager() {
                         name: ruleName,
                         query: ruleQuery,
                         rule_type: ruleType,
-                        channel_scope: ruleChannelScope,
+                        channel_scope: 'all',
                         check_missing_from_library: ruleMissingOnly,
                         destination_folder: ruleFolder,
                         padding_minutes: rulePadding,
@@ -226,7 +339,7 @@ export function IptvDvrManager() {
     const handleScanRules = async () => {
         if (!activeLibrary?.id) return;
         try {
-            toast.info('Scanning upcoming EPG schedule for matching rules...');
+            toast.info('Scanning guide schedule for matching rules...');
             const res = await fetch('/api/theater/iptv/dvr', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -234,7 +347,7 @@ export function IptvDvrManager() {
             });
             const data = await res.json();
             if (data.matchedCount > 0) {
-                toast.success(`Found & scheduled ${data.matchedCount} matching broadcast(s)!`);
+                toast.success(`Found & scheduled ${data.matchedCount} broadcast(s)!`);
             } else {
                 toast.info('No new broadcasts matched active rules in current guide.');
             }
@@ -245,424 +358,845 @@ export function IptvDvrManager() {
     };
 
     return (
-        <div className="space-y-8 animate-in fade-in duration-300">
-            {/* Header & Provider Selector */}
+        <div className="space-y-6 animate-in fade-in duration-300">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-zinc-900/60 p-6 rounded-3xl border border-zinc-800">
                 <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0 shadow-lg shadow-amber-500/10">
-                        <Tv size={28} />
+                    <div className="w-12 h-12 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0 shadow-lg shadow-amber-500/10">
+                        <Tv size={24} />
                     </div>
                     <div>
-                        <h2 className="text-xl font-black text-white flex items-center gap-2">
-                            Live TV &amp; DVR Configuration Hub
+                        <h2 className="text-lg font-black text-white flex items-center gap-2">
+                            Live TV &amp; DVR Setup
                         </h2>
-                        <p className="text-xs text-zinc-400 mt-1">
-                            Manage IPTV providers, EPG guides, stream redundancy groupings, and automated DVR recording rules.
+                        <p className="text-xs text-zinc-400 mt-0.5">
+                            Manage IPTV providers, curated shortlists, stream quality groupings, storage folders, and recording rules.
                         </p>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-2.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                    {libraries.length > 1 && (
+                        <select
+                            value={selectedLibraryId}
+                            onChange={e => handleSelectLibrary(e.target.value)}
+                            className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none focus:border-amber-500"
+                        >
+                            {libraries.map(l => (
+                                <option key={l.id} value={l.id}>{l.name}</option>
+                            ))}
+                        </select>
+                    )}
+
                     <button
                         onClick={() => setIsAddProviderOpen(true)}
-                        className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs transition-all shadow-lg shadow-amber-500/20 flex items-center gap-1.5 cursor-pointer"
+                        className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs transition-all shadow-lg shadow-amber-500/20 flex items-center gap-1.5 cursor-pointer"
                     >
-                        <Plus size={14} /> Add IPTV Provider
+                        <Plus size={14} /> Add Provider
                     </button>
+
                     {activeLibrary && (
                         <button
                             onClick={() => setIsSettingsOpen(true)}
-                            className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                            className="px-3.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                            title="EPG Sync & Provider Settings"
                         >
-                            <Calendar size={14} /> EPG &amp; Sync
+                            <Settings size={14} /> Sync &amp; EPG
                         </button>
                     )}
                 </div>
             </div>
 
-            {/* Provider Details & Quick Actions Bar */}
-            {activeLibrary && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="p-5 bg-zinc-900/40 rounded-2xl border border-zinc-800/80 flex items-center justify-between">
-                        <div>
-                            <span className="text-[10px] font-black uppercase tracking-wider text-zinc-500">Active Provider</span>
-                            <h3 className="text-base font-black text-white">{activeLibrary.name}</h3>
-                            <span className="text-xs text-amber-400 font-bold">{channels.length} Total Channels</span>
-                        </div>
+            <div className="flex items-center gap-2 border-b border-zinc-800/80 pb-3 overflow-x-auto custom-scrollbar">
+                {[
+                    { id: 'shortlists', label: 'Shortlists', count: shortlists.length, icon: Bookmark },
+                    { id: 'providers', label: 'Providers', count: libraries.length, icon: Tv },
+                    { id: 'storage', label: 'Storage', count: folders.length, icon: Folder },
+                    { id: 'rules', label: 'Rules', count: rules.length, icon: Sparkles },
+                    { id: 'recordings', label: 'Recordings', count: recordings.length, icon: Clock }
+                ].map(t => {
+                    const isActive = activeTab === t.id;
+                    const Icon = t.icon;
+                    return (
                         <button
-                            onClick={() => setIsSettingsOpen(true)}
-                            className="p-2.5 bg-zinc-800 hover:bg-zinc-700 rounded-xl text-zinc-300 text-xs font-bold cursor-pointer"
-                            title="Edit Provider & EPG URL"
+                            key={t.id}
+                            onClick={() => setActiveTab(t.id as any)}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 ${
+                                isActive
+                                    ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30 shadow-sm'
+                                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'
+                            }`}
                         >
-                            <Settings size={16} />
+                            <Icon size={14} />
+                            <span>{t.label}</span>
+                            <span className={`px-1.5 py-0.2 rounded-md text-[10px] ${isActive ? 'bg-amber-500/20 text-amber-300' : 'bg-zinc-800 text-zinc-500'}`}>
+                                {t.count}
+                            </span>
                         </button>
+                    );
+                })}
+            </div>
+
+            {activeTab === 'shortlists' && (
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h3 className="text-base font-black text-white flex items-center gap-2">
+                                <Bookmark size={18} className="text-amber-400" />
+                                Curated Shortlists
+                            </h3>
+                            <p className="text-xs text-zinc-400 mt-0.5">
+                                Create channel packs (e.g. Sports, News, Kids) and auto-group duplicate stream qualities.
+                            </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            {channels.length > 0 && (
+                                <button
+                                    onClick={() => setIsAutoGroupOpen(true)}
+                                    className="px-3.5 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 text-xs font-black flex items-center gap-1.5 cursor-pointer"
+                                    title="Auto-group identical channels with varying stream qualities"
+                                >
+                                    <Sparkles size={14} /> Auto-group
+                                </button>
+                            )}
+                            <button
+                                onClick={openCreateShortlist}
+                                className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-lg shadow-amber-500/20"
+                            >
+                                <Plus size={14} /> New Shortlist
+                            </button>
+                        </div>
                     </div>
 
-                    <div className="p-5 bg-zinc-900/40 rounded-2xl border border-zinc-800/80 flex items-center justify-between">
-                        <div>
-                            <span className="text-[10px] font-black uppercase tracking-wider text-zinc-500">Channel Grouping &amp; Redundancy</span>
-                            <h3 className="text-base font-black text-white">Auto-Grouping Engine</h3>
-                            <p className="text-xs text-zinc-400">Detect &amp; merge 4K/FHD/HD variants</p>
-                        </div>
-                        <button
-                            onClick={() => setIsAutoGroupOpen(true)}
-                            className="px-3.5 py-2 bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer"
-                        >
-                            <Sparkles size={14} /> Suggestions
-                        </button>
-                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {shortlists.length === 0 ? (
+                            <div className="col-span-full p-10 text-center bg-zinc-950/50 rounded-2xl border border-zinc-900 text-zinc-500 space-y-2">
+                                <Bookmark size={32} className="mx-auto text-zinc-700" />
+                                <p className="text-sm font-bold text-zinc-300">No shortlists created yet</p>
+                                <p className="text-xs max-w-md mx-auto">
+                                    Click "New Shortlist" to pick your favorite channels or click "Auto-group" to combine 4K, 1080p, and HD streams.
+                                </p>
+                            </div>
+                        ) : (
+                            shortlists.map(sl => (
+                                <div key={sl.id} className="p-4 bg-zinc-950 rounded-2xl border border-zinc-800/80 hover:border-zinc-700 space-y-3 transition-all flex flex-col justify-between">
+                                    <div className="flex items-start justify-between gap-2">
+                                        <div className="min-w-0 flex-1">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-sm font-black text-white truncate">{sl.name}</span>
+                                            </div>
+                                            <span className="text-xs text-amber-400 font-bold block mt-0.5">
+                                                {sl.channelIds?.length || 0} channels
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center gap-1 shrink-0">
+                                            <button
+                                                onClick={() => openEditShortlist(sl)}
+                                                className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-900 rounded-lg cursor-pointer transition-colors"
+                                                title="Edit Shortlist"
+                                            >
+                                                <Edit3 size={14} />
+                                            </button>
+                                            <button
+                                                onClick={() => handleDeleteShortlist(sl.id, sl.name)}
+                                                className="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg cursor-pointer transition-colors"
+                                                title="Delete Shortlist"
+                                            >
+                                                <Trash2 size={14} />
+                                            </button>
+                                        </div>
+                                    </div>
 
-                    <div className="p-5 bg-zinc-900/40 rounded-2xl border border-zinc-800/80 flex items-center justify-between">
-                        <div>
-                            <span className="text-[10px] font-black uppercase tracking-wider text-zinc-500">Automated Smart DVR</span>
-                            <h3 className="text-base font-black text-white">{rules.length} Active Rules</h3>
-                            <p className="text-xs text-zinc-400">{recordings.length} Scheduled/Completed</p>
-                        </div>
-                        <button
-                            onClick={handleScanRules}
-                            className="px-3.5 py-2 bg-purple-500/15 hover:bg-purple-500/25 text-purple-400 border border-purple-500/30 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer"
-                            title="Scan Guide Schedule for Rule Matches"
-                        >
-                            <RefreshCw size={14} /> Scan Guide
-                        </button>
+                                    <div className="pt-1 flex items-center justify-between text-[11px] text-zinc-500 border-t border-zinc-900">
+                                        <span>Ready in Theater</span>
+                                        <button
+                                            onClick={() => openEditShortlist(sl)}
+                                            className="text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1 cursor-pointer"
+                                        >
+                                            Manage <ArrowRight size={11} />
+                                        </button>
+                                    </div>
+                                </div>
+                            ))
+                        )}
                     </div>
                 </div>
             )}
 
-            {/* DVR Recording Storage Folders Section */}
-            <div className="bg-zinc-900/30 p-6 rounded-3xl border border-zinc-800/80 space-y-4">
-                <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
-                    <div>
-                        <h3 className="text-base font-black text-white flex items-center gap-2">
-                            <Folder size={18} className="text-amber-400" />
-                            DVR Recording Storage Folders
-                        </h3>
-                        <p className="text-xs text-zinc-400 mt-0.5">
-                            Directories where captured broadcasts and scheduled recordings will be saved.
-                        </p>
+            {activeTab === 'providers' && (
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h3 className="text-base font-black text-white flex items-center gap-2">
+                                <Tv size={18} className="text-amber-400" />
+                                IPTV Providers ({libraries.length})
+                            </h3>
+                            <p className="text-xs text-zinc-400 mt-0.5">
+                                Connected playlist URLs, Xtream Codes credentials, and XMLTV guide sources.
+                            </p>
+                        </div>
+                        <button
+                            onClick={() => setIsAddProviderOpen(true)}
+                            className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-lg shadow-amber-500/20"
+                        >
+                            <Plus size={14} /> Add Provider
+                        </button>
                     </div>
-                    <button
-                        onClick={() => setIsNewFolderOpen(true)}
-                        className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-amber-400 border border-amber-500/30 text-xs font-bold flex items-center gap-1 cursor-pointer"
-                    >
-                        <Plus size={14} /> Add Folder
-                    </button>
-                </div>
 
-                {isNewFolderOpen && (
-                    <form onSubmit={handleAddFolder} className="p-4 bg-zinc-950 rounded-2xl border border-amber-500/30 space-y-3 animate-in fade-in">
-                        <div className="flex items-center justify-between">
-                            <span className="text-xs font-black text-amber-400 uppercase">Add Storage Destination</span>
-                            <button type="button" onClick={() => setIsNewFolderOpen(false)} className="text-zinc-500 hover:text-white">
-                                <X size={16} />
-                            </button>
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div>
-                                <label className="text-[11px] font-bold text-zinc-400 block mb-1">Directory Path</label>
-                                <input
-                                    type="text"
-                                    placeholder="e.g. /mnt/user/media/recordings or C:\Recordings"
-                                    value={newFolderPath}
-                                    onChange={e => setNewFolderPath(e.target.value)}
-                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-amber-500"
-                                    required
-                                />
-                            </div>
-                            <div>
-                                <label className="text-[11px] font-bold text-zinc-400 block mb-1">Display Label (Optional)</label>
-                                <input
-                                    type="text"
-                                    placeholder="e.g. Sports DVR / Movies DVR"
-                                    value={newFolderName}
-                                    onChange={e => setNewFolderName(e.target.value)}
-                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-amber-500"
-                                />
-                            </div>
-                        </div>
-                        <div className="flex items-center justify-between pt-2">
-                            <label className="flex items-center gap-2 text-xs font-bold text-zinc-300 cursor-pointer">
-                                <input
-                                    type="checkbox"
-                                    checked={newFolderDefault}
-                                    onChange={e => setNewFolderDefault(e.target.checked)}
-                                    className="w-4 h-4 rounded text-amber-500"
-                                />
-                                Set as default recording folder
-                            </label>
-                            <button
-                                type="submit"
-                                className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-black text-xs rounded-xl cursor-pointer"
-                            >
-                                Save Folder
-                            </button>
-                        </div>
-                    </form>
-                )}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {libraries.map(lib => {
+                            const epgSource = lib.folders?.[1];
+                            const schedHours = lib.folders?.[2] || '24';
+                            const lastSynced = lib.folders?.[3] ? new Date(lib.folders[3]) : null;
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {folders.length === 0 ? (
-                        <div className="col-span-full p-8 text-center bg-zinc-950/50 rounded-2xl border border-zinc-900 text-zinc-500">
-                            <Folder size={28} className="mx-auto mb-2 text-zinc-700" />
-                            <p className="text-xs font-bold text-zinc-400">No DVR storage folders configured yet</p>
-                            <p className="text-[11px] mt-0.5">Add a directory above so recordings have a destination folder to save files.</p>
-                        </div>
-                    ) : (
-                        folders.map(f => (
-                            <div key={f.id} className="p-3.5 bg-zinc-950 rounded-2xl border border-zinc-800 flex items-center justify-between">
-                                <div className="space-y-0.5">
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-xs font-black text-white">{f.name}</span>
-                                        {f.is_default && (
-                                            <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 text-[9px] font-black uppercase">
-                                                Default
-                                            </span>
-                                        )}
+                            return (
+                                <div key={lib.id} className="p-4 bg-zinc-950 rounded-2xl border border-zinc-800 space-y-3">
+                                    <div className="flex items-start justify-between gap-2">
+                                        <div>
+                                            <h4 className="text-sm font-black text-white">{lib.name}</h4>
+                                            <div className="flex items-center gap-2 mt-0.5">
+                                                <span className="text-xs text-amber-400 font-bold">
+                                                    {lib.id === activeLibrary?.id ? `${channels.length} Channels` : 'Provider'}
+                                                </span>
+                                                {epgSource && (
+                                                    <span className="text-[10px] px-2 py-0.5 rounded-md bg-zinc-900 text-zinc-400 border border-zinc-800">
+                                                        {schedHours === '0' ? 'Manual Sync' : `Sync: ${schedHours}h`}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <button
+                                            onClick={() => {
+                                                setSelectedLibraryId(lib.id);
+                                                setIsSettingsOpen(true);
+                                            }}
+                                            className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white text-xs font-bold cursor-pointer transition-colors"
+                                            title="Edit Provider, EPG Schedule & Sync"
+                                        >
+                                            <Settings size={14} />
+                                        </button>
                                     </div>
-                                    <span className="text-[11px] text-zinc-500 font-mono block truncate max-w-[220px]">{f.path}</span>
+
+                                    <div className="text-[11px] text-zinc-500 font-mono truncate bg-zinc-900/60 p-2 rounded-xl border border-zinc-800/80">
+                                        {lib.folders?.[0] || 'Local upload'}
+                                    </div>
+
+                                    <div className="pt-1 flex items-center justify-between text-[11px] text-zinc-500 border-t border-zinc-900">
+                                        <span>
+                                            {lastSynced ? `Synced: ${lastSynced.toLocaleDateString()}` : 'Not synced yet'}
+                                        </span>
+                                        <button
+                                            onClick={() => {
+                                                setSelectedLibraryId(lib.id);
+                                                setIsSettingsOpen(true);
+                                            }}
+                                            className="text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1 cursor-pointer"
+                                        >
+                                            <RefreshCw size={11} /> Sync Guide
+                                        </button>
+                                    </div>
                                 </div>
-                                <button
-                                    onClick={() => handleDeleteFolder(f.id)}
-                                    className="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
-                                >
-                                    <Trash2 size={14} />
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+
+            {activeTab === 'storage' && (
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h3 className="text-base font-black text-white flex items-center gap-2">
+                                <Folder size={18} className="text-amber-400" />
+                                Storage Folders
+                            </h3>
+                            <p className="text-xs text-zinc-400 mt-0.5">
+                                Target directories where captured live broadcasts and scheduled recordings will be written.
+                            </p>
+                        </div>
+                        <button
+                            onClick={() => setIsNewFolderOpen(true)}
+                            className="px-3.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-amber-400 border border-amber-500/30 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                        >
+                            <Plus size={14} /> Add Folder
+                        </button>
+                    </div>
+
+                    {isNewFolderOpen && (
+                        <form onSubmit={handleAddFolder} className="p-4 bg-zinc-950 rounded-2xl border border-amber-500/30 space-y-3 animate-in fade-in">
+                            <div className="flex items-center justify-between">
+                                <span className="text-xs font-black text-amber-400 uppercase">Add Storage Destination</span>
+                                <button type="button" onClick={() => setIsNewFolderOpen(false)} className="text-zinc-500 hover:text-white">
+                                    <X size={16} />
                                 </button>
                             </div>
-                        ))
-                    )}
-                </div>
-            </div>
-
-            {/* Smart DVR Rules Engine Section */}
-            <div className="bg-zinc-900/30 p-6 rounded-3xl border border-zinc-800/80 space-y-4">
-                <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
-                    <div>
-                        <h3 className="text-base font-black text-white flex items-center gap-2">
-                            <Sparkles size={18} className="text-purple-400" />
-                            Smart DVR Automated Recording Rules
-                        </h3>
-                        <p className="text-xs text-zinc-400 mt-0.5">
-                            Automate recording by sports teams (e.g. &quot;Benfica&quot;), tournament events (e.g. &quot;Real Madrid Champions League&quot;), or actor films missing from library.
-                        </p>
-                    </div>
-                    <button
-                        onClick={() => setIsNewRuleOpen(true)}
-                        className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-purple-400 border border-purple-500/30 text-xs font-bold flex items-center gap-1 cursor-pointer"
-                    >
-                        <Plus size={14} /> New Smart Rule
-                    </button>
-                </div>
-
-                {isNewRuleOpen && (
-                    <form onSubmit={handleSaveRule} className="p-5 bg-zinc-950 rounded-2xl border border-purple-500/30 space-y-4 animate-in fade-in">
-                        <div className="flex items-center justify-between">
-                            <span className="text-xs font-black text-purple-400 uppercase">Create Automated Recording Rule</span>
-                            <button type="button" onClick={() => setIsNewRuleOpen(false)} className="text-zinc-500 hover:text-white">
-                                <X size={16} />
-                            </button>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                            <div>
-                                <label className="text-[11px] font-bold text-zinc-400 block mb-1">Rule Name</label>
-                                <input
-                                    type="text"
-                                    placeholder="e.g. All Benfica Matches"
-                                    value={ruleName}
-                                    onChange={e => setRuleName(e.target.value)}
-                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-purple-500"
-                                    required
-                                />
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-[11px] font-bold text-zinc-400 block mb-1">Directory Path</label>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. /mnt/user/recordings or C:\Recordings"
+                                        value={newFolderPath}
+                                        onChange={e => setNewFolderPath(e.target.value)}
+                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-amber-500"
+                                        required
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[11px] font-bold text-zinc-400 block mb-1">Display Label</label>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. Sports DVR / Main DVR"
+                                        value={newFolderName}
+                                        onChange={e => setNewFolderName(e.target.value)}
+                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-amber-500"
+                                    />
+                                </div>
                             </div>
-
-                            <div>
-                                <label className="text-[11px] font-bold text-zinc-400 block mb-1">Match Query / Keywords</label>
-                                <input
-                                    type="text"
-                                    placeholder="e.g. Benfica OR Real Madrid Champions League OR Bruce Willis"
-                                    value={ruleQuery}
-                                    onChange={e => setRuleQuery(e.target.value)}
-                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-purple-500"
-                                    required
-                                />
-                            </div>
-
-                            <div>
-                                <label className="text-[11px] font-bold text-zinc-400 block mb-1">Rule Type</label>
-                                <select
-                                    value={ruleType}
-                                    onChange={e => setRuleType(e.target.value as any)}
-                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-purple-500"
-                                >
-                                    <option value="sports">Sports Match / Team</option>
-                                    <option value="actor">Actor / Cast Member</option>
-                                    <option value="keyword">Keyword / Tournament</option>
-                                    <option value="title">Movie / Show Title</option>
-                                </select>
-                            </div>
-
-                            <div>
-                                <label className="text-[11px] font-bold text-zinc-400 block mb-1">Destination Storage Folder</label>
-                                <select
-                                    value={ruleFolder}
-                                    onChange={e => setRuleFolder(e.target.value)}
-                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-purple-500"
-                                    required
-                                >
-                                    {folders.map(f => (
-                                        <option key={f.id} value={f.path}>{f.name} ({f.path})</option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            <div>
-                                <label className="text-[11px] font-bold text-zinc-400 block mb-1">Post-Broadcast Overtime Padding</label>
-                                <select
-                                    value={rulePadding}
-                                    onChange={e => setRulePadding(parseInt(e.target.value))}
-                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-purple-500"
-                                >
-                                    <option value={0}>0 minutes</option>
-                                    <option value={15}>+15 minutes (Standard)</option>
-                                    <option value={30}>+30 minutes (Sports Overtime)</option>
-                                    <option value={60}>+60 minutes (Heavy Overtime)</option>
-                                </select>
-                            </div>
-
-                            <div className="flex items-center pt-5">
+                            <div className="flex items-center justify-between pt-2">
                                 <label className="flex items-center gap-2 text-xs font-bold text-zinc-300 cursor-pointer">
                                     <input
                                         type="checkbox"
-                                        checked={ruleMissingOnly}
-                                        onChange={e => setRuleMissingOnly(e.target.checked)}
-                                        className="w-4 h-4 rounded text-purple-500"
+                                        checked={newFolderDefault}
+                                        onChange={e => setNewFolderDefault(e.target.checked)}
+                                        className="w-4 h-4 rounded text-amber-500"
                                     />
-                                    Only record if missing from library
+                                    Set as default recording folder
                                 </label>
+                                <button
+                                    type="submit"
+                                    className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-black text-xs rounded-xl cursor-pointer"
+                                >
+                                    Save Folder
+                                </button>
                             </div>
-                        </div>
+                        </form>
+                    )}
 
-                        <div className="flex justify-end pt-2">
-                            <button
-                                type="submit"
-                                className="px-5 py-2 bg-purple-500 hover:bg-purple-400 text-white font-black text-xs rounded-xl cursor-pointer shadow-lg shadow-purple-500/20"
-                            >
-                                Create Automation Rule
-                            </button>
-                        </div>
-                    </form>
-                )}
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {rules.length === 0 ? (
-                        <div className="col-span-full p-8 text-center bg-zinc-950/50 rounded-2xl border border-zinc-900 text-zinc-500">
-                            <Sparkles size={28} className="mx-auto mb-2 text-zinc-700" />
-                            <p className="text-xs font-bold text-zinc-400">No automated recording rules active</p>
-                            <p className="text-[11px] mt-0.5">Click &quot;New Smart Rule&quot; to automate recordings for your favorite football clubs, actors, or competitions.</p>
-                        </div>
-                    ) : (
-                        rules.map(r => (
-                            <div key={r.id} className="p-4 bg-zinc-950 rounded-2xl border border-zinc-800 space-y-2">
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                        <span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse" />
-                                        <span className="text-sm font-black text-white">{r.name}</span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {folders.length === 0 ? (
+                            <div className="col-span-full p-8 text-center bg-zinc-950/50 rounded-2xl border border-zinc-900 text-zinc-500">
+                                <Folder size={28} className="mx-auto mb-2 text-zinc-700" />
+                                <p className="text-xs font-bold text-zinc-400">No storage folders configured yet</p>
+                                <p className="text-[11px] mt-0.5">Add a directory so recordings have a target folder to write files.</p>
+                            </div>
+                        ) : (
+                            folders.map(f => (
+                                <div key={f.id} className="p-3.5 bg-zinc-950 rounded-2xl border border-zinc-800 flex items-center justify-between">
+                                    <div className="space-y-0.5 min-w-0 flex-1 pr-2">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-xs font-black text-white truncate">{f.name}</span>
+                                            {f.is_default && (
+                                                <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 text-[9px] font-black uppercase">
+                                                    Default
+                                                </span>
+                                            )}
+                                        </div>
+                                        <span className="text-[11px] text-zinc-500 font-mono block truncate">{f.path}</span>
                                     </div>
                                     <button
-                                        onClick={() => handleDeleteRule(r.id)}
-                                        className="p-1.5 text-zinc-500 hover:text-red-400 rounded-lg cursor-pointer"
+                                        onClick={() => handleDeleteFolder(f.id)}
+                                        className="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer shrink-0"
                                     >
                                         <Trash2 size={14} />
                                     </button>
                                 </div>
-                                <div className="flex flex-wrap gap-2 text-[10px] font-bold">
-                                    <span className="px-2 py-0.5 rounded bg-zinc-900 text-purple-300 border border-purple-500/20">
-                                        Query: &quot;{r.query}&quot;
-                                    </span>
-                                    <span className="px-2 py-0.5 rounded bg-zinc-900 text-zinc-400">
-                                        Type: {r.rule_type}
-                                    </span>
-                                    {r.check_missing_from_library && (
-                                        <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                                            ✓ Skip if in library
-                                        </span>
-                                    )}
-                                    <span className="px-2 py-0.5 rounded bg-zinc-900 text-zinc-500">
-                                        +{r.padding_minutes}m padding
-                                    </span>
-                                </div>
-                            </div>
-                        ))
-                    )}
-                </div>
-            </div>
-
-            {/* DVR Scheduled & Completed Recordings Ledger */}
-            <div className="bg-zinc-900/30 p-6 rounded-3xl border border-zinc-800/80 space-y-4">
-                <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
-                    <div>
-                        <h3 className="text-base font-black text-white flex items-center gap-2">
-                            <Clock size={18} className="text-sky-400" />
-                            DVR Recordings Ledger
-                        </h3>
-                        <p className="text-xs text-zinc-400 mt-0.5">
-                            Scheduled broadcast timers, active captures, and completed recordings.
-                        </p>
+                            ))
+                        )}
                     </div>
                 </div>
+            )}
 
-                <div className="space-y-2">
-                    {recordings.length === 0 ? (
-                        <div className="p-8 text-center bg-zinc-950/50 rounded-2xl border border-zinc-900 text-zinc-500">
-                            <Clock size={28} className="mx-auto mb-2 text-zinc-700" />
-                            <p className="text-xs font-bold text-zinc-400">No recordings in ledger</p>
-                            <p className="text-[11px] mt-0.5">Right-click any broadcast in the Theater Zapping guide to schedule a recording.</p>
+            {activeTab === 'rules' && (
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h3 className="text-base font-black text-white flex items-center gap-2">
+                                <Sparkles size={18} className="text-purple-400" />
+                                Recording Rules ({rules.length})
+                            </h3>
+                            <p className="text-xs text-zinc-400 mt-0.5">
+                                Automated recording by keywords, sports clubs (e.g. Benfica), or tournaments.
+                            </p>
                         </div>
-                    ) : (
-                        recordings.map(rec => {
-                            const isLive = rec.status === 'recording';
-                            const isDone = rec.status === 'completed';
-                            const isFailed = rec.status === 'failed';
-                            return (
-                                <div key={rec.id} className="p-3.5 bg-zinc-950 rounded-2xl border border-zinc-800 flex items-center justify-between">
-                                    <div className="flex items-center gap-3">
-                                        <div className={`w-3 h-3 rounded-full shrink-0 ${
-                                            isLive ? 'bg-red-500 animate-pulse' : isDone ? 'bg-emerald-500' : isFailed ? 'bg-red-700' : 'bg-amber-500'
-                                        }`} />
-                                        <div>
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-xs font-black text-white">{rec.program_title}</span>
-                                                <span className="text-[10px] text-zinc-400 font-bold">({rec.channel_name})</span>
-                                            </div>
-                                            <span className="text-[11px] text-zinc-500">
-                                                {new Date(rec.start_time).toLocaleString()} &rarr; {new Date(rec.end_time).toLocaleTimeString()}
-                                            </span>
-                                        </div>
-                                    </div>
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={handleScanRules}
+                                className="px-3.5 py-2 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 text-purple-400 border border-purple-500/30 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                                title="Scan Guide Schedule for Rule Matches"
+                            >
+                                <RefreshCw size={13} /> Scan Guide
+                            </button>
+                            <button
+                                onClick={() => setIsNewRuleOpen(true)}
+                                className="px-3.5 py-2 rounded-xl bg-purple-500 hover:bg-purple-400 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-lg shadow-purple-500/20"
+                            >
+                                <Plus size={14} /> New Rule
+                            </button>
+                        </div>
+                    </div>
 
-                                    <div className="flex items-center gap-2">
-                                        <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
-                                            isLive ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
-                                            isDone ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
-                                            isFailed ? 'bg-red-500/20 text-red-500' : 'bg-zinc-800 text-zinc-300'
-                                        }`}>
-                                            {rec.status}
+                    {isNewRuleOpen && (
+                        <form onSubmit={handleSaveRule} className="p-5 bg-zinc-950 rounded-2xl border border-purple-500/30 space-y-4 animate-in fade-in">
+                            <div className="flex items-center justify-between">
+                                <span className="text-xs font-black text-purple-400 uppercase">Create Recording Rule</span>
+                                <button type="button" onClick={() => setIsNewRuleOpen(false)} className="text-zinc-500 hover:text-white">
+                                    <X size={16} />
+                                </button>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                <div>
+                                    <label className="text-[11px] font-bold text-zinc-400 block mb-1">Rule Name</label>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. Benfica Matches"
+                                        value={ruleName}
+                                        onChange={e => setRuleName(e.target.value)}
+                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-purple-500"
+                                        required
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="text-[11px] font-bold text-zinc-400 block mb-1">Match Query / Keywords</label>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. Benfica OR Champions League"
+                                        value={ruleQuery}
+                                        onChange={e => setRuleQuery(e.target.value)}
+                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-purple-500"
+                                        required
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="text-[11px] font-bold text-zinc-400 block mb-1">Rule Type</label>
+                                    <select
+                                        value={ruleType}
+                                        onChange={e => setRuleType(e.target.value as any)}
+                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-purple-500"
+                                    >
+                                        <option value="sports">Sports Match / Team</option>
+                                        <option value="actor">Actor / Cast Member</option>
+                                        <option value="keyword">Keyword / Tournament</option>
+                                        <option value="title">Movie / Show Title</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="text-[11px] font-bold text-zinc-400 block mb-1">Storage Folder</label>
+                                    <select
+                                        value={ruleFolder}
+                                        onChange={e => setRuleFolder(e.target.value)}
+                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-purple-500"
+                                        required
+                                    >
+                                        {folders.map(f => (
+                                            <option key={f.id} value={f.path}>{f.name} ({f.path})</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="text-[11px] font-bold text-zinc-400 block mb-1">Padding Overtime</label>
+                                    <select
+                                        value={rulePadding}
+                                        onChange={e => setRulePadding(parseInt(e.target.value))}
+                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-purple-500"
+                                    >
+                                        <option value={0}>0 minutes</option>
+                                        <option value={15}>+15 minutes (Standard)</option>
+                                        <option value={30}>+30 minutes (Overtime)</option>
+                                        <option value={60}>+60 minutes (Heavy Overtime)</option>
+                                    </select>
+                                </div>
+
+                                <div className="flex items-center pt-5">
+                                    <label className="flex items-center gap-2 text-xs font-bold text-zinc-300 cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={ruleMissingOnly}
+                                            onChange={e => setRuleMissingOnly(e.target.checked)}
+                                            className="w-4 h-4 rounded text-purple-500"
+                                        />
+                                        Only record if missing from library
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div className="flex justify-end pt-2">
+                                <button
+                                    type="submit"
+                                    className="px-5 py-2 bg-purple-500 hover:bg-purple-400 text-white font-black text-xs rounded-xl cursor-pointer shadow-lg shadow-purple-500/20"
+                                >
+                                    Create Rule
+                                </button>
+                            </div>
+                        </form>
+                    )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {rules.length === 0 ? (
+                            <div className="col-span-full p-8 text-center bg-zinc-950/50 rounded-2xl border border-zinc-900 text-zinc-500">
+                                <Sparkles size={28} className="mx-auto mb-2 text-zinc-700" />
+                                <p className="text-xs font-bold text-zinc-400">No automated recording rules active</p>
+                                <p className="text-[11px] mt-0.5">Click "New Rule" to automate recordings for sports matches or actors.</p>
+                            </div>
+                        ) : (
+                            rules.map(r => (
+                                <div key={r.id} className="p-4 bg-zinc-950 rounded-2xl border border-zinc-800 space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse" />
+                                            <span className="text-sm font-black text-white">{r.name}</span>
+                                        </div>
+                                        <button
+                                            onClick={() => handleDeleteRule(r.id)}
+                                            className="p-1.5 text-zinc-500 hover:text-red-400 rounded-lg cursor-pointer"
+                                        >
+                                            <Trash2 size={14} />
+                                        </button>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2 text-[10px] font-bold">
+                                        <span className="px-2 py-0.5 rounded bg-zinc-900 text-purple-300 border border-purple-500/20">
+                                            Query: "{r.query}"
                                         </span>
-                                        {(isLive || rec.status === 'scheduled') && (
-                                            <button
-                                                onClick={() => handleCancelRecording(rec.id)}
-                                                className="px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 text-xs font-bold cursor-pointer"
-                                            >
-                                                Cancel
-                                            </button>
-                                        )}
+                                        <span className="px-2 py-0.5 rounded bg-zinc-900 text-zinc-400">
+                                            Type: {r.rule_type}
+                                        </span>
+                                        <span className="px-2 py-0.5 rounded bg-zinc-900 text-zinc-500">
+                                            +{r.padding_minutes}m padding
+                                        </span>
                                     </div>
                                 </div>
-                            );
-                        })
-                    )}
+                            ))
+                        )}
+                    </div>
                 </div>
-            </div>
+            )}
+
+            {activeTab === 'recordings' && (
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h3 className="text-base font-black text-white flex items-center gap-2">
+                                <Clock size={18} className="text-sky-400" />
+                                Recordings ({recordings.length})
+                            </h3>
+                            <p className="text-xs text-zinc-400 mt-0.5">
+                                Scheduled broadcast timers, active captures, and completed recordings.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="space-y-2">
+                        {recordings.length === 0 ? (
+                            <div className="p-8 text-center bg-zinc-950/50 rounded-2xl border border-zinc-900 text-zinc-500">
+                                <Clock size={28} className="mx-auto mb-2 text-zinc-700" />
+                                <p className="text-xs font-bold text-zinc-400">No recordings in ledger</p>
+                                <p className="text-[11px] mt-0.5">Record any live broadcast from Theater mode or create an automated rule above.</p>
+                            </div>
+                        ) : (
+                            recordings.map(rec => {
+                                const isLive = rec.status === 'recording';
+                                const isDone = rec.status === 'completed';
+                                const isFailed = rec.status === 'failed';
+                                return (
+                                    <div key={rec.id} className="p-3.5 bg-zinc-950 rounded-2xl border border-zinc-800 flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className={`w-3 h-3 rounded-full shrink-0 ${
+                                                isLive ? 'bg-red-500 animate-pulse' : isDone ? 'bg-emerald-500' : isFailed ? 'bg-red-700' : 'bg-amber-500'
+                                            }`} />
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-xs font-black text-white">{rec.program_title}</span>
+                                                    <span className="text-[10px] text-zinc-400 font-bold">({rec.channel_name})</span>
+                                                </div>
+                                                <span className="text-[11px] text-zinc-500">
+                                                    {new Date(rec.start_time).toLocaleString()} &rarr; {new Date(rec.end_time).toLocaleTimeString()}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-2">
+                                            <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                                                isLive ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
+                                                isDone ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                                                isFailed ? 'bg-red-500/20 text-red-500' : 'bg-zinc-800 text-zinc-300'
+                                            }`}>
+                                                {rec.status}
+                                            </span>
+                                            {(isLive || rec.status === 'scheduled') && (
+                                                <button
+                                                    onClick={() => handleCancelRecording(rec.id)}
+                                                    className="px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 text-xs font-bold cursor-pointer"
+                                                >
+                                                    Cancel
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {isShortlistModalOpen && (
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200">
+                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-4xl p-6 sm:p-8 space-y-6 max-h-[90vh] overflow-y-auto custom-scrollbar flex flex-col shadow-2xl text-zinc-100">
+                        <div className="flex items-center justify-between pb-2 border-b border-zinc-900">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                                    <Bookmark size={20} />
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-black text-white">
+                                        {editingShortlistId ? 'Edit Shortlist' : 'New Shortlist'}
+                                    </h3>
+                                    <p className="text-xs text-zinc-500 mt-0.5">
+                                        Pick channels from provider and auto-group duplicate quality streams.
+                                    </p>
+                                </div>
+                            </div>
+                            <button onClick={() => setIsShortlistModalOpen(false)} className="text-zinc-500 hover:text-white">
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <form onSubmit={handleSaveShortlist} className="space-y-4">
+                            <div className="flex flex-col sm:flex-row items-stretch sm:items-end justify-between gap-3">
+                                <div className="flex-1 space-y-1">
+                                    <label className="text-xs font-black uppercase text-zinc-400 tracking-wider">Shortlist Name</label>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. Sports Pack, News, Kids"
+                                        value={shortlistName}
+                                        onChange={e => setShortlistName(e.target.value)}
+                                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-xs text-white outline-none focus:border-amber-500"
+                                        required
+                                    />
+                                </div>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setIsAutoGroupOpen(true)}
+                                    className="px-4 py-2.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 text-xs font-black flex items-center gap-1.5 cursor-pointer shrink-0"
+                                    title="Auto-group channels across stream qualities (4K, 1080p, 720p, SD)"
+                                >
+                                    <Sparkles size={14} /> Auto-group
+                                </button>
+                            </div>
+
+                            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-2">
+                                <div className="relative flex-1">
+                                    <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+                                    <input
+                                        type="text"
+                                        placeholder="Search channels..."
+                                        value={shortlistSearch}
+                                        onChange={e => setShortlistSearch(e.target.value)}
+                                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-zinc-500 outline-none focus:border-amber-500"
+                                    />
+                                    {shortlistSearch && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setShortlistSearch('')}
+                                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white"
+                                        >
+                                            <X size={13} />
+                                        </button>
+                                    )}
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                    <select
+                                        value={shortlistCategory}
+                                        onChange={e => setShortlistCategory(e.target.value)}
+                                        className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-amber-500 max-w-[200px] truncate"
+                                    >
+                                        <option value="ALL">All Categories ({channels.length})</option>
+                                        {groups.map(g => (
+                                            <option key={g.name} value={g.name}>{g.name} ({g.count})</option>
+                                        ))}
+                                    </select>
+
+                                    <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800 shrink-0">
+                                        <button
+                                            type="button"
+                                            onClick={() => setShortlistViewMode('grid')}
+                                            className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                                                shortlistViewMode === 'grid' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'
+                                            }`}
+                                        >
+                                            <LayoutGrid size={14} />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShortlistViewMode('list')}
+                                            className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                                                shortlistViewMode === 'list' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'
+                                            }`}
+                                        >
+                                            <Rows size={14} />
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center justify-between px-1 text-xs">
+                                <span className="font-bold text-zinc-400">
+                                    <span className="text-amber-400">{shortlistSelectedIds.length}</span> channels selected
+                                    <span className="text-zinc-600 font-normal"> ({filteredShortlistChannels.length} found)</span>
+                                </span>
+                                <div className="flex items-center gap-2 text-[11px] font-bold">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const ids = filteredShortlistChannels.map(c => c.id);
+                                            setShortlistSelectedIds(prev => Array.from(new Set([...prev, ...ids])));
+                                        }}
+                                        className="text-emerald-400 hover:text-emerald-300 cursor-pointer"
+                                    >
+                                        + Select Filtered
+                                    </button>
+                                    <span className="text-zinc-700">•</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const set = new Set(filteredShortlistChannels.map(c => c.id));
+                                            setShortlistSelectedIds(prev => prev.filter(id => !set.has(id)));
+                                        }}
+                                        className="text-amber-400 hover:text-amber-300 cursor-pointer"
+                                    >
+                                        - Deselect Filtered
+                                    </button>
+                                    <span className="text-zinc-700">•</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShortlistSelectedIds([])}
+                                        className="text-zinc-500 hover:text-white cursor-pointer"
+                                    >
+                                        Clear All
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="max-h-80 overflow-y-auto custom-scrollbar p-2 bg-zinc-950 rounded-2xl border border-zinc-900">
+                                {filteredShortlistChannels.length === 0 ? (
+                                    <div className="p-8 text-center text-zinc-500 text-xs">
+                                        No channels found matching filter.
+                                    </div>
+                                ) : shortlistViewMode === 'grid' ? (
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                                        {filteredShortlistChannels.slice(0, 150).map(chan => {
+                                            const isSelected = shortlistSelectedIds.includes(chan.id);
+                                            const streamCount = chan.streams?.length || 1;
+                                            return (
+                                                <div
+                                                    key={chan.id}
+                                                    onClick={() => {
+                                                        setShortlistSelectedIds(prev =>
+                                                            isSelected ? prev.filter(id => id !== chan.id) : [...prev, chan.id]
+                                                        );
+                                                    }}
+                                                    className={`p-2.5 rounded-xl border text-xs font-bold cursor-pointer transition-all flex flex-col justify-between gap-1.5 select-none ${
+                                                        isSelected
+                                                            ? 'bg-amber-500/20 text-white border-amber-500/50 shadow-md'
+                                                            : 'bg-zinc-900/40 text-zinc-400 border-zinc-800/80 hover:border-zinc-700 hover:bg-zinc-900'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <div className="w-8 h-8 rounded-lg bg-zinc-950 flex items-center justify-center p-0.5 shrink-0 overflow-hidden">
+                                                            {chan.logo ? (
+                                                                <img src={chan.logo} alt="" className="max-h-6 max-w-full object-contain" onError={e => (e.currentTarget.style.display = 'none')} />
+                                                            ) : (
+                                                                <Tv2 size={16} className="text-zinc-600" />
+                                                            )}
+                                                        </div>
+                                                        <div className={`w-4 h-4 rounded-md border flex items-center justify-center shrink-0 ${isSelected ? 'bg-amber-500 border-amber-500 text-black' : 'border-zinc-700'}`}>
+                                                            {isSelected && <Check size={12} className="stroke-[3]" />}
+                                                        </div>
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <p className="truncate font-bold text-white text-xs">{chan.name}</p>
+                                                        <div className="flex items-center gap-1 text-[10px] text-zinc-500 mt-0.5">
+                                                            <span className="truncate max-w-[80px]">{chan.group}</span>
+                                                            {streamCount > 1 && (
+                                                                <span className="text-amber-400 font-mono">⚡{streamCount}</span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                ) : (
+                                    <div className="space-y-1">
+                                        {filteredShortlistChannels.slice(0, 150).map(chan => {
+                                            const isSelected = shortlistSelectedIds.includes(chan.id);
+                                            const streamCount = chan.streams?.length || 1;
+                                            return (
+                                                <div
+                                                    key={chan.id}
+                                                    onClick={() => {
+                                                        setShortlistSelectedIds(prev =>
+                                                            isSelected ? prev.filter(id => id !== chan.id) : [...prev, chan.id]
+                                                        );
+                                                    }}
+                                                    className={`p-2 px-3 rounded-xl border text-xs font-bold cursor-pointer transition-all flex items-center justify-between gap-3 select-none ${
+                                                        isSelected
+                                                            ? 'bg-amber-500/20 text-white border-amber-500/50'
+                                                            : 'bg-zinc-900/40 text-zinc-400 border-zinc-800/80 hover:border-zinc-700 hover:bg-zinc-900'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                                                        <div className={`w-4 h-4 rounded-md border flex items-center justify-center shrink-0 ${isSelected ? 'bg-amber-500 border-amber-500 text-black' : 'border-zinc-700'}`}>
+                                                            {isSelected && <Check size={12} className="stroke-[3]" />}
+                                                        </div>
+                                                        <div className="w-7 h-7 rounded-lg bg-zinc-950 flex items-center justify-center p-0.5 shrink-0 overflow-hidden">
+                                                            {chan.logo ? (
+                                                                <img src={chan.logo} alt="" className="max-h-5 max-w-full object-contain" onError={e => (e.currentTarget.style.display = 'none')} />
+                                                            ) : (
+                                                                <Tv2 size={14} className="text-zinc-600" />
+                                                            )}
+                                                        </div>
+                                                        <span className="truncate font-bold text-white text-xs">{chan.name}</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 shrink-0 text-[10px] text-zinc-500 font-bold">
+                                                        <span>{chan.group}</span>
+                                                        {streamCount > 1 && (
+                                                            <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 font-mono">⚡{streamCount}</span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="flex items-center justify-end gap-3 pt-3 border-t border-zinc-900">
+                                <button
+                                    type="button"
+                                    onClick={() => setIsShortlistModalOpen(false)}
+                                    className="px-5 py-2.5 rounded-xl text-zinc-400 hover:text-white text-xs font-bold cursor-pointer"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={isSavingShortlist || !shortlistName.trim()}
+                                    className="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs transition-all shadow-lg shadow-amber-500/20 cursor-pointer disabled:opacity-50"
+                                >
+                                    {isSavingShortlist ? 'Saving...' : 'Save Shortlist'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
 
             <AddIptvProviderModal
                 isOpen={isAddProviderOpen}

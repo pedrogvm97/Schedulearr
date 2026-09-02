@@ -14,6 +14,7 @@ declare global {
 
 import { startSpeedMonitor } from '@/lib/speedMonitor';
 import { performStartupContainerCleanup } from '@/lib/docker';
+import { checkAndRunScheduledEpgSyncs } from '@/lib/iptvEpgSync';
 
 if (!global.globalSchedulerRunning && process.env.NEXT_PHASE !== 'phase-production-build') {
     global.globalSchedulerRunning = true;
@@ -79,6 +80,17 @@ if (!global.globalSchedulerRunning && process.env.NEXT_PHASE !== 'phase-producti
             setTimeout(runCleanupCycle, intervalMs);
         };
         setTimeout(runCleanupCycle, 15000); // Start 15s after boot
+
+        // Automated EPG Guide sync background checker (checks every 10 minutes)
+        const runEpgCycle = async () => {
+            try {
+                await checkAndRunScheduledEpgSyncs();
+            } catch (err) {
+                console.error('❌ Scheduled EPG sync checker error:', err);
+            }
+            setTimeout(runEpgCycle, 10 * 60 * 1000);
+        };
+        setTimeout(runEpgCycle, 20000); // Start 20s after boot
     };
 
     startScheduler();

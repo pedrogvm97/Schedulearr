@@ -4,6 +4,7 @@ import fs from 'fs';
 import zlib from 'zlib';
 import xml2js from 'xml2js';
 import { getIptvChannels, saveIptvChannels, StoredIptvChannel, saveIptvEpg, getIptvEpgForChannel, getTheaterLibraries, updateTheaterLibrary } from '@/lib/db';
+import { executeEpgSync, parseXmltvDate } from '@/lib/iptvEpgSync';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,13 +32,31 @@ function detectQuality(name: string, group: string): { quality: string; label: s
 
     // Clean channel name by stripping quality suffixes (e.g. "RTP 1 4K" -> "RTP 1")
     const cleanName = name
-        .replace(/\b(8k|4k|uhd|fhd|hd|sd|hevc|h\.?265|1080p|720p|576p|480p)\b/gi, '')
+        .replace(/\b(8k|4k|uhd|fhd|hd|sd|hevc|h\.?265|1080p|720p|576p|480p|2160p)\b/gi, '')
         .replace(/\[.*?\]|\(.*?\)/g, '')
         .replace(/\s+/g, ' ')
         .trim() || name;
 
     return { quality, label, cleanName };
 }
+
+// ── Filter Out Decorative Category Headers / Pseudo-Channels ──
+export function isDummyChannelOrHeader(name: string, url?: string): boolean {
+    if (!name) return true;
+    const trimmed = name.trim();
+    // 1. Matches lines with repeated symbols like ####### TITLE #######, === TITLE ===, --- TITLE ---, *** TITLE ***
+    if (/^[#*=\-_~+/\\<>]{2,}.*[#*=\-_~+/\\<>]{2,}$/.test(trimmed)) return true;
+    if (/^[#*=\-_~+/\\<>]{3,}/.test(trimmed) && trimmed.length < 50) return true;
+    // 2. Decorative section words with symbols
+    if (/^[\s\-_=|#*~:[\]()]+(vip|channels?|group|category|section|menu|info|welcome|advert|sponsor|vod|series|movies?)[\s\-_=|#*~:[\]()]+$/i.test(trimmed)) return true;
+    // 3. URLs that are dummy/fake
+    if (url) {
+        const u = url.toLowerCase().trim();
+        if (u === '#' || u.endsWith('/dummy') || u.endsWith('/placeholder') || u.includes('example.com') || u.includes('0.0.0.0') || u === 'http://' || u === 'https://') return true;
+    }
+    return false;
+}
+
 
 // ── Auto-Detect Xtream Codes Credentials from URL ──
 function tryExtractXtream(urlStr: string): { host: string; username: string; password: string; output: string } | null {
@@ -98,9 +117,11 @@ async function fetchXtreamLiveChannels(
     let count = 0;
     for (const s of streams) {
         const rawName = s.name || `Channel ${++count}`;
+        const streamPlayUrl = `${host}/live/${encodeURIComponent(username)}/${encodeURIComponent(password)}/${s.stream_id}.${output}`;
+        if (isDummyChannelOrHeader(rawName, streamPlayUrl)) continue;
+
         const group = catMap[String(s.category_id)] || 'General';
         const { quality, label, cleanName } = detectQuality(rawName, group);
-        const streamPlayUrl = `${host}/live/${encodeURIComponent(username)}/${encodeURIComponent(password)}/${s.stream_id}.${output}`;
         rawChannels.push({
             id: `chan-${++count}`,
             name: rawName,
@@ -194,23 +215,27 @@ function parseM3uContent(content: string, libraryId: string): StoredIptvChannel[
 
             const { quality, label, cleanName } = detectQuality(rawName, group);
 
-            currentInfo = {
-                id: `chan-${++count}`,
-                name: rawName,
-                cleanName,
-                logo: logoMatch ? logoMatch[1].trim() : undefined,
-                group,
-                tvgId: idMatch ? idMatch[1].trim() : undefined,
-                tvgName: tvgNameMatch ? tvgNameMatch[1].trim() : undefined,
-                quality,
-                label
-            };
+            if (!isDummyChannelOrHeader(rawName)) {
+                currentInfo = {
+                    id: `chan-${++count}`,
+                    name: rawName,
+                    cleanName,
+                    logo: logoMatch ? logoMatch[1].trim() : undefined,
+                    group,
+                    tvgId: idMatch ? idMatch[1].trim() : undefined,
+                    tvgName: tvgNameMatch ? tvgNameMatch[1].trim() : undefined,
+                    quality,
+                    label
+                };
+            }
         } else if (!line.startsWith('#') && currentInfo) {
             if (line.startsWith('http://') || line.startsWith('https://') || line.startsWith('rtmp://') || line.startsWith('mms://')) {
-                rawChannels.push({
-                    ...currentInfo,
-                    url: line
-                });
+                if (!isDummyChannelOrHeader(currentInfo.name, line)) {
+                    rawChannels.push({
+                        ...currentInfo,
+                        url: line
+                    });
+                }
             }
             currentInfo = null;
         }
@@ -262,68 +287,6 @@ function parseM3uContent(content: string, libraryId: string): StoredIptvChannel[
     }
 
     return finalChannels;
-}
-
-// ── Parse & Sync XMLTV EPG Guide ──
-async function syncEpgFromUrl(epgUrl: string, libraryId: string): Promise<number> {
-    try {
-        const headers = { 'User-Agent': 'VLC/3.0.18 LibVLC/3.0.18 Schedulearr/0.5.39' };
-        const res = await axios.get(epgUrl, {
-            timeout: 90000,
-            headers,
-            responseType: 'arraybuffer',
-            maxContentLength: Infinity,
-            maxBodyLength: Infinity
-        });
-
-        let xmlData = '';
-        if (epgUrl.endsWith('.gz') || (res.headers['content-encoding'] || '').includes('gzip')) {
-            xmlData = zlib.gunzipSync(Buffer.from(res.data)).toString('utf-8');
-        } else {
-            xmlData = Buffer.from(res.data).toString('utf-8');
-        }
-
-        const parser = new xml2js.Parser({ explicitArray: false });
-        const parsed = await parser.parseStringPromise(xmlData);
-
-        const programmes = parsed?.tv?.programme;
-        if (!programmes) return 0;
-
-        const progList = Array.isArray(programmes) ? programmes : [programmes];
-        const epgItems: Array<{
-            channelTvgId: string;
-            title: string;
-            description?: string;
-            startTime: string;
-            endTime: string;
-        }> = [];
-
-        for (const p of progList.slice(0, 50000)) {
-            const channelId = p.$?.channel;
-            const startStr = p.$?.start;
-            const stopStr = p.$?.stop;
-            const title = typeof p.title === 'string' ? p.title : p.title?._ || '';
-            const desc = typeof p.desc === 'string' ? p.desc : p.desc?._ || '';
-
-            if (channelId && title && startStr && stopStr) {
-                epgItems.push({
-                    channelTvgId: channelId,
-                    title,
-                    description: desc || undefined,
-                    startTime: startStr,
-                    endTime: stopStr
-                });
-            }
-        }
-
-        if (epgItems.length > 0) {
-            saveIptvEpg(libraryId, epgItems);
-        }
-        return epgItems.length;
-    } catch (err: any) {
-        console.warn('EPG fetch warning:', err.message);
-        return 0;
-    }
 }
 
 export async function GET(req: Request) {
@@ -496,7 +459,7 @@ export async function POST(req: Request) {
 
         // Kick off background EPG sync if EPG URL available
         if (epgUrl) {
-            syncEpgFromUrl(epgUrl, libraryId).catch(e => console.warn('Background EPG sync notice:', e.message));
+            executeEpgSync(libraryId, epgUrl).catch(e => console.warn('Background EPG sync notice:', e.message));
         }
 
         return NextResponse.json({
@@ -535,7 +498,8 @@ export async function PUT(req: Request) {
 
         let syncedEpgCount = 0;
         if (activeEpgUrl) {
-            syncedEpgCount = await syncEpgFromUrl(activeEpgUrl, libraryId);
+            const syncRes = await executeEpgSync(libraryId, activeEpgUrl);
+            syncedEpgCount = syncRes.programCount;
         }
 
         let channelCount = 0;

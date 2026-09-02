@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useState, useMemo } from 'react';
 import { X, Sparkles, Check, Trash2, Plus, Search, Layers, ChevronRight, AlertCircle, ArrowRight } from 'lucide-react';
@@ -218,10 +218,10 @@ export default function IptvAutoGroupingModal({
                         </div>
                         <div>
                             <h3 className="text-lg font-black text-white flex items-center gap-2">
-                                Auto-Grouping Suggestions ({groups.length} Groups Found)
+                                Auto-group ({groups.length} Groups)
                             </h3>
                             <p className="text-xs text-zinc-400 mt-0.5">
-                                Automatically detected multiple quality sources (4K, FHD, HD, SD) for the same channels. Review, edit, or add sources before merging.
+                                Combines same-name channels across stream qualities (4K, 1080p, 720p, SD). Review or edit before saving.
                             </p>
                         </div>
                     </div>

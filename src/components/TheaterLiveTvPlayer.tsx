@@ -238,8 +238,9 @@ export default function TheaterLiveTvPlayer({
 
     // Current Airing Program & Upcoming for Playing Channel
     const currentChannelPrograms = useMemo(() => {
-        if (!currentChannel?.tvgId) return [];
-        return epgMap[currentChannel.tvgId] || [];
+        if (!currentChannel) return [];
+        const tvgId = currentChannel.tvgId || '';
+        return epgMap[tvgId] || epgMap[tvgId.toLowerCase()] || epgMap[currentChannel.name] || epgMap[currentChannel.cleanName || ''] || [];
     }, [currentChannel, epgMap]);
 
     const { currentProgram, upcomingProgram, progressPercent } = useMemo(() => {
@@ -388,22 +389,23 @@ export default function TheaterLiveTvPlayer({
                         </button>
                     ))}
 
-                    <button
-                        onClick={onOpenShortlistManager}
+                    <Link
+                        href="/discover?tab=iptv"
                         className="px-3 py-1.5 rounded-xl text-xs font-bold text-amber-400 hover:bg-amber-500/10 border border-dashed border-amber-500/30 flex items-center gap-1 shrink-0 cursor-pointer"
+                        title="Manage Shortlists in Media Hub"
                     >
-                        <Plus size={12} /> Curate Shortlist
-                    </button>
+                        <Plus size={12} /> Shortlists
+                    </Link>
                 </div>
 
-                {/* Configuration Hub Link */}
+                {/* Media Tab Setup Link */}
                 <Link
                     href="/discover?tab=iptv"
                     className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-amber-300 border border-zinc-800 text-xs font-bold flex items-center gap-1.5 transition-colors shrink-0"
-                    title="Open IPTV & DVR Manager in Media Tab"
+                    title="Setup Providers, Shortlists & DVR in Media Tab"
                 >
                     <Settings size={13} />
-                    <span>IPTV &amp; DVR Setup</span>
+                    <span>Setup</span>
                 </Link>
             </div>
 
@@ -480,7 +482,7 @@ export default function TheaterLiveTvPlayer({
                                 <div className="w-12 h-12 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center p-1.5 shrink-0 overflow-hidden shadow-lg">
                                     {currentChannel?.logo ? (
                                         <img
-                                            src={`/api/theater/iptv/logo?url=${encodeURIComponent(currentChannel.logo)}`}
+                                            src={currentChannel.logo}
                                             alt=""
                                             className="max-h-full max-w-full object-contain"
                                             onError={e => (e.currentTarget.style.display = 'none')}
@@ -616,7 +618,8 @@ export default function TheaterLiveTvPlayer({
                         ) : (
                             visibleChannels.map(chan => {
                                 const isCurrent = currentChannel?.id === chan.id;
-                                const chanEpg = epgMap[chan.tvgId || ''] || [];
+                                const tvgKey = chan.tvgId || '';
+                                const chanEpg = (tvgKey && (epgMap[tvgKey] || epgMap[tvgKey.toLowerCase()])) || epgMap[chan.name] || epgMap[chan.cleanName || ''] || [];
                                 const now = new Date();
                                 const prog = chanEpg.find(p => new Date(p.start_time) <= now && new Date(p.end_time) >= now);
                                 const isExpanded = expandedEpgChannelId === chan.id;
@@ -643,7 +646,7 @@ export default function TheaterLiveTvPlayer({
                                                 <div className="w-10 h-10 rounded-xl bg-zinc-900/90 border border-zinc-800/80 flex items-center justify-center p-1 shrink-0 overflow-hidden">
                                                     {chan.logo ? (
                                                         <img
-                                                            src={`/api/theater/iptv/logo?url=${encodeURIComponent(chan.logo)}`}
+                                                            src={chan.logo}
                                                             alt=""
                                                             className="max-h-full max-w-full object-contain"
                                                             onError={e => (e.currentTarget.style.display = 'none')}

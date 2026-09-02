@@ -913,17 +913,18 @@ export const mergeIptvChannels = (
         if (!primary) return false;
 
         const otherChannels = allChannels.filter(c => channelsToMergeIds.includes(c.id) && c.id !== primaryChannelId);
-        const combinedStreams = [...primary.streams];
+        const combinedStreams = Array.isArray(primary.streams) ? [...primary.streams] : [];
 
         for (const other of otherChannels) {
-            for (const st of other.streams) {
-                if (!combinedStreams.some(s => s.url === st.url)) {
+            const otherStreams = Array.isArray(other.streams) ? other.streams : [];
+            for (const st of otherStreams) {
+                if (st && st.url && !combinedStreams.some(s => s.url === st.url)) {
                     combinedStreams.push(st);
                 }
             }
         }
 
-        // Sort streams by quality: 4K (2160p) > FHD (1080p) > HD (720p) > SD (576p/480p)
+        // Sort streams by quality: 8K > 4K > FHD > HD > SD
         const qualityRank = (q: string) => {
             const l = (q || '').toLowerCase();
             if (l.includes('8k')) return 5;
@@ -943,7 +944,9 @@ export const mergeIptvChannels = (
 
         // Delete the merged channels from the channel list
         for (const other of otherChannels) {
-            db.prepare('DELETE FROM iptv_channels WHERE id = ?').run(other.id);
+            try {
+                db.prepare('DELETE FROM iptv_channels WHERE id = ?').run(other.id);
+            } catch {}
         }
 
         return true;
@@ -958,6 +961,10 @@ export const batchMergeIptvChannels = (
     merges: Array<{ primaryChannelId: string; channelsToMergeIds: string[]; newName?: string }>
 ): { success: boolean; mergedGroupsCount: number; mergedChannelsCount: number } => {
     try {
+        if (!libraryId || !Array.isArray(merges) || merges.length === 0) {
+            return { success: true, mergedGroupsCount: 0, mergedChannelsCount: 0 };
+        }
+
         const allChannels = getIptvChannels(libraryId);
         const channelMap = new Map(allChannels.map(c => [c.id, c]));
         const deletedIds = new Set<string>();
@@ -974,27 +981,31 @@ export const batchMergeIptvChannels = (
         const updatePrimary = db.prepare('UPDATE iptv_channels SET streams_json = ?, name = COALESCE(?, name), clean_name = COALESCE(?, clean_name) WHERE id = ?');
         const deleteChan = db.prepare('DELETE FROM iptv_channels WHERE id = ?');
 
-        const transaction = db.transaction(() => {
-            let mergedGroups = 0;
-            let mergedChannels = 0;
+        let mergedGroups = 0;
+        let mergedChannels = 0;
 
+        const transaction = db.transaction(() => {
             for (const item of merges) {
+                if (!item || !item.primaryChannelId) continue;
                 const primary = channelMap.get(item.primaryChannelId);
                 if (!primary || deletedIds.has(primary.id)) continue;
 
-                const combinedStreams = [...primary.streams];
-                const toMerge = (item.channelsToMergeIds || []).filter(id => id !== primary.id && !deletedIds.has(id));
+                const combinedStreams = Array.isArray(primary.streams) ? [...primary.streams] : [];
+                const toMerge = (item.channelsToMergeIds || []).filter(id => id && id !== primary.id && !deletedIds.has(id));
                 if (toMerge.length === 0) continue;
 
                 for (const otherId of toMerge) {
                     const other = channelMap.get(otherId);
                     if (!other) continue;
-                    for (const st of other.streams) {
-                        if (!combinedStreams.some(s => s.url === st.url)) {
+                    const otherStreams = Array.isArray(other.streams) ? other.streams : [];
+                    for (const st of otherStreams) {
+                        if (st && st.url && !combinedStreams.some(s => s.url === st.url)) {
                             combinedStreams.push(st);
                         }
                     }
-                    deleteChan.run(otherId);
+                    try {
+                        deleteChan.run(otherId);
+                    } catch {}
                     deletedIds.add(otherId);
                     mergedChannels++;
                 }
@@ -1003,18 +1014,16 @@ export const batchMergeIptvChannels = (
 
                 updatePrimary.run(
                     JSON.stringify(combinedStreams),
-                    item.newName || null,
-                    item.newName || null,
+                    item.newName?.trim() || null,
+                    item.newName?.trim() || null,
                     primary.id
                 );
                 mergedGroups++;
             }
-
-            return { mergedGroups, mergedChannels };
         });
 
-        const res = transaction();
-        return { success: true, mergedGroupsCount: res.mergedGroups, mergedChannelsCount: res.mergedChannels };
+        transaction();
+        return { success: true, mergedGroupsCount: mergedGroups, mergedChannelsCount: mergedChannels };
     } catch (e) {
         console.error('Error in batchMergeIptvChannels:', e);
         return { success: false, mergedGroupsCount: 0, mergedChannelsCount: 0 };
@@ -1063,9 +1072,9 @@ export const getIptvEpgForChannel = (libraryId: string, tvgId: string): any[] =>
         const now = new Date().toISOString();
         const rows = db.prepare(`
             SELECT * FROM iptv_epg 
-            WHERE library_id = ? AND channel_tvg_id = ? AND end_time >= ?
-            ORDER BY start_time ASC LIMIT 10
-        `).all(libraryId, tvgId, now) as any[];
+            WHERE library_id = ? AND (channel_tvg_id = ? OR LOWER(channel_tvg_id) = LOWER(?)) AND end_time >= ?
+            ORDER BY start_time ASC LIMIT 15
+        `).all(libraryId, tvgId, tvgId, now) as any[];
         return rows || [];
     } catch (e) {
         console.error('Error fetching IPTV EPG:', e);
@@ -1376,20 +1385,27 @@ export const getBatchIptvEpg = (libraryId: string, tvgIds: string[]) => {
     try {
         if (!tvgIds || tvgIds.length === 0) return {};
         const now = new Date().toISOString();
+        const lowerIds = tvgIds.map(t => t.toLowerCase().trim());
         const placeholders = tvgIds.map(() => '?').join(',');
         const rows = db.prepare(`
             SELECT * FROM iptv_epg 
-            WHERE library_id = ? AND channel_tvg_id IN (${placeholders}) AND end_time >= ?
+            WHERE library_id = ? AND (channel_tvg_id IN (${placeholders}) OR LOWER(channel_tvg_id) IN (${placeholders})) AND end_time >= ?
             ORDER BY start_time ASC
-        `).all(libraryId, ...tvgIds, now) as any[];
+        `).all(libraryId, ...tvgIds, ...lowerIds, now) as any[];
 
         const result: Record<string, any[]> = {};
         for (const row of (rows || [])) {
-            if (!result[row.channel_tvg_id]) {
-                result[row.channel_tvg_id] = [];
-            }
-            if (result[row.channel_tvg_id].length < 10) {
-                result[row.channel_tvg_id].push(row);
+            const exactKey = row.channel_tvg_id;
+            const lowerKey = (exactKey || '').toLowerCase();
+
+            // Store by exact key
+            if (!result[exactKey]) result[exactKey] = [];
+            if (result[exactKey].length < 15) result[exactKey].push(row);
+
+            // Also store by lowercased key for lookup flexibility
+            if (lowerKey && lowerKey !== exactKey) {
+                if (!result[lowerKey]) result[lowerKey] = [];
+                if (result[lowerKey].length < 15) result[lowerKey].push(row);
             }
         }
         return result;
