@@ -65,13 +65,24 @@ export function IptvDvrManager() {
     const [recordings, setRecordings] = useState<DvrRecording[]>([]);
     const [loading, setLoading] = useState(true);
 
-    const [activeTab, setActiveTab] = useState<'providers' | 'shortlists' | 'storage' | 'rules' | 'recordings'>('shortlists');
+    const [activeTab, setActiveTab] = useState<'guide' | 'shortlists' | 'providers' | 'storage' | 'rules' | 'recordings'>('guide');
 
     const [isAddProviderOpen, setIsAddProviderOpen] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [isAutoGroupOpen, setIsAutoGroupOpen] = useState(false);
     const [isNewRuleOpen, setIsNewRuleOpen] = useState(false);
     const [isNewFolderOpen, setIsNewFolderOpen] = useState(false);
+
+    // Guide State
+    const [guideMap, setGuideMap] = useState<Record<string, any[]>>({});
+    const [loadingGuide, setLoadingGuide] = useState(false);
+    const [guideSearch, setGuideSearch] = useState('');
+    const [guideGroup, setGuideGroup] = useState('ALL');
+    const [guideShortlist, setGuideShortlist] = useState('ALL');
+    const [selectedGuideProgram, setSelectedGuideProgram] = useState<{ channel: IptvChannel; program: any } | null>(null);
+    const [guideRecordingFolder, setGuideRecordingFolder] = useState('');
+    const [guideRecordingPadding, setGuideRecordingPadding] = useState(15);
+    const [isSchedulingGuide, setIsSchedulingGuide] = useState(false);
 
     const [isShortlistModalOpen, setIsShortlistModalOpen] = useState(false);
     const [editingShortlistId, setEditingShortlistId] = useState<string | null>(null);
@@ -113,8 +124,10 @@ export function IptvDvrManager() {
 
                 if (chanRes && chanRes.ok) {
                     const chanData = await chanRes.json();
-                    setChannels(chanData.channels || []);
+                    const fetchedChans = chanData.channels || [];
+                    setChannels(fetchedChans);
                     setGroups(chanData.groups || []);
+                    fetchGuideData(activeId, fetchedChans);
                 }
                 if (shortRes && shortRes.ok) {
                     const sData = await shortRes.json();
@@ -142,6 +155,91 @@ export function IptvDvrManager() {
     useEffect(() => {
         fetchAllData();
     }, []);
+
+    const fetchGuideData = async (libId: string, chanList: IptvChannel[]) => {
+        if (!libId || chanList.length === 0) return;
+        const tvgIds = chanList
+            .slice(0, 100)
+            .map(c => c.tvgId)
+            .filter(Boolean) as string[];
+
+        if (tvgIds.length === 0) return;
+        setLoadingGuide(true);
+        try {
+            const res = await fetch(`/api/theater/iptv/epg?libraryId=${libId}&tvgIds=${encodeURIComponent(tvgIds.join(','))}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.epg) {
+                    setGuideMap(data.epg);
+                }
+            }
+        } catch {} finally {
+            setLoadingGuide(false);
+        }
+    };
+
+    const visibleGuideChannels = useMemo(() => {
+        let list = channels;
+        if (guideShortlist !== 'ALL') {
+            const sl = shortlists.find(s => s.id === guideShortlist);
+            if (sl && sl.channelIds.length > 0) {
+                const set = new Set(sl.channelIds);
+                list = list.filter(c => set.has(c.id));
+            }
+        }
+        if (guideGroup !== 'ALL') {
+            list = list.filter(c => c.group === guideGroup);
+        }
+        if (guideSearch.trim()) {
+            const q = guideSearch.toLowerCase().trim();
+            list = list.filter(c => {
+                const chanMatch = c.name.toLowerCase().includes(q) || (c.cleanName && c.cleanName.toLowerCase().includes(q));
+                if (chanMatch) return true;
+                const progs = guideMap[c.tvgId || ''] || guideMap[(c.tvgId || '').toLowerCase()] || [];
+                return progs.some(p => p.title?.toLowerCase().includes(q) || p.description?.toLowerCase().includes(q));
+            });
+        }
+        return list;
+    }, [channels, guideShortlist, shortlists, guideGroup, guideSearch, guideMap]);
+
+    const totalGuidePrograms = useMemo(() => {
+        let count = 0;
+        for (const k of Object.keys(guideMap)) {
+            count += (guideMap[k] || []).length;
+        }
+        return count;
+    }, [guideMap]);
+
+    const handleScheduleGuideRecording = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!selectedGuideProgram || !guideRecordingFolder) {
+            toast.error('Please select a destination folder');
+            return;
+        }
+        setIsSchedulingGuide(true);
+        try {
+            const res = await fetch('/api/theater/iptv/dvr', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'schedule_program',
+                    channel: selectedGuideProgram.channel,
+                    program: selectedGuideProgram.program,
+                    destinationFolder: guideRecordingFolder,
+                    paddingMinutes: guideRecordingPadding
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error);
+            toast.success(`Scheduled recording for "${selectedGuideProgram.program.title}"`);
+            setSelectedGuideProgram(null);
+            fetchAllData(selectedLibraryId);
+        } catch (err: any) {
+            toast.error(err.message || 'Failed to schedule recording');
+        } finally {
+            setIsSchedulingGuide(false);
+        }
+    };
 
     const handleSelectLibrary = (libId: string) => {
         setSelectedLibraryId(libId);
@@ -408,6 +506,7 @@ export function IptvDvrManager() {
 
             <div className="flex items-center gap-2 border-b border-zinc-800/80 pb-3 overflow-x-auto custom-scrollbar">
                 {[
+                    { id: 'guide', label: 'Guide', count: totalGuidePrograms, icon: Calendar },
                     { id: 'shortlists', label: 'Shortlists', count: shortlists.length, icon: Bookmark },
                     { id: 'providers', label: 'Providers', count: libraries.length, icon: Tv },
                     { id: 'storage', label: 'Storage', count: folders.length, icon: Folder },
@@ -436,6 +535,250 @@ export function IptvDvrManager() {
                 })}
             </div>
 
+            {/* ══════════════════════════════════════════════════════════════
+               1. GUIDE TAB (Schedule Timeline & Quick Recording)
+               ══════════════════════════════════════════════════════════════ */}
+            {activeTab === 'guide' && (
+                <div className="space-y-4">
+                    {/* Header & Controls */}
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                        <div>
+                            <h3 className="text-base font-black text-white flex items-center gap-2">
+                                <Calendar size={18} className="text-amber-400" />
+                                EPG Guide Schedule
+                            </h3>
+                            <p className="text-xs text-zinc-400 mt-0.5">
+                                Browse TV programming schedules, search broadcasts, and schedule DVR recordings.
+                            </p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                            {activeLibrary && (
+                                <button
+                                    onClick={() => setIsSettingsOpen(true)}
+                                    className="px-3.5 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 text-xs font-black flex items-center gap-1.5 cursor-pointer"
+                                >
+                                    <RefreshCw size={13} className={loadingGuide ? 'animate-spin' : ''} /> Sync EPG
+                                </button>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Filter Bar */}
+                    <div className="flex flex-wrap items-center gap-3 p-3 bg-zinc-950/80 rounded-2xl border border-zinc-800/80">
+                        {/* Search */}
+                        <div className="relative flex-1 min-w-[200px]">
+                            <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+                            <input
+                                type="text"
+                                placeholder="Search programmes, movies, sports, or channels..."
+                                value={guideSearch}
+                                onChange={e => setGuideSearch(e.target.value)}
+                                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-zinc-500 outline-none focus:border-amber-500"
+                            />
+                            {guideSearch && (
+                                <button
+                                    onClick={() => setGuideSearch('')}
+                                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white"
+                                >
+                                    <X size={12} />
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Shortlist Filter */}
+                        {shortlists.length > 0 && (
+                            <select
+                                value={guideShortlist}
+                                onChange={e => setGuideShortlist(e.target.value)}
+                                className="bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none focus:border-amber-500"
+                            >
+                                <option value="ALL">All Channels</option>
+                                {shortlists.map(sl => (
+                                    <option key={sl.id} value={sl.id}>⭐ {sl.name} ({sl.channelIds?.length || 0})</option>
+                                ))}
+                            </select>
+                        )}
+
+                        {/* Category Filter */}
+                        {groups.length > 0 && (
+                            <select
+                                value={guideGroup}
+                                onChange={e => setGuideGroup(e.target.value)}
+                                className="bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none focus:border-amber-500 max-w-[200px]"
+                            >
+                                <option value="ALL">All Categories ({channels.length})</option>
+                                {groups.map(g => (
+                                    <option key={g.name} value={g.name}>{g.name} ({g.count})</option>
+                                ))}
+                            </select>
+                        )}
+                    </div>
+
+                    {/* Guide Channels & Programs List */}
+                    {visibleGuideChannels.length === 0 ? (
+                        <div className="p-12 text-center bg-zinc-950 rounded-2xl border border-zinc-900 text-zinc-500 space-y-2">
+                            <p className="text-sm font-bold text-white">No channels matching filters</p>
+                            <p className="text-xs">Try selecting a different shortlist or clearing your search query.</p>
+                        </div>
+                    ) : totalGuidePrograms === 0 && !loadingGuide ? (
+                        <div className="p-12 text-center bg-zinc-950 rounded-2xl border border-amber-500/20 text-zinc-400 space-y-3">
+                            <Calendar size={40} className="mx-auto text-amber-500/60 mb-2" />
+                            <h4 className="text-base font-black text-white">No EPG Guide data loaded yet</h4>
+                            <p className="text-xs max-w-md mx-auto text-zinc-400 leading-relaxed">
+                                Connect an XMLTV EPG source URL for your IPTV provider to view live show schedules and program recordings.
+                            </p>
+                            <button
+                                onClick={() => setIsSettingsOpen(true)}
+                                className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 cursor-pointer inline-flex items-center gap-2"
+                            >
+                                <RefreshCw size={14} /> Sync EPG Guide Now
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="space-y-3">
+                            {visibleGuideChannels.slice(0, 40).map(chan => {
+                                const progs = guideMap[chan.tvgId || ''] || guideMap[(chan.tvgId || '').toLowerCase()] || [];
+                                const now = new Date();
+                                const currentProg = progs.find(p => {
+                                    const s = new Date(p.start_time);
+                                    const e = new Date(p.end_time);
+                                    return now >= s && now <= e;
+                                }) || progs[0];
+                                const upcomingProgs = progs.filter(p => p !== currentProg).slice(0, 4);
+
+                                const calculateProgress = (prog: any) => {
+                                    if (!prog) return 0;
+                                    const s = new Date(prog.start_time).getTime();
+                                    const e = new Date(prog.end_time).getTime();
+                                    const curr = now.getTime();
+                                    if (curr < s) return 0;
+                                    if (curr > e) return 100;
+                                    return Math.min(100, Math.max(0, Math.round(((curr - s) / (e - s)) * 100)));
+                                };
+
+                                const formatTime = (iso: string) => {
+                                    try {
+                                        return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                    } catch {
+                                        return '';
+                                    }
+                                };
+
+                                return (
+                                    <div key={chan.id} className="p-4 bg-zinc-950 rounded-2xl border border-zinc-800/80 hover:border-zinc-700 transition-all space-y-3">
+                                        {/* Channel Header */}
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div className="flex items-center gap-3 min-w-0">
+                                                <div className="w-9 h-9 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center p-1 shrink-0 overflow-hidden">
+                                                    {chan.logo ? (
+                                                        <img src={chan.logo} alt="" className="max-h-7 max-w-full object-contain" onError={e => (e.currentTarget.style.display = 'none')} />
+                                                    ) : (
+                                                        <Tv2 size={16} className="text-zinc-600" />
+                                                    )}
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <h4 className="text-sm font-black text-white truncate">{chan.name}</h4>
+                                                    <span className="text-[10px] text-zinc-500 font-bold uppercase">{chan.group}</span>
+                                                </div>
+                                            </div>
+
+                                            {chan.streams && chan.streams.length > 1 && (
+                                                <span className="px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-black uppercase font-mono">
+                                                    ⚡ {chan.streams.length} Qualities
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        {/* Current & Upcoming Guide Timeline */}
+                                        {currentProg ? (
+                                            <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 pt-2 border-t border-zinc-900">
+                                                {/* Live Now Card */}
+                                                <div className="lg:col-span-5 p-3 rounded-xl bg-zinc-900/80 border border-amber-500/20 space-y-2">
+                                                    <div className="flex items-center justify-between text-[11px]">
+                                                        <span className="px-1.5 py-0.5 rounded bg-red-500 text-white font-black text-[9px] uppercase tracking-wider animate-pulse">
+                                                            LIVE
+                                                        </span>
+                                                        <span className="text-zinc-400 font-mono font-bold">
+                                                            {formatTime(currentProg.start_time)} - {formatTime(currentProg.end_time)}
+                                                        </span>
+                                                    </div>
+                                                    <div>
+                                                        <h5 className="text-xs font-black text-white truncate">{currentProg.title}</h5>
+                                                        {currentProg.description && (
+                                                            <p className="text-[11px] text-zinc-400 line-clamp-2 mt-0.5">{currentProg.description}</p>
+                                                        )}
+                                                    </div>
+                                                    {/* Progress bar */}
+                                                    <div className="space-y-1">
+                                                        <div className="w-full bg-zinc-950 h-1.5 rounded-full overflow-hidden">
+                                                            <div className="bg-amber-500 h-full rounded-full transition-all duration-500" style={{ width: `${calculateProgress(currentProg)}%` }} />
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => {
+                                                            setSelectedGuideProgram({ channel: chan, program: currentProg });
+                                                            if (folders.length > 0 && !guideRecordingFolder) {
+                                                                const def = folders.find(f => f.is_default) || folders[0];
+                                                                if (def) setGuideRecordingFolder(def.path);
+                                                            }
+                                                        }}
+                                                        className="w-full py-1.5 rounded-lg bg-zinc-800 hover:bg-amber-500 hover:text-black text-zinc-300 text-[11px] font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                                                    >
+                                                        <Clock size={12} /> Record Live Show
+                                                    </button>
+                                                </div>
+
+                                                {/* Upcoming Programs */}
+                                                <div className="lg:col-span-7 space-y-1.5">
+                                                    <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">Upcoming Next</span>
+                                                    {upcomingProgs.length === 0 ? (
+                                                        <p className="text-[11px] text-zinc-600 italic">No upcoming schedule available for this channel</p>
+                                                    ) : (
+                                                        upcomingProgs.map((prog: any, pIdx: number) => (
+                                                            <div
+                                                                key={pIdx}
+                                                                className="flex items-center justify-between p-2 rounded-xl bg-zinc-900/40 hover:bg-zinc-900 border border-zinc-900 hover:border-zinc-800 text-xs transition-colors gap-2"
+                                                            >
+                                                                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                                                    <span className="font-mono text-[11px] text-amber-400 font-bold shrink-0">
+                                                                        {formatTime(prog.start_time)}
+                                                                    </span>
+                                                                    <span className="text-zinc-200 font-bold truncate text-[11px]">{prog.title}</span>
+                                                                </div>
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setSelectedGuideProgram({ channel: chan, program: prog });
+                                                                        if (folders.length > 0 && !guideRecordingFolder) {
+                                                                            const def = folders.find(f => f.is_default) || folders[0];
+                                                                            if (def) setGuideRecordingFolder(def.path);
+                                                                        }
+                                                                    }}
+                                                                    className="px-2 py-1 rounded-lg bg-zinc-800 hover:bg-amber-500 hover:text-black text-zinc-300 text-[10px] font-black shrink-0 transition-all cursor-pointer flex items-center gap-1"
+                                                                    title="Schedule Recording"
+                                                                >
+                                                                    <Plus size={11} /> Record
+                                                                </button>
+                                                            </div>
+                                                        ))
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="pt-2 border-t border-zinc-900 text-[11px] text-zinc-600 italic">
+                                                No XMLTV schedule mapped for this channel ({chan.tvgId || 'No tvg-id'}).
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* ══════════════════════════════════════════════════════════════
+               2. SHORTLISTS TAB
+               ══════════════════════════════════════════════════════════════ */}
             {activeTab === 'shortlists' && (
                 <div className="space-y-4">
                     <div className="flex items-center justify-between">
@@ -1191,6 +1534,101 @@ export function IptvDvrManager() {
                                     className="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs transition-all shadow-lg shadow-amber-500/20 cursor-pointer disabled:opacity-50"
                                 >
                                     {isSavingShortlist ? 'Saving...' : 'Save Shortlist'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Guide Quick Recording Modal */}
+            {selectedGuideProgram && (
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
+                    <div className="bg-[#0b0c10] border border-amber-500/30 rounded-3xl w-full max-w-lg p-6 space-y-5 shadow-2xl relative text-zinc-100">
+                        <div className="flex items-start justify-between border-b border-zinc-900 pb-3">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                                    <Clock size={20} />
+                                </div>
+                                <div>
+                                    <h3 className="text-base font-black text-white">Record Programme</h3>
+                                    <p className="text-xs text-zinc-400 mt-0.5">
+                                        {selectedGuideProgram.channel.name}
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setSelectedGuideProgram(null)}
+                                className="p-1.5 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        <form onSubmit={handleScheduleGuideRecording} className="space-y-4">
+                            <div className="p-3 bg-zinc-900/60 rounded-2xl border border-zinc-800 space-y-1">
+                                <h4 className="text-xs font-black text-white">{selectedGuideProgram.program.title}</h4>
+                                {selectedGuideProgram.program.description && (
+                                    <p className="text-[11px] text-zinc-400 line-clamp-3 leading-relaxed">
+                                        {selectedGuideProgram.program.description}
+                                    </p>
+                                )}
+                                <div className="text-[11px] text-amber-400 font-mono font-bold pt-1">
+                                    {new Date(selectedGuideProgram.program.start_time).toLocaleString()} - {new Date(selectedGuideProgram.program.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="text-xs font-bold text-zinc-400 block mb-1.5">Destination Storage Folder</label>
+                                {folders.length === 0 ? (
+                                    <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-xs text-red-400">
+                                        No storage folders configured yet. Add a folder in the Storage tab first.
+                                    </div>
+                                ) : (
+                                    <select
+                                        value={guideRecordingFolder}
+                                        onChange={e => setGuideRecordingFolder(e.target.value)}
+                                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2.5 text-xs font-bold text-white outline-none focus:border-amber-500"
+                                        required
+                                    >
+                                        <option value="">Select storage folder...</option>
+                                        {folders.map(f => (
+                                            <option key={f.id} value={f.path}>{f.name} ({f.path})</option>
+                                        ))}
+                                    </select>
+                                )}
+                            </div>
+
+                            <div>
+                                <label className="text-xs font-bold text-zinc-400 block mb-1.5">Safety Padding (Minutes)</label>
+                                <select
+                                    value={guideRecordingPadding}
+                                    onChange={e => setGuideRecordingPadding(Number(e.target.value))}
+                                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2.5 text-xs font-bold text-white outline-none focus:border-amber-500"
+                                >
+                                    <option value={0}>No padding (exact schedule)</option>
+                                    <option value={5}>+5 minutes after show</option>
+                                    <option value={15}>+15 minutes after show (recommended)</option>
+                                    <option value={30}>+30 minutes after show</option>
+                                    <option value={60}>+60 minutes after show (live sports)</option>
+                                </select>
+                            </div>
+
+                            <div className="flex items-center justify-end gap-3 pt-3 border-t border-zinc-900">
+                                <button
+                                    type="button"
+                                    onClick={() => setSelectedGuideProgram(null)}
+                                    className="px-5 py-2.5 rounded-xl text-zinc-400 hover:text-white text-xs font-bold cursor-pointer"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={isSchedulingGuide || !guideRecordingFolder}
+                                    className="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs transition-all shadow-lg shadow-amber-500/20 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                                >
+                                    <Clock size={14} />
+                                    {isSchedulingGuide ? 'Scheduling...' : 'Schedule Recording'}
                                 </button>
                             </div>
                         </form>

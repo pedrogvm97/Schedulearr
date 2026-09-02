@@ -278,6 +278,11 @@ function initializeSchema(d: any) {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
 
+      CREATE INDEX IF NOT EXISTS idx_iptv_epg_lookup ON iptv_epg (library_id, channel_tvg_id, end_time);
+      CREATE INDEX IF NOT EXISTS idx_iptv_epg_start ON iptv_epg (library_id, start_time);
+      CREATE INDEX IF NOT EXISTS idx_iptv_channels_lib ON iptv_channels (library_id);
+      CREATE INDEX IF NOT EXISTS idx_dvr_recordings_status ON dvr_recordings (status, start_time);
+
       CREATE TABLE IF NOT EXISTS music_lyrics (
         track_key TEXT PRIMARY KEY,
         artist TEXT NOT NULL,
