@@ -178,14 +178,14 @@ export function IptvDvrManager() {
     const fetchGuideData = async (libId: string, chanList: IptvChannel[]) => {
         if (!libId || chanList.length === 0) return;
         const tvgIds = chanList
-            .slice(0, 100)
-            .map(c => c.tvgId)
-            .filter(Boolean) as string[];
+            .slice(0, 150)
+            .flatMap(c => [c.tvgId, c.tvgName, c.cleanName, c.name].filter(Boolean)) as string[];
 
         if (tvgIds.length === 0) return;
         setLoadingGuide(true);
         try {
-            const res = await fetch(`/api/theater/iptv/epg?libraryId=${libId}&tvgIds=${encodeURIComponent(tvgIds.join(','))}`);
+            const uniqueIds = Array.from(new Set(tvgIds));
+            const res = await fetch(`/api/theater/iptv/epg?libraryId=${libId}&tvgIds=${encodeURIComponent(uniqueIds.join(','))}`);
             if (res.ok) {
                 const data = await res.json();
                 if (data.epg) {
@@ -195,6 +195,18 @@ export function IptvDvrManager() {
         } catch {} finally {
             setLoadingGuide(false);
         }
+    };
+
+    const getChannelPrograms = (chan: IptvChannel): any[] => {
+        return (
+            (chan.tvgId && guideMap[chan.tvgId]) ||
+            (chan.tvgId && guideMap[chan.tvgId.toLowerCase()]) ||
+            (chan.cleanName && guideMap[chan.cleanName]) ||
+            (chan.cleanName && guideMap[chan.cleanName.toLowerCase()]) ||
+            (chan.name && guideMap[chan.name]) ||
+            (chan.name && guideMap[chan.name.toLowerCase()]) ||
+            []
+        );
     };
 
     const visibleGuideChannels = useMemo(() => {
@@ -214,7 +226,7 @@ export function IptvDvrManager() {
             list = list.filter(c => {
                 const chanMatch = c.name.toLowerCase().includes(q) || (c.cleanName && c.cleanName.toLowerCase().includes(q));
                 if (chanMatch) return true;
-                const progs = guideMap[c.tvgId || ''] || guideMap[(c.tvgId || '').toLowerCase()] || [];
+                const progs = getChannelPrograms(c);
                 return progs.some(p => p.title?.toLowerCase().includes(q) || p.description?.toLowerCase().includes(q));
             });
         }
@@ -761,25 +773,41 @@ export function IptvDvrManager() {
                         </div>
                     </div>
 
+                    {/* Unsynced EPG Banner */}
+                    {totalGuidePrograms === 0 && !loadingGuide && channels.length > 0 && (
+                        <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex items-center justify-between gap-3 text-xs">
+                            <div className="flex items-center gap-2 text-amber-300 font-bold">
+                                <Calendar size={16} className="text-amber-400 shrink-0" />
+                                <span>EPG guide is not synced yet for this provider. Sync now to see full TV schedules.</span>
+                            </div>
+                            <button
+                                onClick={() => setIsSettingsOpen(true)}
+                                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-black font-black text-xs rounded-xl shadow-md cursor-pointer shrink-0 inline-flex items-center gap-1.5"
+                            >
+                                <RefreshCw size={12} /> Sync Guide
+                            </button>
+                        </div>
+                    )}
+
                     {/* Guide Channels & Programs */}
                     {visibleGuideChannels.length === 0 ? (
                         <div className="p-12 text-center bg-zinc-950 rounded-2xl border border-zinc-900 text-zinc-500 space-y-2">
-                            <p className="text-sm font-bold text-white">No channels matching filters</p>
-                            <p className="text-xs">Try selecting a different shortlist or clearing your search query.</p>
-                        </div>
-                    ) : totalGuidePrograms === 0 && !loadingGuide ? (
-                        <div className="p-12 text-center bg-zinc-950 rounded-2xl border border-amber-500/20 text-zinc-400 space-y-3">
-                            <Calendar size={40} className="mx-auto text-amber-500/60 mb-2" />
-                            <h4 className="text-base font-black text-white">No EPG Guide data loaded yet</h4>
-                            <p className="text-xs max-w-md mx-auto text-zinc-400 leading-relaxed">
-                                Connect an XMLTV EPG source URL for your IPTV provider to view live show schedules and program recordings.
+                            <p className="text-sm font-bold text-white">
+                                {channels.length === 0 ? 'No channels found for this provider' : 'No channels matching filters'}
                             </p>
-                            <button
-                                onClick={() => setIsSettingsOpen(true)}
-                                className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 cursor-pointer inline-flex items-center gap-2"
-                            >
-                                <RefreshCw size={14} /> Sync EPG Guide Now
-                            </button>
+                            <p className="text-xs">
+                                {channels.length === 0
+                                    ? 'Add an M3U or Xtream IPTV provider in the Providers tab to load channels.'
+                                    : 'Try selecting a different shortlist or clearing your search query.'}
+                            </p>
+                            {channels.length === 0 && (
+                                <button
+                                    onClick={() => setIsAddProviderOpen(true)}
+                                    className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 cursor-pointer inline-flex items-center gap-2 mt-2"
+                                >
+                                    <Plus size={14} /> Add IPTV Provider
+                                </button>
+                            )}
                         </div>
                     ) : guideViewMode === 'timeline' ? (
                         /* ══════════════════════════════════════════════════════════════
@@ -810,7 +838,7 @@ export function IptvDvrManager() {
                             {/* Timeline Channel Rows */}
                             <div className="divide-y divide-zinc-900 max-h-[600px] overflow-y-auto custom-scrollbar">
                                 {visibleGuideChannels.slice(0, 50).map(chan => {
-                                    const progs = guideMap[chan.tvgId || ''] || guideMap[(chan.tvgId || '').toLowerCase()] || [];
+                                    const progs = getChannelPrograms(chan);
                                     const windowStartMs = timelineWindowStart.getTime();
                                     const windowEndMs = windowStartMs + timelineWindowHours * 3600 * 1000;
                                     const windowDurationMs = timelineWindowHours * 3600 * 1000;
@@ -936,7 +964,7 @@ export function IptvDvrManager() {
                            ══════════════════════════════════════════════════════════════ */
                         <div className="space-y-3">
                             {visibleGuideChannels.slice(0, 40).map(chan => {
-                                const progs = guideMap[chan.tvgId || ''] || guideMap[(chan.tvgId || '').toLowerCase()] || [];
+                                const progs = getChannelPrograms(chan);
                                 const now = new Date();
                                 const currentProg = progs.find(p => {
                                     const s = new Date(p.start_time);

@@ -297,7 +297,11 @@ export async function GET(req: Request) {
         const filePath = searchParams.get('path');
 
         // 1. If libraryId provided and stored channels exist in DB
+        let currentLib: any = null;
         if (libraryId) {
+            const allLibs = getTheaterLibraries();
+            currentLib = allLibs.find(l => l.id === libraryId);
+
             const stored = getIptvChannels(libraryId);
             if (stored && stored.length > 0) {
                 const groupCounts: Record<string, number> = {};
@@ -310,9 +314,6 @@ export async function GET(req: Request) {
                     count: groupCounts[g]
                 })).sort((a, b) => b.count - a.count);
 
-                // Find library to return EPG url
-                const allLibs = getTheaterLibraries();
-                const currentLib = allLibs.find(l => l.id === libraryId);
                 const epgUrl = currentLib?.folders?.[1] || '';
 
                 return NextResponse.json({
@@ -334,27 +335,35 @@ export async function GET(req: Request) {
             }
         }
 
-        // 2. Ingest from URL or File
+        // 2. Ingest from URL or File (or library's stored folder source)
         const effectiveLibId = libraryId || 'default_iptv';
+        const effectiveSourceUrl = sourceUrl || currentLib?.folders?.[0] || '';
+        const effectiveFilePath = filePath || '';
         let channels: StoredIptvChannel[] = [];
 
-        const xtreamCreds = sourceUrl ? tryExtractXtream(sourceUrl) : null;
+        const xtreamCreds = effectiveSourceUrl ? tryExtractXtream(effectiveSourceUrl) : null;
         if (xtreamCreds) {
             channels = await fetchXtreamLiveChannels(xtreamCreds, effectiveLibId);
-        } else if (sourceUrl && (sourceUrl.startsWith('http://') || sourceUrl.startsWith('https://'))) {
-            const res = await axios.get(sourceUrl, {
+        } else if (effectiveSourceUrl && (effectiveSourceUrl.startsWith('http://') || effectiveSourceUrl.startsWith('https://'))) {
+            const res = await axios.get(effectiveSourceUrl, {
                 timeout: 180000,
                 maxContentLength: Infinity,
                 maxBodyLength: Infinity,
-                headers: { 'User-Agent': 'VLC/3.0.18 LibVLC/3.0.18 Schedulearr/0.5.39' },
+                headers: { 'User-Agent': 'VLC/3.0.18 LibVLC/3.0.18 Schedulearr/0.5.52' },
                 responseType: 'text'
             });
             channels = parseM3uContent(res.data, effectiveLibId);
-        } else if (filePath && fs.existsSync(filePath)) {
-            const rawM3u = fs.readFileSync(filePath, 'utf8');
+        } else if (effectiveFilePath && fs.existsSync(effectiveFilePath)) {
+            const rawM3u = fs.readFileSync(effectiveFilePath, 'utf8');
             channels = parseM3uContent(rawM3u, effectiveLibId);
         } else {
-            return NextResponse.json({ error: 'Valid M3U url, file path, or libraryId is required' }, { status: 400 });
+            // If library exists but has no source URL yet, return empty list gracefully
+            return NextResponse.json({
+                total: 0,
+                groups: [],
+                epgUrl: currentLib?.folders?.[1] || '',
+                channels: []
+            });
         }
 
         if (libraryId && channels.length > 0) {
