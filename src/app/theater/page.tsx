@@ -228,6 +228,7 @@ function TheaterPageContent() {
     const [isCreatingLib, setIsCreatingLib] = useState(false);
 
     // IPTV / Live TV States
+    const liveTvCacheRef = useRef<Record<string, { channels: any[]; groups: any[]; shortlists: any[] }>>({});
     const [iptvChannels, setIptvChannels] = useState<IptvChannel[]>([]);
     const [iptvGroups, setIptvGroups] = useState<{ name: string; count: number }[]>([]);
     const [selectedIptvGroup, setSelectedIptvGroup] = useState<string>('ALL');
@@ -625,12 +626,64 @@ function TheaterPageContent() {
             return;
         }
 
+        const isLive = libs.some(l => l.type === 'live');
+
+        if (isLive) {
+            // 1. Read disabled live libraries from localStorage
+            const disabledLibIds: string[] = (() => {
+                try {
+                    const saved = localStorage.getItem('theater_disabled_live_libraries');
+                    return saved ? JSON.parse(saved) : [];
+                } catch {
+                    return [];
+                }
+            })();
+
+            const activeLiveLibs = libs.filter(l => !disabledLibIds.includes(l.id));
+            if (activeLiveLibs.length === 0) {
+                setItems([]);
+                setIptvChannels([]);
+                setIptvGroups([]);
+                setShortlists([]);
+                setLoadingItems(false);
+                return;
+            }
+
+            // 2. Instant cache check: If cached, load immediately in 0ms!
+            const allCached = activeLiveLibs.every(l => liveTvCacheRef.current[l.id]);
+            if (allCached) {
+                const cachedChannels = activeLiveLibs.flatMap(l => liveTvCacheRef.current[l.id]?.channels || []);
+                const cachedGroups = activeLiveLibs.flatMap(l => liveTvCacheRef.current[l.id]?.groups || []);
+                const cachedShortlists = activeLiveLibs.flatMap(l => liveTvCacheRef.current[l.id]?.shortlists || []);
+
+                setIptvChannels(cachedChannels);
+                setIptvGroups(cachedGroups);
+                setShortlists(cachedShortlists);
+                setItems([]);
+                setLoadingItems(false);
+                return;
+            }
+        }
+
         setLoadingItems(true);
         try {
-            const isLive = libs.some(l => l.type === 'live');
             if (isLive) {
+                const disabledLibIds: string[] = (() => {
+                    try {
+                        const saved = localStorage.getItem('theater_disabled_live_libraries');
+                        return saved ? JSON.parse(saved) : [];
+                    } catch {
+                        return [];
+                    }
+                })();
+
+                const activeLiveLibs = libs.filter(l => !disabledLibIds.includes(l.id));
+
                 const results = await Promise.all(
-                    libs.map(async (lib) => {
+                    activeLiveLibs.map(async (lib) => {
+                        if (liveTvCacheRef.current[lib.id]) {
+                            return liveTvCacheRef.current[lib.id];
+                        }
                         try {
                             const [iptvRes, shortRes] = await Promise.all([
                                 fetch(`/api/theater/iptv?libraryId=${lib.id}`),
@@ -658,7 +711,9 @@ function TheaterPageContent() {
                                 }
                             }
 
-                            return { channels, groups, shortlists };
+                            const result = { channels, groups, shortlists };
+                            liveTvCacheRef.current[lib.id] = result;
+                            return result;
                         } catch {
                             return { channels: [], groups: [], shortlists: [] };
                         }
