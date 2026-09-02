@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getIptvEpg, getBatchIptvEpg } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
@@ -14,16 +14,19 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ error: 'libraryId is required' }, { status: 400 });
         }
 
+        const startTime = searchParams.get('startTime') || undefined;
+        const endTime = searchParams.get('endTime') || undefined;
+
         // 1. Batch lookup
         if (tvgIdsParam) {
             const ids = tvgIdsParam.split(',').map(s => s.trim()).filter(Boolean);
-            const batch = getBatchIptvEpg(libraryId, ids);
+            const batch = getBatchIptvEpg(libraryId, ids, startTime, endTime);
             return NextResponse.json({ success: true, epg: batch });
         }
 
         // 2. Single channel lookup
         if (tvgId) {
-            const programs = getIptvEpg(libraryId, tvgId);
+            const programs = getIptvEpg(libraryId, tvgId, startTime, endTime, 300);
             return NextResponse.json({ success: true, programs });
         }
 

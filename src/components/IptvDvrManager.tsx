@@ -84,6 +84,25 @@ export function IptvDvrManager() {
     const [guideRecordingPadding, setGuideRecordingPadding] = useState(15);
     const [isSchedulingGuide, setIsSchedulingGuide] = useState(false);
 
+    // Timeline Time Navigation State
+    const [timelineWindowStart, setTimelineWindowStart] = useState<Date>(() => {
+        const d = new Date();
+        d.setMinutes(d.getMinutes() < 30 ? 0 : 30, 0, 0);
+        d.setHours(d.getHours() - 1);
+        return d;
+    });
+    const [timelineWindowHours, setTimelineWindowHours] = useState<number>(4);
+    const [guideViewMode, setGuideViewMode] = useState<'timeline' | 'cards'>('timeline');
+
+    // Single Channel Full Schedule State
+    const [singleChannelSchedule, setSingleChannelSchedule] = useState<{
+        channel: IptvChannel;
+        programs: any[];
+        selectedDate: string;
+        loading: boolean;
+        search: string;
+    } | null>(null);
+
     const [isShortlistModalOpen, setIsShortlistModalOpen] = useState(false);
     const [editingShortlistId, setEditingShortlistId] = useState<string | null>(null);
     const [shortlistName, setShortlistName] = useState('');
@@ -238,6 +257,58 @@ export function IptvDvrManager() {
             toast.error(err.message || 'Failed to schedule recording');
         } finally {
             setIsSchedulingGuide(false);
+        }
+    };
+
+    const shiftTimelineTime = (hours: number) => {
+        setTimelineWindowStart(prev => {
+            const next = new Date(prev.getTime() + hours * 3600 * 1000);
+            return next;
+        });
+    };
+
+    const jumpToNow = () => {
+        const d = new Date();
+        d.setMinutes(d.getMinutes() < 30 ? 0 : 30, 0, 0);
+        d.setHours(d.getHours() - 1);
+        setTimelineWindowStart(d);
+    };
+
+    const jumpToDate = (dateStr: string) => {
+        const parts = dateStr.split('-');
+        if (parts.length === 3) {
+            const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 8, 0, 0);
+            setTimelineWindowStart(d);
+        }
+    };
+
+    const openSingleChannelSchedule = async (channel: IptvChannel) => {
+        const todayStr = new Date().toISOString().split('T')[0];
+        setSingleChannelSchedule({
+            channel,
+            programs: [],
+            selectedDate: todayStr,
+            loading: true,
+            search: ''
+        });
+
+        if (!selectedLibraryId) return;
+
+        try {
+            const tvgId = channel.tvgId || channel.name;
+            const res = await fetch(`/api/theater/iptv/epg?libraryId=${selectedLibraryId}&tvgId=${encodeURIComponent(tvgId)}`);
+            if (res.ok) {
+                const data = await res.json();
+                setSingleChannelSchedule(prev => prev ? {
+                    ...prev,
+                    programs: Array.isArray(data.programs) ? data.programs : [],
+                    loading: false
+                } : null);
+            } else {
+                setSingleChannelSchedule(prev => prev ? { ...prev, loading: false } : null);
+            }
+        } catch {
+            setSingleChannelSchedule(prev => prev ? { ...prev, loading: false } : null);
         }
     };
 
@@ -536,7 +607,7 @@ export function IptvDvrManager() {
             </div>
 
             {/* ══════════════════════════════════════════════════════════════
-               1. GUIDE TAB (Schedule Timeline & Quick Recording)
+               1. GUIDE TAB (Schedule Timeline Grid & Single Channel Schedule)
                ══════════════════════════════════════════════════════════════ */}
             {activeTab === 'guide' && (
                 <div className="space-y-4">
@@ -545,13 +616,33 @@ export function IptvDvrManager() {
                         <div>
                             <h3 className="text-base font-black text-white flex items-center gap-2">
                                 <Calendar size={18} className="text-amber-400" />
-                                EPG Guide Schedule
+                                EPG TV Guide &amp; Schedule
                             </h3>
                             <p className="text-xs text-zinc-400 mt-0.5">
-                                Browse TV programming schedules, search broadcasts, and schedule DVR recordings.
+                                Travel forwards and backwards in time, view full 7-day schedules for any channel, and schedule DVR recordings.
                             </p>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
+                            {/* View Switcher */}
+                            <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl p-0.5">
+                                <button
+                                    onClick={() => setGuideViewMode('timeline')}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                        guideViewMode === 'timeline' ? 'bg-amber-500 text-black shadow' : 'text-zinc-400 hover:text-white'
+                                    }`}
+                                >
+                                    Timeline Grid
+                                </button>
+                                <button
+                                    onClick={() => setGuideViewMode('cards')}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                        guideViewMode === 'cards' ? 'bg-amber-500 text-black shadow' : 'text-zinc-400 hover:text-white'
+                                    }`}
+                                >
+                                    Channel Cards
+                                </button>
+                            </div>
+
                             {activeLibrary && (
                                 <button
                                     onClick={() => setIsSettingsOpen(true)}
@@ -563,58 +654,114 @@ export function IptvDvrManager() {
                         </div>
                     </div>
 
-                    {/* Filter Bar */}
-                    <div className="flex flex-wrap items-center gap-3 p-3 bg-zinc-950/80 rounded-2xl border border-zinc-800/80">
-                        {/* Search */}
-                        <div className="relative flex-1 min-w-[200px]">
-                            <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
-                            <input
-                                type="text"
-                                placeholder="Search programmes, movies, sports, or channels..."
-                                value={guideSearch}
-                                onChange={e => setGuideSearch(e.target.value)}
-                                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-zinc-500 outline-none focus:border-amber-500"
-                            />
-                            {guideSearch && (
-                                <button
-                                    onClick={() => setGuideSearch('')}
-                                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white"
+                    {/* Filter & Time Navigation Bar */}
+                    <div className="space-y-3 p-3 bg-zinc-950/90 rounded-2xl border border-zinc-800/90">
+                        {/* Row 1: Search & Channel Filters */}
+                        <div className="flex flex-wrap items-center gap-3">
+                            <div className="relative flex-1 min-w-[200px]">
+                                <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+                                <input
+                                    type="text"
+                                    placeholder="Search shows, movies, sports, or channels..."
+                                    value={guideSearch}
+                                    onChange={e => setGuideSearch(e.target.value)}
+                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-zinc-500 outline-none focus:border-amber-500"
+                                />
+                                {guideSearch && (
+                                    <button
+                                        onClick={() => setGuideSearch('')}
+                                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white"
+                                    >
+                                        <X size={12} />
+                                    </button>
+                                )}
+                            </div>
+
+                            {shortlists.length > 0 && (
+                                <select
+                                    value={guideShortlist}
+                                    onChange={e => setGuideShortlist(e.target.value)}
+                                    className="bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none focus:border-amber-500"
                                 >
-                                    <X size={12} />
-                                </button>
+                                    <option value="ALL">All Channels</option>
+                                    {shortlists.map(sl => (
+                                        <option key={sl.id} value={sl.id}>⭐ {sl.name} ({sl.channelIds?.length || 0})</option>
+                                    ))}
+                                </select>
+                            )}
+
+                            {groups.length > 0 && (
+                                <select
+                                    value={guideGroup}
+                                    onChange={e => setGuideGroup(e.target.value)}
+                                    className="bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none focus:border-amber-500 max-w-[180px]"
+                                >
+                                    <option value="ALL">All Categories ({channels.length})</option>
+                                    {groups.map(g => (
+                                        <option key={g.name} value={g.name}>{g.name} ({g.count})</option>
+                                    ))}
+                                </select>
                             )}
                         </div>
 
-                        {/* Shortlist Filter */}
-                        {shortlists.length > 0 && (
-                            <select
-                                value={guideShortlist}
-                                onChange={e => setGuideShortlist(e.target.value)}
-                                className="bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none focus:border-amber-500"
-                            >
-                                <option value="ALL">All Channels</option>
-                                {shortlists.map(sl => (
-                                    <option key={sl.id} value={sl.id}>⭐ {sl.name} ({sl.channelIds?.length || 0})</option>
-                                ))}
-                            </select>
-                        )}
+                        {/* Row 2: Time Travel & Date Controls */}
+                        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-zinc-900">
+                            {/* Time Shifts */}
+                            <div className="flex items-center gap-1.5 text-xs font-bold">
+                                <button
+                                    onClick={() => shiftTimelineTime(-2)}
+                                    className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 hover:border-zinc-700 transition-colors flex items-center gap-1 cursor-pointer"
+                                    title="Go back 2 hours"
+                                >
+                                    ◀ -2h
+                                </button>
+                                <button
+                                    onClick={jumpToNow}
+                                    className="px-3.5 py-1.5 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-400 border border-red-500/30 transition-colors flex items-center gap-1.5 cursor-pointer font-black"
+                                >
+                                    <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                                    NOW
+                                </button>
+                                <button
+                                    onClick={() => shiftTimelineTime(2)}
+                                    className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 hover:border-zinc-700 transition-colors flex items-center gap-1 cursor-pointer"
+                                    title="Go forward 2 hours"
+                                >
+                                    +2h ▶
+                                </button>
+                            </div>
 
-                        {/* Category Filter */}
-                        {groups.length > 0 && (
-                            <select
-                                value={guideGroup}
-                                onChange={e => setGuideGroup(e.target.value)}
-                                className="bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none focus:border-amber-500 max-w-[200px]"
-                            >
-                                <option value="ALL">All Categories ({channels.length})</option>
-                                {groups.map(g => (
-                                    <option key={g.name} value={g.name}>{g.name} ({g.count})</option>
-                                ))}
-                            </select>
-                        )}
+                            {/* Active Time Window Label & Duration Selector */}
+                            <div className="flex items-center gap-3 text-xs">
+                                <div className="text-zinc-400 font-mono font-bold flex items-center gap-1.5">
+                                    <Clock size={13} className="text-amber-400" />
+                                    <span>
+                                        {timelineWindowStart.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
+                                        {' '}
+                                        {timelineWindowStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        {' - '}
+                                        {new Date(timelineWindowStart.getTime() + timelineWindowHours * 3600 * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                </div>
+
+                                <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-xl p-0.5 text-[11px] font-bold">
+                                    {[2, 4, 6].map(h => (
+                                        <button
+                                            key={h}
+                                            onClick={() => setTimelineWindowHours(h)}
+                                            className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
+                                                timelineWindowHours === h ? 'bg-amber-500 text-black font-black' : 'text-zinc-400 hover:text-white'
+                                            }`}
+                                        >
+                                            {h}h
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
-                    {/* Guide Channels & Programs List */}
+                    {/* Guide Channels & Programs */}
                     {visibleGuideChannels.length === 0 ? (
                         <div className="p-12 text-center bg-zinc-950 rounded-2xl border border-zinc-900 text-zinc-500 space-y-2">
                             <p className="text-sm font-bold text-white">No channels matching filters</p>
@@ -634,7 +781,159 @@ export function IptvDvrManager() {
                                 <RefreshCw size={14} /> Sync EPG Guide Now
                             </button>
                         </div>
+                    ) : guideViewMode === 'timeline' ? (
+                        /* ══════════════════════════════════════════════════════════════
+                           A. INTERACTIVE HORIZONTAL TIMELINE GRID VIEW
+                           ══════════════════════════════════════════════════════════════ */
+                        <div className="bg-zinc-950 rounded-2xl border border-zinc-800/80 overflow-hidden shadow-2xl">
+                            {/* Timeline Header Ruler */}
+                            <div className="flex items-center border-b border-zinc-800 bg-zinc-900/90 sticky top-0 z-10">
+                                <div className="w-56 sm:w-64 p-3 font-black text-xs text-zinc-400 border-r border-zinc-800 shrink-0 uppercase tracking-wider flex items-center justify-between">
+                                    <span>Channels ({visibleGuideChannels.length})</span>
+                                    <span className="text-[10px] text-amber-400 font-mono font-normal">Click for 7-Day</span>
+                                </div>
+                                <div className="flex-1 flex overflow-hidden">
+                                    {Array.from({ length: timelineWindowHours * 2 }).map((_, idx) => {
+                                        const tickTime = new Date(timelineWindowStart.getTime() + idx * 30 * 60 * 1000);
+                                        return (
+                                            <div
+                                                key={idx}
+                                                className="flex-1 min-w-[80px] p-2.5 text-center text-[11px] font-mono font-bold text-zinc-300 border-r border-zinc-800/60 shrink-0"
+                                            >
+                                                {tickTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* Timeline Channel Rows */}
+                            <div className="divide-y divide-zinc-900 max-h-[600px] overflow-y-auto custom-scrollbar">
+                                {visibleGuideChannels.slice(0, 50).map(chan => {
+                                    const progs = guideMap[chan.tvgId || ''] || guideMap[(chan.tvgId || '').toLowerCase()] || [];
+                                    const windowStartMs = timelineWindowStart.getTime();
+                                    const windowEndMs = windowStartMs + timelineWindowHours * 3600 * 1000;
+                                    const windowDurationMs = timelineWindowHours * 3600 * 1000;
+                                    const now = new Date();
+                                    const nowMs = now.getTime();
+
+                                    // Filter programs that overlap this time window
+                                    const windowProgs = progs.filter(p => {
+                                        const s = new Date(p.start_time).getTime();
+                                        const e = new Date(p.end_time).getTime();
+                                        return e >= windowStartMs && s <= windowEndMs;
+                                    });
+
+                                    // Calculate "NOW" red line indicator percentage
+                                    const nowPercent = ((nowMs - windowStartMs) / windowDurationMs) * 100;
+                                    const isNowInWindow = nowPercent >= 0 && nowPercent <= 100;
+
+                                    return (
+                                        <div key={chan.id} className="flex items-stretch hover:bg-zinc-900/30 transition-colors group">
+                                            {/* Channel Header (Left Column) */}
+                                            <div
+                                                onClick={() => openSingleChannelSchedule(chan)}
+                                                className="w-56 sm:w-64 p-3 border-r border-zinc-800 shrink-0 flex items-center justify-between gap-2.5 cursor-pointer hover:bg-zinc-900/80 transition-colors"
+                                                title="Click to view full 7-day schedule for this channel"
+                                            >
+                                                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                                    <div className="w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center p-0.5 shrink-0 overflow-hidden">
+                                                        {chan.logo ? (
+                                                            <img src={chan.logo} alt="" className="max-h-6 max-w-full object-contain" onError={e => (e.currentTarget.style.display = 'none')} />
+                                                        ) : (
+                                                            <Tv2 size={14} className="text-zinc-600" />
+                                                        )}
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <h4 className="text-xs font-bold text-white truncate group-hover:text-amber-400 transition-colors">{chan.name}</h4>
+                                                        <span className="text-[10px] text-zinc-500 block truncate">{chan.group}</span>
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        openSingleChannelSchedule(chan);
+                                                    }}
+                                                    className="p-1.5 rounded-lg bg-zinc-900 hover:bg-amber-500 hover:text-black text-zinc-400 text-[10px] font-bold shrink-0 transition-colors"
+                                                    title="View Full 7-Day Schedule"
+                                                >
+                                                    <Calendar size={13} />
+                                                </button>
+                                            </div>
+
+                                            {/* Timeline Programs Track (Right Column) */}
+                                            <div className="flex-1 relative min-h-[56px] flex items-center overflow-hidden bg-zinc-950/60">
+                                                {/* Vertical NOW Indicator Line */}
+                                                {isNowInWindow && (
+                                                    <div
+                                                        className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-20 pointer-events-none shadow-[0_0_8px_rgba(239,68,68,0.8)]"
+                                                        style={{ left: `${nowPercent}%` }}
+                                                    />
+                                                )}
+
+                                                {windowProgs.length === 0 ? (
+                                                    <div className="p-3 text-[11px] text-zinc-600 italic">
+                                                        No guide data mapped for this time window ({chan.tvgId || 'No tvgId'})
+                                                    </div>
+                                                ) : (
+                                                    windowProgs.map((prog: any, pIdx: number) => {
+                                                        const pStart = new Date(prog.start_time).getTime();
+                                                        const pEnd = new Date(prog.end_time).getTime();
+                                                        const clampedStart = Math.max(windowStartMs, pStart);
+                                                        const clampedEnd = Math.min(windowEndMs, pEnd);
+
+                                                        const leftPct = ((clampedStart - windowStartMs) / windowDurationMs) * 100;
+                                                        const widthPct = Math.max(2, ((clampedEnd - clampedStart) / windowDurationMs) * 100);
+                                                        const isLiveNow = nowMs >= pStart && nowMs <= pEnd;
+
+                                                        return (
+                                                            <div
+                                                                key={pIdx}
+                                                                onClick={() => {
+                                                                    setSelectedGuideProgram({ channel: chan, program: prog });
+                                                                    if (folders.length > 0 && !guideRecordingFolder) {
+                                                                        const def = folders.find(f => f.is_default) || folders[0];
+                                                                        if (def) setGuideRecordingFolder(def.path);
+                                                                    }
+                                                                }}
+                                                                style={{
+                                                                    left: `${leftPct}%`,
+                                                                    width: `calc(${widthPct}% - 2px)`
+                                                                }}
+                                                                className={`absolute top-1 bottom-1 rounded-xl p-2 flex flex-col justify-center cursor-pointer transition-all border overflow-hidden ${
+                                                                    isLiveNow
+                                                                        ? 'bg-amber-500/15 hover:bg-amber-500/25 border-amber-500/50 shadow-md shadow-amber-500/5 z-10'
+                                                                        : 'bg-zinc-900/70 hover:bg-zinc-800/90 border-zinc-800 hover:border-zinc-700'
+                                                                }`}
+                                                                title={`${prog.title}\n${new Date(prog.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(prog.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}\n${prog.description || ''}`}
+                                                            >
+                                                                <div className="flex items-center justify-between gap-1">
+                                                                    <span className={`text-[11px] font-bold truncate ${isLiveNow ? 'text-amber-300 font-black' : 'text-zinc-200'}`}>
+                                                                        {prog.title}
+                                                                    </span>
+                                                                    {isLiveNow && (
+                                                                        <span className="px-1 py-0.2 rounded bg-red-500 text-white text-[8px] font-black uppercase tracking-wider shrink-0 animate-pulse">
+                                                                            LIVE
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                                <div className="text-[10px] text-zinc-400 font-mono truncate">
+                                                                    {new Date(prog.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(prog.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
                     ) : (
+                        /* ══════════════════════════════════════════════════════════════
+                           B. CHANNEL CARDS VIEW (Detailed Cards with Progress)
+                           ══════════════════════════════════════════════════════════════ */
                         <div className="space-y-3">
                             {visibleGuideChannels.slice(0, 40).map(chan => {
                                 const progs = guideMap[chan.tvgId || ''] || guideMap[(chan.tvgId || '').toLowerCase()] || [];
@@ -666,7 +965,6 @@ export function IptvDvrManager() {
 
                                 return (
                                     <div key={chan.id} className="p-4 bg-zinc-950 rounded-2xl border border-zinc-800/80 hover:border-zinc-700 transition-all space-y-3">
-                                        {/* Channel Header */}
                                         <div className="flex items-center justify-between gap-3">
                                             <div className="flex items-center gap-3 min-w-0">
                                                 <div className="w-9 h-9 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center p-1 shrink-0 overflow-hidden">
@@ -682,17 +980,23 @@ export function IptvDvrManager() {
                                                 </div>
                                             </div>
 
-                                            {chan.streams && chan.streams.length > 1 && (
-                                                <span className="px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-black uppercase font-mono">
-                                                    ⚡ {chan.streams.length} Qualities
-                                                </span>
-                                            )}
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    onClick={() => openSingleChannelSchedule(chan)}
+                                                    className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-amber-500 hover:text-black text-zinc-300 text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                                                >
+                                                    <Calendar size={13} /> Full 7-Day Guide
+                                                </button>
+                                                {chan.streams && chan.streams.length > 1 && (
+                                                    <span className="px-2 py-1 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-black uppercase font-mono">
+                                                        ⚡ {chan.streams.length} Qualities
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
 
-                                        {/* Current & Upcoming Guide Timeline */}
                                         {currentProg ? (
                                             <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 pt-2 border-t border-zinc-900">
-                                                {/* Live Now Card */}
                                                 <div className="lg:col-span-5 p-3 rounded-xl bg-zinc-900/80 border border-amber-500/20 space-y-2">
                                                     <div className="flex items-center justify-between text-[11px]">
                                                         <span className="px-1.5 py-0.5 rounded bg-red-500 text-white font-black text-[9px] uppercase tracking-wider animate-pulse">
@@ -708,7 +1012,6 @@ export function IptvDvrManager() {
                                                             <p className="text-[11px] text-zinc-400 line-clamp-2 mt-0.5">{currentProg.description}</p>
                                                         )}
                                                     </div>
-                                                    {/* Progress bar */}
                                                     <div className="space-y-1">
                                                         <div className="w-full bg-zinc-950 h-1.5 rounded-full overflow-hidden">
                                                             <div className="bg-amber-500 h-full rounded-full transition-all duration-500" style={{ width: `${calculateProgress(currentProg)}%` }} />
@@ -728,7 +1031,6 @@ export function IptvDvrManager() {
                                                     </button>
                                                 </div>
 
-                                                {/* Upcoming Programs */}
                                                 <div className="lg:col-span-7 space-y-1.5">
                                                     <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">Upcoming Next</span>
                                                     {upcomingProgs.length === 0 ? (
@@ -1632,6 +1934,196 @@ export function IptvDvrManager() {
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Single Channel Full 7-Day Schedule Modal */}
+            {singleChannelSchedule && (
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
+                    <div className="bg-[#0b0c10] border border-amber-500/30 rounded-[2.5rem] w-full max-w-4xl p-6 sm:p-8 space-y-5 shadow-2xl relative max-h-[90vh] flex flex-col text-zinc-100">
+                        {/* Modal Header */}
+                        <div className="flex items-start justify-between border-b border-zinc-900 pb-4">
+                            <div className="flex items-center gap-3.5">
+                                <div className="w-12 h-12 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center p-1.5 shrink-0 overflow-hidden shadow-lg">
+                                    {singleChannelSchedule.channel.logo ? (
+                                        <img src={singleChannelSchedule.channel.logo} alt="" className="max-h-8 max-w-full object-contain" onError={e => (e.currentTarget.style.display = 'none')} />
+                                    ) : (
+                                        <Tv2 size={24} className="text-zinc-600" />
+                                    )}
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <h3 className="text-lg font-black text-white">{singleChannelSchedule.channel.name}</h3>
+                                        <span className="px-2 py-0.5 rounded-lg bg-zinc-900 text-zinc-400 border border-zinc-800 text-[10px] font-bold uppercase">
+                                            {singleChannelSchedule.channel.group}
+                                        </span>
+                                    </div>
+                                    <p className="text-xs text-zinc-400 mt-0.5">
+                                        Full 7-Day Program Guide Schedule ({singleChannelSchedule.programs.length} broadcasts loaded)
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setSingleChannelSchedule(null)}
+                                className="p-2 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        {/* Date Tabs & Search Filter */}
+                        <div className="space-y-3">
+                            {/* 7-Day Date Tabs */}
+                            <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-1">
+                                {Array.from({ length: 7 }).map((_, dIdx) => {
+                                    const d = new Date();
+                                    d.setDate(d.getDate() + dIdx);
+                                    const dateKey = d.toISOString().split('T')[0];
+                                    const isSelected = singleChannelSchedule.selectedDate === dateKey;
+                                    const isToday = dIdx === 0;
+
+                                    return (
+                                        <button
+                                            key={dateKey}
+                                            onClick={() => setSingleChannelSchedule(prev => prev ? { ...prev, selectedDate: dateKey } : null)}
+                                            className={`px-3.5 py-2 rounded-xl text-xs font-black shrink-0 transition-all cursor-pointer flex flex-col items-center min-w-[76px] ${
+                                                isSelected
+                                                    ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
+                                                    : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800/80'
+                                            }`}
+                                        >
+                                            <span className="text-[10px] font-bold uppercase">
+                                                {isToday ? 'Today' : d.toLocaleDateString([], { weekday: 'short' })}
+                                            </span>
+                                            <span className="text-xs font-mono font-black">
+                                                {d.toLocaleDateString([], { month: 'numeric', day: 'numeric' })}
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+
+                            {/* Search Within Channel */}
+                            <div className="relative">
+                                <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+                                <input
+                                    type="text"
+                                    placeholder="Filter shows on this channel..."
+                                    value={singleChannelSchedule.search}
+                                    onChange={e => setSingleChannelSchedule(prev => prev ? { ...prev, search: e.target.value } : null)}
+                                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-zinc-500 outline-none focus:border-amber-500"
+                                />
+                                {singleChannelSchedule.search && (
+                                    <button
+                                        onClick={() => setSingleChannelSchedule(prev => prev ? { ...prev, search: '' } : null)}
+                                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white"
+                                    >
+                                        <X size={12} />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Shows List for Selected Day */}
+                        <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1 min-h-[300px]">
+                            {singleChannelSchedule.loading ? (
+                                <div className="py-20 flex flex-col items-center justify-center gap-2 text-zinc-500">
+                                    <RefreshCw size={24} className="animate-spin text-amber-500" />
+                                    <span className="text-xs font-bold uppercase tracking-wider">Loading complete schedule...</span>
+                                </div>
+                            ) : (() => {
+                                const selectedDayProgs = singleChannelSchedule.programs.filter(p => {
+                                    const pDate = p.start_time?.split('T')[0] || '';
+                                    if (singleChannelSchedule.selectedDate && pDate !== singleChannelSchedule.selectedDate) return false;
+                                    if (singleChannelSchedule.search.trim()) {
+                                        const q = singleChannelSchedule.search.toLowerCase().trim();
+                                        return p.title?.toLowerCase().includes(q) || p.description?.toLowerCase().includes(q);
+                                    }
+                                    return true;
+                                });
+
+                                if (selectedDayProgs.length === 0) {
+                                    return (
+                                        <div className="py-16 text-center bg-zinc-950/60 rounded-2xl border border-zinc-900 text-zinc-500 space-y-2">
+                                            <Calendar size={32} className="mx-auto text-zinc-700" />
+                                            <p className="text-xs font-bold text-white">No shows scheduled for {singleChannelSchedule.selectedDate}</p>
+                                            <p className="text-[11px]">Select another date tab or click Sync EPG in Provider settings.</p>
+                                        </div>
+                                    );
+                                }
+
+                                const now = new Date();
+                                const nowMs = now.getTime();
+
+                                return selectedDayProgs.map((prog: any, idx: number) => {
+                                    const s = new Date(prog.start_time);
+                                    const e = new Date(prog.end_time);
+                                    const isLiveNow = nowMs >= s.getTime() && nowMs <= e.getTime();
+                                    const isPast = nowMs > e.getTime();
+
+                                    return (
+                                        <div
+                                            key={idx}
+                                            className={`p-3.5 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                                                isLiveNow
+                                                    ? 'bg-amber-500/10 border-amber-500/40 shadow-lg shadow-amber-500/5'
+                                                    : isPast
+                                                    ? 'bg-zinc-950/40 border-zinc-900 opacity-60'
+                                                    : 'bg-zinc-950 border-zinc-800/80 hover:border-zinc-700'
+                                            }`}
+                                        >
+                                            <div className="space-y-1 flex-1 min-w-0">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-mono text-xs font-black text-amber-400">
+                                                        {s.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {e.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                    </span>
+                                                    {isLiveNow && (
+                                                        <span className="px-1.5 py-0.2 rounded bg-red-500 text-white text-[9px] font-black uppercase tracking-wider animate-pulse">
+                                                            LIVE NOW
+                                                        </span>
+                                                    )}
+                                                    {isPast && (
+                                                        <span className="text-[9px] text-zinc-600 font-bold uppercase">
+                                                            Ended
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <h4 className="text-sm font-black text-white">{prog.title}</h4>
+                                                {prog.description && (
+                                                    <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed">{prog.description}</p>
+                                                )}
+                                            </div>
+
+                                            <div className="shrink-0 flex items-center gap-2">
+                                                <button
+                                                    onClick={() => {
+                                                        setSelectedGuideProgram({ channel: singleChannelSchedule.channel, program: prog });
+                                                        if (folders.length > 0 && !guideRecordingFolder) {
+                                                            const def = folders.find(f => f.is_default) || folders[0];
+                                                            if (def) setGuideRecordingFolder(def.path);
+                                                        }
+                                                    }}
+                                                    className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs transition-all shadow-md shadow-amber-500/10 cursor-pointer flex items-center gap-1.5"
+                                                >
+                                                    <Clock size={13} /> Record
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                });
+                            })()}
+                        </div>
+
+                        {/* Modal Footer */}
+                        <div className="flex items-center justify-end pt-3 border-t border-zinc-900">
+                            <button
+                                onClick={() => setSingleChannelSchedule(null)}
+                                className="px-6 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs cursor-pointer transition-colors"
+                            >
+                                Close
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

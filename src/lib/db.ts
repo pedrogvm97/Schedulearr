@@ -1072,17 +1072,36 @@ export const saveIptvEpg = (libraryId: string, epgList: Array<{
     }
 };
 
-export const getIptvEpgForChannel = (libraryId: string, tvgId: string): any[] => {
+export const getIptvEpgForChannel = (
+    libraryId: string,
+    tvgId: string,
+    startTime?: string,
+    endTime?: string,
+    limit: number = 200
+): any[] => {
     try {
-        const now = new Date().toISOString();
-        const rows = db.prepare(`
+        let query = `
             SELECT * FROM iptv_epg 
-            WHERE library_id = ? AND (channel_tvg_id = ? OR LOWER(channel_tvg_id) = LOWER(?)) AND end_time >= ?
-            ORDER BY start_time ASC LIMIT 15
-        `).all(libraryId, tvgId, tvgId, now) as any[];
+            WHERE library_id = ? AND (channel_tvg_id = ? OR LOWER(channel_tvg_id) = LOWER(?))
+        `;
+        const params: any[] = [libraryId, tvgId, tvgId];
+
+        if (startTime) {
+            query += ' AND end_time >= ?';
+            params.push(startTime);
+        }
+        if (endTime) {
+            query += ' AND start_time <= ?';
+            params.push(endTime);
+        }
+
+        query += ' ORDER BY start_time ASC LIMIT ?';
+        params.push(limit);
+
+        const rows = db.prepare(query).all(...params) as any[];
         return rows || [];
     } catch (e) {
-        console.error('Error fetching IPTV EPG:', e);
+        console.error('Error fetching IPTV EPG for channel:', e);
         return [];
     }
 };
@@ -1386,17 +1405,34 @@ export const getPlaybackHistory = (limit: number = 500) => {
 };
 
 // ── Batch IPTV EPG Query ──
-export const getBatchIptvEpg = (libraryId: string, tvgIds: string[]) => {
+export const getBatchIptvEpg = (
+    libraryId: string,
+    tvgIds: string[],
+    startTime?: string,
+    endTime?: string,
+    limitPerChannel: number = 30
+) => {
     try {
         if (!tvgIds || tvgIds.length === 0) return {};
-        const now = new Date().toISOString();
+        // Default time window: 6 hours ago to 48 hours in the future
+        const effectiveStart = startTime || new Date(Date.now() - 6 * 3600 * 1000).toISOString();
         const lowerIds = tvgIds.map(t => t.toLowerCase().trim());
         const placeholders = tvgIds.map(() => '?').join(',');
-        const rows = db.prepare(`
+
+        let query = `
             SELECT * FROM iptv_epg 
             WHERE library_id = ? AND (channel_tvg_id IN (${placeholders}) OR LOWER(channel_tvg_id) IN (${placeholders})) AND end_time >= ?
-            ORDER BY start_time ASC
-        `).all(libraryId, ...tvgIds, ...lowerIds, now) as any[];
+        `;
+        const params: any[] = [libraryId, ...tvgIds, ...lowerIds, effectiveStart];
+
+        if (endTime) {
+            query += ' AND start_time <= ?';
+            params.push(endTime);
+        }
+
+        query += ' ORDER BY start_time ASC';
+
+        const rows = db.prepare(query).all(...params) as any[];
 
         const result: Record<string, any[]> = {};
         for (const row of (rows || [])) {
@@ -1405,12 +1441,12 @@ export const getBatchIptvEpg = (libraryId: string, tvgIds: string[]) => {
 
             // Store by exact key
             if (!result[exactKey]) result[exactKey] = [];
-            if (result[exactKey].length < 15) result[exactKey].push(row);
+            if (result[exactKey].length < limitPerChannel) result[exactKey].push(row);
 
             // Also store by lowercased key for lookup flexibility
             if (lowerKey && lowerKey !== exactKey) {
                 if (!result[lowerKey]) result[lowerKey] = [];
-                if (result[lowerKey].length < 15) result[lowerKey].push(row);
+                if (result[lowerKey].length < limitPerChannel) result[lowerKey].push(row);
             }
         }
         return result;
