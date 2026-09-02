@@ -61,7 +61,7 @@ interface TheaterLiveTvPlayerProps {
     shortlists: IptvShortlist[];
     activeShortlistId: string | null;
     onSelectShortlist: (id: string | null) => void;
-    onOpenShortlistManager: () => void;
+    onOpenShortlistManager?: () => void;
 }
 
 export default function TheaterLiveTvPlayer({
@@ -733,14 +733,6 @@ export default function TheaterLiveTvPlayer({
                             <span>⭐</span> {sl.name} ({sl.channelIds.length})
                         </button>
                     ))}
-
-                    <button
-                        onClick={onOpenShortlistManager}
-                        className="px-3 py-1.5 rounded-xl text-xs font-bold text-amber-400 hover:bg-amber-500/10 border border-dashed border-amber-500/30 flex items-center gap-1 shrink-0 cursor-pointer"
-                        title="Create or Curate Channel Shortlists"
-                    >
-                        <Plus size={12} /> New Shortlist
-                    </button>
                 </div>
 
                 {/* Right Top Actions: Manage Active Lists, Full TV Guide Button & Setup */}
@@ -1398,15 +1390,6 @@ export default function TheaterLiveTvPlayer({
                             <div className="space-y-2">
                                 <div className="flex items-center justify-between">
                                     <span className="text-[11px] font-black uppercase tracking-wider text-zinc-400">Curated Shortlists</span>
-                                    <button
-                                        onClick={() => {
-                                            setIsManageLibsOpen(false);
-                                            onOpenShortlistManager();
-                                        }}
-                                        className="text-[11px] font-bold text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
-                                    >
-                                        <Plus size={11} /> New Shortlist
-                                    </button>
                                 </div>
                                 <div className="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar pr-1">
                                     {shortlists.map(sl => {
