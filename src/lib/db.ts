@@ -1073,6 +1073,8 @@ export const getIptvEpgForChannel = (libraryId: string, tvgId: string): any[] =>
     }
 };
 
+export const getIptvEpg = getIptvEpgForChannel;
+
 export const getMusicPlaylists = (libraryId?: string) => {
     try {
         let query = 'SELECT * FROM music_playlists ORDER BY created_at DESC';
