@@ -342,13 +342,15 @@ export default function TheaterLiveTvPlayer({
         return Array.from(set).slice(0, 15);
     }, [aggregatedChannels, selectedProviderId]);
 
-    // Auto-select first channel on load if none playing
+    // Auto-select initial channel once on first load (Never jump/reset when searching or changing filters)
+    const initialChannelLoadedRef = useRef(false);
     useEffect(() => {
-        if (!currentChannel && visibleChannels.length > 0) {
+        if (!initialChannelLoadedRef.current && visibleChannels.length > 0) {
+            initialChannelLoadedRef.current = true;
             setCurrentChannel(visibleChannels[0]);
             setActiveStreamIdx(0);
         }
-    }, [visibleChannels, currentChannel]);
+    }, [visibleChannels.length > 0 ? visibleChannels[0]?.id : '']);
 
     // Fetch batch EPG for visible channels (first 50)
     useEffect(() => {
@@ -663,35 +665,18 @@ export default function TheaterLiveTvPlayer({
         <div className="space-y-4">
             {/* ── Top Bar: Shortlist Picker + Full Guide Button + Setup Link ── */}
             <div className="flex flex-wrap items-center justify-between gap-3 bg-zinc-950 p-3 rounded-2xl border border-zinc-900">
-                {/* Shortlist selector pills & Disable Full List Toggle */}
+                {/* Shortlist selector pills (Only Shortlists shown when Full List is disabled) */}
                 <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar">
-                    {!hideFullList ? (
-                        <div className="flex items-center gap-1 shrink-0">
-                            <button
-                                onClick={() => onSelectShortlist(null)}
-                                className={`px-3.5 py-1.5 rounded-xl text-xs font-black shrink-0 transition-all cursor-pointer ${
-                                    !activeShortlistId
-                                        ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
-                                        : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
-                                }`}
-                            >
-                                All Channels ({channels.length})
-                            </button>
-                            <button
-                                onClick={toggleHideFullList}
-                                className="px-2.5 py-1.5 rounded-xl bg-zinc-900/90 hover:bg-red-500/20 border border-zinc-800 text-zinc-400 hover:text-red-400 text-xs font-bold transition-all shrink-0 cursor-pointer"
-                                title="Disable & Hide 30k Full List from Theater (Recommended for max speed)"
-                            >
-                                ✕ Hide Full List
-                            </button>
-                        </div>
-                    ) : (
+                    {!hideFullList && (
                         <button
-                            onClick={toggleHideFullList}
-                            className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white text-xs font-bold flex items-center gap-1 shrink-0 cursor-pointer"
-                            title="Show All 30k Channels List"
+                            onClick={() => onSelectShortlist(null)}
+                            className={`px-3.5 py-1.5 rounded-xl text-xs font-black shrink-0 transition-all cursor-pointer ${
+                                !activeShortlistId
+                                    ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
+                                    : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
+                            }`}
                         >
-                            <span>+ Show Full List ({channels.length})</span>
+                            All Channels ({channels.length})
                         </button>
                     )}
 
@@ -700,7 +685,7 @@ export default function TheaterLiveTvPlayer({
                             key={sl.id}
                             onClick={() => onSelectShortlist(sl.id)}
                             className={`px-3.5 py-1.5 rounded-xl text-xs font-black shrink-0 transition-all flex items-center gap-1.5 cursor-pointer ${
-                                activeShortlistId === sl.id
+                                activeShortlistId === sl.id || (!activeShortlistId && hideFullList && shortlists[0]?.id === sl.id)
                                     ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
                                     : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
                             }`}
@@ -1346,7 +1331,31 @@ export default function TheaterLiveTvPlayer({
                             </button>
                         </div>
 
-                        <div className="space-y-2 max-h-72 overflow-y-auto custom-scrollbar pr-1">
+                        {/* Global Full Channel List Toggle */}
+                        {shortlists.length > 0 && (
+                            <div
+                                onClick={toggleHideFullList}
+                                className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 cursor-pointer transition-all ${
+                                    hideFullList
+                                        ? 'bg-amber-500/10 border-amber-500/40 text-white'
+                                        : 'bg-zinc-950 border-zinc-800 text-zinc-400'
+                                }`}
+                            >
+                                <div>
+                                    <p className="text-xs font-black text-white">Shortlists Only (Hide 30k Full List)</p>
+                                    <p className="text-[10px] text-zinc-400">Only show active curated shortlists in Theater for maximum speed</p>
+                                </div>
+                                <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase shrink-0 ${
+                                    hideFullList
+                                        ? 'bg-amber-500 text-black'
+                                        : 'bg-zinc-800 text-zinc-400'
+                                }`}>
+                                    {hideFullList ? '✓ Shortlists Only' : 'Full List (30k)'}
+                                </span>
+                            </div>
+                        )}
+
+                        <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-1">
                             {allAvailableProviders.map(prov => {
                                 const isEnabled = !disabledLibIds.includes(prov.id);
                                 return (
