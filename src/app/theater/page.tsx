@@ -620,17 +620,23 @@ function TheaterPageContent() {
                 let allShortlists: any[] = [];
 
                 for (const lib of libs) {
-                    const m3uUrl = lib.folders?.[0] || '';
-                    if (m3uUrl) {
-                        try {
-                            const res = await fetch(`/api/theater/iptv?url=${encodeURIComponent(m3uUrl)}`);
-                            if (res.ok) {
-                                const data = await res.json();
-                                if (Array.isArray(data.channels)) allChannels = [...allChannels, ...data.channels];
+                    try {
+                        const res = await fetch(`/api/theater/iptv?libraryId=${lib.id}`);
+                        if (res.ok) {
+                            const data = await res.json();
+                            if (Array.isArray(data.channels) && data.channels.length > 0) {
+                                allChannels = [...allChannels, ...data.channels];
                                 if (Array.isArray(data.groups)) allGroups = [...allGroups, ...data.groups];
+                            } else if (lib.folders?.[0]) {
+                                const fallbackRes = await fetch(`/api/theater/iptv?url=${encodeURIComponent(lib.folders[0])}`);
+                                if (fallbackRes.ok) {
+                                    const fData = await fallbackRes.json();
+                                    if (Array.isArray(fData.channels)) allChannels = [...allChannels, ...fData.channels];
+                                    if (Array.isArray(fData.groups)) allGroups = [...allGroups, ...fData.groups];
+                                }
                             }
-                        } catch {}
-                    }
+                        }
+                    } catch {}
                     try {
                         const shortRes = await fetch(`/api/theater/iptv/shortlists?libraryId=${lib.id}`);
                         if (shortRes.ok) {
@@ -2213,8 +2219,10 @@ function TheaterPageContent() {
                     </div>
                 ) : loadingItems ? (
                     <div className="flex flex-col items-center justify-center py-36 gap-3">
-                        <div className="w-10 h-10 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin" />
-                        <span className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Scanning media files...</span>
+                        <div className={`w-10 h-10 border-4 ${activeContentTab === 'live' ? 'border-red-500/20 border-t-red-500' : 'border-emerald-500/20 border-t-emerald-500'} rounded-full animate-spin`} />
+                        <span className="text-zinc-500 text-xs font-bold uppercase tracking-widest">
+                            {activeContentTab === 'live' ? 'Loading Live TV...' : 'Scanning media files...'}
+                        </span>
                     </div>
                 ) : activeContentTab === 'music' && (enabledTabLibraries.some(l => l.type === 'music') || activeTabLibraries.length > 0) ? (
                     /* ══════════════════════════════════════════════════════════════
