@@ -354,7 +354,9 @@ export async function GET(req: Request) {
                         id: c.id,
                         name: c.name,
                         cleanName: c.cleanName,
-                        logo: c.logo ? `/api/theater/iptv/logo?url=${encodeURIComponent(c.logo)}` : undefined,
+                        logo: c.logo
+                            ? `/api/theater/iptv/logo?url=${encodeURIComponent(c.logo)}&name=${encodeURIComponent(c.cleanName || c.name)}`
+                            : `/api/theater/iptv/logo?name=${encodeURIComponent(c.cleanName || c.name)}`,
                         rawLogo: c.logo,
                         group: c.group,
                         tvgId: c.tvgId,
@@ -412,7 +414,9 @@ export async function GET(req: Request) {
                 id: c.id,
                 name: c.name,
                 cleanName: c.cleanName,
-                logo: c.logo ? `/api/theater/iptv/logo?url=${encodeURIComponent(c.logo)}` : undefined,
+                logo: c.logo
+                    ? `/api/theater/iptv/logo?url=${encodeURIComponent(c.logo)}&name=${encodeURIComponent(c.cleanName || c.name)}`
+                    : `/api/theater/iptv/logo?name=${encodeURIComponent(c.cleanName || c.name)}`,
                 rawLogo: c.logo,
                 group: c.group,
                 tvgId: c.tvgId,

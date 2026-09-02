@@ -6,7 +6,8 @@ import {
     Tv, Play, Cast, Volume2, VolumeX, Maximize,
     Search, Plus, Calendar, Clock, Sparkles,
     Radio, Settings, Check, ChevronDown, ChevronRight,
-    Circle, Layers, MoreVertical, X, AlertCircle
+    Circle, Layers, MoreVertical, X, AlertCircle,
+    HardDrive, Folder, Laptop, CheckSquare, Square
 } from 'lucide-react';
 import Hls from 'hls.js';
 import { toast } from 'sonner';
@@ -19,6 +20,8 @@ export interface IptvChannel {
     group: string;
     tvgId?: string;
     url: string;
+    libraryId?: string;
+    libraryName?: string;
     streams?: Array<{ url: string; quality: string; label: string }>;
 }
 
@@ -44,6 +47,14 @@ interface DvrStorageFolder {
     is_default: boolean;
 }
 
+interface DestinationOption {
+    id: string;
+    name: string;
+    path: string;
+    type: 'device' | 'dvr' | 'library';
+    badge: string;
+}
+
 interface TheaterLiveTvPlayerProps {
     libraryId: string;
     channels: IptvChannel[];
@@ -65,6 +76,9 @@ export default function TheaterLiveTvPlayer({
     const [currentChannel, setCurrentChannel] = useState<IptvChannel | null>(null);
     const [activeStreamIdx, setActiveStreamIdx] = useState(0);
 
+    // Provider / Library Filter
+    const [selectedProviderId, setSelectedProviderId] = useState<string>('ALL');
+
     // Zapper search & category
     const [zapperSearch, setZapperSearch] = useState('');
     const [zapperGroup, setZapperGroup] = useState('ALL');
@@ -73,14 +87,15 @@ export default function TheaterLiveTvPlayer({
     const [epgMap, setEpgMap] = useState<Record<string, EpgProgram[]>>({});
     const [expandedEpgChannelId, setExpandedEpgChannelId] = useState<string | null>(null);
 
-    // DVR Recording Modal
+    // DVR Storage & Multi-Destination Selection
     const [dvrFolders, setDvrFolders] = useState<DvrStorageFolder[]>([]);
+    const [destinations, setDestinations] = useState<DestinationOption[]>([]);
+    const [selectedDestIds, setSelectedDestIds] = useState<string[]>([]);
     const [recordingModalData, setRecordingModalData] = useState<{
         channel: IptvChannel;
         program: EpgProgram;
         isLive: boolean;
     } | null>(null);
-    const [selectedFolder, setSelectedFolder] = useState('');
     const [recordingPadding, setRecordingPadding] = useState(15);
     const [isScheduling, setIsScheduling] = useState(false);
 
@@ -100,9 +115,28 @@ export default function TheaterLiveTvPlayer({
         program?: EpgProgram;
     } | null>(null);
 
-    // Filter channels by shortlist, category, and search
+    // Available Providers / Libraries
+    const availableProviders = useMemo(() => {
+        const map = new Map<string, { id: string; name: string; count: number }>();
+        for (const c of channels) {
+            if (c.libraryId && c.libraryName) {
+                if (!map.has(c.libraryId)) {
+                    map.set(c.libraryId, { id: c.libraryId, name: c.libraryName, count: 0 });
+                }
+                map.get(c.libraryId)!.count++;
+            }
+        }
+        return Array.from(map.values());
+    }, [channels]);
+
+    // Filter channels by provider, shortlist, category, and search
     const visibleChannels = useMemo(() => {
         let list = channels;
+
+        // 0. Provider library filter
+        if (selectedProviderId !== 'ALL') {
+            list = list.filter(c => c.libraryId === selectedProviderId);
+        }
 
         // 1. Shortlist filter
         if (activeShortlistId) {
@@ -129,14 +163,15 @@ export default function TheaterLiveTvPlayer({
         }
 
         return list;
-    }, [channels, activeShortlistId, shortlists, zapperGroup, zapperSearch]);
+    }, [channels, selectedProviderId, activeShortlistId, shortlists, zapperGroup, zapperSearch]);
 
     // Unique groups for filter pills
     const channelGroups = useMemo(() => {
         const set = new Set<string>();
-        for (const c of channels) if (c.group) set.add(c.group);
+        const sourceList = selectedProviderId !== 'ALL' ? channels.filter(c => c.libraryId === selectedProviderId) : channels;
+        for (const c of sourceList) if (c.group) set.add(c.group);
         return Array.from(set).slice(0, 15);
-    }, [channels]);
+    }, [channels, selectedProviderId]);
 
     // Auto-select first channel on load if none playing
     useEffect(() => {
@@ -166,18 +201,87 @@ export default function TheaterLiveTvPlayer({
             .catch(() => {});
     }, [libraryId, visibleChannels]);
 
-    // Fetch DVR storage folders on mount
+    // Guide and OSD Overlay States
+    const [isFullGuideOpen, setIsFullGuideOpen] = useState(false);
+    const [osdGuideOpen, setOsdGuideOpen] = useState(false);
+    const [guideTimeOffsetHours, setGuideTimeOffsetHours] = useState(0);
+    const osdTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+    const handlePlayerMouseMove = () => {
+        setOsdGuideOpen(true);
+        if (osdTimerRef.current) clearTimeout(osdTimerRef.current);
+        osdTimerRef.current = setTimeout(() => {
+            setOsdGuideOpen(false);
+        }, 4500);
+    };
+
+    // Fetch DVR & Server Library Destinations on mount
     useEffect(() => {
-        fetch('/api/theater/iptv/dvr')
-            .then(r => r.ok ? r.json() : { folders: [] })
-            .then(data => {
-                const flds = data.folders || [];
+        const fetchDestinations = async () => {
+            const list: DestinationOption[] = [
+                {
+                    id: 'device',
+                    name: 'Download to this Device',
+                    path: 'Direct Browser Download to your Phone or PC',
+                    type: 'device',
+                    badge: 'Local Device'
+                }
+            ];
+
+            try {
+                const [dvrRes, libRes] = await Promise.all([
+                    fetch('/api/theater/iptv/dvr').then(r => r.ok ? r.json() : { folders: [] }),
+                    fetch('/api/theater/libraries').then(r => r.ok ? r.json() : [])
+                ]);
+
+                const flds = dvrRes.folders || [];
                 setDvrFolders(flds);
-                const def = flds.find((f: any) => f.is_default) || flds[0];
-                if (def) setSelectedFolder(def.path);
-            })
-            .catch(() => {});
+
+                for (const f of flds) {
+                    list.push({
+                        id: `dvr-${f.id}`,
+                        name: f.name || 'DVR Storage',
+                        path: f.path,
+                        type: 'dvr',
+                        badge: f.is_default ? '★ Default NAS DVR' : 'NAS Storage'
+                    });
+                }
+
+                const allLibs = Array.isArray(libRes) ? libRes : (libRes.libraries || []);
+                for (const lib of allLibs) {
+                    let folders: string[] = [];
+                    try {
+                        folders = typeof lib.folders === 'string' ? JSON.parse(lib.folders) : (lib.folders || []);
+                    } catch {}
+                    folders.forEach((f, fi) => {
+                        if (!list.some(d => d.path === f)) {
+                            list.push({
+                                id: `lib-${lib.id}-${fi}`,
+                                name: `${lib.name} Library`,
+                                path: f,
+                                type: 'library',
+                                badge: 'Server Library'
+                            });
+                        }
+                    });
+                }
+            } catch {}
+
+            setDestinations(list);
+            const def = list.find(d => d.badge.includes('Default')) || list.find(d => d.type === 'dvr') || list[0];
+            if (def) {
+                setSelectedDestIds([def.id]);
+            }
+        };
+
+        fetchDestinations();
     }, []);
+
+    const toggleDestination = (id: string) => {
+        setSelectedDestIds(prev =>
+            prev.includes(id) ? (prev.length > 1 ? prev.filter(x => x !== id) : prev) : [...prev, id]
+        );
+    };
 
     // Video Player Stream Handler (Transmuxer + Fallback)
     useEffect(() => {
@@ -292,11 +396,6 @@ export default function TheaterLiveTvPlayer({
 
     // Open DVR recording modal
     const openRecordModal = (channel: IptvChannel, program?: EpgProgram) => {
-        if (dvrFolders.length === 0) {
-            toast.error('No DVR folders configured! Go to Media > Live TV & DVR to add a destination folder.');
-            return;
-        }
-
         const prog = program || currentProgram || {
             id: 'live_broadcast',
             channel_tvg_id: channel.tvgId || '',
@@ -308,6 +407,10 @@ export default function TheaterLiveTvPlayer({
 
         const isLive = new Date(prog.start_time) <= new Date();
 
+        if (selectedDestIds.length === 0 && destinations.length > 0) {
+            setSelectedDestIds([destinations[0].id]);
+        }
+
         setRecordingModalData({
             channel,
             program: prog,
@@ -317,38 +420,64 @@ export default function TheaterLiveTvPlayer({
 
     // Confirm & submit DVR recording
     const handleConfirmRecording = async () => {
-        if (!recordingModalData || !selectedFolder) return;
+        if (!recordingModalData || selectedDestIds.length === 0) {
+            toast.error('Please select at least one storage destination');
+            return;
+        }
         setIsScheduling(true);
         try {
             const action = recordingModalData.isLive ? 'record_now' : 'schedule_recording';
             const streams = recordingModalData.channel.streams;
             const streamUrl = streams?.[0]?.url || recordingModalData.channel.url;
 
-            const res = await fetch('/api/theater/iptv/dvr', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action,
-                    channelId: recordingModalData.channel.id,
-                    channelName: recordingModalData.channel.name,
-                    channelLogo: recordingModalData.channel.logo,
-                    streamUrl,
-                    programTitle: recordingModalData.program.title,
-                    programDescription: recordingModalData.program.description,
-                    startTime: recordingModalData.program.start_time,
-                    endTime: recordingModalData.program.end_time,
-                    destinationFolder: selectedFolder,
-                    paddingMinutes: recordingPadding
-                })
-            });
+            const chosenDestinations = destinations.filter(d => selectedDestIds.includes(d.id));
 
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error);
+            // 1. Check if "device" (Direct Local Download) is selected
+            const isDeviceSelected = chosenDestinations.some(d => d.type === 'device');
+            if (isDeviceSelected) {
+                const cleanTitle = (recordingModalData.program.title || recordingModalData.channel.name).replace(/[/\\?%*:|"<>]/g, '').trim();
+                const downloadUrl = `/api/theater/iptv/stream?url=${encodeURIComponent(streamUrl)}&download=true&filename=${encodeURIComponent(`${cleanTitle}.ts`)}`;
+                const link = document.createElement('a');
+                link.href = downloadUrl;
+                link.download = `${cleanTitle}.ts`;
+                link.target = '_blank';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                toast.success(`Download started for "${cleanTitle}" to this device`);
+            }
 
-            if (recordingModalData.isLive) {
-                toast.success(`Recording started: "${recordingModalData.program.title}"`);
-            } else {
-                toast.success(`Scheduled recording for: "${recordingModalData.program.title}"`);
+            // 2. For each NAS / Server storage destination, schedule recording
+            const serverDestinations = chosenDestinations.filter(d => d.type !== 'device');
+            for (const dest of serverDestinations) {
+                const res = await fetch('/api/theater/iptv/dvr', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action,
+                        channelId: recordingModalData.channel.id,
+                        channelName: recordingModalData.channel.name,
+                        channelLogo: recordingModalData.channel.logo,
+                        streamUrl,
+                        programTitle: recordingModalData.program.title,
+                        programDescription: recordingModalData.program.description,
+                        startTime: recordingModalData.program.start_time,
+                        endTime: recordingModalData.program.end_time,
+                        destinationFolder: dest.path,
+                        paddingMinutes: recordingPadding
+                    })
+                });
+
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Failed to schedule');
+            }
+
+            if (serverDestinations.length > 0) {
+                if (recordingModalData.isLive) {
+                    toast.success(`Recording live broadcast to ${serverDestinations.length} destination(s)`);
+                } else {
+                    toast.success(`Scheduled recording to ${serverDestinations.length} destination(s)`);
+                }
             }
             setRecordingModalData(null);
         } catch (err: any) {
@@ -360,7 +489,7 @@ export default function TheaterLiveTvPlayer({
 
     return (
         <div className="space-y-4">
-            {/* ── Top Bar: Shortlist Picker + Quick Search + Setup Link ── */}
+            {/* ── Top Bar: Shortlist Picker + Full Guide Button + Setup Link ── */}
             <div className="flex flex-wrap items-center justify-between gap-3 bg-zinc-950 p-3 rounded-2xl border border-zinc-900">
                 {/* Shortlist selector pills */}
                 <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar">
@@ -398,15 +527,26 @@ export default function TheaterLiveTvPlayer({
                     </Link>
                 </div>
 
-                {/* Media Tab Setup Link */}
-                <Link
-                    href="/discover?tab=iptv"
-                    className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-amber-300 border border-zinc-800 text-xs font-bold flex items-center gap-1.5 transition-colors shrink-0"
-                    title="Setup Providers, Shortlists & DVR in Media Tab"
-                >
-                    <Settings size={13} />
-                    <span>Setup</span>
-                </Link>
+                {/* Right Top Actions: Full TV Guide Button & Setup */}
+                <div className="flex items-center gap-2 shrink-0">
+                    <button
+                        onClick={() => setIsFullGuideOpen(true)}
+                        className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black uppercase text-xs tracking-wider flex items-center gap-1.5 shadow-lg shadow-amber-500/20 transition-all cursor-pointer active:scale-95"
+                        title="Open Full Program Schedule Guide"
+                    >
+                        <Calendar size={14} />
+                        <span>TV Guide</span>
+                    </button>
+
+                    <Link
+                        href="/discover?tab=iptv"
+                        className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-amber-300 border border-zinc-800 text-xs font-bold flex items-center gap-1.5 transition-colors shrink-0"
+                        title="Setup Providers, Shortlists & DVR in Media Tab"
+                    >
+                        <Settings size={13} />
+                        <span>Setup</span>
+                    </Link>
+                </div>
             </div>
 
             {/* ── Main Stage Split Screen: Player (Left) + Zapping Menu (Right) ── */}
@@ -414,6 +554,7 @@ export default function TheaterLiveTvPlayer({
                 {/* ── LEFT: TV Screen Playing (8 Cols) ── */}
                 <div
                     ref={playerContainerRef}
+                    onMouseMove={handlePlayerMouseMove}
                     className="lg:col-span-8 bg-black rounded-3xl border border-zinc-800/90 overflow-hidden flex flex-col shadow-2xl relative group"
                 >
                     {/* Video Screen Container */}
@@ -426,8 +567,8 @@ export default function TheaterLiveTvPlayer({
                             className="w-full h-full object-contain"
                         />
 
-                        {/* Top OSD Bar: Quality, Multi-Stream Switcher, Fullscreen */}
-                        <div className="absolute top-0 inset-x-0 p-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-auto">
+                        {/* Top OSD Bar: Quality, Multi-Stream Switcher, Guide Toggle, Fullscreen */}
+                        <div className={`absolute top-0 inset-x-0 p-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent flex items-center justify-between transition-opacity duration-200 pointer-events-auto ${osdGuideOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
                             <div className="flex items-center gap-2">
                                 <span className="px-2 py-0.5 rounded-lg bg-red-500 text-black text-[10px] font-black uppercase flex items-center gap-1">
                                     <span className="w-1.5 h-1.5 rounded-full bg-black animate-pulse" /> LIVE
@@ -460,6 +601,18 @@ export default function TheaterLiveTvPlayer({
 
                             <div className="flex items-center gap-2">
                                 <button
+                                    onClick={() => setOsdGuideOpen(!osdGuideOpen)}
+                                    className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 ${
+                                        osdGuideOpen
+                                            ? 'bg-amber-500 text-black shadow'
+                                            : 'bg-black/60 text-zinc-300 hover:text-white hover:bg-zinc-800'
+                                    }`}
+                                    title="Toggle Channel Program Schedule Overlay"
+                                >
+                                    <Calendar size={14} />
+                                    <span className="hidden sm:inline">Guide</span>
+                                </button>
+                                <button
                                     onClick={() => setIsMuted(!isMuted)}
                                     className="p-2 rounded-xl bg-black/60 hover:bg-zinc-800 text-zinc-300 hover:text-white transition-colors cursor-pointer"
                                 >
@@ -473,6 +626,45 @@ export default function TheaterLiveTvPlayer({
                                 </button>
                             </div>
                         </div>
+
+                        {/* On-Screen Channel Schedule Overlay (OSD) */}
+                        {osdGuideOpen && currentChannelPrograms.length > 0 && (
+                            <div className="absolute right-4 top-16 bottom-4 w-72 bg-black/85 backdrop-blur-xl border border-zinc-800/80 rounded-2xl p-4 flex flex-col space-y-3 z-30 animate-in fade-in slide-in-from-right duration-200 pointer-events-auto overflow-hidden">
+                                <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
+                                    <div className="min-w-0">
+                                        <h4 className="text-xs font-black text-white truncate">{currentChannel?.name}</h4>
+                                        <p className="text-[10px] text-amber-400 font-bold uppercase">Program Schedule</p>
+                                    </div>
+                                    <button onClick={() => setOsdGuideOpen(false)} className="text-zinc-500 hover:text-white">
+                                        <X size={14} />
+                                    </button>
+                                </div>
+
+                                <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1">
+                                    {currentChannelPrograms.slice(0, 10).map((prog, idx) => {
+                                        const now = new Date();
+                                        const isLive = new Date(prog.start_time) <= now && new Date(prog.end_time) >= now;
+                                        return (
+                                            <div
+                                                key={prog.id || idx}
+                                                className={`p-2.5 rounded-xl border text-xs transition-all ${
+                                                    isLive
+                                                        ? 'bg-amber-500/15 border-amber-500/40 text-white'
+                                                        : 'bg-zinc-900/60 border-zinc-800/80 text-zinc-300 hover:bg-zinc-900'
+                                                }`}
+                                            >
+                                                <div className="flex items-center justify-between text-[10px] font-mono text-zinc-400 mb-1">
+                                                    <span>{new Date(prog.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(prog.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                    {isLive && <span className="text-red-400 font-bold uppercase text-[9px] flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" /> LIVE</span>}
+                                                </div>
+                                                <p className="font-bold truncate">{prog.title}</p>
+                                                {prog.description && <p className="text-[10px] text-zinc-500 line-clamp-2 mt-0.5">{prog.description}</p>}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     {/* Bottom OSD Bar: Channel Info & Currently Airing Program Timeline */}
@@ -578,6 +770,36 @@ export default function TheaterLiveTvPlayer({
                                 </button>
                             )}
                         </div>
+
+                        {/* Provider / Library Filter Pills */}
+                        {availableProviders.length > 1 && (
+                            <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-0.5">
+                                <span className="text-[9px] font-black uppercase text-zinc-500 tracking-wider shrink-0 mr-0.5">Provider:</span>
+                                <button
+                                    onClick={() => setSelectedProviderId('ALL')}
+                                    className={`px-2.5 py-1 rounded-lg text-[10px] font-black shrink-0 transition-all cursor-pointer ${
+                                        selectedProviderId === 'ALL'
+                                            ? 'bg-amber-500 text-black shadow-sm'
+                                            : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white'
+                                    }`}
+                                >
+                                    All ({channels.length})
+                                </button>
+                                {availableProviders.map(p => (
+                                    <button
+                                        key={p.id}
+                                        onClick={() => setSelectedProviderId(p.id)}
+                                        className={`px-2.5 py-1 rounded-lg text-[10px] font-black shrink-0 transition-all cursor-pointer ${
+                                            selectedProviderId === p.id
+                                                ? 'bg-amber-500 text-black shadow-sm'
+                                                : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white'
+                                        }`}
+                                    >
+                                        {p.name} ({p.count})
+                                    </button>
+                                ))}
+                            </div>
+                        )}
 
                         {/* Category Filter Pills */}
                         {channelGroups.length > 0 && (
@@ -827,22 +1049,60 @@ export default function TheaterLiveTvPlayer({
                             </p>
                         </div>
 
-                        {/* Destination Storage Folder Picker */}
-                        <div className="space-y-1.5">
-                            <label className="text-xs font-bold text-zinc-400 block">
-                                Destination Recording Folder:
-                            </label>
-                            <select
-                                value={selectedFolder}
-                                onChange={e => setSelectedFolder(e.target.value)}
-                                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2.5 text-xs text-white font-bold outline-none focus:border-red-500"
-                            >
-                                {dvrFolders.map(f => (
-                                    <option key={f.id} value={f.path}>
-                                        {f.name} ({f.path}) {f.is_default ? '★ Default' : ''}
-                                    </option>
-                                ))}
-                            </select>
+                        {/* Storage Destinations Multi-Selection List */}
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                                <label className="text-xs font-bold text-zinc-300 block">
+                                    Storage Destination(s):
+                                </label>
+                                <span className="text-[11px] text-zinc-500">
+                                    {selectedDestIds.length} selected
+                                </span>
+                            </div>
+
+                            <div className="space-y-1.5 max-h-52 overflow-y-auto custom-scrollbar pr-1">
+                                {destinations.map(d => {
+                                    const isSelected = selectedDestIds.includes(d.id);
+                                    return (
+                                        <div
+                                            key={d.id}
+                                            onClick={() => toggleDestination(d.id)}
+                                            className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
+                                                isSelected
+                                                    ? 'bg-red-500/15 border-red-500/50 text-white shadow-sm'
+                                                    : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
+                                            }`}
+                                        >
+                                            <div className="flex items-center gap-3 min-w-0 flex-1">
+                                                <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                                                    isSelected ? 'bg-red-500 text-white' : 'bg-zinc-900 text-zinc-500'
+                                                }`}>
+                                                    {d.type === 'device' ? <Laptop size={15} /> : d.type === 'dvr' ? <HardDrive size={15} /> : <Folder size={15} />}
+                                                </div>
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-xs font-black truncate">{d.name}</span>
+                                                        <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold uppercase ${
+                                                            d.type === 'device' ? 'bg-indigo-500/20 text-indigo-300' : 'bg-zinc-900 text-zinc-400'
+                                                        }`}>
+                                                            {d.badge}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-[10px] text-zinc-500 truncate font-mono mt-0.5">{d.path}</p>
+                                                </div>
+                                            </div>
+
+                                            <div className="shrink-0">
+                                                {isSelected ? (
+                                                    <CheckSquare size={18} className="text-red-400" />
+                                                ) : (
+                                                    <Square size={18} className="text-zinc-600" />
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         </div>
 
                         {/* Overtime Padding */}
@@ -880,6 +1140,149 @@ export default function TheaterLiveTvPlayer({
                                 <Circle size={12} className="fill-current" />
                                 {isScheduling ? 'Saving...' : recordingModalData.isLive ? 'Start Recording Now' : 'Schedule Recording'}
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Full Interactive TV Guide Schedule Modal ── */}
+            {isFullGuideOpen && (
+                <div className="fixed inset-0 z-[9999] flex flex-col p-3 sm:p-6 bg-black/95 backdrop-blur-xl animate-in fade-in duration-200">
+                    <div className="bg-[#0c0c0e] border border-zinc-800 rounded-3xl w-full h-full flex flex-col overflow-hidden shadow-2xl">
+                        {/* Guide Header */}
+                        <div className="p-4 sm:p-5 border-b border-zinc-800 flex flex-wrap items-center justify-between gap-3 bg-zinc-950/80">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                                    <Calendar size={20} />
+                                </div>
+                                <div>
+                                    <h3 className="text-base sm:text-lg font-black text-white">Full TV Schedule Guide</h3>
+                                    <p className="text-xs text-zinc-400">Browse schedules forwards and backwards in time</p>
+                                </div>
+                            </div>
+
+                            {/* Timeline Controls */}
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <button
+                                    onClick={() => setGuideTimeOffsetHours(prev => prev - 2)}
+                                    className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-bold text-zinc-300 hover:text-white transition-all"
+                                >
+                                    ◀ -2 Hours
+                                </button>
+                                <button
+                                    onClick={() => setGuideTimeOffsetHours(0)}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
+                                        guideTimeOffsetHours === 0
+                                            ? 'bg-amber-500 text-black shadow'
+                                            : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white'
+                                    }`}
+                                >
+                                    Now
+                                </button>
+                                <button
+                                    onClick={() => setGuideTimeOffsetHours(prev => prev + 2)}
+                                    className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-bold text-zinc-300 hover:text-white transition-all"
+                                >
+                                    +2 Hours ▶
+                                </button>
+
+                                <button
+                                    onClick={() => setIsFullGuideOpen(false)}
+                                    className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 ml-2"
+                                >
+                                    <X size={18} />
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Guide Content Grid */}
+                        <div className="flex-1 overflow-auto custom-scrollbar divide-y divide-zinc-900">
+                            {visibleChannels.map(chan => {
+                                const isCurrent = currentChannel?.id === chan.id;
+                                const tvgKey = chan.tvgId || '';
+                                const chanEpg = (tvgKey && (epgMap[tvgKey] || epgMap[tvgKey.toLowerCase()])) || epgMap[chan.name] || epgMap[chan.cleanName || ''] || [];
+
+                                const baseDate = new Date(Date.now() + guideTimeOffsetHours * 60 * 60 * 1000);
+                                const windowStart = new Date(baseDate.getTime() - 1 * 60 * 60 * 1000);
+                                const windowEnd = new Date(baseDate.getTime() + 6 * 60 * 60 * 1000);
+
+                                const windowPrograms = chanEpg.filter(p =>
+                                    new Date(p.end_time) >= windowStart && new Date(p.start_time) <= windowEnd
+                                );
+
+                                return (
+                                    <div key={chan.id} className="flex items-stretch hover:bg-zinc-900/30 transition-colors group">
+                                        {/* Channel Info Left Column */}
+                                        <div
+                                            onClick={() => {
+                                                setCurrentChannel(chan);
+                                                setActiveStreamIdx(0);
+                                                setIsFullGuideOpen(false);
+                                            }}
+                                            className="w-56 sm:w-64 p-3 border-r border-zinc-900 flex items-center gap-3 shrink-0 bg-zinc-950/60 cursor-pointer group-hover:bg-zinc-900/60 transition-colors"
+                                        >
+                                            <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center p-1 shrink-0 overflow-hidden">
+                                                {chan.logo ? (
+                                                    <img src={chan.logo} alt="" className="max-h-full max-w-full object-contain" onError={e => (e.currentTarget.style.display = 'none')} />
+                                                ) : (
+                                                    <Tv size={18} className="text-zinc-600" />
+                                                )}
+                                            </div>
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-xs font-black text-white truncate group-hover:text-amber-400 transition-colors">
+                                                    {chan.cleanName || chan.name}
+                                                </p>
+                                                <span className="text-[10px] text-zinc-500 font-bold uppercase">{chan.group}</span>
+                                            </div>
+                                        </div>
+
+                                        {/* Programs Timeline for this Channel */}
+                                        <div className="flex-1 flex items-center gap-2 p-2 overflow-x-auto custom-scrollbar">
+                                            {windowPrograms.length === 0 ? (
+                                                <div className="p-3 text-xs text-zinc-600 italic">
+                                                    No schedule data available for this time window.
+                                                </div>
+                                            ) : (
+                                                windowPrograms.map((prog, idx) => {
+                                                    const now = new Date();
+                                                    const isLive = new Date(prog.start_time) <= now && new Date(prog.end_time) >= now;
+                                                    return (
+                                                        <div
+                                                            key={prog.id || idx}
+                                                            onClick={() => {
+                                                                if (isLive) {
+                                                                    setCurrentChannel(chan);
+                                                                    setActiveStreamIdx(0);
+                                                                    setIsFullGuideOpen(false);
+                                                                } else {
+                                                                    openRecordModal(chan, prog);
+                                                                }
+                                                            }}
+                                                            className={`min-w-[200px] max-w-[280px] p-3 rounded-2xl border text-xs flex flex-col justify-between transition-all cursor-pointer ${
+                                                                isLive
+                                                                    ? 'bg-amber-500/20 border-amber-500/50 text-white shadow-lg'
+                                                                    : 'bg-zinc-900/80 border-zinc-800 text-zinc-300 hover:border-zinc-700 hover:bg-zinc-800'
+                                                            }`}
+                                                        >
+                                                            <div className="space-y-1">
+                                                                <div className="flex items-center justify-between text-[10px] font-mono text-zinc-400">
+                                                                    <span>{new Date(prog.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(prog.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                                    {isLive && <span className="text-red-400 font-bold uppercase text-[9px]">LIVE NOW</span>}
+                                                                </div>
+                                                                <h5 className="font-black text-white line-clamp-1">{prog.title}</h5>
+                                                                {prog.description && <p className="text-[10px] text-zinc-500 line-clamp-2">{prog.description}</p>}
+                                                            </div>
+                                                            <div className="pt-2 mt-2 border-t border-white/5 flex items-center justify-between text-[10px] text-zinc-400">
+                                                                <span>{isLive ? '▶ Click to Watch' : '⏺ Click to Record'}</span>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })}
                         </div>
                     </div>
                 </div>

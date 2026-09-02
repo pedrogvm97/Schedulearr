@@ -14,7 +14,48 @@ const logoCache = new Map<string, { buffer: Buffer; contentType: string; expiry:
 // Track URLs that failed/timed out
 const failedUrls = new Map<string, number>();
 
-function returnTransparentFallback() {
+function stringToHslColor(str: string): string {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const h = Math.abs(hash) % 360;
+    return `hsl(${h}, 65%, 28%)`;
+}
+
+function generateSvgBadge(name: string): Response {
+    const clean = (name || 'TV').replace(/[^a-zA-Z0-9\s]/g, '').trim();
+    const words = clean.split(/\s+/).filter(Boolean);
+    let label = words.slice(0, 2).map(w => w.length > 3 ? w.slice(0, 3) : w).join(' ').toUpperCase();
+    if (!label) label = 'TV';
+    if (label.length > 5) label = label.slice(0, 5);
+
+    const bg = stringToHslColor(name || 'tv');
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+        <defs>
+            <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="${bg}" stop-opacity="1"/>
+                <stop offset="100%" stop-color="#09090b" stop-opacity="1"/>
+            </linearGradient>
+        </defs>
+        <rect width="128" height="128" rx="32" fill="url(#g)" stroke="#27272a" stroke-width="3"/>
+        <text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" fill="#ffffff" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="${label.length > 3 ? 24 : 32}" letter-spacing="0.5px">${label}</text>
+    </svg>`;
+
+    return new Response(svg, {
+        status: 200,
+        headers: {
+            'Content-Type': 'image/svg+xml; charset=utf-8',
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'public, max-age=604800, immutable'
+        }
+    });
+}
+
+function returnFallback(name?: string) {
+    if (name) {
+        return generateSvgBadge(name);
+    }
     return new Response(TRANSPARENT_PNG, {
         status: 200,
         headers: {
@@ -30,9 +71,10 @@ export async function GET(req: NextRequest) {
     try {
         const { searchParams } = new URL(req.url);
         let logoUrl = searchParams.get('url');
+        const channelName = searchParams.get('name') || searchParams.get('channel') || '';
 
         if (!logoUrl) {
-            return returnTransparentFallback();
+            return returnFallback(channelName);
         }
 
         // Unwrap if accidentally passed a nested proxy URL (e.g. /api/theater/iptv/logo?url=https...)
@@ -42,7 +84,7 @@ export async function GET(req: NextRequest) {
         }
 
         if (!logoUrl.startsWith('http://') && !logoUrl.startsWith('https://')) {
-            return returnTransparentFallback();
+            return returnFallback(channelName);
         }
 
         const now = Date.now();
@@ -64,7 +106,7 @@ export async function GET(req: NextRequest) {
         // 2. Check failed URLs cooldown (5 minutes)
         const failedExpiry = failedUrls.get(logoUrl);
         if (failedExpiry && failedExpiry > now) {
-            return returnTransparentFallback();
+            return returnFallback(channelName);
         }
 
         // 3. Fetch from remote with IPTV/VLC headers & fallback to browser header
@@ -74,7 +116,7 @@ export async function GET(req: NextRequest) {
                 responseType: 'arraybuffer',
                 timeout: 5000,
                 headers: {
-                    'User-Agent': 'VLC/3.0.18 LibVLC/3.0.18 Schedulearr/0.5.46',
+                    'User-Agent': 'VLC/3.0.18 LibVLC/3.0.18 Schedulearr/0.5.54',
                     'Accept': '*/*'
                 },
                 validateStatus: () => true
@@ -102,7 +144,7 @@ export async function GET(req: NextRequest) {
 
         if (!res || res.status < 200 || res.status >= 300 || !res.data) {
             failedUrls.set(logoUrl, now + 5 * 60 * 1000);
-            return returnTransparentFallback();
+            return returnFallback(channelName);
         }
 
         const contentType = res.headers['content-type'] || 'image/png';
@@ -127,6 +169,6 @@ export async function GET(req: NextRequest) {
             }
         });
     } catch {
-        return returnTransparentFallback();
+        return returnFallback();
     }
 }

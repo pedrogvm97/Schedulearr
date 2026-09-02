@@ -435,6 +435,7 @@ function TheaterPageContent() {
     };
 
     const [showSubtitlesDrawer, setShowSubtitlesDrawer] = useState(false);
+    const [showVideoSettingsPopover, setShowVideoSettingsPopover] = useState(false);
     const [isSubSearchModalOpen, setIsSubSearchModalOpen] = useState(false);
     const [subSearchQuery, setSubSearchQuery] = useState('');
     const [subSearchLang, setSubSearchLang] = useState('all');
@@ -443,6 +444,16 @@ function TheaterPageContent() {
     const [selectedSubtitle, setSelectedSubtitle] = useState<SubtitleTrack | null>(null);
     const [subOffsetMs, setSubOffsetMs] = useState(0);
     const [diagnosticsData, setDiagnosticsData] = useState<StreamDiagnosticsInfo | null>(null);
+
+    // Subtitle TextTrack Mode Activator
+    useEffect(() => {
+        if (videoRef.current && videoRef.current.textTracks) {
+            const tracks = videoRef.current.textTracks;
+            for (let i = 0; i < tracks.length; i++) {
+                tracks[i].mode = selectedSubtitle ? 'showing' : 'disabled';
+            }
+        }
+    }, [selectedSubtitle]);
 
     // Stream Metrics
     const [streamMetrics, setStreamMetrics] = useState({
@@ -618,36 +629,45 @@ function TheaterPageContent() {
         try {
             const isLive = libs.some(l => l.type === 'live');
             if (isLive) {
-                let allChannels: any[] = [];
-                let allGroups: any[] = [];
-                let allShortlists: any[] = [];
+                const results = await Promise.all(
+                    libs.map(async (lib) => {
+                        try {
+                            const [iptvRes, shortRes] = await Promise.all([
+                                fetch(`/api/theater/iptv?libraryId=${lib.id}`),
+                                fetch(`/api/theater/iptv/shortlists?libraryId=${lib.id}`).catch(() => null)
+                            ]);
 
-                for (const lib of libs) {
-                    try {
-                        const res = await fetch(`/api/theater/iptv?libraryId=${lib.id}`);
-                        if (res.ok) {
-                            const data = await res.json();
-                            if (Array.isArray(data.channels) && data.channels.length > 0) {
-                                allChannels = [...allChannels, ...data.channels];
-                                if (Array.isArray(data.groups)) allGroups = [...allGroups, ...data.groups];
-                            } else if (lib.folders?.[0]) {
-                                const fallbackRes = await fetch(`/api/theater/iptv?url=${encodeURIComponent(lib.folders[0])}`);
-                                if (fallbackRes.ok) {
-                                    const fData = await fallbackRes.json();
-                                    if (Array.isArray(fData.channels)) allChannels = [...allChannels, ...fData.channels];
-                                    if (Array.isArray(fData.groups)) allGroups = [...allGroups, ...fData.groups];
+                            let channels: any[] = [];
+                            let groups: any[] = [];
+                            let shortlists: any[] = [];
+
+                            if (iptvRes.ok) {
+                                const data = await iptvRes.json();
+                                if (Array.isArray(data.channels)) {
+                                    channels = data.channels.map((c: any) => ({ ...c, libraryId: lib.id, libraryName: lib.name }));
+                                }
+                                if (Array.isArray(data.groups)) {
+                                    groups = data.groups;
                                 }
                             }
+
+                            if (shortRes && shortRes.ok) {
+                                const sData = await shortRes.json();
+                                if (Array.isArray(sData.shortlists)) {
+                                    shortlists = sData.shortlists;
+                                }
+                            }
+
+                            return { channels, groups, shortlists };
+                        } catch {
+                            return { channels: [], groups: [], shortlists: [] };
                         }
-                    } catch {}
-                    try {
-                        const shortRes = await fetch(`/api/theater/iptv/shortlists?libraryId=${lib.id}`);
-                        if (shortRes.ok) {
-                            const sData = await shortRes.json();
-                            if (Array.isArray(sData.shortlists)) allShortlists = [...allShortlists, ...sData.shortlists];
-                        }
-                    } catch {}
-                }
+                    })
+                );
+
+                const allChannels = results.flatMap(r => r.channels);
+                const allGroups = results.flatMap(r => r.groups);
+                const allShortlists = results.flatMap(r => r.shortlists);
 
                 setIptvChannels(allChannels);
                 setIptvGroups(allGroups);
@@ -1361,11 +1381,15 @@ function TheaterPageContent() {
                 // @ts-ignore
                 const dropped = video.getVideoPlaybackQuality ? video.getVideoPlaybackQuality().droppedVideoFrames : 0;
 
+                const effectiveDurationSec = (playingVideo?.durationMs && playingVideo.durationMs > 0)
+                    ? (playingVideo.durationMs / 1000)
+                    : (video && isFinite(video.duration) && video.duration > 0 ? video.duration : 0);
+
                 setStreamMetrics({
                     resolution: video.videoWidth ? `${video.videoWidth} x ${video.videoHeight}` : 'Loading...',
                     bufferedSeconds: Math.round(bufSec * 10) / 10,
                     currentTime: formatTime(video.currentTime),
-                    duration: formatTime(video.duration),
+                    duration: formatTime(effectiveDurationSec),
                     droppedFrames: dropped,
                     sourceMode: playingVideo?.posterUrl
                         ? 'Plex Direct Stream'
@@ -3712,114 +3736,207 @@ function TheaterPageContent() {
                 </div>
             )}
 
-            {/* ── Picture-in-Picture Floating Mini-Player when Minimized (like Plex & YouTube) ── */}
-            {playingVideo && isVideoMinimized && (
-                <div className="fixed bottom-6 right-6 z-[250] w-96 max-w-[calc(100vw-2rem)] bg-[#0e0e10] border-2 border-zinc-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom-6 duration-200">
-                    <div className="px-3.5 py-2.5 bg-zinc-900/95 border-b border-zinc-800 flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 min-w-0 flex-1">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-                            <span className="text-xs font-bold text-white truncate">{playingVideo.title}</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                            <button
-                                onClick={() => setIsVideoMinimized(false)}
-                                className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
-                                title="Expand / Maximize Video Player"
-                            >
-                                <Maximize2 size={15} />
-                            </button>
-                            <button
-                                onClick={() => { setPlayingVideo(null); setIsVideoMinimized(false); }}
-                                className="p-1.5 rounded-lg text-zinc-400 hover:text-red-400 hover:bg-red-500/15 transition-colors"
-                                title="Close Video"
-                            >
-                                <X size={16} />
-                            </button>
-                        </div>
-                    </div>
-                    <div className="relative aspect-video bg-black flex items-center justify-center overflow-hidden">
-                        <video
-                            ref={videoRef}
-                            controls
-                            autoPlay
-                            className="w-full h-full object-contain"
-                            onLoadStart={() => {
-                                addDebugLog('info', 'Video event: loadstart');
-                                setPlaybackError(null);
-                            }}
-                            onLoadedMetadata={(e) => {
-                                const v = e.currentTarget;
-                                addDebugLog('success', `Video event: loadedmetadata (${v.videoWidth}x${v.videoHeight}, duration: ${Math.round(v.duration || 0)}s)`);
-                            }}
-                            onCanPlay={() => addDebugLog('success', 'Video event: canplay (Ready for playback)')}
-                            onPlaying={() => {
-                                if (stallTimeoutRef.current) {
-                                    clearTimeout(stallTimeoutRef.current);
-                                    stallTimeoutRef.current = null;
-                                }
-                                if (playbackError?.codeName === 'STREAM_STALLED_CODEC_INCOMPATIBLE') {
-                                    setPlaybackError(null);
-                                }
-                                addDebugLog('info', 'Video event: playing');
-                            }}
-                            onTimeUpdate={(e) => {
-                                const v = e.currentTarget;
-                                if (v.currentTime > 0) {
-                                    if (stallTimeoutRef.current) {
-                                        clearTimeout(stallTimeoutRef.current);
-                                        stallTimeoutRef.current = null;
-                                    }
-                                    if (playbackError?.codeName === 'STREAM_STALLED_CODEC_INCOMPATIBLE') {
-                                        setPlaybackError(null);
-                                    }
-                                }
-                            }}
-                            onError={(e) => {
-                                const v = e.currentTarget;
-                                const err = v.error;
-                                addDebugLog('error', `Mini Player HTMLVideoElement Error: (Code ${err?.code || '?'})`);
-                            }}
-                        />
-                    </div>
-                </div>
-            )}
-
-            {/* ── Advanced Video Player Full Modal ── */}
-            {playingVideo && !isVideoMinimized && (
-                <div className="fixed inset-0 z-[200] flex items-center justify-center p-2 sm:p-4 bg-black/95 backdrop-blur-xl animate-in fade-in duration-200">
-                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-5xl overflow-hidden shadow-2xl relative flex flex-col max-h-[95vh]">
-                        {/* Player Header - Spacious 2-tier Layout */}
-                        <div className="p-4 sm:p-5 px-6 border-b border-zinc-900 bg-zinc-950/80 backdrop-blur-md flex flex-col gap-3">
-                            {/* Tier 1: Title & Window Controls */}
-                            <div className="flex items-center justify-between gap-4">
+            {/* ── Persistent Video Player Container (Never Unmounts Video on Minimize) ── */}
+            {playingVideo && (
+                <div className={
+                    isVideoMinimized
+                        ? "fixed bottom-6 right-6 z-[250] w-96 max-w-[calc(100vw-2rem)] bg-[#0e0e10] border-2 border-zinc-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom-6 duration-200"
+                        : "fixed inset-0 z-[200] flex items-center justify-center p-2 sm:p-4 bg-black/95 backdrop-blur-xl animate-in fade-in duration-200"
+                }>
+                    <div className={
+                        isVideoMinimized
+                            ? "w-full flex flex-col"
+                            : "bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-5xl overflow-hidden shadow-2xl relative flex flex-col max-h-[95vh]"
+                    }>
+                        {/* Header Bar */}
+                        {isVideoMinimized ? (
+                            <div className="px-3.5 py-2.5 bg-zinc-900/95 border-b border-zinc-800 flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2 min-w-0 flex-1">
+                                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                                    <span className="text-xs font-bold text-white truncate">{playingVideo.title}</span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                    <button
+                                        onClick={() => setIsVideoMinimized(false)}
+                                        className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+                                        title="Expand / Maximize Video Player"
+                                    >
+                                        <Maximize2 size={15} />
+                                    </button>
+                                    <button
+                                        onClick={() => { setPlayingVideo(null); setIsVideoMinimized(false); }}
+                                        className="p-1.5 rounded-lg text-zinc-400 hover:text-red-400 hover:bg-red-500/15 transition-colors"
+                                        title="Close Video"
+                                    >
+                                        <X size={16} />
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="p-4 px-6 border-b border-zinc-900 bg-zinc-950/80 backdrop-blur-md flex items-center justify-between gap-4">
                                 <div className="min-w-0 flex-1">
                                     <div className="flex items-center gap-2.5 flex-wrap">
                                         <h2 className="text-base sm:text-xl font-black text-white truncate max-w-2xl tracking-tight">
                                             {playingVideo.title}
                                         </h2>
-                                        {videoAudioMode === 'universal' && (
-                                            <span className="px-2.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 text-[11px] font-bold border border-emerald-500/30 uppercase flex items-center gap-1">
-                                                <Zap size={11} className="animate-pulse" /> Server Stream
+                                        {currentSeasonEp && (
+                                            <span className="px-2.5 py-0.5 rounded-lg bg-zinc-800 text-amber-400 text-xs font-mono font-black border border-zinc-700">
+                                                S{currentSeasonEp.season}E{currentSeasonEp.episode}
                                             </span>
                                         )}
-                                        {videoAudioMode === 'direct' && (
-                                            <span className="px-2.5 py-0.5 rounded-md bg-sky-500/20 text-sky-400 text-[11px] font-bold border border-sky-500/30 uppercase flex items-center gap-1">
-                                                <Film size={11} /> Direct Play
+                                        {videoAudioMode === 'transcode' && (
+                                            <span className="px-2.5 py-0.5 rounded-md bg-amber-500/20 text-amber-300 text-[11px] font-bold border border-amber-500/30 uppercase">
+                                                AAC Audio
+                                            </span>
+                                        )}
+                                        {videoAudioMode === 'universal' && (
+                                            <span className="px-2.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 text-[11px] font-bold border border-emerald-500/30 uppercase">
+                                                Universal ({videoQuality})
                                             </span>
                                         )}
                                     </div>
                                     <p className="text-xs text-zinc-500 font-mono truncate mt-0.5">{playingVideo.path}</p>
                                 </div>
 
-                                {/* Window Controls: Minimize & Close */}
+                                {/* Clean Action Controls */}
                                 <div className="flex items-center gap-2 shrink-0">
+                                    {/* Episodes Picker for TV Shows */}
+                                    {currentShowEpisodes.length > 0 && (
+                                        <button
+                                            onClick={() => setShowEpisodesDrawer(!showEpisodesDrawer)}
+                                            className={`px-3 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                                                showEpisodesDrawer ? 'bg-amber-500 text-black border-amber-400 font-black shadow-sm' : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:text-white'
+                                            }`}
+                                            title="Choose Season and Episode"
+                                        >
+                                            <Layers size={14} className={showEpisodesDrawer ? 'text-black' : 'text-amber-400'} />
+                                            <span className="hidden sm:inline">Episodes ({currentShowEpisodes.length})</span>
+                                        </button>
+                                    )}
+
+                                    {/* Subtitles Button */}
+                                    <button
+                                        onClick={() => setShowSubtitlesDrawer(!showSubtitlesDrawer)}
+                                        className={`px-3 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
+                                            showSubtitlesDrawer || selectedSubtitle ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/40' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+                                        }`}
+                                        title="Subtitles & Timing Sync"
+                                    >
+                                        <Subtitles size={14} />
+                                        <span className="hidden sm:inline">{selectedSubtitle ? selectedSubtitle.language : 'Subtitles'}</span>
+                                    </button>
+
+                                    {/* Playback Settings Popover Button */}
+                                    <div className="relative">
+                                        <button
+                                            onClick={() => setShowVideoSettingsPopover(!showVideoSettingsPopover)}
+                                            className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                                showVideoSettingsPopover ? 'bg-zinc-800 text-white border-zinc-700' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+                                            }`}
+                                            title="Stream Mode & Quality Settings"
+                                        >
+                                            <Settings size={15} />
+                                        </button>
+
+                                        {showVideoSettingsPopover && (
+                                            <div className="absolute top-12 right-0 z-50 w-72 p-4 rounded-2xl bg-zinc-950 border border-zinc-800 shadow-2xl space-y-3.5 animate-in fade-in duration-150">
+                                                <div className="flex items-center justify-between border-b border-zinc-800/80 pb-2">
+                                                    <span className="text-xs font-black uppercase tracking-wider text-zinc-300 flex items-center gap-1.5">
+                                                        <Settings size={13} className="text-amber-400" /> Playback Settings
+                                                    </span>
+                                                    <button onClick={() => setShowVideoSettingsPopover(false)} className="text-zinc-500 hover:text-white">
+                                                        <X size={14} />
+                                                    </button>
+                                                </div>
+
+                                                {/* Mode options */}
+                                                <div className="space-y-1.5">
+                                                    <label className="text-[10px] font-black uppercase text-zinc-500 tracking-wider">Stream Mode</label>
+                                                    <div className="space-y-1">
+                                                        {[
+                                                            { id: 'transcode', label: 'Direct + AAC Sound', desc: 'Original video + AAC audio' },
+                                                            { id: 'direct', label: 'Direct Raw Play', desc: 'Uncompressed original bitstream' },
+                                                            { id: 'universal', label: 'Full Universal Transcode', desc: 'H.264 + AAC compatibility' }
+                                                        ].map(m => (
+                                                            <button
+                                                                key={m.id}
+                                                                onClick={() => { handleSetVideoMode(m.id as any); setShowVideoSettingsPopover(false); }}
+                                                                className={`w-full p-2.5 rounded-xl text-left transition-all flex items-center justify-between text-xs ${
+                                                                    videoAudioMode === m.id
+                                                                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold'
+                                                                        : 'bg-zinc-900/60 text-zinc-400 hover:text-white'
+                                                                }`}
+                                                            >
+                                                                <div>
+                                                                    <p className="font-bold">{m.label}</p>
+                                                                    <p className="text-[10px] text-zinc-500">{m.desc}</p>
+                                                                </div>
+                                                                {videoAudioMode === m.id && <Check size={14} className="text-amber-400 shrink-0" />}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+
+                                                {/* Quality for Universal Transcode */}
+                                                {videoAudioMode === 'universal' && (
+                                                    <div className="space-y-1.5 pt-2 border-t border-zinc-900">
+                                                        <label className="text-[10px] font-black uppercase text-zinc-500 tracking-wider">Transcode Quality</label>
+                                                        <div className="grid grid-cols-2 gap-1.5">
+                                                            {[
+                                                                { id: 'auto', label: '1080p Standard' },
+                                                                { id: '1080p-high', label: '1080p High' },
+                                                                { id: '720p', label: '720p Fast' },
+                                                                { id: '480p', label: '480p Mobile' }
+                                                            ].map(q => (
+                                                                <button
+                                                                    key={q.id}
+                                                                    onClick={() => { handleSetVideoQuality(q.id as any); setShowVideoSettingsPopover(false); }}
+                                                                    className={`py-2 px-2.5 rounded-xl text-xs font-bold transition-all text-center ${
+                                                                        videoQuality === q.id
+                                                                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                                                                            : 'bg-zinc-900 text-zinc-400 hover:text-white'
+                                                                    }`}
+                                                                >
+                                                                    {q.label}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {/* External tools: Cast, VLC, Logs */}
+                                                <div className="pt-2 border-t border-zinc-900 flex gap-2">
+                                                    <button
+                                                        onClick={() => { openCastPicker(playingVideo); setShowVideoSettingsPopover(false); }}
+                                                        className="flex-1 py-2 px-2.5 rounded-xl bg-purple-500/15 text-purple-400 hover:bg-purple-500 hover:text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-all"
+                                                    >
+                                                        <Cast size={13} /> Cast
+                                                    </button>
+                                                    <button
+                                                        onClick={() => { handleOpenInVlc(playingVideo); setShowVideoSettingsPopover(false); }}
+                                                        className="flex-1 py-2 px-2.5 rounded-xl bg-orange-500/15 text-orange-400 hover:bg-orange-500 hover:text-black text-xs font-bold flex items-center justify-center gap-1.5 transition-all"
+                                                    >
+                                                        <ExternalLink size={13} /> VLC
+                                                    </button>
+                                                    <button
+                                                        onClick={() => { setShowNerdToolsModal(true); setShowVideoSettingsPopover(false); }}
+                                                        className="py-2 px-2.5 rounded-xl bg-zinc-900 text-zinc-400 hover:text-white text-xs font-bold flex items-center justify-center transition-all"
+                                                        title="Debug Logs"
+                                                    >
+                                                        <Terminal size={13} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Minimize & Close */}
                                     <button
                                         onClick={() => setIsVideoMinimized(true)}
                                         className="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 transition-all flex items-center gap-1.5 text-xs font-bold"
                                         title="Minimize to corner mini-player"
                                     >
                                         <Minus size={16} />
-                                        <span className="hidden sm:inline">Minimize</span>
                                     </button>
 
                                     <button
@@ -3828,165 +3945,18 @@ function TheaterPageContent() {
                                         title="Close video player"
                                     >
                                         <X size={16} />
-                                        <span className="hidden sm:inline">Close</span>
                                     </button>
                                 </div>
                             </div>
+                        )}
 
-                            {/* Tier 2: Stream Controls & Action Tools Toolbar */}
-                            <div className="flex items-center justify-between flex-wrap gap-2.5 pt-1 border-t border-zinc-900/60">
-                                {/* Left Toolbar: Stream Mode & Quality */}
-                                <div className="flex items-center flex-wrap gap-2">
-                                    {/* Stream Mode Toggle */}
-                                    <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800">
-                                        <button
-                                            onClick={() => handleSetVideoMode('transcode')}
-                                            className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1 ${
-                                                videoAudioMode === 'transcode'
-                                                    ? 'bg-amber-500 text-black shadow-sm'
-                                                    : 'text-zinc-400 hover:text-white'
-                                            }`}
-                                            title="Audio Transcode: Lossless original video + AAC 2.0 sound (0% CPU, fixes browser no-sound issues with DTS/AC3)"
-                                        >
-                                            <Volume2 size={12} /> Direct + Sound
-                                        </button>
-                                        <button
-                                            onClick={() => handleSetVideoMode('universal')}
-                                            className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1 ${
-                                                videoAudioMode === 'universal'
-                                                    ? 'bg-emerald-500 text-black shadow-sm'
-                                                    : 'text-zinc-400 hover:text-white'
-                                            }`}
-                                            title="Full Server Transcode: Multi-core ultrafast H.264 + AAC 2.0 (100% device compatibility)"
-                                        >
-                                            <Zap size={12} /> Full Transcode
-                                        </button>
-                                        <button
-                                            onClick={() => handleSetVideoMode('direct')}
-                                            className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1 ${
-                                                videoAudioMode === 'direct'
-                                                    ? 'bg-sky-500 text-black shadow-sm'
-                                                    : 'text-zinc-400 hover:text-white'
-                                            }`}
-                                            title="Direct Raw: Original uncompressed bitstream with original DTS/Dolby tracks"
-                                        >
-                                            <Film size={12} /> Direct Raw
-                                        </button>
-                                    </div>
-
-                                    {/* Quality Selector */}
-                                    {videoAudioMode === 'universal' && (
-                                        <div className="flex items-center bg-zinc-950 px-2.5 py-1.5 rounded-xl border border-zinc-800 text-xs font-bold">
-                                            <span className="text-zinc-500 mr-1.5 text-[11px] uppercase font-black">Quality:</span>
-                                            <select
-                                                value={videoQuality}
-                                                onChange={(e) => handleSetVideoQuality(e.target.value as any)}
-                                                className="bg-transparent text-amber-300 font-black outline-none cursor-pointer text-xs uppercase"
-                                            >
-                                                <option value="auto" className="bg-zinc-900 text-white">Auto (1080p Standard)</option>
-                                                <option value="1080p-high" className="bg-zinc-900 text-white">1080p High (14 Mbps)</option>
-                                                <option value="720p" className="bg-zinc-900 text-white">720p Fast (4.5 Mbps)</option>
-                                                <option value="480p" className="bg-zinc-900 text-white">480p Mobile (1.8 Mbps)</option>
-                                            </select>
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* Right Toolbar: Tools (Episodes, Subtitles, Cast, VLC, Logs) */}
-                                <div className="flex items-center flex-wrap gap-2">
-                                    {/* Episodes & Seasons Picker Button */}
-                                    {currentShowEpisodes.length > 0 && (
-                                        <button
-                                            onClick={() => setShowEpisodesDrawer(!showEpisodesDrawer)}
-                                            className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                                                showEpisodesDrawer ? 'bg-emerald-500 text-black border-emerald-400 font-black shadow-sm' : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:text-white'
-                                            }`}
-                                            title="Choose Season and Episode"
-                                        >
-                                            <Layers size={14} className={showEpisodesDrawer ? 'text-black' : 'text-emerald-400'} />
-                                            <span>{currentSeasonEp ? `S${currentSeasonEp.season}E${currentSeasonEp.episode}` : `Episodes (${currentShowEpisodes.length})`}</span>
-                                        </button>
-                                    )}
-
-                                    {/* Prev & Next Episode Navigation */}
-                                    {prevEpisode && (
-                                        <button
-                                            onClick={() => setPlayingVideo(prevEpisode)}
-                                            className="px-2.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white text-xs font-bold flex items-center gap-1 transition-all"
-                                            title={`Previous Episode: S${prevEpisode.seasonNumber}E${prevEpisode.episodeNumber}`}
-                                        >
-                                            <SkipBack size={13} />
-                                            <span className="hidden sm:inline">Prev Ep</span>
-                                        </button>
-                                    )}
-                                    {nextEpisode && (
-                                        <button
-                                            onClick={() => setPlayingVideo(nextEpisode)}
-                                            className="px-2.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white text-xs font-bold flex items-center gap-1 transition-all"
-                                            title={`Next Episode: S${nextEpisode.seasonNumber}E${nextEpisode.episodeNumber}`}
-                                        >
-                                            <span className="hidden sm:inline">Next Ep</span>
-                                            <SkipForward size={13} />
-                                        </button>
-                                    )}
-
-                                    {/* Subtitles */}
-                                    <button
-                                        onClick={() => setShowSubtitlesDrawer(!showSubtitlesDrawer)}
-                                        className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
-                                            showSubtitlesDrawer || selectedSubtitle ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/40' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
-                                        }`}
-                                        title="Subtitles & Timing Sync"
-                                    >
-                                        <Subtitles size={14} />
-                                        <span>Subtitles</span>
-                                    </button>
-
-                                    {/* Cast */}
-                                    <button
-                                        onClick={() => openCastPicker(playingVideo)}
-                                        className="px-3 py-1.5 rounded-xl bg-purple-500/15 hover:bg-purple-500 text-purple-400 hover:text-white border border-purple-500/30 text-xs font-bold flex items-center gap-1.5 transition-all"
-                                        title="Cast Stream directly to Smart TV (/tv)"
-                                    >
-                                        <Cast size={14} />
-                                        <span>Cast</span>
-                                    </button>
-
-                                    {/* VLC */}
-                                    <button
-                                        onClick={() => handleOpenInVlc(playingVideo)}
-                                        className="px-3 py-1.5 rounded-xl bg-orange-500/15 hover:bg-orange-500 text-orange-400 hover:text-black border border-orange-500/30 text-xs font-bold flex items-center gap-1.5 transition-all"
-                                        title="Open Stream in VLC Media Player"
-                                    >
-                                        <ExternalLink size={14} />
-                                        <span>VLC</span>
-                                    </button>
-
-                                    {/* Nerd Tools / Logs */}
-                                    <button
-                                        onClick={() => setShowNerdToolsModal(true)}
-                                        className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
-                                            playbackError
-                                                ? 'bg-red-500/20 text-red-400 border-red-500/40 animate-pulse'
-                                                : showNerdToolsModal
-                                                    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
-                                                    : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
-                                        }`}
-                                        title="Stats for Nerds & Debug Logs"
-                                    >
-                                        <Terminal size={14} />
-                                        <span>Logs</span>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Video Stage Container */}
+                        {/* Video Stage Container with Single Persistent Video Element */}
                         <div className="relative aspect-video bg-black flex items-center justify-center overflow-hidden flex-1">
                             <video
                                 ref={videoRef}
                                 controls
                                 autoPlay
+                                crossOrigin="anonymous"
                                 className="w-full h-full object-contain"
                                 onLoadStart={() => {
                                     addDebugLog('info', 'Video event: loadstart');

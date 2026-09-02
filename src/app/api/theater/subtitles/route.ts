@@ -31,6 +31,8 @@ export async function GET(req: Request) {
             return new NextResponse(vtt, {
                 headers: {
                     'Content-Type': 'text/vtt; charset=utf-8',
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Methods': 'GET, OPTIONS',
                     'Cache-Control': 'public, max-age=3600'
                 }
             });
@@ -38,12 +40,14 @@ export async function GET(req: Request) {
 
         if (remoteSubUrl) {
             try {
-                const res = await axios.get(remoteSubUrl, { timeout: 8000, responseType: 'text' });
+                const res = await axios.get(remoteSubUrl, { timeout: 12000, responseType: 'text' });
                 const content = res.data;
-                const vtt = remoteSubUrl.endsWith('.vtt') ? content : srtToVtt(content);
+                const vtt = remoteSubUrl.endsWith('.vtt') ? content : srtToVtt(String(content));
                 return new NextResponse(vtt, {
                     headers: {
                         'Content-Type': 'text/vtt; charset=utf-8',
+                        'Access-Control-Allow-Origin': '*',
+                        'Access-Control-Allow-Methods': 'GET, OPTIONS',
                         'Cache-Control': 'public, max-age=3600'
                     }
                 });
