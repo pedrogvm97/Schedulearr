@@ -36,11 +36,12 @@ function detectQuality(name: string, group: string): { quality: string; label: s
         label = 'Backup';
     }
 
-    // Strip country/language prefixes like "PT:", "PT |", "|PT|", "[PT]", "PT -", "PORTUGAL:", "ES:", "US:", "UK:"
+    // Strip country/provider/language prefixes like "VO|", "PT:", "PT |", "|PT|", "[PT]", "MEO|", "NOS|", "PORTUGAL:", "ES:", "US:", "UK:"
     let cleanName = name
-        .replace(/^(\s*\|?\s*[a-z]{2,3}\s*\|?\s*[:\-\|\/])+/i, '')
-        .replace(/^(\[[a-z]{2,3}\]|\([a-z]{2,3}\))\s*/i, '')
-        .replace(/^(\s*\|[a-z]{2,3}\|\s*)/i, '');
+        .replace(/^(\s*\|?\s*(?:vo|vodafone|meo|nos|nowo|pt|uk|us|es|fr|de)\s*\|?\s*[:\-\|\/])+/i, '')
+        .replace(/^(\s*\|[a-z0-9]+\|\s*)/i, '')
+        .replace(/^(\[[a-z0-9]+\]|\([a-z0-9]+\))\s*/i, '')
+        .replace(/^(\s*\|?\s*[a-z0-9]{2,4}\s*\|\s*)/i, '');
 
     // Clean channel name by stripping quality suffixes (e.g. "RTP 1 4K" -> "RTP 1")
     cleanName = cleanName

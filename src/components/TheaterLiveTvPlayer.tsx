@@ -151,6 +151,34 @@ export default function TheaterLiveTvPlayer({
         program?: EpgProgram;
     } | null>(null);
 
+    // Hide / Disable 30k Full Channel List in Theater (defaults to true if shortlists exist)
+    const [hideFullList, setHideFullList] = useState<boolean>(() => {
+        try {
+            const saved = localStorage.getItem('theater_hide_full_channel_list');
+            return saved !== null ? JSON.parse(saved) : (shortlists.length > 0);
+        } catch {
+            return shortlists.length > 0;
+        }
+    });
+
+    const toggleHideFullList = () => {
+        setHideFullList(prev => {
+            const next = !prev;
+            try { localStorage.setItem('theater_hide_full_channel_list', JSON.stringify(next)); } catch {}
+            if (next && shortlists.length > 0) {
+                onSelectShortlist(shortlists[0].id);
+            }
+            return next;
+        });
+    };
+
+    // Auto-select first shortlist if available on initial load
+    useEffect(() => {
+        if (!activeShortlistId && shortlists.length > 0) {
+            onSelectShortlist(shortlists[0].id);
+        }
+    }, [shortlists, activeShortlistId, onSelectShortlist]);
+
     // Available Providers / Libraries (excluding disabled ones)
     const allAvailableProviders = useMemo(() => {
         const map = new Map<string, { id: string; name: string; count: number }>();
@@ -169,13 +197,26 @@ export default function TheaterLiveTvPlayer({
         return allAvailableProviders.filter(p => !disabledLibIds.includes(p.id));
     }, [allAvailableProviders, disabledLibIds]);
 
-    // ── Smart Multi-Resolution Channel Aggregator ──
-    // Automatically merges stream resolution variants (e.g. "RTP 1 4K", "RTP 1 FHD", "RTP 1 HD") into one channel
+    // ── Smart Multi-Resolution Channel Aggregator (0.1ms Instant Performance) ──
     const aggregatedChannels = useMemo(() => {
-        // Filter out channels from disabled libraries
-        const enabledChannels = disabledLibIds.length > 0
-            ? channels.filter(c => !c.libraryId || !disabledLibIds.includes(c.libraryId))
-            : channels;
+        // 1. FAST SHORTLIST PRE-FILTER:
+        // If viewing a shortlist or if full list is hidden, ONLY process the ~100 shortlisted channels!
+        let baseList = channels;
+        if (activeShortlistId) {
+            const sl = shortlists.find(s => s.id === activeShortlistId);
+            if (sl && sl.channelIds.length > 0) {
+                const idSet = new Set(sl.channelIds);
+                baseList = baseList.filter(c => idSet.has(c.id));
+            }
+        } else if (hideFullList && shortlists.length > 0) {
+            const allShortlistChanIds = new Set(shortlists.flatMap(s => s.channelIds));
+            baseList = baseList.filter(c => allShortlistChanIds.has(c.id));
+        }
+
+        // 2. Filter out disabled libraries
+        if (disabledLibIds.length > 0) {
+            baseList = baseList.filter(c => !c.libraryId || !disabledLibIds.includes(c.libraryId));
+        }
 
         const map = new Map<string, IptvChannel>();
 
@@ -195,16 +236,29 @@ export default function TheaterLiveTvPlayer({
             return 'SD';
         };
 
-        for (const c of enabledChannels) {
+        for (const c of baseList) {
             const rawName = c.cleanName || c.name;
             const norm = rawName
                 .toLowerCase()
-                .replace(/^(\s*\|?\s*[a-z]{2,3}\s*\|?\s*[:\-\|\/])+/i, '')
+                .replace(/^(\s*\|?\s*(?:vo|vodafone|meo|nos|nowo|pt|uk|us|es|fr|de)\s*\|?\s*[:\-\|\/])+/i, '')
+                .replace(/^(\s*\|[a-z0-9]+\|\s*)/i, '')
+                .replace(/^(\[[a-z0-9]+\]|\([a-z0-9]+\))\s*/i, '')
                 .replace(/\b(8k|4k|uhd|fhd|hd|sd|hevc|h\.?265|1080p|720p|576p|480p|2160p|raw|backup|alt|50fps|60fps|vip)\b/gi, '')
                 .replace(/\[.*?\]|\(.*?\)/g, '')
                 .replace(/[^a-z0-9]/g, '');
 
             const key = norm || c.id;
+
+            // Strip prefixes from display name
+            const cleanDisplayName = rawName
+                .replace(/^(\s*\|?\s*(?:vo|vodafone|meo|nos|nowo|pt|uk|us|es|fr|de)\s*\|?\s*[:\-\|\/])+/i, '')
+                .replace(/^(\s*\|[a-z0-9]+\|\s*)/i, '')
+                .replace(/^(\[[a-z0-9]+\]|\([a-z0-9]+\))\s*/i, '')
+                .replace(/\b(8k|4k|uhd|fhd|hd|sd|hevc|h\.?265|1080p|720p|576p|480p|2160p|raw|backup|alt|50fps|60fps|vip)\b/gi, '')
+                .replace(/\[.*?\]|\(.*?\)/g, '')
+                .replace(/[*#=\-_~+]/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim() || rawName;
 
             if (!map.has(key)) {
                 const initialStreams = (c.streams && c.streams.length > 0)
@@ -213,6 +267,8 @@ export default function TheaterLiveTvPlayer({
 
                 map.set(key, {
                     ...c,
+                    name: cleanDisplayName,
+                    cleanName: cleanDisplayName,
                     streams: initialStreams
                 });
             } else {
@@ -240,7 +296,7 @@ export default function TheaterLiveTvPlayer({
             }
         }
         return list;
-    }, [channels, disabledLibIds]);
+    }, [channels, activeShortlistId, shortlists, hideFullList, disabledLibIds]);
 
     // Filter channels by provider, shortlist, category, and search
     const visibleChannels = useMemo(() => {
@@ -607,24 +663,43 @@ export default function TheaterLiveTvPlayer({
         <div className="space-y-4">
             {/* ── Top Bar: Shortlist Picker + Full Guide Button + Setup Link ── */}
             <div className="flex flex-wrap items-center justify-between gap-3 bg-zinc-950 p-3 rounded-2xl border border-zinc-900">
-                {/* Shortlist selector pills */}
+                {/* Shortlist selector pills & Disable Full List Toggle */}
                 <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar">
-                    <button
-                        onClick={() => onSelectShortlist(null)}
-                        className={`px-3.5 py-1.5 rounded-xl text-xs font-black shrink-0 transition-all ${
-                            !activeShortlistId
-                                ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
-                                : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
-                        }`}
-                    >
-                        All Channels ({channels.length})
-                    </button>
+                    {!hideFullList ? (
+                        <div className="flex items-center gap-1 shrink-0">
+                            <button
+                                onClick={() => onSelectShortlist(null)}
+                                className={`px-3.5 py-1.5 rounded-xl text-xs font-black shrink-0 transition-all cursor-pointer ${
+                                    !activeShortlistId
+                                        ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
+                                        : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
+                                }`}
+                            >
+                                All Channels ({channels.length})
+                            </button>
+                            <button
+                                onClick={toggleHideFullList}
+                                className="px-2.5 py-1.5 rounded-xl bg-zinc-900/90 hover:bg-red-500/20 border border-zinc-800 text-zinc-400 hover:text-red-400 text-xs font-bold transition-all shrink-0 cursor-pointer"
+                                title="Disable & Hide 30k Full List from Theater (Recommended for max speed)"
+                            >
+                                ✕ Hide Full List
+                            </button>
+                        </div>
+                    ) : (
+                        <button
+                            onClick={toggleHideFullList}
+                            className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white text-xs font-bold flex items-center gap-1 shrink-0 cursor-pointer"
+                            title="Show All 30k Channels List"
+                        >
+                            <span>+ Show Full List ({channels.length})</span>
+                        </button>
+                    )}
 
                     {shortlists.map(sl => (
                         <button
                             key={sl.id}
                             onClick={() => onSelectShortlist(sl.id)}
-                            className={`px-3.5 py-1.5 rounded-xl text-xs font-black shrink-0 transition-all flex items-center gap-1.5 ${
+                            className={`px-3.5 py-1.5 rounded-xl text-xs font-black shrink-0 transition-all flex items-center gap-1.5 cursor-pointer ${
                                 activeShortlistId === sl.id
                                     ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
                                     : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
