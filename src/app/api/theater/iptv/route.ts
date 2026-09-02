@@ -44,19 +44,36 @@ function detectQuality(name: string, group: string): { quality: string; label: s
 export function isDummyChannelOrHeader(name: string, url?: string): boolean {
     if (!name) return true;
     const trimmed = name.trim();
-    // 1. Matches lines with repeated symbols like ####### TITLE #######, === TITLE ===, --- TITLE ---, *** TITLE ***
-    if (/^[#*=\-_~+/\\<>]{2,}.*[#*=\-_~+/\\<>]{2,}$/.test(trimmed)) return true;
-    if (/^[#*=\-_~+/\\<>]{3,}/.test(trimmed) && trimmed.length < 50) return true;
-    // 2. Decorative section words with symbols
-    if (/^[\s\-_=|#*~:[\]()]+(vip|channels?|group|category|section|menu|info|welcome|advert|sponsor|vod|series|movies?)[\s\-_=|#*~:[\]()]+$/i.test(trimmed)) return true;
-    // 3. URLs that are dummy/fake
     if (url) {
         const u = url.toLowerCase().trim();
-        if (u === '#' || u.endsWith('/dummy') || u.endsWith('/placeholder') || u.includes('example.com') || u.includes('0.0.0.0') || u === 'http://' || u === 'https://') return true;
+        if (u === '#' || u === '' || u.endsWith('/dummy') || u.endsWith('/placeholder') || u.includes('example.com') || u.includes('0.0.0.0')) return true;
     }
+    // Only drop if name is solely symbols (e.g. "########", "-------", "=======")
+    if (/^[#*=\-_~+/\\<>:\s]{3,}$/.test(trimmed)) return true;
     return false;
 }
 
+// ── Robust M3U Downloader (Handles Gzip, Large Buffers, Custom Encodings) ──
+async function downloadM3uText(url: string): Promise<string> {
+    const headers = { 'User-Agent': 'VLC/3.0.18 LibVLC/3.0.18 Schedulearr/0.5.54' };
+    const res = await axios.get(url, {
+        timeout: 180000,
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity,
+        responseType: 'arraybuffer',
+        headers
+    });
+
+    const buf = Buffer.from(res.data);
+    if (url.endsWith('.gz') || (res.headers['content-encoding'] || '').includes('gzip') || (buf[0] === 0x1f && buf[1] === 0x8b)) {
+        try {
+            return zlib.gunzipSync(buf).toString('utf-8');
+        } catch {
+            return buf.toString('utf-8');
+        }
+    }
+    return buf.toString('utf-8');
+}
 
 // ── Auto-Detect Xtream Codes Credentials from URL ──
 function tryExtractXtream(urlStr: string): { host: string; username: string; password: string; output: string } | null {
@@ -75,7 +92,7 @@ function tryExtractXtream(urlStr: string): { host: string; username: string; pas
     return null;
 }
 
-// ── High-Speed Xtream Codes API Ingestion (Loads 30,000+ channels in ~3.5s) ──
+// ── High-Speed Xtream Codes API Ingestion with M3U Fallback ──
 async function fetchXtreamLiveChannels(
     xtream: { host: string; username: string; password: string; output: string },
     libraryId: string
@@ -86,100 +103,115 @@ async function fetchXtreamLiveChannels(
 
     const headers = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' };
 
-    const [catRes, streamRes] = await Promise.all([
-        axios.get(catUrl, { timeout: 30000, headers }).catch(() => ({ data: [] })),
-        axios.get(streamUrl, { timeout: 75000, headers, maxContentLength: Infinity, maxBodyLength: Infinity })
-    ]);
+    try {
+        const [catRes, streamRes] = await Promise.all([
+            axios.get(catUrl, { timeout: 30000, headers }).catch(() => ({ data: [] })),
+            axios.get(streamUrl, { timeout: 75000, headers, maxContentLength: Infinity, maxBodyLength: Infinity })
+        ]);
 
-    const catMap: Record<string, string> = {};
-    if (Array.isArray(catRes.data)) {
-        for (const cat of catRes.data) {
-            if (cat.category_id && cat.category_name) {
-                catMap[String(cat.category_id)] = String(cat.category_name).trim();
+        const catMap: Record<string, string> = {};
+        if (Array.isArray(catRes.data)) {
+            for (const cat of catRes.data) {
+                if (cat.category_id && cat.category_name) {
+                    catMap[String(cat.category_id)] = String(cat.category_name).trim();
+                }
             }
         }
-    }
 
-    const streams = Array.isArray(streamRes.data) ? streamRes.data : [];
-    const rawChannels: Array<{
-        id: string;
-        name: string;
-        cleanName: string;
-        logo?: string;
-        group: string;
-        tvgId?: string;
-        tvgName?: string;
-        url: string;
-        quality: string;
-        label: string;
-    }> = [];
+        const streams = Array.isArray(streamRes.data) ? streamRes.data : [];
+        if (streams.length > 0) {
+            const rawChannels: Array<{
+                id: string;
+                name: string;
+                cleanName: string;
+                logo?: string;
+                group: string;
+                tvgId?: string;
+                tvgName?: string;
+                url: string;
+                quality: string;
+                label: string;
+            }> = [];
 
-    let count = 0;
-    for (const s of streams) {
-        const rawName = s.name || `Channel ${++count}`;
-        const streamPlayUrl = `${host}/live/${encodeURIComponent(username)}/${encodeURIComponent(password)}/${s.stream_id}.${output}`;
-        if (isDummyChannelOrHeader(rawName, streamPlayUrl)) continue;
+            let count = 0;
+            for (const s of streams) {
+                const rawName = s.name || `Channel ${++count}`;
+                const streamPlayUrl = `${host}/live/${encodeURIComponent(username)}/${encodeURIComponent(password)}/${s.stream_id}.${output}`;
+                if (isDummyChannelOrHeader(rawName, streamPlayUrl)) continue;
 
-        const group = catMap[String(s.category_id)] || 'General';
-        const { quality, label, cleanName } = detectQuality(rawName, group);
-        rawChannels.push({
-            id: `chan-${++count}`,
-            name: rawName,
-            cleanName,
-            logo: s.stream_icon || undefined,
-            group,
-            tvgId: s.epg_channel_id ? String(s.epg_channel_id) : (s.stream_id ? String(s.stream_id) : undefined),
-            tvgName: rawName,
-            url: streamPlayUrl,
-            quality,
-            label
-        });
-    }
-
-    // Merge duplicate channels by normalized cleanName into multi-stream channel
-    const mergedMap = new Map<string, StoredIptvChannel>();
-    for (const raw of rawChannels) {
-        const key = `${raw.group}:::${raw.cleanName.toLowerCase()}`;
-        if (!mergedMap.has(key)) {
-            mergedMap.set(key, {
-                id: `chan-${mergedMap.size + 1}`,
-                libraryId,
-                name: raw.cleanName,
-                cleanName: raw.cleanName,
-                logo: raw.logo,
-                group: raw.group,
-                tvgId: raw.tvgId,
-                tvgName: raw.tvgName,
-                streams: [{ url: raw.url, quality: raw.quality, label: `${raw.label} (${raw.name})` }]
-            });
-        } else {
-            const existing = mergedMap.get(key)!;
-            if (!existing.streams.some(st => st.url === raw.url)) {
-                existing.streams.push({
-                    url: raw.url,
-                    quality: raw.quality,
-                    label: `${raw.label} (${raw.name})`
+                const group = catMap[String(s.category_id)] || 'General';
+                const { quality, label, cleanName } = detectQuality(rawName, group);
+                rawChannels.push({
+                    id: `chan-${++count}`,
+                    name: rawName,
+                    cleanName,
+                    logo: s.stream_icon || undefined,
+                    group,
+                    tvgId: s.epg_channel_id ? String(s.epg_channel_id) : (s.stream_id ? String(s.stream_id) : undefined),
+                    tvgName: rawName,
+                    url: streamPlayUrl,
+                    quality,
+                    label
                 });
             }
-            if (!existing.logo && raw.logo) existing.logo = raw.logo;
-            if (!existing.tvgId && raw.tvgId) existing.tvgId = raw.tvgId;
+
+            const mergedMap = new Map<string, StoredIptvChannel>();
+            for (const raw of rawChannels) {
+                const key = `${raw.group}:::${raw.cleanName.toLowerCase()}`;
+                if (!mergedMap.has(key)) {
+                    mergedMap.set(key, {
+                        id: `chan-${mergedMap.size + 1}`,
+                        libraryId,
+                        name: raw.cleanName,
+                        cleanName: raw.cleanName,
+                        logo: raw.logo,
+                        group: raw.group,
+                        tvgId: raw.tvgId,
+                        tvgName: raw.tvgName,
+                        streams: [{ url: raw.url, quality: raw.quality, label: `${raw.label} (${raw.name})` }]
+                    });
+                } else {
+                    const existing = mergedMap.get(key)!;
+                    if (!existing.streams.some(st => st.url === raw.url)) {
+                        existing.streams.push({
+                            url: raw.url,
+                            quality: raw.quality,
+                            label: `${raw.label} (${raw.name})`
+                        });
+                    }
+                    if (!existing.logo && raw.logo) existing.logo = raw.logo;
+                    if (!existing.tvgId && raw.tvgId) existing.tvgId = raw.tvgId;
+                }
+            }
+
+            const qualityRank = (q: string) => {
+                const l = (q || '').toLowerCase();
+                if (l.includes('8k')) return 5;
+                if (l.includes('4k') || l.includes('uhd') || l.includes('2160')) return 4;
+                if (l.includes('fhd') || l.includes('1080')) return 3;
+                if (l.includes('hd') || l.includes('720')) return 2;
+                return 1;
+            };
+
+            const finalChannels = Array.from(mergedMap.values());
+            for (const ch of finalChannels) {
+                ch.streams.sort((a, b) => qualityRank(b.quality) - qualityRank(a.quality));
+            }
+            if (finalChannels.length > 0) return finalChannels;
         }
+    } catch (e: any) {
+        console.warn('Xtream API fetch failed, falling back to direct M3U download:', e.message);
     }
 
-    const qualityRank = (q: string) => {
-        const l = (q || '').toLowerCase();
-        if (l.includes('8k')) return 5;
-        if (l.includes('4k') || l.includes('uhd') || l.includes('2160')) return 4;
-        if (l.includes('fhd') || l.includes('1080')) return 3;
-        if (l.includes('hd') || l.includes('720')) return 2;
-        return 1;
-    };
-
-    const finalChannels = Array.from(mergedMap.values());
-    for (const ch of finalChannels) {
-        ch.streams.sort((a, b) => qualityRank(b.quality) - qualityRank(a.quality));
+    // Fallback: Direct M3U ingestion via get.php
+    const fallbackM3uUrl = `${host}/get.php?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}&type=m3u_plus&output=${output}`;
+    try {
+        const text = await downloadM3uText(fallbackM3uUrl);
+        return parseM3uContent(text, libraryId);
+    } catch (e: any) {
+        console.error('Xtream direct M3U fallback error:', e.message);
+        return [];
     }
-    return finalChannels;
 }
 
 function parseM3uContent(content: string, libraryId: string): StoredIptvChannel[] {
@@ -229,13 +261,11 @@ function parseM3uContent(content: string, libraryId: string): StoredIptvChannel[
                 };
             }
         } else if (!line.startsWith('#') && currentInfo) {
-            if (line.startsWith('http://') || line.startsWith('https://') || line.startsWith('rtmp://') || line.startsWith('mms://')) {
-                if (!isDummyChannelOrHeader(currentInfo.name, line)) {
-                    rawChannels.push({
-                        ...currentInfo,
-                        url: line
-                    });
-                }
+            if (!isDummyChannelOrHeader(currentInfo.name, line)) {
+                rawChannels.push({
+                    ...currentInfo,
+                    url: line
+                });
             }
             currentInfo = null;
         }
@@ -345,14 +375,8 @@ export async function GET(req: Request) {
         if (xtreamCreds) {
             channels = await fetchXtreamLiveChannels(xtreamCreds, effectiveLibId);
         } else if (effectiveSourceUrl && (effectiveSourceUrl.startsWith('http://') || effectiveSourceUrl.startsWith('https://'))) {
-            const res = await axios.get(effectiveSourceUrl, {
-                timeout: 180000,
-                maxContentLength: Infinity,
-                maxBodyLength: Infinity,
-                headers: { 'User-Agent': 'VLC/3.0.18 LibVLC/3.0.18 Schedulearr/0.5.52' },
-                responseType: 'text'
-            });
-            channels = parseM3uContent(res.data, effectiveLibId);
+            const rawM3u = await downloadM3uText(effectiveSourceUrl);
+            channels = parseM3uContent(rawM3u, effectiveLibId);
         } else if (effectiveFilePath && fs.existsSync(effectiveFilePath)) {
             const rawM3u = fs.readFileSync(effectiveFilePath, 'utf8');
             channels = parseM3uContent(rawM3u, effectiveLibId);
@@ -383,6 +407,7 @@ export async function GET(req: Request) {
         return NextResponse.json({
             total: channels.length,
             groups,
+            epgUrl: currentLib?.folders?.[1] || '',
             channels: channels.map(c => ({
                 id: c.id,
                 name: c.name,
@@ -426,14 +451,7 @@ export async function POST(req: Request) {
                 const buffer = await file.arrayBuffer();
                 m3uText = Buffer.from(buffer).toString('utf-8');
             } else if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
-                const res = await axios.get(url, {
-                    timeout: 180000,
-                    maxContentLength: Infinity,
-                    maxBodyLength: Infinity,
-                    headers: { 'User-Agent': 'VLC/3.0.18 LibVLC/3.0.18 Schedulearr/0.5.39' },
-                    responseType: 'text'
-                });
-                m3uText = res.data;
+                m3uText = await downloadM3uText(url);
             } else if (rawContent) {
                 m3uText = rawContent;
             } else {

@@ -273,8 +273,11 @@ function TheaterPageContent() {
         folder: string;
         seasons: { seasonNumber: number; episodes: MediaItem[] }[];
         totalEpisodes: number;
+        ids?: Set<string>;
+        ratingKey?: string;
     } | null>(null);
     const [selectedShowSeason, setSelectedShowSeason] = useState<number | null>(null);
+    const [loadingShowEpisodes, setLoadingShowEpisodes] = useState(false);
     const [showEpisodesDrawer, setShowEpisodesDrawer] = useState(false);
     const [selectedDrawerSeason, setSelectedDrawerSeason] = useState<number | null>(null);
 
@@ -1732,17 +1735,27 @@ function TheaterPageContent() {
 
     // Derived TV Shows with Seasons and Episodes
     const tvShows = useMemo(() => {
-        const map = new Map<string, { name: string; posterUrl?: string; folder: string; seasons: { seasonNumber: number; episodes: MediaItem[] }[]; totalEpisodes: number; ids: Set<string> }>();
+        const map = new Map<string, { 
+            name: string; 
+            posterUrl?: string; 
+            folder: string; 
+            ratingKey?: string;
+            isPlexShow?: boolean;
+            seasons: { seasonNumber: number; episodes: MediaItem[] }[]; 
+            totalEpisodes: number; 
+            ids: Set<string> 
+        }>();
         
         for (const item of filteredItems) {
             if (!item || item.category !== 'video') continue;
+            const isPlexShow = (item as any).isSeries || item.extension === 'SERIES' || (item as any).ratingKey;
             const itemTitle = String(item.title || item.name || '');
             const itemPath = String(item.path || '');
             const itemFolder = String(item.folder || '').toLowerCase();
-            const isShowItem = activeContentTab === 'show' || itemFolder.includes('season') || itemFolder.includes('show') || /s\d+e\d+/i.test(itemTitle) || /s\d+e\d+/i.test(itemPath);
+            const isShowItem = isPlexShow || activeContentTab === 'show' || itemFolder.includes('season') || itemFolder.includes('show') || /s\d+e\d+/i.test(itemTitle) || /s\d+e\d+/i.test(itemPath);
             if (!isShowItem && activeContentTab !== 'show') continue;
 
-            const showName = extractShowName(item);
+            const showName = isPlexShow ? item.title : extractShowName(item);
             const parsed = parseSeasonEpisode(itemTitle) || parseSeasonEpisode(itemPath) || parseSeasonEpisode(String(item.name || '')) || { season: 1, episode: 1 };
             const enrichedItem = { ...item, seasonNumber: parsed.season, episodeNumber: parsed.episode };
 
@@ -1751,8 +1764,10 @@ function TheaterPageContent() {
                     name: showName,
                     posterUrl: item.posterUrl,
                     folder: item.folder,
+                    ratingKey: (item as any).ratingKey,
+                    isPlexShow: !!isPlexShow,
                     seasons: [],
-                    totalEpisodes: 0,
+                    totalEpisodes: isPlexShow ? ((item as any).episodeCount || (item as any).leafCount || 0) : 0,
                     ids: new Set<string>()
                 });
             }
@@ -1760,14 +1775,17 @@ function TheaterPageContent() {
             const show = map.get(showName)!;
             show.ids.add(item.id);
             if (!show.posterUrl && item.posterUrl) show.posterUrl = item.posterUrl;
-            show.totalEpisodes++;
+            if (!show.ratingKey && (item as any).ratingKey) show.ratingKey = (item as any).ratingKey;
 
-            let sObj = show.seasons.find(s => s.seasonNumber === parsed.season);
-            if (!sObj) {
-                sObj = { seasonNumber: parsed.season, episodes: [] };
-                show.seasons.push(sObj);
+            if (!isPlexShow) {
+                show.totalEpisodes++;
+                let sObj = show.seasons.find(s => s.seasonNumber === parsed.season);
+                if (!sObj) {
+                    sObj = { seasonNumber: parsed.season, episodes: [] };
+                    show.seasons.push(sObj);
+                }
+                sObj.episodes.push(enrichedItem);
             }
-            sObj.episodes.push(enrichedItem);
         }
 
         return Array.from(map.values()).map(show => ({
@@ -1780,6 +1798,55 @@ function TheaterPageContent() {
                 }))
         }));
     }, [filteredItems, activeContentTab, extractShowName]);
+
+    const handleOpenShow = async (show: any) => {
+        setSelectedShowSeason(null);
+        if (show.ratingKey && (!show.seasons || show.seasons.length === 0)) {
+            setLoadingShowEpisodes(true);
+            setSelectedShow({
+                name: show.name,
+                posterUrl: show.posterUrl,
+                folder: show.folder,
+                seasons: [],
+                totalEpisodes: show.totalEpisodes,
+                ids: show.ids,
+                ratingKey: show.ratingKey
+            });
+            try {
+                const res = await fetch(`/api/theater/items?showRatingKey=${show.ratingKey}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    const eps: MediaItem[] = data.episodes || [];
+                    const seasonsMap = new Map<number, MediaItem[]>();
+                    for (const ep of eps) {
+                        const sNum = (ep as any).seasonNumber || 1;
+                        if (!seasonsMap.has(sNum)) seasonsMap.set(sNum, []);
+                        seasonsMap.get(sNum)!.push(ep);
+                    }
+                    const seasonsList = Array.from(seasonsMap.entries()).map(([seasonNumber, episodes]) => ({
+                        seasonNumber,
+                        episodes: episodes.sort((a: any, b: any) => (a.episodeNumber || 1) - (b.episodeNumber || 1))
+                    })).sort((a, b) => a.seasonNumber - b.seasonNumber);
+
+                    setSelectedShow({
+                        name: show.name,
+                        posterUrl: show.posterUrl,
+                        folder: show.folder,
+                        seasons: seasonsList,
+                        totalEpisodes: eps.length,
+                        ids: show.ids,
+                        ratingKey: show.ratingKey
+                    });
+                }
+            } catch (e) {
+                console.error('Failed to load episodes for show:', e);
+            } finally {
+                setLoadingShowEpisodes(false);
+            }
+        } else {
+            setSelectedShow(show);
+        }
+    };
 
     // Episodes of the currently playing show for in-player Season/Episode drawer
     const currentShowEpisodes = useMemo(() => {
@@ -2906,6 +2973,62 @@ function TheaterPageContent() {
                             >
                                 <Plus size={16} /> Add Library
                             </button>
+                        </div>
+                    )
+                ) : activeContentTab === 'show' ? (
+                    tvShows.length === 0 ? (
+                        <div className="p-16 bg-zinc-950/40 rounded-[2.5rem] border border-zinc-900 text-center space-y-2">
+                            <Tv size={40} className="mx-auto text-zinc-700" />
+                            <p className="text-lg font-bold text-white">No series found in this library</p>
+                            <p className="text-xs text-zinc-500">Ensure your TV show folders or Plex series sections are linked.</p>
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5">
+                            {tvShows.map(show => (
+                                <div
+                                    key={show.name}
+                                    onClick={() => handleOpenShow(show)}
+                                    className="group flex flex-col bg-[#09090b] border border-zinc-900 hover:border-zinc-800 rounded-3xl overflow-hidden transition-all duration-300 shadow-xl cursor-pointer hover:-translate-y-1.5"
+                                >
+                                    <div className="relative aspect-[2/3] bg-zinc-900 overflow-hidden flex items-center justify-center border-b border-zinc-900">
+                                        {show.posterUrl ? (
+                                            <img
+                                                src={show.posterUrl}
+                                                alt={show.name}
+                                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                                loading="lazy"
+                                            />
+                                        ) : (
+                                            <div className="text-zinc-700 group-hover:scale-110 transition-transform duration-500 flex flex-col items-center gap-2 p-4 text-center">
+                                                <Tv size={56} />
+                                                <span className="text-xs font-bold text-zinc-500 line-clamp-2">{show.name}</span>
+                                            </div>
+                                        )}
+
+                                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all duration-300">
+                                            <div className="w-14 h-14 rounded-3xl bg-amber-500 text-black flex items-center justify-center shadow-2xl scale-90 group-hover:scale-100 transition-transform">
+                                                <Play size={24} className="ml-0.5" />
+                                            </div>
+                                        </div>
+
+                                        <div className="absolute top-3 right-3 px-2.5 py-1 rounded-xl bg-black/70 backdrop-blur-sm border border-white/10 text-[9px] font-black uppercase text-amber-300 shadow">
+                                            SERIES
+                                        </div>
+                                    </div>
+
+                                    <div className="p-4 space-y-1">
+                                        <h3 className="font-bold text-white text-base leading-snug line-clamp-1 group-hover:text-amber-400 transition-colors">
+                                            {show.name}
+                                        </h3>
+                                        <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold pt-0.5">
+                                            <span className="truncate max-w-[140px] text-zinc-400">{show.folder}</span>
+                                            <span className="text-[11px] text-zinc-500 font-mono">
+                                                {show.seasons.length > 0 ? `${show.seasons.length}S • ` : ''}{show.totalEpisodes} Eps
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     )
                 ) : filteredItems.length === 0 ? (
