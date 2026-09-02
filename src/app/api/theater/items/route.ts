@@ -186,14 +186,24 @@ export async function GET(req: Request) {
 
                     if (targetSectionId) {
                         const isMusic = lib.type === 'music';
+                        const isShow = lib.type === 'show';
                         const endpoint = isMusic 
                             ? `${plexUrl}/library/sections/${targetSectionId}/all?type=10`
-                            : `${plexUrl}/library/sections/${targetSectionId}/all`;
+                            : (isShow ? `${plexUrl}/library/sections/${targetSectionId}/allLeaves` : `${plexUrl}/library/sections/${targetSectionId}/all`);
 
-                        let itemsRes = await axios.get(endpoint, {
-                            headers: { 'X-Plex-Token': plex.api_key, 'Accept': 'application/json' },
-                            timeout: 15000
-                        });
+                        let itemsRes;
+                        try {
+                            itemsRes = await axios.get(endpoint, {
+                                headers: { 'X-Plex-Token': plex.api_key, 'Accept': 'application/json' },
+                                timeout: 20000
+                            });
+                        } catch (err: any) {
+                            // If allLeaves fails, fallback to /all
+                            itemsRes = await axios.get(`${plexUrl}/library/sections/${targetSectionId}/all`, {
+                                headers: { 'X-Plex-Token': plex.api_key, 'Accept': 'application/json' },
+                                timeout: 15000
+                            });
+                        }
 
                         let metadata = itemsRes.data?.MediaContainer?.Metadata || [];
                         if (isMusic && metadata.length === 0) {
@@ -209,7 +219,7 @@ export async function GET(req: Request) {
                         for (const item of metadata) {
                             const part = item.Media?.[0]?.Part?.[0];
                             const partKey = part?.key || '';
-                            const rawThumb = item.parentThumb || item.thumb || item.grandparentThumb || '';
+                            const rawThumb = item.grandparentThumb || item.parentThumb || item.thumb || '';
                             const thumb = rawThumb && !rawThumb.endsWith('/-1') && rawThumb !== '-1' ? rawThumb : '';
                             const posterUrl = thumb ? `/api/proxy?url=${encodeURIComponent(`${plexUrl}${thumb}?X-Plex-Token=${plex.api_key}`)}` : undefined;
 
@@ -228,18 +238,27 @@ export async function GET(req: Request) {
                             const ratingKey = item.ratingKey || item.key || '';
                             const localFilePath = part?.file || '';
 
+                            const defaultExt = mediaCategory === 'video' ? 'MKV' : (mediaCategory === 'audio' ? 'MP3' : 'FILE');
+                            const fileExt = part?.container 
+                                ? part.container.toUpperCase() 
+                                : (part?.file ? path.extname(part.file).replace('.', '').toUpperCase() : defaultExt);
+
                             allItems.push({
                                 id: `plex-${item.ratingKey || item.key}`,
                                 name: item.title,
                                 title: displayTitle,
+                                seriesTitle: item.grandparentTitle || (item.type === 'show' ? item.title : undefined),
+                                showTitle: item.grandparentTitle || (item.type === 'show' ? item.title : undefined),
+                                seasonNumber: item.parentIndex !== undefined ? item.parentIndex : (item.seasonNumber || 1),
+                                episodeNumber: item.index !== undefined ? item.index : (item.episodeNumber || 1),
                                 artist: mediaCategory === 'audio' ? artist : undefined,
                                 album: mediaCategory === 'audio' ? album : undefined,
                                 trackNumber: item.index,
                                 durationMs: item.duration,
                                 path: part?.file || item.title,
-                                folder: item.grandparentTitle || item.parentTitle || lib.name,
+                                folder: item.grandparentTitle || item.parentTitle || (item.type === 'show' ? item.title : lib.name),
                                 category: mediaCategory,
-                                extension: part?.container ? part.container.toUpperCase() : (part?.file ? path.extname(part.file).replace('.', '').toUpperCase() : 'AUDIO'),
+                                extension: fileExt,
                                 sizeBytes: part?.size || 0,
                                 modifiedAt: item.updatedAt ? new Date(item.updatedAt * 1000).toISOString() : new Date().toISOString(),
                                 addedAt: item.addedAt ? new Date(item.addedAt * 1000).toISOString() : (item.updatedAt ? new Date(item.updatedAt * 1000).toISOString() : new Date().toISOString()),

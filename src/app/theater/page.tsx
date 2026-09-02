@@ -1692,32 +1692,42 @@ function TheaterPageContent() {
     // Accurate Show / Anime name extractor from item metadata, folder hierarchy, and path
     const extractShowName = useCallback((item: MediaItem): string => {
         if (!item) return 'Unknown Show';
-        if (item.seriesTitle) return item.seriesTitle.trim();
-        if (item.showTitle) return item.showTitle.trim();
+        const isGenericName = (name: string) => /^(shows?|tv\s*shows?|anime|series|tv|media|videos?|downloads?|torrents?|plex)$/i.test(name.trim());
+
+        if (item.seriesTitle && !isGenericName(item.seriesTitle)) return item.seriesTitle.trim();
+        if (item.showTitle && !isGenericName(item.showTitle)) return item.showTitle.trim();
+
+        // Check if raw title contains SxxExx (e.g. "Lanterns - S01E01 - Pilot" or "The Rookie S05E02")
+        const rawTitle = String(item.title || item.name || '').trim();
+        const titleSplit = rawTitle.split(/(?:[-–—]\s*)?s\d+e\d+/i)[0]?.trim();
+        if (titleSplit && titleSplit.length > 1 && !isGenericName(titleSplit)) {
+            return titleSplit;
+        }
 
         if (item.path && typeof item.path === 'string') {
             const parts = item.path.split(/[/\\]/).filter(Boolean);
             if (parts.length >= 2) {
                 const parent = parts[parts.length - 2].trim();
                 if (/^(season\s*\d+|specials?|ova|movies?|extras?)$/i.test(parent) && parts.length >= 3) {
-                    return parts[parts.length - 3].trim();
+                    const grandParent = parts[parts.length - 3].trim();
+                    if (!isGenericName(grandParent)) {
+                        return grandParent;
+                    }
                 }
-                if (parent && !/^(shows?|anime|series|tv|tvshows?|media|videos?)$/i.test(parent)) {
+                if (parent && !isGenericName(parent)) {
                     return parent;
                 }
             }
         }
 
-        if (item.folder && typeof item.folder === 'string' && !/^(season\s*\d+|specials?|ova|shows?|anime|series|tv|media|videos?)$/i.test(item.folder.trim())) {
+        if (item.folder && typeof item.folder === 'string' && !isGenericName(item.folder)) {
             const cleaned = item.folder.replace(/season\s*\d+/i, '').trim();
-            if (cleaned) return cleaned;
+            if (cleaned && !isGenericName(cleaned)) return cleaned;
         }
 
-        const rawTitle = String(item.title || item.name || '').trim();
-        const titleSplit = rawTitle.split(/(?:[-–—]\s*)?s\d+e\d+/i)[0]?.trim();
-        if (titleSplit && titleSplit.length > 1) return titleSplit;
+        if (rawTitle && !isGenericName(rawTitle)) return rawTitle;
 
-        return item.folder || rawTitle || 'Unknown Show';
+        return 'Unknown Show';
     }, []);
 
     // Derived TV Shows with Seasons and Episodes
@@ -3342,7 +3352,7 @@ function TheaterPageContent() {
                                                     {ep.title}
                                                 </span>
                                                 <div className="flex items-center gap-2 text-[10px] text-zinc-500 mt-0.5">
-                                                    <span>{ep.extension || 'VIDEO'}</span>
+                                                    <span>{ep.extension && ep.extension !== 'AUDIO' ? ep.extension : 'VIDEO'}</span>
                                                     {ep.sizeBytes > 0 && <span>• {formatBytes(ep.sizeBytes)}</span>}
                                                 </div>
                                             </div>
@@ -4177,7 +4187,7 @@ function TheaterPageContent() {
                                                             </p>
                                                         </div>
                                                         <div className="flex items-center gap-2 text-[10px] text-zinc-500 mt-1 font-semibold">
-                                                            <span>{ep.extension || 'VIDEO'}</span>
+                                                            <span>{ep.extension && ep.extension !== 'AUDIO' ? ep.extension : 'VIDEO'}</span>
                                                             {ep.sizeBytes > 0 && <span>• {formatBytes(ep.sizeBytes)}</span>}
                                                             {isCurrent && <span className="text-emerald-400 font-bold">• Now Playing</span>}
                                                         </div>
