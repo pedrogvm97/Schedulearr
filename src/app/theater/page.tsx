@@ -629,32 +629,12 @@ function TheaterPageContent() {
         const isLive = libs.some(l => l.type === 'live');
 
         if (isLive) {
-            // 1. Read disabled live libraries from localStorage
-            const disabledLibIds: string[] = (() => {
-                try {
-                    const saved = localStorage.getItem('theater_disabled_live_libraries');
-                    return saved ? JSON.parse(saved) : [];
-                } catch {
-                    return [];
-                }
-            })();
-
-            const activeLiveLibs = libs.filter(l => !disabledLibIds.includes(l.id));
-            if (activeLiveLibs.length === 0) {
-                setItems([]);
-                setIptvChannels([]);
-                setIptvGroups([]);
-                setShortlists([]);
-                setLoadingItems(false);
-                return;
-            }
-
-            // 2. Instant cache check: If cached, load immediately in 0ms!
-            const allCached = activeLiveLibs.every(l => liveTvCacheRef.current[l.id]);
+            // Instant cache check: If all libs cached, load immediately in 0ms!
+            const allCached = libs.every(l => liveTvCacheRef.current[l.id]);
             if (allCached) {
-                const cachedChannels = activeLiveLibs.flatMap(l => liveTvCacheRef.current[l.id]?.channels || []);
-                const cachedGroups = activeLiveLibs.flatMap(l => liveTvCacheRef.current[l.id]?.groups || []);
-                const cachedShortlists = activeLiveLibs.flatMap(l => liveTvCacheRef.current[l.id]?.shortlists || []);
+                const cachedChannels = libs.flatMap(l => liveTvCacheRef.current[l.id]?.channels || []);
+                const cachedGroups = libs.flatMap(l => liveTvCacheRef.current[l.id]?.groups || []);
+                const cachedShortlists = libs.flatMap(l => liveTvCacheRef.current[l.id]?.shortlists || []);
 
                 setIptvChannels(cachedChannels);
                 setIptvGroups(cachedGroups);
@@ -668,19 +648,8 @@ function TheaterPageContent() {
         setLoadingItems(true);
         try {
             if (isLive) {
-                const disabledLibIds: string[] = (() => {
-                    try {
-                        const saved = localStorage.getItem('theater_disabled_live_libraries');
-                        return saved ? JSON.parse(saved) : [];
-                    } catch {
-                        return [];
-                    }
-                })();
-
-                const activeLiveLibs = libs.filter(l => !disabledLibIds.includes(l.id));
-
                 const results = await Promise.all(
-                    activeLiveLibs.map(async (lib) => {
+                    libs.map(async (lib) => {
                         if (liveTvCacheRef.current[lib.id]) {
                             return liveTvCacheRef.current[lib.id];
                         }

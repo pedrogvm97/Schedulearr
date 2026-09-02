@@ -1658,8 +1658,8 @@ export default function DiscoverPage() {
                     )}
                 </div>
 
-                {/* ── Collapsible Filters Bar ── */}
-                {showFilters && (
+                {/* ── Collapsible Filters Bar (Hidden on Live TV & DVR) ── */}
+                {showFilters && mediaType !== 'iptv_dvr' && (
                     <div className="p-6 bg-zinc-950/60 border border-zinc-900 rounded-[2rem] space-y-5 animate-in fade-in duration-200">
                         {mediaType === 'music' ? (
                             <>

@@ -109,6 +109,7 @@ export function IptvDvrManager() {
     const [shortlistSelectedIds, setShortlistSelectedIds] = useState<string[]>([]);
     const [shortlistSearch, setShortlistSearch] = useState('');
     const [shortlistCategory, setShortlistCategory] = useState('ALL');
+    const [shortlistFilterMode, setShortlistFilterMode] = useState<'selected' | 'all'>('selected');
     const [shortlistViewMode, setShortlistViewMode] = useState<'grid' | 'list'>('grid');
     const [isSavingShortlist, setIsSavingShortlist] = useState(false);
 
@@ -341,6 +342,7 @@ export function IptvDvrManager() {
         setShortlistSelectedIds([]);
         setShortlistSearch('');
         setShortlistCategory('ALL');
+        setShortlistFilterMode('all');
         setIsShortlistModalOpen(true);
     };
 
@@ -350,6 +352,7 @@ export function IptvDvrManager() {
         setShortlistSelectedIds(sl.channelIds || []);
         setShortlistSearch('');
         setShortlistCategory('ALL');
+        setShortlistFilterMode('selected');
         setIsShortlistModalOpen(true);
     };
 
@@ -403,6 +406,16 @@ export function IptvDvrManager() {
 
     const filteredShortlistChannels = useMemo(() => {
         let list = channels;
+        if (shortlistFilterMode === 'selected') {
+            const set = new Set(shortlistSelectedIds);
+            const lowerNames = new Set(shortlistSelectedIds.map(x => String(x).toLowerCase()));
+            list = list.filter(c =>
+                set.has(c.id) ||
+                (c.tvgId && set.has(c.tvgId)) ||
+                (c.cleanName && lowerNames.has(c.cleanName.toLowerCase())) ||
+                (c.name && lowerNames.has(c.name.toLowerCase()))
+            );
+        }
         if (shortlistCategory !== 'ALL') {
             list = list.filter(c => c.group === shortlistCategory);
         }
@@ -415,7 +428,7 @@ export function IptvDvrManager() {
             );
         }
         return list;
-    }, [channels, shortlistCategory, shortlistSearch]);
+    }, [channels, shortlistFilterMode, shortlistSelectedIds, shortlistCategory, shortlistSearch]);
 
     const handleAddFolder = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -1689,17 +1702,44 @@ export function IptvDvrManager() {
                                     )}
                                 </div>
 
-                                <div className="flex items-center gap-2">
-                                    <select
-                                        value={shortlistCategory}
-                                        onChange={e => setShortlistCategory(e.target.value)}
-                                        className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-amber-500 max-w-[200px] truncate"
-                                    >
-                                        <option value="ALL">All Categories ({channels.length})</option>
-                                        {groups.map(g => (
-                                            <option key={g.name} value={g.name}>{g.name} ({g.count})</option>
-                                        ))}
-                                    </select>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800 shrink-0">
+                                        <button
+                                            type="button"
+                                            onClick={() => setShortlistFilterMode('selected')}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                                shortlistFilterMode === 'selected'
+                                                    ? 'bg-amber-500 text-black shadow-sm font-black'
+                                                    : 'text-zinc-400 hover:text-white'
+                                            }`}
+                                        >
+                                            ⭐ Selected ({shortlistSelectedIds.length})
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShortlistFilterMode('all')}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                                shortlistFilterMode === 'all'
+                                                    ? 'bg-zinc-800 text-white shadow-sm font-black'
+                                                    : 'text-zinc-400 hover:text-white'
+                                            }`}
+                                        >
+                                            Browse All ({channels.length})
+                                        </button>
+                                    </div>
+
+                                    {shortlistFilterMode === 'all' && (
+                                        <select
+                                            value={shortlistCategory}
+                                            onChange={e => setShortlistCategory(e.target.value)}
+                                            className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-amber-500 max-w-[180px] truncate"
+                                        >
+                                            <option value="ALL">All Categories ({channels.length})</option>
+                                            {groups.map(g => (
+                                                <option key={g.name} value={g.name}>{g.name} ({g.count})</option>
+                                            ))}
+                                        </select>
+                                    )}
 
                                     <div className="flex bg-zinc-950 p-1 rounded-xl border border-zinc-800 shrink-0">
                                         <button
