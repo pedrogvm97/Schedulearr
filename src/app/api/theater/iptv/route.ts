@@ -8,36 +8,52 @@ import { executeEpgSync, parseXmltvDate } from '@/lib/iptvEpgSync';
 
 export const dynamic = 'force-dynamic';
 
-function detectQuality(name: string, group: string): { quality: string; label: string; cleanName: string } {
+function detectQuality(name: string, group: string): { quality: string; label: string; cleanName: string; canonicalKey: string } {
     const raw = `${name} ${group}`.toLowerCase();
     let quality = 'SD';
     let label = 'SD';
 
     if (raw.includes('8k') || raw.includes('4320')) {
         quality = '8K';
-        label = '8K UHD';
+        label = '8K';
     } else if (raw.includes('4k') || raw.includes('uhd') || raw.includes('2160')) {
         quality = '4K';
-        label = '4K UHD';
-    } else if (raw.includes('fhd') || raw.includes('1080') || raw.includes('full hd')) {
+        label = '4K';
+    } else if (raw.includes('fhd') || raw.includes('1080') || raw.includes('full hd') || raw.includes('1080p')) {
         quality = '1080p';
         label = 'FHD';
-    } else if (raw.includes('hd') || raw.includes('720')) {
+    } else if (raw.includes('hd') || raw.includes('720') || raw.includes('720p')) {
         quality = '720p';
         label = 'HD';
-    } else if (raw.includes('hevc') || raw.includes('h265')) {
+    } else if (raw.includes('hevc') || raw.includes('h265') || raw.includes('h.265')) {
         quality = '1080p';
         label = 'HEVC';
+    } else if (raw.includes('raw') || raw.includes('50fps') || raw.includes('60fps')) {
+        quality = '1080p';
+        label = 'RAW';
+    } else if (raw.includes('backup') || raw.includes('alt')) {
+        quality = 'SD';
+        label = 'Backup';
     }
 
-    // Clean channel name by stripping quality suffixes (e.g. "RTP 1 4K" -> "RTP 1")
-    const cleanName = name
-        .replace(/\b(8k|4k|uhd|fhd|hd|sd|hevc|h\.?265|1080p|720p|576p|480p|2160p)\b/gi, '')
-        .replace(/\[.*?\]|\(.*?\)/g, '')
-        .replace(/\s+/g, ' ')
-        .trim() || name;
+    // Strip country/language prefixes like "PT:", "PT |", "|PT|", "[PT]", "PT -", "PORTUGAL:", "ES:", "US:", "UK:"
+    let cleanName = name
+        .replace(/^(\s*\|?\s*[a-z]{2,3}\s*\|?\s*[:\-\|\/])+/i, '')
+        .replace(/^(\[[a-z]{2,3}\]|\([a-z]{2,3}\))\s*/i, '')
+        .replace(/^(\s*\|[a-z]{2,3}\|\s*)/i, '');
 
-    return { quality, label, cleanName };
+    // Clean channel name by stripping quality suffixes (e.g. "RTP 1 4K" -> "RTP 1")
+    cleanName = cleanName
+        .replace(/\b(8k|4k|uhd|fhd|hd|sd|hevc|h\.?265|1080p|720p|576p|480p|2160p|raw|backup|alt|50fps|60fps|vip)\b/gi, '')
+        .replace(/\[.*?\]|\(.*?\)/g, '')
+        .replace(/[*#=\-_~+]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim() || name.trim();
+
+    // Canonical key for merging streams of the same channel across groups (e.g. "rtp 1")
+    const canonicalKey = cleanName.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    return { quality, label, cleanName, canonicalKey };
 }
 
 // ── Filter Out Decorative Category Headers / Pseudo-Channels ──
@@ -140,11 +156,12 @@ async function fetchXtreamLiveChannels(
                 if (isDummyChannelOrHeader(rawName, streamPlayUrl)) continue;
 
                 const group = catMap[String(s.category_id)] || 'General';
-                const { quality, label, cleanName } = detectQuality(rawName, group);
+                const { quality, label, cleanName, canonicalKey } = detectQuality(rawName, group);
                 rawChannels.push({
                     id: `chan-${++count}`,
                     name: rawName,
                     cleanName,
+                    canonicalKey,
                     logo: s.stream_icon || undefined,
                     group,
                     tvgId: s.epg_channel_id ? String(s.epg_channel_id) : (s.stream_id ? String(s.stream_id) : undefined),
@@ -157,7 +174,7 @@ async function fetchXtreamLiveChannels(
 
             const mergedMap = new Map<string, StoredIptvChannel>();
             for (const raw of rawChannels) {
-                const key = `${raw.group}:::${raw.cleanName.toLowerCase()}`;
+                const key = raw.canonicalKey || raw.cleanName.toLowerCase();
                 if (!mergedMap.has(key)) {
                     mergedMap.set(key, {
                         id: `chan-${mergedMap.size + 1}`,
@@ -188,7 +205,7 @@ async function fetchXtreamLiveChannels(
                 const l = (q || '').toLowerCase();
                 if (l.includes('8k')) return 5;
                 if (l.includes('4k') || l.includes('uhd') || l.includes('2160')) return 4;
-                if (l.includes('fhd') || l.includes('1080')) return 3;
+                if (l.includes('fhd') || l.includes('1080') || l.includes('raw') || l.includes('hevc')) return 3;
                 if (l.includes('hd') || l.includes('720')) return 2;
                 return 1;
             };
@@ -220,6 +237,7 @@ function parseM3uContent(content: string, libraryId: string): StoredIptvChannel[
         id: string;
         name: string;
         cleanName: string;
+        canonicalKey: string;
         logo?: string;
         group: string;
         tvgId?: string;
@@ -245,13 +263,14 @@ function parseM3uContent(content: string, libraryId: string): StoredIptvChannel[
             const rawName = nameParts.length > 1 ? nameParts.slice(1).join(',').trim() : `Channel ${count + 1}`;
             const group = groupMatch ? groupMatch[1].trim() : 'General';
 
-            const { quality, label, cleanName } = detectQuality(rawName, group);
+            const { quality, label, cleanName, canonicalKey } = detectQuality(rawName, group);
 
             if (!isDummyChannelOrHeader(rawName)) {
                 currentInfo = {
                     id: `chan-${++count}`,
                     name: rawName,
                     cleanName,
+                    canonicalKey,
                     logo: logoMatch ? logoMatch[1].trim() : undefined,
                     group,
                     tvgId: idMatch ? idMatch[1].trim() : undefined,
@@ -271,11 +290,11 @@ function parseM3uContent(content: string, libraryId: string): StoredIptvChannel[
         }
     }
 
-    // Merge duplicate channels by normalized cleanName into redundant multi-stream channels
+    // Merge duplicate channels by canonicalKey into redundant multi-stream channels
     const mergedMap = new Map<string, StoredIptvChannel>();
 
     for (const raw of rawChannels) {
-        const key = `${raw.group}:::${raw.cleanName.toLowerCase()}`;
+        const key = raw.canonicalKey || raw.cleanName.toLowerCase();
         if (!mergedMap.has(key)) {
             mergedMap.set(key, {
                 id: `chan-${mergedMap.size + 1}`,
@@ -334,8 +353,59 @@ export async function GET(req: Request) {
 
             const stored = getIptvChannels(libraryId);
             if (stored && stored.length > 0) {
-                const groupCounts: Record<string, number> = {};
+                // Perform smart canonical resolution merging on stored channels
+                const mergedStoredMap = new Map<string, StoredIptvChannel>();
                 for (const c of stored) {
+                    const rawName = c.name || '';
+                    const { cleanName, canonicalKey, quality, label } = detectQuality(rawName, c.group);
+                    const key = canonicalKey || (c.cleanName || rawName).toLowerCase();
+
+                    if (!mergedStoredMap.has(key)) {
+                        const existingStreams = (c.streams && c.streams.length > 0)
+                            ? [...c.streams]
+                            : [{ url: (c as any).url || '', quality, label: `${label} (${rawName})` }];
+                        mergedStoredMap.set(key, {
+                            ...c,
+                            name: cleanName || c.name,
+                            cleanName: cleanName || c.cleanName || c.name,
+                            streams: existingStreams
+                        });
+                    } else {
+                        const existing = mergedStoredMap.get(key)!;
+                        const existingStreams = existing.streams || [];
+                        const incomingStreams = (c.streams && c.streams.length > 0)
+                            ? c.streams
+                            : [{ url: (c as any).url || '', quality, label: `${label} (${rawName})` }];
+
+                        for (const is of incomingStreams) {
+                            if (is.url && !existingStreams.some(s => s.url === is.url)) {
+                                existingStreams.push(is);
+                            }
+                        }
+                        existing.streams = existingStreams;
+                        if (!existing.logo && c.logo) existing.logo = c.logo;
+                        if (!existing.tvgId && c.tvgId) existing.tvgId = c.tvgId;
+                    }
+                }
+
+                const qualityRank = (q: string) => {
+                    const l = (q || '').toLowerCase();
+                    if (l.includes('8k')) return 5;
+                    if (l.includes('4k') || l.includes('uhd') || l.includes('2160')) return 4;
+                    if (l.includes('fhd') || l.includes('1080') || l.includes('raw') || l.includes('hevc')) return 3;
+                    if (l.includes('hd') || l.includes('720')) return 2;
+                    return 1;
+                };
+
+                const consolidated = Array.from(mergedStoredMap.values());
+                for (const ch of consolidated) {
+                    if (ch.streams && ch.streams.length > 1) {
+                        ch.streams.sort((a, b) => qualityRank(b.quality) - qualityRank(a.quality));
+                    }
+                }
+
+                const groupCounts: Record<string, number> = {};
+                for (const c of consolidated) {
                     groupCounts[c.group] = (groupCounts[c.group] || 0) + 1;
                 }
 
@@ -347,10 +417,10 @@ export async function GET(req: Request) {
                 const epgUrl = currentLib?.folders?.[1] || '';
 
                 return NextResponse.json({
-                    total: stored.length,
+                    total: consolidated.length,
                     groups,
                     epgUrl,
-                    channels: stored.map(c => ({
+                    channels: consolidated.map(c => ({
                         id: c.id,
                         name: c.name,
                         cleanName: c.cleanName,

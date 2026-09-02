@@ -76,12 +76,48 @@ export default function TheaterLiveTvPlayer({
     const [currentChannel, setCurrentChannel] = useState<IptvChannel | null>(null);
     const [activeStreamIdx, setActiveStreamIdx] = useState(0);
 
+    // Disabled / Enabled IPTV Libraries in Theater
+    const [disabledLibIds, setDisabledLibIds] = useState<string[]>(() => {
+        try {
+            const saved = localStorage.getItem('theater_disabled_live_libraries');
+            return saved ? JSON.parse(saved) : [];
+        } catch {
+            return [];
+        }
+    });
+    const [isManageLibsOpen, setIsManageLibsOpen] = useState(false);
+
     // Provider / Library Filter
-    const [selectedProviderId, setSelectedProviderId] = useState<string>('ALL');
+    const [selectedProviderId, setSelectedProviderId] = useState<string>(() => {
+        try {
+            return localStorage.getItem('theater_selected_live_provider') || 'ALL';
+        } catch {
+            return 'ALL';
+        }
+    });
+
+    const handleSelectProvider = (id: string) => {
+        setSelectedProviderId(id);
+        try { localStorage.setItem('theater_selected_live_provider', id); } catch {}
+        setChannelRenderLimit(40);
+    };
+
+    const toggleLibraryEnabled = (libId: string) => {
+        setDisabledLibIds(prev => {
+            const next = prev.includes(libId) ? prev.filter(x => x !== libId) : [...prev, libId];
+            try { localStorage.setItem('theater_disabled_live_libraries', JSON.stringify(next)); } catch {}
+            return next;
+        });
+    };
 
     // Zapper search & category
     const [zapperSearch, setZapperSearch] = useState('');
     const [zapperGroup, setZapperGroup] = useState('ALL');
+
+    // Progressive Sliced Rendering Limits (Prevents rendering 1,000+ DOM nodes at once)
+    const [channelRenderLimit, setChannelRenderLimit] = useState(40);
+    const [guideRenderLimit, setGuideRenderLimit] = useState(25);
+    const [guideSearch, setGuideSearch] = useState('');
 
     // EPG Guide Map: tvgId -> Program[]
     const [epgMap, setEpgMap] = useState<Record<string, EpgProgram[]>>({});
@@ -115,8 +151,8 @@ export default function TheaterLiveTvPlayer({
         program?: EpgProgram;
     } | null>(null);
 
-    // Available Providers / Libraries
-    const availableProviders = useMemo(() => {
+    // Available Providers / Libraries (excluding disabled ones)
+    const allAvailableProviders = useMemo(() => {
         const map = new Map<string, { id: string; name: string; count: number }>();
         for (const c of channels) {
             if (c.libraryId && c.libraryName) {
@@ -129,9 +165,86 @@ export default function TheaterLiveTvPlayer({
         return Array.from(map.values());
     }, [channels]);
 
+    const activeProviders = useMemo(() => {
+        return allAvailableProviders.filter(p => !disabledLibIds.includes(p.id));
+    }, [allAvailableProviders, disabledLibIds]);
+
+    // ── Smart Multi-Resolution Channel Aggregator ──
+    // Automatically merges stream resolution variants (e.g. "RTP 1 4K", "RTP 1 FHD", "RTP 1 HD") into one channel
+    const aggregatedChannels = useMemo(() => {
+        // Filter out channels from disabled libraries
+        const enabledChannels = disabledLibIds.length > 0
+            ? channels.filter(c => !c.libraryId || !disabledLibIds.includes(c.libraryId))
+            : channels;
+
+        const map = new Map<string, IptvChannel>();
+
+        const qualityOrder: Record<string, number> = {
+            '8K': 5, '4K': 4, '4K UHD': 4, '1080p': 3, 'FHD': 3, 'RAW': 3, 'HEVC': 3,
+            '720p': 2, 'HD': 2, 'SD': 1, 'Backup': 0
+        };
+
+        const detectQualityLabel = (name: string): string => {
+            const lower = (name || '').toLowerCase();
+            if (lower.includes('8k')) return '8K';
+            if (lower.includes('4k') || lower.includes('uhd')) return '4K';
+            if (lower.includes('fhd') || lower.includes('1080')) return '1080p';
+            if (lower.includes('hd') || lower.includes('720')) return '720p';
+            if (lower.includes('raw') || lower.includes('hevc')) return '1080p';
+            if (lower.includes('backup') || lower.includes('alt')) return 'Backup';
+            return 'SD';
+        };
+
+        for (const c of enabledChannels) {
+            const rawName = c.cleanName || c.name;
+            const norm = rawName
+                .toLowerCase()
+                .replace(/^(\s*\|?\s*[a-z]{2,3}\s*\|?\s*[:\-\|\/])+/i, '')
+                .replace(/\b(8k|4k|uhd|fhd|hd|sd|hevc|h\.?265|1080p|720p|576p|480p|2160p|raw|backup|alt|50fps|60fps|vip)\b/gi, '')
+                .replace(/\[.*?\]|\(.*?\)/g, '')
+                .replace(/[^a-z0-9]/g, '');
+
+            const key = norm || c.id;
+
+            if (!map.has(key)) {
+                const initialStreams = (c.streams && c.streams.length > 0)
+                    ? [...c.streams]
+                    : [{ url: c.url, quality: detectQualityLabel(c.name), label: c.name }];
+
+                map.set(key, {
+                    ...c,
+                    streams: initialStreams
+                });
+            } else {
+                const existing = map.get(key)!;
+                const existingStreams = existing.streams || [];
+                const newStreams = (c.streams && c.streams.length > 0)
+                    ? c.streams
+                    : [{ url: c.url, quality: detectQualityLabel(c.name), label: c.name }];
+
+                for (const ns of newStreams) {
+                    if (ns.url && !existingStreams.some(s => s.url === ns.url)) {
+                        existingStreams.push(ns);
+                    }
+                }
+                existing.streams = existingStreams;
+                if (!existing.logo && c.logo) existing.logo = c.logo;
+                if (!existing.tvgId && c.tvgId) existing.tvgId = c.tvgId;
+            }
+        }
+
+        const list = Array.from(map.values());
+        for (const ch of list) {
+            if (ch.streams && ch.streams.length > 1) {
+                ch.streams.sort((a, b) => (qualityOrder[b.quality] || 1) - (qualityOrder[a.quality] || 1));
+            }
+        }
+        return list;
+    }, [channels, disabledLibIds]);
+
     // Filter channels by provider, shortlist, category, and search
     const visibleChannels = useMemo(() => {
-        let list = channels;
+        let list = aggregatedChannels;
 
         // 0. Provider library filter
         if (selectedProviderId !== 'ALL') {
@@ -163,15 +276,15 @@ export default function TheaterLiveTvPlayer({
         }
 
         return list;
-    }, [channels, selectedProviderId, activeShortlistId, shortlists, zapperGroup, zapperSearch]);
+    }, [aggregatedChannels, selectedProviderId, activeShortlistId, shortlists, zapperGroup, zapperSearch]);
 
     // Unique groups for filter pills
     const channelGroups = useMemo(() => {
         const set = new Set<string>();
-        const sourceList = selectedProviderId !== 'ALL' ? channels.filter(c => c.libraryId === selectedProviderId) : channels;
+        const sourceList = selectedProviderId !== 'ALL' ? aggregatedChannels.filter(c => c.libraryId === selectedProviderId) : aggregatedChannels;
         for (const c of sourceList) if (c.group) set.add(c.group);
         return Array.from(set).slice(0, 15);
-    }, [channels, selectedProviderId]);
+    }, [aggregatedChannels, selectedProviderId]);
 
     // Auto-select first channel on load if none playing
     useEffect(() => {
@@ -185,7 +298,7 @@ export default function TheaterLiveTvPlayer({
     useEffect(() => {
         if (!libraryId || visibleChannels.length === 0) return;
         const tvgIds = visibleChannels
-            .slice(0, 60)
+            .slice(0, 50)
             .map(c => c.tvgId)
             .filter(Boolean) as string[];
 
@@ -199,7 +312,7 @@ export default function TheaterLiveTvPlayer({
                 }
             })
             .catch(() => {});
-    }, [libraryId, visibleChannels]);
+    }, [libraryId, visibleChannels.length > 0 ? visibleChannels[0].id : '']);
 
     // Guide and OSD Overlay States
     const [isFullGuideOpen, setIsFullGuideOpen] = useState(false);
@@ -283,19 +396,22 @@ export default function TheaterLiveTvPlayer({
         );
     };
 
-    // Video Player Stream Handler (Transmuxer + Fallback)
+    // Video Player Stream Handler (Stable & Non-Interrupted on State Changes)
+    const activeStreamRawUrl = (currentChannel?.streams && currentChannel.streams.length > 0)
+        ? (currentChannel.streams[activeStreamIdx]?.url || currentChannel.streams[0]?.url)
+        : currentChannel?.url;
+
     useEffect(() => {
-        if (!currentChannel || !videoRef.current) return;
+        if (!currentChannel || !videoRef.current || !activeStreamRawUrl) return;
         const video = videoRef.current;
         const streams = (currentChannel.streams && currentChannel.streams.length > 0)
             ? currentChannel.streams
             : [{ url: currentChannel.url, quality: 'SD', label: 'Default' }];
 
         const activeStream = streams[activeStreamIdx] || streams[0];
-        const rawUrl = activeStream?.url || '';
-        if (!rawUrl) return;
+        const rawUrl = activeStreamRawUrl;
 
-        setStreamQuality(activeStream.quality || 'LIVE');
+        setStreamQuality(activeStream?.quality || 'LIVE');
 
         const proxiedUrl = `/api/theater/iptv/stream?url=${encodeURIComponent(rawUrl)}`;
 
@@ -338,7 +454,7 @@ export default function TheaterLiveTvPlayer({
             video.removeAttribute('src');
             video.load();
         };
-    }, [currentChannel, activeStreamIdx]);
+    }, [currentChannel?.id, activeStreamRawUrl, activeStreamIdx]);
 
     // Current Airing Program & Upcoming for Playing Channel
     const currentChannelPrograms = useMemo(() => {
@@ -527,10 +643,24 @@ export default function TheaterLiveTvPlayer({
                     </Link>
                 </div>
 
-                {/* Right Top Actions: Full TV Guide Button & Setup */}
+                {/* Right Top Actions: Manage Active Lists, Full TV Guide Button & Setup */}
                 <div className="flex items-center gap-2 shrink-0">
+                    {allAvailableProviders.length > 0 && (
+                        <button
+                            onClick={() => setIsManageLibsOpen(true)}
+                            className="px-3.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs font-bold flex items-center gap-1.5 transition-colors shrink-0 cursor-pointer"
+                            title="Enable or disable specific IPTV lists in Theater"
+                        >
+                            <Layers size={13} className="text-amber-400" />
+                            <span>Lists ({activeProviders.length}/{allAvailableProviders.length})</span>
+                        </button>
+                    )}
+
                     <button
-                        onClick={() => setIsFullGuideOpen(true)}
+                        onClick={() => {
+                            setGuideRenderLimit(25);
+                            setIsFullGuideOpen(true);
+                        }}
                         className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black uppercase text-xs tracking-wider flex items-center gap-1.5 shadow-lg shadow-amber-500/20 transition-all cursor-pointer active:scale-95"
                         title="Open Full Program Schedule Guide"
                     >
@@ -587,7 +717,7 @@ export default function TheaterLiveTvPlayer({
                                         <button
                                             key={idx}
                                             onClick={() => setActiveStreamIdx(idx)}
-                                            className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black transition-all ${
+                                            className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
                                                 activeStreamIdx === idx
                                                     ? 'bg-amber-500 text-black shadow'
                                                     : 'text-zinc-400 hover:text-white'
@@ -758,12 +888,18 @@ export default function TheaterLiveTvPlayer({
                                 type="text"
                                 placeholder="Search channel or show..."
                                 value={zapperSearch}
-                                onChange={e => setZapperSearch(e.target.value)}
+                                onChange={e => {
+                                    setZapperSearch(e.target.value);
+                                    setChannelRenderLimit(40);
+                                }}
                                 className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-8 pr-7 py-2 text-xs text-white placeholder-zinc-500 outline-none focus:border-amber-500 transition-colors"
                             />
                             {zapperSearch && (
                                 <button
-                                    onClick={() => setZapperSearch('')}
+                                    onClick={() => {
+                                        setZapperSearch('');
+                                        setChannelRenderLimit(40);
+                                    }}
                                     className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white"
                                 >
                                     <X size={12} />
@@ -772,23 +908,23 @@ export default function TheaterLiveTvPlayer({
                         </div>
 
                         {/* Provider / Library Filter Pills */}
-                        {availableProviders.length > 1 && (
+                        {activeProviders.length > 1 && (
                             <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-0.5">
                                 <span className="text-[9px] font-black uppercase text-zinc-500 tracking-wider shrink-0 mr-0.5">Provider:</span>
                                 <button
-                                    onClick={() => setSelectedProviderId('ALL')}
+                                    onClick={() => handleSelectProvider('ALL')}
                                     className={`px-2.5 py-1 rounded-lg text-[10px] font-black shrink-0 transition-all cursor-pointer ${
                                         selectedProviderId === 'ALL'
                                             ? 'bg-amber-500 text-black shadow-sm'
                                             : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white'
                                     }`}
                                 >
-                                    All ({channels.length})
+                                    All ({aggregatedChannels.length})
                                 </button>
-                                {availableProviders.map(p => (
+                                {activeProviders.map(p => (
                                     <button
                                         key={p.id}
-                                        onClick={() => setSelectedProviderId(p.id)}
+                                        onClick={() => handleSelectProvider(p.id)}
                                         className={`px-2.5 py-1 rounded-lg text-[10px] font-black shrink-0 transition-all cursor-pointer ${
                                             selectedProviderId === p.id
                                                 ? 'bg-amber-500 text-black shadow-sm'
@@ -805,7 +941,10 @@ export default function TheaterLiveTvPlayer({
                         {channelGroups.length > 0 && (
                             <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-0.5">
                                 <button
-                                    onClick={() => setZapperGroup('ALL')}
+                                    onClick={() => {
+                                        setZapperGroup('ALL');
+                                        setChannelRenderLimit(40);
+                                    }}
                                     className={`px-2.5 py-1 rounded-lg text-[10px] font-black shrink-0 transition-colors ${
                                         zapperGroup === 'ALL'
                                             ? 'bg-zinc-800 text-white'
@@ -817,7 +956,10 @@ export default function TheaterLiveTvPlayer({
                                 {channelGroups.map(g => (
                                     <button
                                         key={g}
-                                        onClick={() => setZapperGroup(g)}
+                                        onClick={() => {
+                                            setZapperGroup(g);
+                                            setChannelRenderLimit(40);
+                                        }}
                                         className={`px-2.5 py-1 rounded-lg text-[10px] font-black shrink-0 transition-colors ${
                                             zapperGroup === g
                                                 ? 'bg-zinc-800 text-white'
@@ -831,14 +973,24 @@ export default function TheaterLiveTvPlayer({
                         )}
                     </div>
 
-                    {/* Channels Scrolling List */}
-                    <div className="flex-1 overflow-y-auto custom-scrollbar divide-y divide-zinc-900/60">
+                    {/* Channels Scrolling List with Sliced Progressive Rendering */}
+                    <div
+                        onScroll={(e) => {
+                            const target = e.currentTarget;
+                            if (target.scrollHeight - target.scrollTop <= target.clientHeight + 150) {
+                                if (channelRenderLimit < visibleChannels.length) {
+                                    setChannelRenderLimit(prev => Math.min(prev + 40, visibleChannels.length));
+                                }
+                            }
+                        }}
+                        className="flex-1 overflow-y-auto custom-scrollbar divide-y divide-zinc-900/60"
+                    >
                         {visibleChannels.length === 0 ? (
                             <div className="p-10 text-center text-zinc-600 text-xs">
                                 No channels found matching filters.
                             </div>
                         ) : (
-                            visibleChannels.map(chan => {
+                            visibleChannels.slice(0, channelRenderLimit).map(chan => {
                                 const isCurrent = currentChannel?.id === chan.id;
                                 const tvgKey = chan.tvgId || '';
                                 const chanEpg = (tvgKey && (epgMap[tvgKey] || epgMap[tvgKey.toLowerCase()])) || epgMap[chan.name] || epgMap[chan.cleanName || ''] || [];
@@ -942,19 +1094,18 @@ export default function TheaterLiveTvPlayer({
                                                     Upcoming Schedule
                                                 </span>
                                                 {chanEpg.slice(0, 5).map(ep => (
-                                                    <div key={ep.id} className="flex items-center justify-between text-[11px] py-1 border-b border-zinc-900/40">
-                                                        <div className="truncate flex-1 mr-2">
-                                                            <span className="text-zinc-500 font-mono text-[10px] mr-1.5">
-                                                                {new Date(ep.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                    <div
+                                                        key={ep.id}
+                                                        onClick={() => openRecordModal(chan, ep)}
+                                                        className="p-2 rounded-lg bg-zinc-900/80 border border-zinc-800/80 flex items-center justify-between gap-2 hover:border-amber-500/50 cursor-pointer transition-all"
+                                                    >
+                                                        <div className="min-w-0 flex-1">
+                                                            <p className="text-[11px] font-bold text-white truncate">{ep.title}</p>
+                                                            <span className="text-[10px] text-zinc-500 font-mono">
+                                                                {new Date(ep.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(ep.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                                             </span>
-                                                            <span className="text-zinc-300 font-bold">{ep.title}</span>
                                                         </div>
-                                                        <button
-                                                            onClick={() => openRecordModal(chan, ep)}
-                                                            className="text-[10px] font-black text-red-400 hover:text-white px-2 py-0.5 rounded bg-red-500/10 hover:bg-red-500 transition-colors shrink-0"
-                                                        >
-                                                            Record
-                                                        </button>
+                                                        <span className="text-[10px] font-bold text-amber-400 hover:underline shrink-0">Record</span>
                                                     </div>
                                                 ))}
                                             </div>
@@ -963,6 +1114,17 @@ export default function TheaterLiveTvPlayer({
                                 );
                             })
                         )}
+
+                        {visibleChannels.length > channelRenderLimit && (
+                            <div className="p-3 text-center bg-zinc-950/40">
+                                <button
+                                    onClick={() => setChannelRenderLimit(prev => Math.min(prev + 50, visibleChannels.length))}
+                                    className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-xs font-bold text-zinc-300 hover:text-white border border-zinc-800 transition-all cursor-pointer"
+                                >
+                                    Load more channels ({visibleChannels.length - channelRenderLimit} remaining)
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
@@ -970,120 +1132,110 @@ export default function TheaterLiveTvPlayer({
             {/* ── Context Menu (Right Click on Channel) ── */}
             {contextMenu && (
                 <div
-                    style={{ top: contextMenu.y, left: Math.min(contextMenu.x, window.innerWidth - 220) }}
-                    className="fixed z-[9999] bg-[#0e0e12] border border-zinc-800 rounded-2xl shadow-2xl p-1.5 w-52 text-xs font-bold text-zinc-200 animate-in fade-in duration-100"
+                    style={{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }}
+                    className="fixed z-[9999] bg-[#0c0c0e] border border-zinc-800 rounded-2xl p-1.5 shadow-2xl w-48 space-y-1 animate-in fade-in zoom-in-95 duration-150"
                 >
-                    <div className="px-3 py-1.5 border-b border-zinc-800 text-[10px] text-zinc-500 uppercase font-black truncate">
-                        {contextMenu.channel.name}
+                    <div className="px-3 py-1.5 border-b border-zinc-800/80">
+                        <p className="text-xs font-black text-white truncate">{contextMenu.channel.name}</p>
+                        <span className="text-[10px] text-zinc-500 font-bold uppercase">{contextMenu.channel.group}</span>
                     </div>
+
                     <button
                         onClick={() => {
                             setCurrentChannel(contextMenu.channel);
                             setActiveStreamIdx(0);
                             setContextMenu(null);
                         }}
-                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-zinc-800 hover:text-white flex items-center gap-2"
+                        className="w-full text-left px-3 py-1.5 rounded-xl hover:bg-zinc-800 text-xs font-bold text-zinc-200 hover:text-white flex items-center gap-2"
                     >
-                        <Play size={13} className="text-amber-400" /> Zap to Channel
+                        <Tv size={13} className="text-amber-400" /> Play Channel
                     </button>
+
                     <button
                         onClick={() => {
                             openRecordModal(contextMenu.channel, contextMenu.program);
                             setContextMenu(null);
                         }}
-                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-red-500/20 hover:text-red-300 text-red-400 flex items-center gap-2"
+                        className="w-full text-left px-3 py-1.5 rounded-xl hover:bg-red-500/10 text-xs font-bold text-red-400 flex items-center gap-2"
                     >
-                        <Circle size={12} className="fill-current" /> Record Program
+                        <Circle size={13} className="text-red-500 fill-current" /> Record Broadcast
                     </button>
+
                     <button
                         onClick={() => {
-                            setExpandedEpgChannelId(contextMenu.channel.id);
+                            onOpenShortlistManager();
                             setContextMenu(null);
                         }}
-                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-zinc-800 hover:text-white flex items-center gap-2"
+                        className="w-full text-left px-3 py-1.5 rounded-xl hover:bg-zinc-800 text-xs font-bold text-zinc-400 hover:text-white flex items-center gap-2"
                     >
-                        <Calendar size={13} className="text-sky-400" /> View EPG Guide
-                    </button>
-                    <button
-                        onClick={() => {
-                            navigator.clipboard.writeText(contextMenu.channel.url);
-                            toast.success('Stream link copied');
-                            setContextMenu(null);
-                        }}
-                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-zinc-800 hover:text-white flex items-center gap-2"
-                    >
-                        <Radio size={13} className="text-zinc-500" /> Copy Stream URL
+                        <Bookmark size={13} /> Add to Shortlist
                     </button>
                 </div>
             )}
 
-            {/* ── Schedule DVR Recording Modal ── */}
+            {/* ── Multi-Destination DVR Storage & Download Modal ── */}
             {recordingModalData && (
-                <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
-                    <div className="bg-[#0e0e12] border border-red-500/30 rounded-3xl w-full max-w-md p-6 space-y-5 shadow-2xl relative text-zinc-100">
-                        <div className="flex items-start justify-between">
-                            <div className="flex items-center gap-3">
-                                <div className="w-12 h-12 rounded-2xl bg-red-500/15 border border-red-500/30 flex items-center justify-center text-red-400 shrink-0">
-                                    <Circle size={20} className="fill-current animate-pulse" />
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+                    <div className="bg-[#0e0e11] border border-zinc-800 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+                        <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+                            <div className="flex items-center gap-2.5">
+                                <div className="w-9 h-9 rounded-xl bg-red-500/15 border border-red-500/30 flex items-center justify-center text-red-500">
+                                    <Circle size={16} className="fill-current animate-pulse" />
                                 </div>
                                 <div>
-                                    <h3 className="text-base font-black text-white">
-                                        {recordingModalData.isLive ? 'Record Live Broadcast' : 'Schedule DVR Recording'}
-                                    </h3>
-                                    <p className="text-xs text-zinc-400 truncate max-w-[240px]">
-                                        {recordingModalData.channel.name}
-                                    </p>
+                                    <h3 className="text-sm font-black text-white">Record & Download Broadcast</h3>
+                                    <p className="text-[11px] text-zinc-400">Save to local device, NAS DVR or media libraries</p>
                                 </div>
                             </div>
                             <button onClick={() => setRecordingModalData(null)} className="text-zinc-500 hover:text-white p-1">
-                                <X size={18} />
+                                <X size={16} />
                             </button>
                         </div>
 
-                        {/* Program Card */}
-                        <div className="p-4 bg-zinc-950 rounded-2xl border border-zinc-800 space-y-1">
-                            <span className="text-[10px] font-black text-red-400 uppercase tracking-wider">Program</span>
-                            <h4 className="text-sm font-black text-white">{recordingModalData.program.title}</h4>
-                            <p className="text-[11px] text-zinc-500">
-                                {new Date(recordingModalData.program.start_time).toLocaleString()} &rarr; {new Date(recordingModalData.program.end_time).toLocaleTimeString()}
+                        {/* Program Summary */}
+                        <div className="p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800/80 space-y-1">
+                            <div className="flex items-center justify-between">
+                                <span className="text-xs font-black text-white truncate">{recordingModalData.channel.name}</span>
+                                <span className="text-[10px] font-bold text-amber-400 uppercase">
+                                    {recordingModalData.isLive ? '🔴 Live Broadcast' : '⏰ Scheduled Broadcast'}
+                                </span>
+                            </div>
+                            <h4 className="text-sm font-black text-amber-300">{recordingModalData.program.title}</h4>
+                            <p className="text-[11px] text-zinc-400 font-mono">
+                                {new Date(recordingModalData.program.start_time).toLocaleString()} - {new Date(recordingModalData.program.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </p>
                         </div>
 
-                        {/* Storage Destinations Multi-Selection List */}
+                        {/* Storage Destinations Multi-Selection Checklist */}
                         <div className="space-y-2">
-                            <div className="flex items-center justify-between">
-                                <label className="text-xs font-bold text-zinc-300 block">
-                                    Storage Destination(s):
-                                </label>
-                                <span className="text-[11px] text-zinc-500">
-                                    {selectedDestIds.length} selected
-                                </span>
-                            </div>
+                            <label className="text-xs font-black text-zinc-300 uppercase tracking-wider block">
+                                Select Destination(s) (Multiple Allowed):
+                            </label>
 
-                            <div className="space-y-1.5 max-h-52 overflow-y-auto custom-scrollbar pr-1">
+                            <div className="space-y-2 max-h-52 overflow-y-auto custom-scrollbar pr-1">
                                 {destinations.map(d => {
                                     const isSelected = selectedDestIds.includes(d.id);
                                     return (
                                         <div
                                             key={d.id}
                                             onClick={() => toggleDestination(d.id)}
-                                            className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
+                                            className={`p-3 rounded-2xl border flex items-center justify-between gap-3 cursor-pointer transition-all ${
                                                 isSelected
-                                                    ? 'bg-red-500/15 border-red-500/50 text-white shadow-sm'
-                                                    : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
+                                                    ? 'bg-red-500/10 border-red-500/50 text-white'
+                                                    : 'bg-zinc-950 border-zinc-800/80 text-zinc-400 hover:border-zinc-700'
                                             }`}
                                         >
                                             <div className="flex items-center gap-3 min-w-0 flex-1">
                                                 <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
-                                                    isSelected ? 'bg-red-500 text-white' : 'bg-zinc-900 text-zinc-500'
+                                                    d.type === 'device' ? 'bg-amber-500/20 text-amber-400' : 'bg-blue-500/20 text-blue-400'
                                                 }`}>
-                                                    {d.type === 'device' ? <Laptop size={15} /> : d.type === 'dvr' ? <HardDrive size={15} /> : <Folder size={15} />}
+                                                    {d.type === 'device' ? <Download size={16} /> : <HardDrive size={16} />}
                                                 </div>
                                                 <div className="min-w-0 flex-1">
                                                     <div className="flex items-center gap-2">
-                                                        <span className="text-xs font-black truncate">{d.name}</span>
-                                                        <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold uppercase ${
-                                                            d.type === 'device' ? 'bg-indigo-500/20 text-indigo-300' : 'bg-zinc-900 text-zinc-400'
+                                                        <span className="text-xs font-black truncate text-white">{d.name}</span>
+                                                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                                            d.type === 'device' ? 'bg-amber-500/20 text-amber-300' : 'bg-zinc-800 text-zinc-300'
                                                         }`}>
                                                             {d.badge}
                                                         </span>
@@ -1091,61 +1243,77 @@ export default function TheaterLiveTvPlayer({
                                                     <p className="text-[10px] text-zinc-500 truncate font-mono mt-0.5">{d.path}</p>
                                                 </div>
                                             </div>
-
-                                            <div className="shrink-0">
-                                                {isSelected ? (
-                                                    <CheckSquare size={18} className="text-red-400" />
-                                                ) : (
-                                                    <Square size={18} className="text-zinc-600" />
-                                                )}
-                                            </div>
                                         </div>
                                     );
                                 })}
                             </div>
                         </div>
+                    </div>
+                </div>
+            )}
 
-                        {/* Overtime Padding */}
-                        <div className="space-y-1.5">
-                            <label className="text-xs font-bold text-zinc-400 block">
-                                Post-Broadcast Overtime Padding:
-                            </label>
-                            <select
-                                value={recordingPadding}
-                                onChange={e => setRecordingPadding(parseInt(e.target.value))}
-                                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2.5 text-xs text-white font-bold outline-none focus:border-red-500"
-                            >
-                                <option value={0}>0 min (Exact End Time)</option>
-                                <option value={15}>+15 min (Standard)</option>
-                                <option value={30}>+30 min (Sports Overtime)</option>
-                                <option value={60}>+60 min (Extended Overtime)</option>
-                            </select>
+            {/* ── Manage Active IPTV Libraries Modal ── */}
+            {isManageLibsOpen && (
+                <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+                    <div className="bg-[#0e0e11] border border-zinc-800 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+                        <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+                            <div className="flex items-center gap-2.5">
+                                <div className="w-9 h-9 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                                    <Layers size={18} />
+                                </div>
+                                <div>
+                                    <h3 className="text-sm font-black text-white">Active IPTV Lists in Theater</h3>
+                                    <p className="text-[11px] text-zinc-400">Toggle which channel lists are active</p>
+                                </div>
+                            </div>
+                            <button onClick={() => setIsManageLibsOpen(false)} className="text-zinc-500 hover:text-white p-1">
+                                <X size={16} />
+                            </button>
                         </div>
 
-                        {/* Action Buttons */}
-                        <div className="flex items-center justify-end gap-2 pt-2">
+                        <div className="space-y-2 max-h-72 overflow-y-auto custom-scrollbar pr-1">
+                            {allAvailableProviders.map(prov => {
+                                const isEnabled = !disabledLibIds.includes(prov.id);
+                                return (
+                                    <div
+                                        key={prov.id}
+                                        onClick={() => toggleLibraryEnabled(prov.id)}
+                                        className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 cursor-pointer transition-all ${
+                                            isEnabled
+                                                ? 'bg-zinc-900/90 border-amber-500/40 text-white'
+                                                : 'bg-zinc-950 border-zinc-800/80 text-zinc-500 opacity-60 hover:opacity-100'
+                                        }`}
+                                    >
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-xs font-black truncate">{prov.name}</p>
+                                            <span className="text-[10px] text-zinc-400 font-mono">{prov.count} total channels</span>
+                                        </div>
+                                        <div className="shrink-0">
+                                            {isEnabled ? (
+                                                <span className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-[10px] font-black uppercase">Active</span>
+                                            ) : (
+                                                <span className="px-2.5 py-1 rounded-lg bg-zinc-800 text-zinc-400 text-[10px] font-black uppercase">Disabled</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        <div className="flex items-center justify-between pt-2 border-t border-zinc-900 text-xs text-zinc-500">
+                            <span>{activeProviders.length} of {allAvailableProviders.length} lists enabled</span>
                             <button
-                                type="button"
-                                onClick={() => setRecordingModalData(null)}
-                                className="px-4 py-2 text-xs font-bold text-zinc-400 hover:text-white"
+                                onClick={() => setIsManageLibsOpen(false)}
+                                className="px-4 py-2 rounded-xl bg-amber-500 text-black font-black text-xs hover:bg-amber-400 cursor-pointer"
                             >
-                                Cancel
-                            </button>
-                            <button
-                                type="button"
-                                onClick={handleConfirmRecording}
-                                disabled={isScheduling}
-                                className="px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white font-black text-xs rounded-xl transition-all shadow-lg shadow-red-600/30 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                            >
-                                <Circle size={12} className="fill-current" />
-                                {isScheduling ? 'Saving...' : recordingModalData.isLive ? 'Start Recording Now' : 'Schedule Recording'}
+                                Done
                             </button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* ── Full Interactive TV Guide Schedule Modal ── */}
+            {/* ── Full Interactive TV Guide Schedule Modal (Smooth & Sliced) ── */}
             {isFullGuideOpen && (
                 <div className="fixed inset-0 z-[9999] flex flex-col p-3 sm:p-6 bg-black/95 backdrop-blur-xl animate-in fade-in duration-200">
                     <div className="bg-[#0c0c0e] border border-zinc-800 rounded-3xl w-full h-full flex flex-col overflow-hidden shadow-2xl">
@@ -1161,17 +1329,43 @@ export default function TheaterLiveTvPlayer({
                                 </div>
                             </div>
 
+                            {/* Search Filter for Guide */}
+                            <div className="relative w-56 sm:w-64">
+                                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+                                <input
+                                    type="text"
+                                    placeholder="Filter channels..."
+                                    value={guideSearch}
+                                    onChange={e => {
+                                        setGuideSearch(e.target.value);
+                                        setGuideRenderLimit(25);
+                                    }}
+                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-8 pr-7 py-1.5 text-xs text-white placeholder-zinc-500 outline-none focus:border-amber-500"
+                                />
+                                {guideSearch && (
+                                    <button
+                                        onClick={() => {
+                                            setGuideSearch('');
+                                            setGuideRenderLimit(25);
+                                        }}
+                                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white"
+                                    >
+                                        <X size={12} />
+                                    </button>
+                                )}
+                            </div>
+
                             {/* Timeline Controls */}
                             <div className="flex items-center gap-2 flex-wrap">
                                 <button
                                     onClick={() => setGuideTimeOffsetHours(prev => prev - 2)}
-                                    className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-bold text-zinc-300 hover:text-white transition-all"
+                                    className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-bold text-zinc-300 hover:text-white transition-all cursor-pointer"
                                 >
                                     ◀ -2 Hours
                                 </button>
                                 <button
                                     onClick={() => setGuideTimeOffsetHours(0)}
-                                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
                                         guideTimeOffsetHours === 0
                                             ? 'bg-amber-500 text-black shadow'
                                             : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white'
@@ -1181,108 +1375,141 @@ export default function TheaterLiveTvPlayer({
                                 </button>
                                 <button
                                     onClick={() => setGuideTimeOffsetHours(prev => prev + 2)}
-                                    className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-bold text-zinc-300 hover:text-white transition-all"
+                                    className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-bold text-zinc-300 hover:text-white transition-all cursor-pointer"
                                 >
                                     +2 Hours ▶
                                 </button>
 
                                 <button
                                     onClick={() => setIsFullGuideOpen(false)}
-                                    className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 ml-2"
+                                    className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 ml-2 cursor-pointer"
                                 >
                                     <X size={18} />
                                 </button>
                             </div>
                         </div>
 
-                        {/* Guide Content Grid */}
+                        {/* Guide Content Grid (Progressive Sliced Rendering) */}
                         <div className="flex-1 overflow-auto custom-scrollbar divide-y divide-zinc-900">
-                            {visibleChannels.map(chan => {
-                                const isCurrent = currentChannel?.id === chan.id;
-                                const tvgKey = chan.tvgId || '';
-                                const chanEpg = (tvgKey && (epgMap[tvgKey] || epgMap[tvgKey.toLowerCase()])) || epgMap[chan.name] || epgMap[chan.cleanName || ''] || [];
+                            {(() => {
+                                const guideChannels = guideSearch.trim()
+                                    ? visibleChannels.filter(c =>
+                                        c.name.toLowerCase().includes(guideSearch.toLowerCase()) ||
+                                        (c.cleanName && c.cleanName.toLowerCase().includes(guideSearch.toLowerCase())) ||
+                                        c.group.toLowerCase().includes(guideSearch.toLowerCase())
+                                    )
+                                    : visibleChannels;
 
-                                const baseDate = new Date(Date.now() + guideTimeOffsetHours * 60 * 60 * 1000);
-                                const windowStart = new Date(baseDate.getTime() - 1 * 60 * 60 * 1000);
-                                const windowEnd = new Date(baseDate.getTime() + 6 * 60 * 60 * 1000);
-
-                                const windowPrograms = chanEpg.filter(p =>
-                                    new Date(p.end_time) >= windowStart && new Date(p.start_time) <= windowEnd
-                                );
+                                if (guideChannels.length === 0) {
+                                    return (
+                                        <div className="p-16 text-center text-zinc-600 text-xs">
+                                            No channels found matching "{guideSearch}".
+                                        </div>
+                                    );
+                                }
 
                                 return (
-                                    <div key={chan.id} className="flex items-stretch hover:bg-zinc-900/30 transition-colors group">
-                                        {/* Channel Info Left Column */}
-                                        <div
-                                            onClick={() => {
-                                                setCurrentChannel(chan);
-                                                setActiveStreamIdx(0);
-                                                setIsFullGuideOpen(false);
-                                            }}
-                                            className="w-56 sm:w-64 p-3 border-r border-zinc-900 flex items-center gap-3 shrink-0 bg-zinc-950/60 cursor-pointer group-hover:bg-zinc-900/60 transition-colors"
-                                        >
-                                            <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center p-1 shrink-0 overflow-hidden">
-                                                {chan.logo ? (
-                                                    <img src={chan.logo} alt="" className="max-h-full max-w-full object-contain" onError={e => (e.currentTarget.style.display = 'none')} />
-                                                ) : (
-                                                    <Tv size={18} className="text-zinc-600" />
-                                                )}
-                                            </div>
-                                            <div className="min-w-0 flex-1">
-                                                <p className="text-xs font-black text-white truncate group-hover:text-amber-400 transition-colors">
-                                                    {chan.cleanName || chan.name}
-                                                </p>
-                                                <span className="text-[10px] text-zinc-500 font-bold uppercase">{chan.group}</span>
-                                            </div>
-                                        </div>
+                                    <>
+                                        {guideChannels.slice(0, guideRenderLimit).map(chan => {
+                                            const isCurrent = currentChannel?.id === chan.id;
+                                            const tvgKey = chan.tvgId || '';
+                                            const chanEpg = (tvgKey && (epgMap[tvgKey] || epgMap[tvgKey.toLowerCase()])) || epgMap[chan.name] || epgMap[chan.cleanName || ''] || [];
 
-                                        {/* Programs Timeline for this Channel */}
-                                        <div className="flex-1 flex items-center gap-2 p-2 overflow-x-auto custom-scrollbar">
-                                            {windowPrograms.length === 0 ? (
-                                                <div className="p-3 text-xs text-zinc-600 italic">
-                                                    No schedule data available for this time window.
-                                                </div>
-                                            ) : (
-                                                windowPrograms.map((prog, idx) => {
-                                                    const now = new Date();
-                                                    const isLive = new Date(prog.start_time) <= now && new Date(prog.end_time) >= now;
-                                                    return (
-                                                        <div
-                                                            key={prog.id || idx}
-                                                            onClick={() => {
-                                                                if (isLive) {
-                                                                    setCurrentChannel(chan);
-                                                                    setActiveStreamIdx(0);
-                                                                    setIsFullGuideOpen(false);
-                                                                } else {
-                                                                    openRecordModal(chan, prog);
-                                                                }
-                                                            }}
-                                                            className={`min-w-[200px] max-w-[280px] p-3 rounded-2xl border text-xs flex flex-col justify-between transition-all cursor-pointer ${
-                                                                isLive
-                                                                    ? 'bg-amber-500/20 border-amber-500/50 text-white shadow-lg'
-                                                                    : 'bg-zinc-900/80 border-zinc-800 text-zinc-300 hover:border-zinc-700 hover:bg-zinc-800'
-                                                            }`}
-                                                        >
-                                                            <div className="space-y-1">
-                                                                <div className="flex items-center justify-between text-[10px] font-mono text-zinc-400">
-                                                                    <span>{new Date(prog.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(prog.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                                                    {isLive && <span className="text-red-400 font-bold uppercase text-[9px]">LIVE NOW</span>}
-                                                                </div>
-                                                                <h5 className="font-black text-white line-clamp-1">{prog.title}</h5>
-                                                                {prog.description && <p className="text-[10px] text-zinc-500 line-clamp-2">{prog.description}</p>}
-                                                            </div>
-                                                            <div className="pt-2 mt-2 border-t border-white/5 flex items-center justify-between text-[10px] text-zinc-400">
-                                                                <span>{isLive ? '▶ Click to Watch' : '⏺ Click to Record'}</span>
-                                                            </div>
+                                            const baseDate = new Date(Date.now() + guideTimeOffsetHours * 60 * 60 * 1000);
+                                            const windowStart = new Date(baseDate.getTime() - 1 * 60 * 60 * 1000);
+                                            const windowEnd = new Date(baseDate.getTime() + 6 * 60 * 60 * 1000);
+
+                                            const windowPrograms = chanEpg.filter(p =>
+                                                new Date(p.end_time) >= windowStart && new Date(p.start_time) <= windowEnd
+                                            );
+
+                                            return (
+                                                <div key={chan.id} className="flex items-stretch hover:bg-zinc-900/30 transition-colors group">
+                                                    {/* Channel Info Left Column */}
+                                                    <div
+                                                        onClick={() => {
+                                                            setCurrentChannel(chan);
+                                                            setActiveStreamIdx(0);
+                                                            setIsFullGuideOpen(false);
+                                                        }}
+                                                        className="w-56 sm:w-64 p-3 border-r border-zinc-900 flex items-center gap-3 shrink-0 bg-zinc-950/60 cursor-pointer group-hover:bg-zinc-900/60 transition-colors"
+                                                    >
+                                                        <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center p-1 shrink-0 overflow-hidden">
+                                                            {chan.logo ? (
+                                                                <img src={chan.logo} alt="" className="max-h-full max-w-full object-contain" onError={e => (e.currentTarget.style.display = 'none')} />
+                                                            ) : (
+                                                                <Tv size={18} className="text-zinc-600" />
+                                                            )}
                                                         </div>
-                                                    );
-                                                })
-                                            )}
-                                        </div>
-                                    </div>
+                                                        <div className="min-w-0 flex-1">
+                                                            <p className="text-xs font-black text-white truncate group-hover:text-amber-400 transition-colors">
+                                                                {chan.cleanName || chan.name}
+                                                            </p>
+                                                            <span className="text-[10px] text-zinc-500 font-bold uppercase">{chan.group}</span>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Programs Timeline for this Channel */}
+                                                    <div className="flex-1 flex items-center gap-2 p-2 overflow-x-auto custom-scrollbar">
+                                                        {windowPrograms.length === 0 ? (
+                                                            <div className="p-3 text-xs text-zinc-600 italic">
+                                                                No schedule data available for this time window.
+                                                            </div>
+                                                        ) : (
+                                                            windowPrograms.map((prog, idx) => {
+                                                                const now = new Date();
+                                                                const isLive = new Date(prog.start_time) <= now && new Date(prog.end_time) >= now;
+                                                                return (
+                                                                    <div
+                                                                        key={prog.id || idx}
+                                                                        onClick={() => {
+                                                                            if (isLive) {
+                                                                                setCurrentChannel(chan);
+                                                                                setActiveStreamIdx(0);
+                                                                                setIsFullGuideOpen(false);
+                                                                            } else {
+                                                                                openRecordModal(chan, prog);
+                                                                            }
+                                                                        }}
+                                                                        className={`min-w-[200px] max-w-[280px] p-3 rounded-2xl border text-xs flex flex-col justify-between transition-all cursor-pointer ${
+                                                                            isLive
+                                                                                ? 'bg-amber-500/20 border-amber-500/50 text-white shadow-lg'
+                                                                                : 'bg-zinc-900/80 border-zinc-800 text-zinc-300 hover:border-zinc-700 hover:bg-zinc-800'
+                                                                        }`}
+                                                                    >
+                                                                        <div className="space-y-1">
+                                                                            <div className="flex items-center justify-between text-[10px] font-mono text-zinc-400">
+                                                                                <span>{new Date(prog.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(prog.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                                                {isLive && <span className="text-red-400 font-bold uppercase text-[9px]">LIVE NOW</span>}
+                                                                            </div>
+                                                                            <h5 className="font-black text-white line-clamp-1">{prog.title}</h5>
+                                                                            {prog.description && <p className="text-[10px] text-zinc-500 line-clamp-2">{prog.description}</p>}
+                                                                        </div>
+                                                                        <div className="pt-2 mt-2 border-t border-white/5 flex items-center justify-between text-[10px] text-zinc-400">
+                                                                            <span>{isLive ? '▶ Click to Watch' : '⏺ Click to Record'}</span>
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+
+                                        {guideChannels.length > guideRenderLimit && (
+                                            <div className="p-4 text-center bg-zinc-950/40 border-t border-zinc-900">
+                                                <button
+                                                    onClick={() => setGuideRenderLimit(prev => Math.min(prev + 25, guideChannels.length))}
+                                                    className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs transition-all shadow-lg cursor-pointer"
+                                                >
+                                                    Load next 25 channels ({guideChannels.length - guideRenderLimit} remaining)
+                                                </button>
+                                            </div>
+                                        )}
+                                    </>
                                 );
-                            })}
+                            })()}
                         </div>
                     </div>
                 </div>
