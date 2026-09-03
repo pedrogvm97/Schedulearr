@@ -24,6 +24,7 @@ import Hls from 'hls.js';
 import { useMusicPlayer } from '@/context/MusicPlayerContext';
 import TheaterLiveTvPlayer from '@/components/TheaterLiveTvPlayer';
 import { ConfirmModal } from '@/components/ConfirmModal';
+import { smartMatchScore, normalizeSearchTerm } from '@/lib/searchUtils';
 
 interface TheaterLibrary {
     id: string;
@@ -168,6 +169,14 @@ function TheaterPageContent() {
     const [scanningPlex, setScanningPlex] = useState(false);
     const [deleteLibConfirm, setDeleteLibConfirm] = useState<{ id: string; name: string } | null>(null);
     const [isDeletingLibrary, setIsDeletingLibrary] = useState(false);
+    const [fileDeleteConfirm, setFileDeleteConfirm] = useState<{
+        isOpen: boolean;
+        title: string;
+        description: React.ReactNode;
+        confirmText: string;
+        onConfirm: () => Promise<void>;
+        loading?: boolean;
+    } | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [globalSearchResults, setGlobalSearchResults] = useState<{ inLibraries: any[]; externalAvailable: any[] } | null>(null);
     const [isSearchingGlobal, setIsSearchingGlobal] = useState(false);
@@ -267,6 +276,14 @@ function TheaterPageContent() {
     const [musicTab, setMusicTab] = useState<'tracks' | 'albums' | 'artists' | 'playlists' | 'online'>('albums');
     const [playlists, setPlaylists] = useState<MusicPlaylist[]>([]);
     const [selectedAlbum, setSelectedAlbum] = useState<{ name: string; artist: string; posterUrl?: string; tracks: MediaItem[] } | null>(null);
+    const [albumOfficialData, setAlbumOfficialData] = useState<{ album?: any; tracks: any[] } | null>(null);
+    const [isLoadingAlbumDetails, setIsLoadingAlbumDetails] = useState(false);
+    const [isFixMatchOpen, setIsFixMatchOpen] = useState(false);
+    const [fixMatchQuery, setFixMatchQuery] = useState('');
+    const [fixMatchResults, setFixMatchResults] = useState<any[]>([]);
+    const [isSearchingFixMatch, setIsSearchingFixMatch] = useState(false);
+    const [isGrabbingAll, setIsGrabbingAll] = useState(false);
+    const [grabProgress, setGrabProgress] = useState<{ current: number; total: number; title: string } | null>(null);
     const [selectedArtist, setSelectedArtist] = useState<{ name: string; posterUrl?: string; albums: any[]; tracks: MediaItem[] } | null>(null);
     const [isCreatePlaylistModalOpen, setIsCreatePlaylistModalOpen] = useState(false);
     const [newPlaylistName, setNewPlaylistName] = useState('');
@@ -306,6 +323,7 @@ function TheaterPageContent() {
 
     const [playingVideo, setPlayingVideo] = useState<MediaItem | null>(null);
     const [isVideoMinimized, setIsVideoMinimized] = useState(false);
+    const [videoVolume, setVideoVolume] = useState(1);
     const [videoAudioMode, setVideoAudioMode] = useState<'universal' | 'transcode' | 'direct'>('universal');
     const [videoQuality, setVideoQuality] = useState<'auto' | '1080p-high' | '1080p' | '720p' | '480p'>('auto');
     const [viewingPhotoIndex, setViewingPhotoIndex] = useState<number | null>(null);
@@ -1109,6 +1127,207 @@ function TheaterPageContent() {
         }
     };
 
+    // Fetch official album metadata & full tracklist when an album is selected
+    useEffect(() => {
+        if (!selectedAlbum) {
+            setAlbumOfficialData(null);
+            setIsFixMatchOpen(false);
+            setFixMatchResults([]);
+            return;
+        }
+        let active = true;
+        setIsLoadingAlbumDetails(true);
+        setFixMatchQuery(`${selectedAlbum.artist} ${selectedAlbum.name}`.trim());
+
+        fetch(`/api/theater/music/album?artist=${encodeURIComponent(selectedAlbum.artist)}&album=${encodeURIComponent(selectedAlbum.name)}`)
+            .then(r => r.json())
+            .then(data => {
+                if (!active) return;
+                if (data.album && Array.isArray(data.tracks) && data.tracks.length > 0) {
+                    setAlbumOfficialData({
+                        album: data.album,
+                        tracks: data.tracks
+                    });
+                } else {
+                    setAlbumOfficialData(null);
+                }
+            })
+            .catch(() => {
+                if (active) setAlbumOfficialData(null);
+            })
+            .finally(() => {
+                if (active) setIsLoadingAlbumDetails(false);
+            });
+
+        return () => { active = false; };
+    }, [selectedAlbum?.name, selectedAlbum?.artist]);
+
+    // Delete single track audio file from server disk
+    const handleDeleteTrackFile = (filePath: string, trackTitle: string) => {
+        setFileDeleteConfirm({
+            isOpen: true,
+            title: 'Delete Audio File',
+            description: (
+                <span>
+                    Are you sure you want to permanently delete <strong className="text-white">"{trackTitle}"</strong> from your server disk?
+                </span>
+            ),
+            confirmText: 'Delete Track File',
+            onConfirm: async () => {
+                try {
+                    const res = await fetch(`/api/theater/items?path=${encodeURIComponent(filePath)}&libraryId=${activeLibraryId || ''}`, {
+                        method: 'DELETE'
+                    });
+                    if (res.ok) {
+                        toast.success(`Deleted "${trackTitle}"`);
+                        setFileDeleteConfirm(null);
+                        if (selectedAlbum) {
+                            const rem = selectedAlbum.tracks.filter(t => t.path !== filePath);
+                            if (rem.length === 0) setSelectedAlbum(null);
+                            else setSelectedAlbum({ ...selectedAlbum, tracks: rem });
+                        }
+                        if (activeLibrary) handleRescanLibrary(activeLibrary);
+                    } else {
+                        const d = await res.json().catch(() => ({}));
+                        toast.error(d.error || 'Failed to delete track file');
+                    }
+                } catch {
+                    toast.error('Error deleting track file');
+                }
+            }
+        });
+    };
+
+    // Delete entire album from server disk
+    const handleDeleteAlbum = (alb: { name: string; artist: string; tracks: MediaItem[] }) => {
+        setFileDeleteConfirm({
+            isOpen: true,
+            title: 'Delete Entire Album from Server',
+            description: (
+                <span>
+                    Are you sure you want to permanently delete album <strong className="text-white">"{alb.name}"</strong> by {alb.artist}? All {alb.tracks.length} track files will be removed from disk.
+                </span>
+            ),
+            confirmText: 'Delete Album Files',
+            onConfirm: async () => {
+                try {
+                    for (const t of alb.tracks) {
+                        if (t.path) {
+                            await fetch(`/api/theater/items?path=${encodeURIComponent(t.path)}&libraryId=${activeLibraryId || ''}`, {
+                                method: 'DELETE'
+                            });
+                        }
+                    }
+                    toast.success(`Album "${alb.name}" files deleted`);
+                    setFileDeleteConfirm(null);
+                    setSelectedAlbum(null);
+                    if (activeLibrary) handleRescanLibrary(activeLibrary);
+                } catch {
+                    toast.error('Error deleting album');
+                }
+            }
+        });
+    };
+
+    // Grab a single track to server library
+    const handleGrabSingleTrack = async (trk: any) => {
+        if (!activeLibrary) {
+            toast.error('No active music library selected');
+            return;
+        }
+        const targetFolder = (activeLibrary.folders && activeLibrary.folders[0]) || './data/music';
+        toast.info(`Looking for and downloading "${trk.title}"...`);
+        try {
+            const res = await fetch('/api/theater/music/grab', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title: trk.title,
+                    artist: trk.artist || selectedAlbum?.artist,
+                    album: trk.album || selectedAlbum?.name,
+                    targetFolder,
+                    libraryId: activeLibrary.id,
+                    coverUrl: trk.posterUrl || selectedAlbum?.posterUrl
+                })
+            });
+            if (res.ok) {
+                toast.success(`Grabbed "${trk.title}"! Added to library.`);
+                handleRescanLibrary(activeLibrary);
+            } else {
+                const d = await res.json().catch(() => ({}));
+                toast.error(d.error || `Could not grab "${trk.title}"`);
+            }
+        } catch {
+            toast.error('Network error downloading track');
+        }
+    };
+
+    // Grab all missing album tracks sequentially
+    const handleGrabAllMissing = async (missingList: any[]) => {
+        if (!activeLibrary || missingList.length === 0) return;
+        setIsGrabbingAll(true);
+        const targetFolder = (activeLibrary.folders && activeLibrary.folders[0]) || './data/music';
+        let success = 0;
+        for (let idx = 0; idx < missingList.length; idx++) {
+            const trk = missingList[idx];
+            setGrabProgress({ current: idx + 1, total: missingList.length, title: trk.title });
+            try {
+                const res = await fetch('/api/theater/music/grab', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        title: trk.title,
+                        artist: trk.artist || selectedAlbum?.artist,
+                        album: trk.album || selectedAlbum?.name,
+                        targetFolder,
+                        libraryId: activeLibrary.id,
+                        coverUrl: trk.posterUrl || selectedAlbum?.posterUrl
+                    })
+                });
+                if (res.ok) success++;
+            } catch {}
+        }
+        setIsGrabbingAll(false);
+        setGrabProgress(null);
+        toast.success(`Downloaded ${success} of ${missingList.length} tracks to server!`);
+        handleRescanLibrary(activeLibrary);
+    };
+
+    // Fix Match Search & Apply
+    const handleSearchFixMatch = async () => {
+        if (!fixMatchQuery.trim()) return;
+        setIsSearchingFixMatch(true);
+        try {
+            const res = await fetch(`/api/theater/music/online?q=${encodeURIComponent(fixMatchQuery.trim())}&entity=album`);
+            if (res.ok) {
+                const d = await res.json();
+                setFixMatchResults(Array.isArray(d.results) ? d.results : []);
+            }
+        } catch {}
+        finally {
+            setIsSearchingFixMatch(false);
+        }
+    };
+
+    const handleSelectFixMatch = async (match: any) => {
+        setIsSearchingFixMatch(true);
+        try {
+            const collectionId = match.collectionId || match.id?.replace(/^chart-/, '');
+            const res = await fetch(`/api/theater/music/album?collectionId=${collectionId}&artist=${encodeURIComponent(match.artist || match.artistName || '')}&album=${encodeURIComponent(match.title || match.name || '')}`);
+            if (res.ok) {
+                const d = await res.json();
+                if (d.album && Array.isArray(d.tracks)) {
+                    setAlbumOfficialData({ album: d.album, tracks: d.tracks });
+                    toast.success(`Album re-matched to "${d.album.title}"!`);
+                    setIsFixMatchOpen(false);
+                }
+            }
+        } catch {}
+        finally {
+            setIsSearchingFixMatch(false);
+        }
+    };
+
     // Subtitle Search & Attach
     const handleDiscoverLocalSubtitles = async (video: MediaItem) => {
         try {
@@ -1667,49 +1886,19 @@ function TheaterPageContent() {
     const filteredItems = useMemo(() => {
         let list = [...items];
         if (searchQuery.trim()) {
-            const q = searchQuery.toLowerCase().trim();
-            const escapedQ = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const wordBoundaryRegex = new RegExp(`(^|\\b|\\s)${escapedQ}(\\b|\\s|$)`, 'i');
-
             const scoredList: Array<{ item: MediaItem; score: number }> = [];
 
             for (const i of list) {
-                const title = (i.title || i.name || '').toLowerCase();
-                const artist = (i.artist || '').toLowerCase();
-                const album = (i.album || '').toLowerCase();
-
-                let score = 0;
-
-                // 1. Exact matches (highest priority)
-                if (title === q || artist === q) {
-                    score += 2000;
-                } else if (album === q) {
-                    score += 1500;
-                }
-                // 2. Starts with / prefix match
-                else if (title.startsWith(q) || artist.startsWith(q)) {
-                    score += 1000;
-                } else if (album.startsWith(q)) {
-                    score += 700;
-                }
-                // 3. Word boundary match (e.g. "fun" in "Some Fun" or "Fun.")
-                else if (wordBoundaryRegex.test(title) || wordBoundaryRegex.test(artist)) {
-                    score += 500;
-                } else if (wordBoundaryRegex.test(album)) {
-                    score += 300;
-                }
-                // 4. Substring in Title
-                else if (title.includes(q)) {
-                    score += 200;
-                }
-                // 5. Substring in Artist
-                else if (artist.includes(q)) {
-                    score += 150;
-                }
-                // 6. Substring in Album
-                else if (album.includes(q)) {
-                    score += 80;
-                }
+                const score = smartMatchScore(
+                    searchQuery,
+                    i.title,
+                    i.name,
+                    i.artist,
+                    i.album,
+                    i.seriesTitle,
+                    i.showTitle,
+                    i.folder
+                );
 
                 if (score > 0) {
                     scoredList.push({ item: i, score });
@@ -1745,9 +1934,7 @@ function TheaterPageContent() {
     // Music: Derived Albums and Artists with Search Relevance Ranking
     const musicAlbums = useMemo(() => {
         const map = new Map<string, { name: string; artist: string; posterUrl?: string; tracks: MediaItem[]; score: number }>();
-        const q = searchQuery.toLowerCase().trim();
-        const escapedQ = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const wordBoundaryRegex = new RegExp(`(^|\\b|\\s)${escapedQ}(\\b|\\s|$)`, 'i');
+        const q = searchQuery.trim();
 
         for (const item of filteredItems) {
             const albumName = item.album || 'Single / Unknown Album';
@@ -1755,20 +1942,7 @@ function TheaterPageContent() {
             const key = `${artistName} - ${albumName}`;
 
             if (!map.has(key)) {
-                let score = 0;
-                if (q) {
-                    const albLower = albumName.toLowerCase();
-                    const artLower = artistName.toLowerCase();
-                    if (albLower === q) score += 2000;
-                    else if (artLower === q) score += 1500;
-                    else if (albLower.startsWith(q)) score += 1000;
-                    else if (artLower.startsWith(q)) score += 700;
-                    else if (wordBoundaryRegex.test(albLower)) score += 500;
-                    else if (wordBoundaryRegex.test(artLower)) score += 300;
-                    else if (albLower.includes(q)) score += 200;
-                    else if (artLower.includes(q)) score += 100;
-                    else score += 50; // tracks matched
-                }
+                const score = q ? smartMatchScore(q, albumName, artistName, `${artistName} ${albumName}`) : 0;
                 map.set(key, {
                     name: albumName,
                     artist: artistName,
@@ -1791,22 +1965,12 @@ function TheaterPageContent() {
 
     const musicArtists = useMemo(() => {
         const map = new Map<string, { name: string; posterUrl?: string; albums: any[]; tracks: MediaItem[]; score: number }>();
-        const q = searchQuery.toLowerCase().trim();
-        const escapedQ = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const wordBoundaryRegex = new RegExp(`(^|\\b|\\s)${escapedQ}(\\b|\\s|$)`, 'i');
+        const q = searchQuery.trim();
 
         for (const item of filteredItems) {
             const artistName = item.artist || 'Unknown Artist';
             if (!map.has(artistName)) {
-                let score = 0;
-                if (q) {
-                    const artLower = artistName.toLowerCase();
-                    if (artLower === q) score += 2000;
-                    else if (artLower.startsWith(q)) score += 1000;
-                    else if (wordBoundaryRegex.test(artLower)) score += 500;
-                    else if (artLower.includes(q)) score += 200;
-                    else score += 50; // track matched
-                }
+                const score = q ? smartMatchScore(q, artistName) : 0;
                 map.set(artistName, {
                     name: artistName,
                     posterUrl: item.posterUrl,
@@ -2043,8 +2207,7 @@ function TheaterPageContent() {
             list = list.filter(c => c.group === selectedIptvGroup);
         }
         if (searchQuery.trim()) {
-            const q = searchQuery.toLowerCase().trim();
-            list = list.filter(c => c.name.toLowerCase().includes(q) || c.group.toLowerCase().includes(q));
+            list = list.filter(c => smartMatchScore(searchQuery, c.name, c.cleanName, c.group) > 0);
         }
         return list;
     }, [iptvChannels, activeShortlistId, shortlists, selectedIptvGroup, searchQuery]);
@@ -2066,8 +2229,7 @@ function TheaterPageContent() {
             list = list.filter(c => c.group === shortlistCategoryFilter);
         }
         if (shortlistSearch.trim()) {
-            const q = shortlistSearch.toLowerCase().trim();
-            list = list.filter(c => c.name.toLowerCase().includes(q) || (c.cleanName && c.cleanName.toLowerCase().includes(q)) || c.group.toLowerCase().includes(q));
+            list = list.filter(c => smartMatchScore(shortlistSearch, c.name, c.cleanName, c.group) > 0);
         }
         return list;
     }, [iptvChannels, shortlistCategoryFilter, shortlistSearch]);
@@ -3451,97 +3613,372 @@ function TheaterPageContent() {
                 )}
             </div>
 
-            {/* ── Album Detail Modal ── */}
+            {/* ── Album Detail Modal (Full Discography, Metadata, Fix Match & Track Downloads) ── */}
             {selectedAlbum && (
-                <div className="fixed inset-0 z-[220] flex items-center justify-center p-4 sm:p-6 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200">
+                <div 
+                    onClick={(e) => { if (e.target === e.currentTarget) setSelectedAlbum(null); }}
+                    className="fixed inset-0 z-[220] flex items-center justify-center p-4 sm:p-6 bg-black/45 backdrop-blur-sm animate-in fade-in duration-200"
+                >
                     <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-3xl p-6 sm:p-8 space-y-6 shadow-2xl relative max-h-[85vh] overflow-y-auto custom-scrollbar flex flex-col">
                         <button
                             onClick={() => setSelectedAlbum(null)}
-                            className="absolute top-6 right-6 p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all"
+                            className="absolute top-6 right-6 p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all cursor-pointer"
                         >
                             <X size={20} />
                         </button>
 
+                        {/* Album Header & Metadata Card */}
                         <div className="flex flex-col sm:flex-row items-center gap-6 pb-4 border-b border-zinc-900">
-                            <div className="w-36 h-36 rounded-3xl bg-zinc-900 border border-zinc-800 overflow-hidden flex items-center justify-center text-amber-400 shrink-0 shadow-2xl">
-                                {selectedAlbum.posterUrl ? (
-                                    <img src={selectedAlbum.posterUrl} alt="" className="w-full h-full object-cover" />
+                            <div className="w-36 h-36 rounded-3xl bg-zinc-900 border border-zinc-800 overflow-hidden flex items-center justify-center text-amber-400 shrink-0 shadow-2xl relative group">
+                                {albumOfficialData?.album?.coverUrl || selectedAlbum.posterUrl ? (
+                                    <img 
+                                        src={albumOfficialData?.album?.coverUrl || selectedAlbum.posterUrl} 
+                                        alt="" 
+                                        className="w-full h-full object-cover" 
+                                    />
                                 ) : (
                                     <Disc size={56} />
                                 )}
                             </div>
 
-                            <div className="space-y-2 text-center sm:text-left flex-1">
-                                <span className="px-2.5 py-0.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-black uppercase">
-                                    Album
-                                </span>
-                                <h2 className="text-2xl sm:text-3xl font-black text-white">{selectedAlbum.name}</h2>
+                            <div className="space-y-2 text-center sm:text-left flex-1 min-w-0">
+                                <div className="flex items-center justify-center sm:justify-start gap-2 flex-wrap">
+                                    <span className="px-2.5 py-0.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-black uppercase tracking-wider">
+                                        Album
+                                    </span>
+                                    {albumOfficialData?.album?.releaseYear && (
+                                        <span className="px-2 py-0.5 rounded-lg bg-zinc-800 text-zinc-300 text-[10px] font-mono font-bold">
+                                            {albumOfficialData.album.releaseYear}
+                                        </span>
+                                    )}
+                                    {albumOfficialData?.album?.genre && (
+                                        <span className="px-2 py-0.5 rounded-lg bg-zinc-800 text-zinc-300 text-[10px] font-bold">
+                                            {albumOfficialData.album.genre}
+                                        </span>
+                                    )}
+                                    {isLoadingAlbumDetails && (
+                                        <span className="text-[10px] text-amber-400 font-mono animate-pulse flex items-center gap-1">
+                                            <RefreshCw size={10} className="animate-spin" /> Identifying album...
+                                        </span>
+                                    )}
+                                </div>
+
+                                <h2 className="text-2xl sm:text-3xl font-black text-white truncate">
+                                    {albumOfficialData?.album?.title || selectedAlbum.name}
+                                </h2>
                                 <p
                                     onClick={() => {
-                                        const artName = selectedAlbum.artist;
+                                        const artName = albumOfficialData?.album?.artist || selectedAlbum.artist;
                                         const artistTracks = items.filter(i => (i.artist || 'Various Artists') === artName);
                                         const artistAlbums = musicAlbums.filter(a => a.artist === artName);
-                                        setSelectedArtist({ name: artName, posterUrl: selectedAlbum.posterUrl, albums: artistAlbums, tracks: artistTracks });
+                                        setSelectedArtist({ name: artName, posterUrl: albumOfficialData?.album?.coverUrl || selectedAlbum.posterUrl, albums: artistAlbums, tracks: artistTracks });
                                         setSelectedAlbum(null);
                                     }}
-                                    className="text-sm font-semibold text-zinc-400 hover:text-amber-400 cursor-pointer transition-colors"
+                                    className="text-sm font-semibold text-zinc-400 hover:text-amber-400 cursor-pointer transition-colors truncate"
                                     title="View Artist Discography"
                                 >
-                                    {selectedAlbum.artist}
+                                    {albumOfficialData?.album?.artist || selectedAlbum.artist}
                                 </p>
-                                <span className="text-xs text-zinc-600 font-bold block">{selectedAlbum.tracks.length} Songs</span>
 
-                                <div className="pt-2 flex flex-wrap items-center gap-3">
+                                <div className="flex items-center justify-center sm:justify-start gap-3 text-xs text-zinc-400 font-bold">
+                                    <span>{selectedAlbum.tracks.length} In Library</span>
+                                    {albumOfficialData?.tracks && (
+                                        <>
+                                            <span>•</span>
+                                            <span>{albumOfficialData.tracks.length} Official Tracks</span>
+                                            {albumOfficialData.tracks.length > selectedAlbum.tracks.length && (
+                                                <>
+                                                    <span>•</span>
+                                                    <span className="text-amber-400">{albumOfficialData.tracks.length - selectedAlbum.tracks.length} Missing</span>
+                                                </>
+                                            )}
+                                        </>
+                                    )}
+                                </div>
+
+                                {/* Album Actions Toolbar */}
+                                <div className="pt-2 flex flex-wrap items-center justify-center sm:justify-start gap-2.5">
                                     <button
                                         onClick={() => {
                                             handlePlayAlbum(selectedAlbum.tracks);
                                             setSelectedAlbum(null);
                                         }}
-                                        className="px-6 py-3 bg-amber-500 hover:bg-amber-400 text-black font-black uppercase text-xs tracking-widest rounded-2xl transition-all shadow-lg shadow-amber-500/20 flex items-center gap-2"
+                                        className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-black uppercase text-xs tracking-widest rounded-2xl transition-all shadow-lg shadow-amber-500/20 flex items-center gap-2 cursor-pointer"
                                     >
-                                        <Play size={16} /> Play Album
+                                        <Play size={15} /> Play Album
                                     </button>
+
+                                    {/* Download All Missing Tracks button */}
+                                    {albumOfficialData?.tracks && albumOfficialData.tracks.some((ot: any) => !selectedAlbum.tracks.some((lt: any) => normalizeSearchTerm(lt.title) === normalizeSearchTerm(ot.title))) && (
+                                        <button
+                                            disabled={isGrabbingAll}
+                                            onClick={() => {
+                                                const missing = albumOfficialData.tracks.filter((ot: any) => 
+                                                    !selectedAlbum.tracks.some((lt: any) => normalizeSearchTerm(lt.title) === normalizeSearchTerm(ot.title))
+                                                );
+                                                handleGrabAllMissing(missing);
+                                            }}
+                                            className="px-4 py-2.5 bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-black font-black uppercase text-xs tracking-widest rounded-2xl border border-amber-500/30 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                                            title="Download all missing tracks directly to server library"
+                                        >
+                                            <DownloadCloud size={14} /> Download All Missing
+                                        </button>
+                                    )}
 
                                     <button
                                         onClick={() => handleDownloadAlbum(selectedAlbum.tracks, selectedAlbum.name)}
-                                        className="px-5 py-3 bg-zinc-900 hover:bg-zinc-800 text-white font-black uppercase text-xs tracking-widest rounded-2xl border border-zinc-800 transition-all flex items-center gap-2"
-                                        title="Download All Tracks in this Album to Local Machine"
+                                        className="px-4 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-black uppercase text-xs tracking-widest rounded-2xl border border-zinc-800 transition-all flex items-center gap-2 cursor-pointer"
+                                        title="Download All In-Library Tracks to this Device"
                                     >
-                                        <Download size={15} /> Download Album
+                                        <Download size={14} /> Download Local
+                                    </button>
+
+                                    <button
+                                        onClick={() => setIsFixMatchOpen(!isFixMatchOpen)}
+                                        className={`px-3.5 py-2.5 rounded-2xl border text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                                            isFixMatchOpen ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-300' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+                                        }`}
+                                        title="Fix Album Identification & Tracklist"
+                                    >
+                                        <Sparkles size={13} /> Fix Match
+                                    </button>
+
+                                    <button
+                                        onClick={() => handleDeleteAlbum(selectedAlbum)}
+                                        className="p-2.5 rounded-2xl bg-zinc-900/80 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 border border-zinc-800 hover:border-red-500/30 transition-all cursor-pointer"
+                                        title="Delete Album Files from Server"
+                                    >
+                                        <Trash2 size={15} />
                                     </button>
                                 </div>
                             </div>
                         </div>
 
-                        {/* Album Tracklist */}
-                        <div className="space-y-1">
-                            {selectedAlbum.tracks.map((track, i) => (
-                                <div
-                                    key={track.id}
-                                    onClick={() => handlePlayTrack(track, selectedAlbum.tracks, i)}
-                                    className="flex items-center justify-between p-3 rounded-2xl hover:bg-zinc-900/60 transition-all cursor-pointer group text-xs"
-                                >
-                                    <div className="flex items-center gap-3 min-w-0">
-                                        <span className="w-6 text-zinc-600 font-mono font-bold group-hover:text-amber-400">{i + 1}</span>
-                                        <span className="font-bold text-white group-hover:text-amber-400 transition-colors truncate">{track.title}</span>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleDownloadTrack(track);
-                                            }}
-                                            className="w-8 h-8 rounded-lg bg-zinc-900 hover:bg-emerald-500 text-zinc-400 hover:text-black flex items-center justify-center transition-all"
-                                            title="Download Track to Local Machine"
-                                        >
-                                            <Download size={13} />
-                                        </button>
-                                        <button className="w-8 h-8 rounded-lg bg-zinc-900 group-hover:bg-amber-500 text-zinc-400 group-hover:text-black flex items-center justify-center transition-all">
-                                            <Play size={13} className="ml-0.5" />
-                                        </button>
-                                    </div>
+                        {/* Batch Grab Progress Banner */}
+                        {grabProgress && (
+                            <div className="p-3.5 rounded-2xl bg-amber-500/15 border border-amber-500/30 space-y-2 animate-in fade-in">
+                                <div className="flex items-center justify-between text-xs font-bold text-amber-300">
+                                    <span className="flex items-center gap-2">
+                                        <RefreshCw size={13} className="animate-spin" />
+                                        Downloading track {grabProgress.current} of {grabProgress.total}: "{grabProgress.title}"
+                                    </span>
+                                    <span className="font-mono">{Math.round((grabProgress.current / grabProgress.total) * 100)}%</span>
                                 </div>
-                            ))}
+                                <div className="w-full h-1.5 bg-zinc-900 rounded-full overflow-hidden">
+                                    <div 
+                                        className="h-full bg-amber-500 transition-all duration-300"
+                                        style={{ width: `${(grabProgress.current / grabProgress.total) * 100}%` }}
+                                    />
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Fix Match Inline Search Panel */}
+                        {isFixMatchOpen && (
+                            <div className="p-4 rounded-3xl bg-zinc-900/70 border border-indigo-500/30 space-y-3 animate-in fade-in">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs font-black uppercase text-indigo-400 tracking-wider flex items-center gap-1.5">
+                                        <Sparkles size={14} /> Correct Album Identification
+                                    </span>
+                                    <button
+                                        onClick={() => setIsFixMatchOpen(false)}
+                                        className="text-xs text-zinc-500 hover:text-white"
+                                    >
+                                        Close
+                                    </button>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="text"
+                                        value={fixMatchQuery}
+                                        onChange={(e) => setFixMatchQuery(e.target.value)}
+                                        onKeyDown={(e) => { if (e.key === 'Enter') handleSearchFixMatch(); }}
+                                        placeholder="Search album title or artist name..."
+                                        className="flex-1 bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500"
+                                    />
+                                    <button
+                                        onClick={handleSearchFixMatch}
+                                        disabled={isSearchingFixMatch}
+                                        className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-2xl transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                    >
+                                        {isSearchingFixMatch ? <RefreshCw size={13} className="animate-spin" /> : <Search size={13} />}
+                                        <span>Search</span>
+                                    </button>
+                                </div>
+
+                                {fixMatchResults.length > 0 && (
+                                    <div className="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar pt-1">
+                                        {fixMatchResults.map((r, ri) => (
+                                            <div
+                                                key={ri}
+                                                onClick={() => handleSelectFixMatch(r)}
+                                                className="p-2.5 rounded-xl bg-zinc-950 hover:bg-indigo-500/15 border border-zinc-800 hover:border-indigo-500/40 flex items-center justify-between gap-3 cursor-pointer transition-all"
+                                            >
+                                                <div className="flex items-center gap-2.5 min-w-0">
+                                                    {r.posterUrl ? (
+                                                        <img src={r.posterUrl} alt="" className="w-9 h-9 rounded-lg object-cover" />
+                                                    ) : (
+                                                        <Disc size={20} className="text-zinc-600 shrink-0" />
+                                                    )}
+                                                    <div className="min-w-0">
+                                                        <p className="text-xs font-bold text-white truncate">{r.title || r.name}</p>
+                                                        <p className="text-[10px] text-zinc-400 truncate">{r.artist || r.artistName} {r.genre ? `• ${r.genre}` : ''}</p>
+                                                    </div>
+                                                </div>
+                                                <span className="text-[10px] px-2.5 py-1 bg-indigo-500/20 text-indigo-300 font-bold rounded-lg shrink-0">
+                                                    Match
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Album Tracklist: Official Sequence + Local In-Library Status */}
+                        <div className="space-y-1">
+                            {albumOfficialData?.tracks && albumOfficialData.tracks.length > 0 ? (
+                                albumOfficialData.tracks.map((officialTrack, i) => {
+                                    const localTrack = selectedAlbum.tracks.find(lt => 
+                                        smartMatchScore(officialTrack.title, lt.title, lt.name) >= 1200 ||
+                                        normalizeSearchTerm(lt.title) === normalizeSearchTerm(officialTrack.title)
+                                    );
+                                    const isInLibrary = Boolean(localTrack);
+
+                                    return (
+                                        <div
+                                            key={officialTrack.id || i}
+                                            onClick={() => {
+                                                if (localTrack) {
+                                                    handlePlayTrack(localTrack, selectedAlbum.tracks, i);
+                                                } else if (officialTrack.streamUrl || officialTrack.previewUrl) {
+                                                    handlePlayTrack({
+                                                        id: officialTrack.id,
+                                                        title: officialTrack.title,
+                                                        artist: officialTrack.artist,
+                                                        album: selectedAlbum.name,
+                                                        streamUrl: officialTrack.streamUrl || officialTrack.previewUrl,
+                                                        posterUrl: albumOfficialData.album?.coverUrl || selectedAlbum.posterUrl
+                                                    } as any, [], 0);
+                                                }
+                                            }}
+                                            className={`flex items-center justify-between p-3 rounded-2xl transition-all cursor-pointer group text-xs ${
+                                                isInLibrary ? 'hover:bg-zinc-900/60' : 'bg-zinc-950/40 hover:bg-zinc-900/40 opacity-75'
+                                            }`}
+                                        >
+                                            <div className="flex items-center gap-3 min-w-0 flex-1">
+                                                <span className="w-6 text-zinc-600 font-mono font-bold group-hover:text-amber-400 shrink-0">
+                                                    {officialTrack.trackNumber || i + 1}
+                                                </span>
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className={`font-bold truncate ${isInLibrary ? 'text-white group-hover:text-amber-400' : 'text-zinc-400'}`}>
+                                                            {officialTrack.title}
+                                                        </span>
+                                                        {isInLibrary ? (
+                                                            <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[9px] font-black uppercase shrink-0">
+                                                                In Library
+                                                            </span>
+                                                        ) : (
+                                                            <span className="px-1.5 py-0.5 rounded bg-zinc-800/80 text-zinc-500 text-[9px] font-mono shrink-0">
+                                                                Missing
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex items-center gap-2 shrink-0 ml-3">
+                                                <span className="text-[11px] font-mono text-zinc-500 mr-1">
+                                                    {officialTrack.duration || (localTrack ? formatTime(localTrack.durationMs ? localTrack.durationMs / 1000 : 0) : '')}
+                                                </span>
+
+                                                {/* If in library: Local Download & Delete buttons */}
+                                                {isInLibrary && localTrack ? (
+                                                    <>
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleDownloadTrack(localTrack);
+                                                            }}
+                                                            className="w-8 h-8 rounded-lg bg-zinc-900 hover:bg-emerald-500 text-zinc-400 hover:text-black flex items-center justify-center transition-all cursor-pointer"
+                                                            title="Download Track to this Device"
+                                                        >
+                                                            <Download size={13} />
+                                                        </button>
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleDeleteTrackFile(localTrack.path, localTrack.title);
+                                                            }}
+                                                            className="w-8 h-8 rounded-lg bg-zinc-900 hover:bg-red-500/20 text-zinc-500 hover:text-red-400 flex items-center justify-center transition-all cursor-pointer"
+                                                            title="Delete Track File from Server"
+                                                        >
+                                                            <Trash2 size={13} />
+                                                        </button>
+                                                        <button className="w-8 h-8 rounded-lg bg-zinc-900 group-hover:bg-amber-500 text-zinc-400 group-hover:text-black flex items-center justify-center transition-all cursor-pointer">
+                                                            <Play size={13} className="ml-0.5" />
+                                                        </button>
+                                                    </>
+                                                ) : (
+                                                    /* If missing: Grab / Download Track to Server Library */
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleGrabSingleTrack(officialTrack);
+                                                        }}
+                                                        className="px-2.5 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/30 flex items-center gap-1.5 transition-all text-[11px] font-bold cursor-pointer"
+                                                        title="Grab and save track to server library"
+                                                    >
+                                                        <DownloadCloud size={13} />
+                                                        <span>Download</span>
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            ) : (
+                                /* Fallback: Local Tracks only */
+                                selectedAlbum.tracks.map((track, i) => (
+                                    <div
+                                        key={track.id}
+                                        onClick={() => handlePlayTrack(track, selectedAlbum.tracks, i)}
+                                        className="flex items-center justify-between p-3 rounded-2xl hover:bg-zinc-900/60 transition-all cursor-pointer group text-xs"
+                                    >
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <span className="w-6 text-zinc-600 font-mono font-bold group-hover:text-amber-400">{i + 1}</span>
+                                            <span className="font-bold text-white group-hover:text-amber-400 transition-colors truncate">{track.title}</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleDownloadTrack(track);
+                                                }}
+                                                className="w-8 h-8 rounded-lg bg-zinc-900 hover:bg-emerald-500 text-zinc-400 hover:text-black flex items-center justify-center transition-all cursor-pointer"
+                                                title="Download Track to this Device"
+                                            >
+                                                <Download size={13} />
+                                            </button>
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleDeleteTrackFile(track.path, track.title);
+                                                }}
+                                                className="w-8 h-8 rounded-lg bg-zinc-900 hover:bg-red-500/20 text-zinc-500 hover:text-red-400 flex items-center justify-center transition-all cursor-pointer"
+                                                title="Delete Track from Server"
+                                            >
+                                                <Trash2 size={13} />
+                                            </button>
+                                            <button className="w-8 h-8 rounded-lg bg-zinc-900 group-hover:bg-amber-500 text-zinc-400 group-hover:text-black flex items-center justify-center transition-all cursor-pointer">
+                                                <Play size={13} className="ml-0.5" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
                         </div>
                     </div>
                 </div>
@@ -3903,17 +4340,37 @@ function TheaterPageContent() {
                                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
                                     <span className="text-xs font-bold text-white truncate">{playingVideo.title}</span>
                                 </div>
-                                <div className="flex items-center gap-1">
+                                <div className="flex items-center gap-1.5">
+                                    {/* Minimized Video Volume Slider */}
+                                    <div className="flex items-center gap-1 bg-zinc-950/80 px-2 py-1 rounded-lg border border-zinc-800">
+                                        <Volume2 size={13} className="text-zinc-400 shrink-0" />
+                                        <input
+                                            type="range"
+                                            min={0}
+                                            max={1}
+                                            step={0.05}
+                                            value={videoVolume}
+                                            onChange={(e) => {
+                                                const v = Number(e.target.value);
+                                                setVideoVolume(v);
+                                                if (videoRef.current) {
+                                                    videoRef.current.volume = v;
+                                                }
+                                            }}
+                                            className="w-14 sm:w-16 h-1 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                                            title={`Video Volume: ${Math.round(videoVolume * 100)}%`}
+                                        />
+                                    </div>
                                     <button
                                         onClick={() => setIsVideoMinimized(false)}
-                                        className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+                                        className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
                                         title="Expand / Maximize Video Player"
                                     >
                                         <Maximize2 size={15} />
                                     </button>
                                     <button
                                         onClick={() => { setPlayingVideo(null); setIsVideoMinimized(false); }}
-                                        className="p-1.5 rounded-lg text-zinc-400 hover:text-red-400 hover:bg-red-500/15 transition-colors"
+                                        className="p-1.5 rounded-lg text-zinc-400 hover:text-red-400 hover:bg-red-500/15 transition-colors cursor-pointer"
                                         title="Close Video"
                                     >
                                         <X size={16} />
@@ -6107,6 +6564,18 @@ function TheaterPageContent() {
                     </span>
                 }
                 confirmText={activeContentTab === 'live' ? 'Delete Provider' : 'Delete Library'}
+                variant="danger"
+            />
+
+            {/* Custom Delete File / Album Confirmation Modal */}
+            <ConfirmModal
+                isOpen={!!fileDeleteConfirm}
+                onClose={() => setFileDeleteConfirm(null)}
+                onConfirm={fileDeleteConfirm ? fileDeleteConfirm.onConfirm : async () => {}}
+                loading={fileDeleteConfirm?.loading}
+                title={fileDeleteConfirm?.title || 'Delete Audio File'}
+                description={fileDeleteConfirm?.description}
+                confirmText={fileDeleteConfirm?.confirmText || 'Delete File'}
                 variant="danger"
             />
         </>

@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import {
     X, Download, Disc, Music, HardDrive,
     Folder, RefreshCw,
-    Laptop, CheckCircle2
+    Laptop, CheckCircle2, Check
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -40,7 +40,7 @@ export function MusicDownloadModal({
     const [downloadScope, setDownloadScope] = useState<'track' | 'album'>(isAlbumAvailable ? 'album' : 'track');
     const [saveFormat, setSaveFormat] = useState<'original' | 'mp3' | 'flac' | 'wav' | 'm4a' | 'opus'>('mp3');
     const [destinations, setDestinations] = useState<DestinationOption[]>([]);
-    const [selectedDestId, setSelectedDestId] = useState<string>('device');
+    const [selectedDestIds, setSelectedDestIds] = useState<string[]>(['device']);
     const [isDownloading, setIsDownloading] = useState(false);
     const [downloadProgress, setDownloadProgress] = useState(0);
     const [currentDownloadStatus, setCurrentDownloadStatus] = useState<string>('');
@@ -86,13 +86,41 @@ export function MusicDownloadModal({
             } catch {}
 
             setDestinations(list);
-            setSelectedDestId('device');
+            try {
+                const saved = localStorage.getItem('schedulearr_music_destinations');
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        setSelectedDestIds(parsed);
+                        return;
+                    }
+                }
+            } catch {}
+            setSelectedDestIds(['device']);
         };
 
         fetchDestinations();
     }, []);
 
-    const selectedDest = destinations.find(d => d.id === selectedDestId) || destinations[0];
+    const toggleDestination = (id: string) => {
+        setSelectedDestIds(prev => {
+            let next: string[];
+            if (prev.includes(id)) {
+                if (prev.length === 1) {
+                    toast.info('At least one destination must be selected');
+                    return prev;
+                }
+                next = prev.filter(x => x !== id);
+            } else {
+                next = [...prev, id];
+            }
+            try {
+                localStorage.setItem('schedulearr_music_destinations', JSON.stringify(next));
+            } catch {}
+            return next;
+        });
+    };
+
     const tracksToProcess = downloadScope === 'album' && isAlbumAvailable ? albumTracks : (track ? [track] : []);
 
     const getDownloadUrlForTrack = (t: any): { url: string; filename: string } => {
@@ -268,11 +296,9 @@ export function MusicDownloadModal({
         }
     };
 
-    // Save to Server Library Folder
-    const handleSaveToServerLibrary = async () => {
-        const targetDirectory = selectedDest?.path || './data/music';
-        setIsDownloading(true);
-        setDownloadProgress(10);
+    // Save to a specific Server Library Folder
+    const executeSaveToServer = async (targetDest: DestinationOption) => {
+        const targetDirectory = targetDest.path || './data/music';
         let savedCount = 0;
 
         for (let i = 0; i < tracksToProcess.length; i++) {
@@ -322,27 +348,45 @@ export function MusicDownloadModal({
             setDownloadProgress(Math.round(((i + 1) / tracksToProcess.length) * 100));
         }
 
-        setIsDownloading(false);
         if (savedCount > 0) {
-            toast.success(`Saved ${savedCount} track${savedCount > 1 ? 's' : ''} to ${selectedDest.name}!`);
-            setTimeout(() => onClose(), 1000);
-        } else if (tracksToProcess.length > 1) {
-            toast.error('Could not save tracks to server library.');
+            toast.success(`Saved ${savedCount} track${savedCount > 1 ? 's' : ''} to ${targetDest.name}!`);
         }
+        return savedCount;
     };
 
-    const handleExecute = () => {
-        if (selectedDestId === 'device') {
-            handleDownloadToDevice();
+    const handleExecute = async () => {
+        const wantDevice = selectedDestIds.includes('device');
+        const serverDests = destinations.filter(d => d.type === 'theater' && selectedDestIds.includes(d.id));
+
+        if (!wantDevice && serverDests.length === 0) {
+            toast.error('Please select at least one download destination');
+            return;
+        }
+
+        setIsDownloading(true);
+
+        // 1. Save to server libraries if selected
+        let anyServerSuccess = false;
+        for (const dest of serverDests) {
+            const count = await executeSaveToServer(dest);
+            if (count > 0) anyServerSuccess = true;
+        }
+
+        // 2. Download to local device if selected
+        if (wantDevice) {
+            await handleDownloadToDevice();
         } else {
-            handleSaveToServerLibrary();
+            setIsDownloading(false);
+            if (anyServerSuccess) {
+                setTimeout(() => onClose(), 1200);
+            }
         }
     };
 
     return (
         <div
             onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-            className="fixed inset-0 z-[350] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
+            className="fixed inset-0 z-[350] flex items-center justify-center p-3 sm:p-4 bg-black/45 backdrop-blur-sm animate-in fade-in duration-200"
         >
             <div className="relative w-full max-w-xl bg-zinc-950 border border-zinc-800 rounded-[2.5rem] p-6 sm:p-8 shadow-2xl space-y-5 max-h-[90vh] flex flex-col overflow-hidden">
                 {/* Header */}
@@ -478,37 +522,49 @@ export function MusicDownloadModal({
                                 </button>
                             ))}
                         </div>
-                    </div>
-
-                    {/* 3. Destination Selection */}
+                    </div>                    {/* 3. Destination Selection (Multi-Destination Checkboxes) */}
                     <div className="space-y-2">
-                        <label className="text-xs font-black text-zinc-400 uppercase tracking-wider">
-                            3. Save Destination
-                        </label>
+                        <div className="flex items-center justify-between">
+                            <label className="text-xs font-black text-zinc-400 uppercase tracking-wider">
+                                3. Save Destination(s)
+                            </label>
+                            <span className="text-[10px] text-zinc-500 font-bold">
+                                {selectedDestIds.length} Selected (Local and/or Server)
+                            </span>
+                        </div>
                         <div className="space-y-2">
-                            {destinations.map(d => (
-                                <button
-                                    key={d.id}
-                                    type="button"
-                                    onClick={() => setSelectedDestId(d.id)}
-                                    className={`w-full p-3 rounded-2xl border text-left transition-all flex items-center justify-between ${
-                                        selectedDestId === d.id
-                                            ? 'bg-amber-500/15 border-amber-500/60 text-white font-bold'
-                                            : 'bg-zinc-900/50 border-zinc-800/80 text-zinc-400 hover:text-white'
-                                    }`}
-                                >
-                                    <div className="flex items-center gap-3 min-w-0">
-                                        {d.type === 'device' ? <Laptop size={18} className="text-amber-400 shrink-0" /> : <Folder size={18} className="text-emerald-400 shrink-0" />}
-                                        <div className="min-w-0">
-                                            <div className="text-xs font-black truncate">{d.name}</div>
-                                            <div className="text-[11px] text-zinc-500 truncate">{d.path}</div>
+                            {destinations.map(d => {
+                                const isSelected = selectedDestIds.includes(d.id);
+                                return (
+                                    <div
+                                        key={d.id}
+                                        onClick={() => toggleDestination(d.id)}
+                                        className={`w-full p-3.5 rounded-2xl border text-left transition-all flex items-center justify-between cursor-pointer select-none ${
+                                            isSelected
+                                                ? 'bg-amber-500/15 border-amber-500/60 text-white font-bold'
+                                                : 'bg-zinc-900/50 border-zinc-800/80 text-zinc-400 hover:text-white'
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <div className={`w-5 h-5 rounded-lg border flex items-center justify-center transition-all shrink-0 ${
+                                                isSelected ? 'bg-amber-500 border-amber-500 text-black' : 'border-zinc-700 bg-zinc-950'
+                                            }`}>
+                                                {isSelected && <Check size={13} strokeWidth={3} />}
+                                            </div>
+                                            {d.type === 'device' ? <Laptop size={18} className="text-amber-400 shrink-0" /> : <Folder size={18} className="text-emerald-400 shrink-0" />}
+                                            <div className="min-w-0">
+                                                <div className="text-xs font-black truncate">{d.name}</div>
+                                                <div className="text-[11px] text-zinc-500 truncate">{d.path}</div>
+                                            </div>
                                         </div>
+                                        <span className={`text-[9px] px-2 py-0.5 rounded-md font-bold uppercase tracking-wider shrink-0 ml-2 ${
+                                            isSelected ? 'bg-amber-500/20 text-amber-300' : 'bg-zinc-800 text-zinc-400'
+                                        }`}>
+                                            {d.badge}
+                                        </span>
                                     </div>
-                                    <span className="text-[9px] px-2 py-0.5 rounded-md bg-zinc-800 text-zinc-400 font-bold uppercase tracking-wider shrink-0 ml-2">
-                                        {d.badge}
-                                    </span>
-                                </button>
-                            ))}
+                                );
+                            })}
                         </div>
                     </div>
                 </div>
@@ -583,7 +639,13 @@ export function MusicDownloadModal({
                             ) : (
                                 <>
                                     <Download size={15} />
-                                    <span>Download Now</span>
+                                    <span>
+                                        {selectedDestIds.includes('device') && selectedDestIds.some(id => id !== 'device')
+                                            ? 'Download & Save Both'
+                                            : selectedDestIds.includes('device')
+                                                ? 'Download to Device'
+                                                : 'Save to Server'}
+                                    </span>
                                 </>
                             )}
                         </button>

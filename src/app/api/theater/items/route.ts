@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getTheaterLibraries, getInstances, getCachedTheaterItems, saveCachedTheaterItems } from '@/lib/db';
+import { getTheaterLibraries, getInstances, getCachedTheaterItems, saveCachedTheaterItems, clearCachedTheaterItems } from '@/lib/db';
 import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
@@ -351,5 +351,70 @@ export async function GET(req: Request) {
     } catch (error: any) {
         console.error('API /theater/items error:', error);
         return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+}
+
+export async function DELETE(req: Request) {
+    try {
+        const { searchParams } = new URL(req.url);
+        const filePath = searchParams.get('path');
+        const folderPath = searchParams.get('folder');
+        const libraryId = searchParams.get('libraryId');
+
+        // 1. Delete single file from disk
+        if (filePath) {
+            if (fs.existsSync(filePath)) {
+                try {
+                    fs.unlinkSync(filePath);
+                } catch (delErr: any) {
+                    return NextResponse.json({ error: `Cannot delete file: ${delErr.message}` }, { status: 500 });
+                }
+
+                // If parent directory is now empty (or only contains orphaned cover/folder images), clean it up
+                try {
+                    const dir = path.dirname(filePath);
+                    const remaining = fs.readdirSync(dir);
+                    const isOnlyArtwork = remaining.every(f => {
+                        const low = f.toLowerCase();
+                        return low.includes('cover') || low.includes('folder') || low.includes('albumart');
+                    });
+                    if (remaining.length === 0 || isOnlyArtwork) {
+                        for (const f of remaining) {
+                            try { fs.unlinkSync(path.join(dir, f)); } catch {}
+                        }
+                        try { fs.rmdirSync(dir); } catch {}
+                    }
+                } catch {}
+
+                if (libraryId) clearCachedTheaterItems(libraryId);
+                else clearCachedTheaterItems();
+
+                return NextResponse.json({ success: true, deletedPath: filePath });
+            } else {
+                return NextResponse.json({ error: 'File not found on disk' }, { status: 404 });
+            }
+        }
+
+        // 2. Delete entire album or media folder from disk
+        if (folderPath) {
+            if (fs.existsSync(folderPath)) {
+                try {
+                    fs.rmSync(folderPath, { recursive: true, force: true });
+                } catch (delErr: any) {
+                    return NextResponse.json({ error: `Cannot delete folder: ${delErr.message}` }, { status: 500 });
+                }
+
+                if (libraryId) clearCachedTheaterItems(libraryId);
+                else clearCachedTheaterItems();
+
+                return NextResponse.json({ success: true, deletedFolder: folderPath });
+            } else {
+                return NextResponse.json({ error: 'Folder not found on disk' }, { status: 404 });
+            }
+        }
+
+        return NextResponse.json({ error: 'Missing path or folder parameter' }, { status: 400 });
+    } catch (e: any) {
+        return NextResponse.json({ error: e.message }, { status: 500 });
     }
 }

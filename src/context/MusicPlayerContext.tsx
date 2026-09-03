@@ -2259,6 +2259,31 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
                         {/* Right Quick Controls */}
                         <div className="flex items-center gap-1.5 sm:gap-2 justify-end shrink-0">
+                            {/* Minimized Volume Control Slider */}
+                            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-zinc-900/90 border border-zinc-800 shrink-0">
+                                <button
+                                    onClick={toggleAudioMute}
+                                    className="text-zinc-400 hover:text-white transition-colors cursor-pointer"
+                                    title={isAudioMuted ? "Unmute" : "Mute"}
+                                >
+                                    {isAudioMuted || audioVolume === 0 ? (
+                                        <VolumeX size={15} className="text-rose-400" />
+                                    ) : (
+                                        <Volume2 size={15} className="text-amber-400" />
+                                    )}
+                                </button>
+                                <input
+                                    type="range"
+                                    min={0}
+                                    max={1}
+                                    step={0.01}
+                                    value={isAudioMuted ? 0 : audioVolume}
+                                    onChange={e => handleVolumeChange(Number(e.target.value))}
+                                    className="w-16 sm:w-20 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                                    title={`Volume: ${Math.round(audioVolume * 100)}%`}
+                                />
+                            </div>
+
                             {/* Audio Diagnostics & Stats for Nerds / Logging */}
                             <button
                                 onClick={() => setShowAudioNerdModal(true)}
