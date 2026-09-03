@@ -141,6 +141,7 @@ export default function TheaterLiveTvPlayer({
     const videoRef = useRef<HTMLVideoElement>(null);
     const hlsRef = useRef<Hls | null>(null);
     const [isMuted, setIsMuted] = useState(false);
+    const [volume, setVolume] = useState(1);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [streamQuality, setStreamQuality] = useState('');
     const playerContainerRef = useRef<HTMLDivElement>(null);
@@ -697,6 +698,14 @@ export default function TheaterLiveTvPlayer({
         return () => window.removeEventListener('click', closeMenu);
     }, []);
 
+    // Sync volume & muted state to video element (React doesn't reflect volume imperatively)
+    useEffect(() => {
+        const vid = videoRef.current;
+        if (!vid) return;
+        vid.volume = volume;
+        vid.muted = isMuted;
+    }, [volume, isMuted]);
+
     // Open DVR recording modal
     const openRecordModal = (channel: IptvChannel, program?: EpgProgram) => {
         const prog = program || currentProgram || {
@@ -874,6 +883,11 @@ export default function TheaterLiveTvPlayer({
                             playsInline
                             muted={isMuted}
                             className="w-full h-full object-contain"
+                            onVolumeChange={(e) => {
+                                const vid = e.currentTarget;
+                                setIsMuted(vid.muted);
+                                if (!vid.muted) setVolume(vid.volume);
+                            }}
                         />
 
                         {/* Top OSD Bar: Quality, Multi-Stream Switcher, Guide Toggle, Fullscreen */}
@@ -921,12 +935,37 @@ export default function TheaterLiveTvPlayer({
                                     <Calendar size={14} />
                                     <span className="hidden sm:inline">Guide</span>
                                 </button>
-                                <button
-                                    onClick={() => setIsMuted(!isMuted)}
-                                    className="p-2 rounded-xl bg-black/60 hover:bg-zinc-800 text-zinc-300 hover:text-white transition-colors cursor-pointer"
-                                >
-                                    {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
-                                </button>
+                                {/* Mute toggle + Volume slider */}
+                                <div className="flex items-center gap-1.5 bg-black/60 rounded-xl px-2 py-1">
+                                    <button
+                                        onClick={() => {
+                                            if (isMuted) {
+                                                setIsMuted(false);
+                                                if (volume === 0) setVolume(0.5);
+                                            } else {
+                                                setIsMuted(true);
+                                            }
+                                        }}
+                                        className="text-zinc-300 hover:text-white transition-colors cursor-pointer shrink-0"
+                                        title={isMuted ? 'Unmute' : 'Mute'}
+                                    >
+                                        {(isMuted || volume === 0) ? <VolumeX size={16} /> : <Volume2 size={16} />}
+                                    </button>
+                                    <input
+                                        type="range"
+                                        min={0}
+                                        max={1}
+                                        step={0.02}
+                                        value={isMuted ? 0 : volume}
+                                        onChange={e => {
+                                            const v = Number(e.target.value);
+                                            setVolume(v);
+                                            setIsMuted(v === 0);
+                                        }}
+                                        className="w-16 sm:w-20 h-1 bg-zinc-700 rounded-full appearance-none cursor-pointer accent-amber-400"
+                                        title={`Volume: ${Math.round((isMuted ? 0 : volume) * 100)}%`}
+                                    />
+                                </div>
                                 <button
                                     onClick={toggleFullscreen}
                                     className="p-2 rounded-xl bg-black/60 hover:bg-zinc-800 text-zinc-300 hover:text-white transition-colors cursor-pointer"
