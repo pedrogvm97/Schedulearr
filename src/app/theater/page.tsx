@@ -24,6 +24,7 @@ import Hls from 'hls.js';
 import { useMusicPlayer } from '@/context/MusicPlayerContext';
 import TheaterLiveTvPlayer from '@/components/TheaterLiveTvPlayer';
 import { ConfirmModal } from '@/components/ConfirmModal';
+import { AddIptvProviderModal } from '@/components/AddIptvProviderModal';
 import { smartMatchScore, normalizeSearchTerm } from '@/lib/searchUtils';
 
 interface TheaterLibrary {
@@ -6733,6 +6734,19 @@ function TheaterPageContent() {
                     </Link>
                 </div>
             )}
+
+            {/* Add IPTV Provider Modal */}
+            <AddIptvProviderModal
+                isOpen={isAddIptvModalOpen}
+                onClose={() => setIsAddIptvModalOpen(false)}
+                onProviderCreated={async (newLibId) => {
+                    await fetchLibraries();
+                    if (newLibId) setActiveLibraryId(newLibId);
+                }}
+                onAdded={async () => {
+                    await fetchLibraries();
+                }}
+            />
 
             {/* Custom Delete Library/Provider Confirmation Modal */}
             <ConfirmModal

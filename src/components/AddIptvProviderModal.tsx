@@ -10,13 +10,15 @@ import { toast } from 'sonner';
 interface AddIptvProviderModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onProviderCreated: (newLibId: string) => void;
+    onProviderCreated?: (newLibId: string) => void;
+    onAdded?: (newLibId?: string) => void;
 }
 
 export function AddIptvProviderModal({
     isOpen,
     onClose,
-    onProviderCreated
+    onProviderCreated,
+    onAdded
 }: AddIptvProviderModalProps) {
     const [mode, setMode] = useState<'upload' | 'url' | 'xtream'>('url');
     const [providerName, setProviderName] = useState('');
@@ -132,7 +134,12 @@ export function AddIptvProviderModal({
 
             const parseData = await parseRes.json();
             toast.success(`IPTV Provider "${effectiveName}" connected! Loaded ${parseData.totalChannels || 0} channels.`);
-            onProviderCreated(newLibId);
+            if (typeof onProviderCreated === 'function') {
+                onProviderCreated(newLibId);
+            }
+            if (typeof onAdded === 'function') {
+                onAdded(newLibId);
+            }
             onClose();
         } catch (error: any) {
             console.error('Error creating IPTV provider:', error);

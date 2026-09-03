@@ -2268,6 +2268,7 @@ export function IptvDvrManager() {
             <AddIptvProviderModal
                 isOpen={isAddProviderOpen}
                 onClose={() => setIsAddProviderOpen(false)}
+                onProviderCreated={fetchAllData}
                 onAdded={fetchAllData}
             />
 
