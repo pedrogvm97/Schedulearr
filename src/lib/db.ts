@@ -881,6 +881,20 @@ export const saveCachedTheaterItems = (libraryId: string, items: any[]): boolean
     }
 };
 
+export const clearCachedTheaterItems = (libraryId?: string): boolean => {
+    try {
+        if (libraryId) {
+            db.prepare('DELETE FROM theater_items_cache WHERE library_id = ?').run(libraryId);
+        } else {
+            db.prepare('DELETE FROM theater_items_cache').run();
+        }
+        return true;
+    } catch (e) {
+        console.error('Error clearing cached theater items:', e);
+        return false;
+    }
+};
+
 // ── IPTV Channels & Merged Redundancy Management ──
 export interface StoredIptvChannel {
     id: string;

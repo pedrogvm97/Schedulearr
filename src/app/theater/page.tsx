@@ -164,6 +164,7 @@ function TheaterPageContent() {
     const [items, setItems] = useState<MediaItem[]>([]);
     const [loadingLibraries, setLoadingLibraries] = useState(true);
     const [loadingItems, setLoadingItems] = useState(false);
+    const [scanningPlex, setScanningPlex] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [globalSearchResults, setGlobalSearchResults] = useState<{ inLibraries: any[]; externalAvailable: any[] } | null>(null);
     const [isSearchingGlobal, setIsSearchingGlobal] = useState(false);
@@ -1037,6 +1038,65 @@ function TheaterPageContent() {
         }
     };
 
+    // Rescan Library (Theater Local & Plex)
+    const handleRescanLibrary = async (lib: TheaterLibrary) => {
+        if (!lib) return;
+        setLoadingItems(true);
+        toast.info(`Rescanning "${lib.name}"...`);
+        try {
+            if (lib.type === 'live') {
+                delete liveTvCacheRef.current[lib.id];
+                await fetchLibrariesContent([lib]);
+            } else {
+                const res = await fetch(`/api/theater/items?libraryId=${lib.id}&refresh=true`);
+                if (res.ok) {
+                    const data = await res.json();
+                    const fetched = Array.isArray(data.items) ? data.items : [];
+                    setItems(fetched.map((it: any) => ({ ...it, libraryId: lib.id, libraryName: lib.name })));
+                    toast.success(`Rescanned "${lib.name}" (${fetched.length} items)`);
+                } else {
+                    toast.error(`Could not refresh "${lib.name}" items`);
+                }
+            }
+        } catch (e: any) {
+            toast.error(`Rescan failed: ${e.message}`);
+        } finally {
+            setLoadingItems(false);
+        }
+    };
+
+    // Plex Manual Trigger Scan (Single Library or All)
+    const handlePlexScan = async (libraryId?: string, isAll?: boolean) => {
+        setScanningPlex(true);
+        const targetName = isAll ? 'All Plex Libraries' : (activeLibrary?.name || 'Library');
+        toast.info(`Triggering Plex scan for ${targetName}...`);
+        try {
+            const res = await fetch('/api/plex/scan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    libraryId: isAll ? undefined : (libraryId || activeLibrary?.id),
+                    all: isAll ? true : undefined
+                })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                toast.success(data.message || `Plex scan initiated for ${targetName}`);
+                // Refresh local theater view after a short delay so new items populate
+                setTimeout(() => {
+                    if (activeLibrary) handleRescanLibrary(activeLibrary);
+                }, 2500);
+            } else {
+                const err = await res.json().catch(() => ({}));
+                toast.error(err.error || 'Failed to trigger Plex scan');
+            }
+        } catch (e: any) {
+            toast.error(`Plex scan error: ${e.message}`);
+        } finally {
+            setScanningPlex(false);
+        }
+    };
+
     // Subtitle Search & Attach
     const handleDiscoverLocalSubtitles = async (video: MediaItem) => {
         try {
@@ -1116,7 +1176,7 @@ function TheaterPageContent() {
             if (res.ok) {
                 const data = await res.json();
                 toast.success(`Saved "${data.title}" to ${data.artist} / ${data.album}!`);
-                if (activeLibrary) fetchLibraryItems(activeLibrary);
+                if (activeLibrary) handleRescanLibrary(activeLibrary);
             } else {
                 const err = await res.json().catch(() => ({}));
                 toast.error(err.error || 'Failed to grab track to library');
@@ -2067,15 +2127,41 @@ function TheaterPageContent() {
                             </p>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                            {/* Rescan */}
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                            {/* Rescan Current Library */}
                             {activeLibrary && (
                                 <button
-                                    onClick={() => fetchLibraryItems(activeLibrary)}
-                                    title={activeContentTab === 'live' ? 'Rescan Provider' : 'Rescan Library'}
-                                    className="p-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white transition-colors shrink-0"
+                                    onClick={() => handleRescanLibrary(activeLibrary)}
+                                    title={activeContentTab === 'live' ? 'Rescan Live Provider' : `Rescan "${activeLibrary.name}"`}
+                                    className="p-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-zinc-300 hover:text-white hover:border-emerald-500/40 transition-all shadow-sm active:scale-95 shrink-0"
                                 >
-                                    <RefreshCw size={16} className={loadingItems ? 'animate-spin text-emerald-400' : ''} />
+                                    <RefreshCw size={17} className={loadingItems ? 'animate-spin text-emerald-400' : ''} />
+                                </button>
+                            )}
+
+                            {/* Scan Current Library in Plex */}
+                            {activeLibrary && activeContentTab !== 'live' && (
+                                <button
+                                    onClick={() => handlePlexScan(activeLibrary.id, false)}
+                                    disabled={scanningPlex}
+                                    title={`Trigger Plex scan for "${activeLibrary.name}"`}
+                                    className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 hover:text-amber-300 border border-amber-500/30 text-xs font-black transition-all shadow-sm active:scale-95 shrink-0"
+                                >
+                                    <RefreshCw size={15} className={scanningPlex ? 'animate-spin' : ''} />
+                                    <span className="hidden md:inline">Scan in Plex</span>
+                                </button>
+                            )}
+
+                            {/* Scan All Plex Libraries */}
+                            {activeContentTab !== 'live' && (
+                                <button
+                                    onClick={() => handlePlexScan(undefined, true)}
+                                    disabled={scanningPlex}
+                                    title="Trigger Plex scan for ALL libraries across servers"
+                                    className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl bg-zinc-950 hover:bg-zinc-900 text-amber-400 hover:text-amber-300 border border-zinc-800 hover:border-amber-500/30 text-xs font-black transition-all shadow-sm active:scale-95 shrink-0"
+                                >
+                                    <Layers size={15} />
+                                    <span className="hidden lg:inline">Scan All Plex</span>
                                 </button>
                             )}
 
@@ -2086,7 +2172,7 @@ function TheaterPageContent() {
                                     title="Delete IPTV Provider"
                                     className="p-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors shrink-0"
                                 >
-                                    <Trash2 size={16} />
+                                    <Trash2 size={17} />
                                 </button>
                             )}
 

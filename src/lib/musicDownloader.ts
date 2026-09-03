@@ -384,11 +384,11 @@ export async function downloadAudioFile(options: DownloadOptions): Promise<{ suc
         const safeAlbum = (album || 'Singles').replace(/"/g, '\\"');
 
         if (coverTemp && fs.existsSync(coverTemp)) {
-            const tagCmd = `"${ffmpegPath}" -y -i "${tempFile}" -i "${coverTemp}" -map 0:a -map 1 -c:a copy -c:v mjpeg -id3v2_version 3 -metadata title="${safeTitle}" -metadata artist="${safeArtist}" -metadata album="${safeAlbum}" "${outputPath}"`;
+            const tagCmd = `"${ffmpegPath}" -y -i "${tempFile}" -i "${coverTemp}" -map 0:a -map 1 -c:a copy -c:v mjpeg -id3v2_version 3 -metadata title="${safeTitle}" -metadata artist="${safeArtist}" -metadata album_artist="${safeArtist}" -metadata album="${safeAlbum}" "${outputPath}"`;
             await execPromise(tagCmd, { timeout: 15000 });
             try { fs.unlinkSync(coverTemp); } catch {}
         } else {
-            const tagCmd = `"${ffmpegPath}" -y -i "${tempFile}" -c copy -metadata title="${safeTitle}" -metadata artist="${safeArtist}" -metadata album="${safeAlbum}" "${outputPath}"`;
+            const tagCmd = `"${ffmpegPath}" -y -i "${tempFile}" -c copy -metadata title="${safeTitle}" -metadata artist="${safeArtist}" -metadata album_artist="${safeArtist}" -metadata album="${safeAlbum}" "${outputPath}"`;
             await execPromise(tagCmd, { timeout: 15000 });
         }
 

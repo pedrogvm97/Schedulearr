@@ -4,7 +4,7 @@ import path from 'path';
 import axios from 'axios';
 import { exec } from 'child_process';
 import util from 'util';
-import db from '@/lib/db';
+import db, { getTheaterLibraries, clearCachedTheaterItems, getInstances } from '@/lib/db';
 import { ensureFfmpegBinaries } from '@/lib/ytdlp';
 import { downloadAudioFile } from '@/lib/musicDownloader';
 
@@ -200,6 +200,43 @@ export async function POST(req: Request) {
         }
 
         if (dlResult.success && fs.existsSync(finalAudioPath)) {
+            // Invalidate local SQLite Theater cache & trigger background Plex scan
+            try {
+                const allLibs = getTheaterLibraries();
+                const matched = allLibs.filter(l => {
+                    if (libraryId && l.id === libraryId) return true;
+                    let folders: string[] = [];
+                    try { folders = typeof l.folders === 'string' ? JSON.parse(l.folders) : (l.folders || []); } catch {}
+                    return folders.some(f => f === musicRoot || musicRoot.startsWith(f) || f.startsWith(musicRoot));
+                });
+                for (const m of matched) clearCachedTheaterItems(m.id);
+
+                setTimeout(async () => {
+                    try {
+                        const plexInstances = getInstances().filter(i => i.type === 'plex' && i.enabled);
+                        for (const plex of plexInstances) {
+                            const cleanUrl = plex.url.replace(/\/$/, '');
+                            const secRes = await axios.get(`${cleanUrl}/library/sections`, {
+                                headers: { 'X-Plex-Token': plex.api_key, 'Accept': 'application/json' },
+                                timeout: 5000
+                            }).catch(() => null);
+                            if (secRes?.data?.MediaContainer?.Directory) {
+                                for (const d of secRes.data.MediaContainer.Directory) {
+                                    const locs = (d.Location || []).map((l: any) => l.path);
+                                    const isMatch = locs.some((loc: string) => musicRoot === loc || musicRoot.startsWith(loc) || loc.startsWith(musicRoot));
+                                    if (isMatch || d.type === 'artist') {
+                                        await axios.get(`${cleanUrl}/library/sections/${d.key}/refresh`, {
+                                            headers: { 'X-Plex-Token': plex.api_key },
+                                            timeout: 8000
+                                        }).catch(() => null);
+                                    }
+                                }
+                            }
+                        }
+                    } catch {}
+                }, 500);
+            } catch {}
+
             return NextResponse.json({
                 success: true,
                 message: `Successfully saved "${cleanTitle}" to ${cleanArtist} / ${cleanAlbum}`,
