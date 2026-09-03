@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { AddIptvProviderModal } from './AddIptvProviderModal';
 import IptvSettingsModal from './IptvSettingsModal';
 import IptvAutoGroupingModal, { IptvChannel } from './IptvAutoGroupingModal';
+import { ConfirmModal } from './ConfirmModal';
 
 interface DvrStorageFolder {
     id: string;
@@ -112,6 +113,19 @@ export function IptvDvrManager() {
     const [shortlistFilterMode, setShortlistFilterMode] = useState<'selected' | 'all'>('selected');
     const [shortlistViewMode, setShortlistViewMode] = useState<'grid' | 'list'>('grid');
     const [isSavingShortlist, setIsSavingShortlist] = useState(false);
+    const [confirmModalState, setConfirmModalState] = useState<{
+        isOpen: boolean;
+        title: string;
+        description: React.ReactNode;
+        confirmText?: string;
+        onConfirm: () => void | Promise<void>;
+        loading?: boolean;
+    }>({
+        isOpen: false,
+        title: '',
+        description: '',
+        onConfirm: () => {}
+    });
 
     const [newFolderPath, setNewFolderPath] = useState('');
     const [newFolderName, setNewFolderName] = useState('');
@@ -389,19 +403,27 @@ export function IptvDvrManager() {
         }
     };
 
-    const handleDeleteShortlist = async (id: string, name: string) => {
-        if (!confirm(`Delete shortlist "${name}"?`)) return;
-        try {
-            const res = await fetch(`/api/theater/iptv/shortlists?id=${id}`, {
-                method: 'DELETE'
-            });
-            if (res.ok) {
-                toast.success('Shortlist deleted');
-                fetchAllData(activeLibrary?.id);
+    const handleDeleteShortlist = (id: string, name: string) => {
+        setConfirmModalState({
+            isOpen: true,
+            title: 'Delete Shortlist',
+            description: <span>Are you sure you want to delete shortlist <strong className="text-white">"{name}"</strong>?</span>,
+            confirmText: 'Delete Shortlist',
+            onConfirm: async () => {
+                try {
+                    const res = await fetch(`/api/theater/iptv/shortlists?id=${id}`, {
+                        method: 'DELETE'
+                    });
+                    if (res.ok) {
+                        toast.success('Shortlist deleted');
+                        setConfirmModalState(prev => ({ ...prev, isOpen: false }));
+                        fetchAllData(activeLibrary?.id);
+                    }
+                } catch {
+                    toast.error('Failed to delete shortlist');
+                }
             }
-        } catch {
-            toast.error('Failed to delete shortlist');
-        }
+        });
     };
 
     const filteredShortlistChannels = useMemo(() => {
@@ -471,24 +493,36 @@ export function IptvDvrManager() {
         }
     };
 
-    const handleDeleteProvider = async (id: string, name: string) => {
-        if (!confirm(`Are you sure you want to delete IPTV provider "${name}"? This will permanently remove all of its channels, guide schedules, and shortlists.`)) {
-            return;
-        }
-        try {
-            const res = await fetch(`/api/theater/libraries?id=${encodeURIComponent(id)}`, {
-                method: 'DELETE'
-            });
-            if (!res.ok) {
-                const data = await res.json().catch(() => ({}));
-                throw new Error(data.error || 'Failed to delete IPTV provider');
+    const handleDeleteProvider = (id: string, name: string) => {
+        setConfirmModalState({
+            isOpen: true,
+            title: 'Delete IPTV Provider',
+            description: (
+                <span>
+                    Are you sure you want to delete IPTV provider <strong className="text-white">"{name}"</strong>? This will permanently remove all of its channels, guide schedules, and shortlists.
+                </span>
+            ),
+            confirmText: 'Delete Provider',
+            onConfirm: async () => {
+                setConfirmModalState(prev => ({ ...prev, loading: true }));
+                try {
+                    const res = await fetch(`/api/theater/libraries?id=${encodeURIComponent(id)}`, {
+                        method: 'DELETE'
+                    });
+                    if (!res.ok) {
+                        const data = await res.json().catch(() => ({}));
+                        throw new Error(data.error || 'Failed to delete IPTV provider');
+                    }
+                    toast.success(`Provider "${name}" deleted`);
+                    setConfirmModalState(prev => ({ ...prev, isOpen: false, loading: false }));
+                    fetchAllData();
+                } catch (err: any) {
+                    console.error('Delete provider error:', err);
+                    toast.error(err.message || 'Failed to delete provider');
+                    setConfirmModalState(prev => ({ ...prev, loading: false }));
+                }
             }
-            toast.success(`Provider "${name}" deleted`);
-            fetchAllData();
-        } catch (err: any) {
-            console.error('Delete provider error:', err);
-            toast.error(err.message || 'Failed to delete provider');
-        }
+        });
     };
 
     const handleSaveRule = async (e: React.FormEvent) => {
@@ -2255,6 +2289,17 @@ export function IptvDvrManager() {
                     onApplied={fetchAllData}
                 />
             )}
+
+            <ConfirmModal
+                isOpen={confirmModalState.isOpen}
+                onClose={() => setConfirmModalState(prev => ({ ...prev, isOpen: false }))}
+                onConfirm={confirmModalState.onConfirm}
+                loading={confirmModalState.loading}
+                title={confirmModalState.title}
+                description={confirmModalState.description}
+                confirmText={confirmModalState.confirmText}
+                variant="danger"
+            />
         </div>
     );
 }

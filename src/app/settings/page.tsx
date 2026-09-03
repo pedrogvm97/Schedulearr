@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { CustomSelect } from "@/components/CustomSelect";
 import { AnalyticsPanel } from "@/components/AnalyticsPanel";
 import { ProfilesPanel } from "@/components/ProfilesPanel";
+import { PasswordPromptModal } from "@/components/PasswordPromptModal";
 
 export default function Settings() {
     const [settingsNavTab, setSettingsNavTab] = useState<'settings' | 'analytics' | 'profiles'>('settings');
@@ -39,6 +40,21 @@ export default function Settings() {
         danger?: boolean;
         onConfirm: () => void;
     } | null>(null);
+
+    const [passwordModal, setPasswordModal] = useState<{
+        isOpen: boolean;
+        title: string;
+        description: string;
+        confirmText: string;
+        onSubmit: (password: string) => void | Promise<void>;
+        loading?: boolean;
+    }>({
+        isOpen: false,
+        title: '',
+        description: '',
+        confirmText: 'Submit',
+        onSubmit: () => {}
+    });
 
     const predefinedColors = [
         'bg-red-500', 'bg-orange-500', 'bg-amber-500', 'bg-yellow-500', 'bg-lime-500',
@@ -596,38 +612,43 @@ export default function Settings() {
         return <div className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]" title="Offline" />;
     };
 
-    const handleExport = async () => {
-        const password = window.prompt("Enter a password to encrypt your backup:");
-        if (!password) return;
+    const handleExport = () => {
+        setPasswordModal({
+            isOpen: true,
+            title: 'Export Instances Backup',
+            description: 'Enter a password to encrypt and secure your instances backup file:',
+            confirmText: 'Export Backup',
+            onSubmit: async (password: string) => {
+                setPasswordModal(prev => ({ ...prev, loading: true }));
+                try {
+                    const res = await fetch('/api/instances/export', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ password })
+                    });
 
-        try {
-            const res = await fetch('/api/instances/export', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ password })
-            });
+                    if (!res.ok) throw new Error('Failed to export');
+                    const data = await res.json();
 
-            if (!res.ok) throw new Error('Failed to export');
-            const data = await res.json();
-
-            // Trigger download
-            const blob = new Blob([data.encryptedData], { type: 'application/json' });
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = data.filename || 'instances_backup.json';
-            a.click();
-            window.URL.revokeObjectURL(url);
-            toast.success("Backup exported successfully!");
-        } catch (e: any) {
-            toast.error(e.message || "Failed to export backup");
-        }
+                    // Trigger download
+                    const blob = new Blob([data.encryptedData], { type: 'application/json' });
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = data.filename || 'instances_backup.json';
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    toast.success("Backup exported successfully!");
+                    setPasswordModal(prev => ({ ...prev, isOpen: false, loading: false }));
+                } catch (e: any) {
+                    toast.error(e.message || "Failed to export backup");
+                    setPasswordModal(prev => ({ ...prev, loading: false }));
+                }
+            }
+        });
     };
 
-    const handleImport = async () => {
-        const password = window.prompt("Enter the password to decrypt your backup:");
-        if (!password) return;
-
+    const handleImport = () => {
         const input = document.createElement('input');
         input.type = 'file';
         input.accept = '.json';
@@ -638,23 +659,34 @@ export default function Settings() {
             const reader = new FileReader();
             reader.onload = async (event: any) => {
                 const encryptedData = event.target.result;
-                try {
-                    const res = await fetch('/api/instances/import', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ password, encryptedData })
-                    });
+                setPasswordModal({
+                    isOpen: true,
+                    title: 'Import Instances Backup',
+                    description: 'Enter the password to decrypt and restore your instances backup file:',
+                    confirmText: 'Restore Backup',
+                    onSubmit: async (password: string) => {
+                        setPasswordModal(prev => ({ ...prev, loading: true }));
+                        try {
+                            const res = await fetch('/api/instances/import', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ password, encryptedData })
+                            });
 
-                    if (!res.ok) {
-                        const errData = await res.json();
-                        throw new Error(errData.error || 'Failed to import');
+                            if (!res.ok) {
+                                const errData = await res.json();
+                                throw new Error(errData.error || 'Failed to import');
+                            }
+
+                            toast.success("Backup restored successfully!");
+                            setPasswordModal(prev => ({ ...prev, isOpen: false, loading: false }));
+                            fetchInstances();
+                        } catch (err: any) {
+                            toast.error(err.message || "Failed to import backup");
+                            setPasswordModal(prev => ({ ...prev, loading: false }));
+                        }
                     }
-
-                    toast.success("Backup restored successfully!");
-                    fetchInstances();
-                } catch (err: any) {
-                    toast.error(err.message || "Failed to restore backup");
-                }
+                });
             };
             reader.readAsText(file);
         };
@@ -1678,20 +1710,27 @@ export default function Settings() {
 
                                                     <button
                                                         type="button"
-                                                        onClick={async () => {
-                                                            if (!confirm(`Are you sure you want to clean "${item.title}"?`)) return;
-                                                            try {
-                                                                const epUrl = item.type === 'movie' ? `/api/radarr/delete?id=${item.id}&instanceId=${item.instanceId}` : `/api/sonarr/delete?id=${item.id}&instanceId=${item.instanceId}`;
-                                                                const res = await fetch(epUrl, { method: 'DELETE' });
-                                                                if (res.ok) {
-                                                                    toast.success(`Deleted ${item.title}`);
-                                                                    fetchCandidates();
-                                                                } else {
-                                                                    toast.error('Failed to delete item');
+                                                        onClick={() => {
+                                                            setConfirmModal({
+                                                                title: 'Delete Media',
+                                                                message: `Are you sure you want to clean "${item.title}"? This will permanently remove the media from your library.`,
+                                                                confirmLabel: 'Delete Now',
+                                                                danger: true,
+                                                                onConfirm: async () => {
+                                                                    try {
+                                                                        const epUrl = item.type === 'movie' ? `/api/radarr/delete?id=${item.id}&instanceId=${item.instanceId}` : `/api/sonarr/delete?id=${item.id}&instanceId=${item.instanceId}`;
+                                                                        const res = await fetch(epUrl, { method: 'DELETE' });
+                                                                        if (res.ok) {
+                                                                            toast.success(`Deleted ${item.title}`);
+                                                                            fetchCandidates();
+                                                                        } else {
+                                                                            toast.error('Failed to delete item');
+                                                                        }
+                                                                    } catch (e) {
+                                                                        toast.error('Error deleting item');
+                                                                    }
                                                                 }
-                                                            } catch (e) {
-                                                                toast.error('Error deleting item');
-                                                            }
+                                                            });
                                                         }}
                                                         className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition-colors flex-shrink-0 cursor-pointer"
                                                     >
@@ -2773,6 +2812,16 @@ export default function Settings() {
                     </div>
                 </div>
             )}
+
+            <PasswordPromptModal
+                isOpen={passwordModal.isOpen}
+                onClose={() => setPasswordModal(prev => ({ ...prev, isOpen: false }))}
+                onSubmit={passwordModal.onSubmit}
+                loading={passwordModal.loading}
+                title={passwordModal.title}
+                description={passwordModal.description}
+                confirmText={passwordModal.confirmText}
+            />
         </div>
     );
 }

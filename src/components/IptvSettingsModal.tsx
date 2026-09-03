@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Calendar, RefreshCw, Check, Clock, Tv2, AlertCircle, Play, ChevronRight, Layers, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { ConfirmModal } from '@/components/ConfirmModal';
 
 interface IptvSettingsModalProps {
     isOpen: boolean;
@@ -43,6 +44,7 @@ export default function IptvSettingsModal({
     const [isSaving, setIsSaving] = useState(false);
     const [isRefreshingChannels, setIsRefreshingChannels] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
     // Live sync progress states
     const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
@@ -233,10 +235,11 @@ export default function IptvSettingsModal({
         }
     };
 
-    const handleDeleteProvider = async () => {
-        if (!confirm(`Are you sure you want to delete IPTV provider "${library.name}"? This will permanently remove all of its channels, guide schedules, and shortlists.`)) {
-            return;
-        }
+    const handleDeleteProvider = () => {
+        setShowDeleteConfirm(true);
+    };
+
+    const handleConfirmDeleteProvider = async () => {
         setIsDeleting(true);
         try {
             const res = await fetch(`/api/theater/libraries?id=${encodeURIComponent(library.id)}`, {
@@ -247,6 +250,7 @@ export default function IptvSettingsModal({
                 throw new Error(data.error || 'Failed to delete IPTV provider');
             }
             toast.success(`Provider "${library.name}" deleted`);
+            setShowDeleteConfirm(false);
             onUpdated();
             onClose();
         } catch (err: any) {
@@ -506,6 +510,22 @@ export default function IptvSettingsModal({
                     </div>
                 </div>
             )}
+
+            {/* Custom Delete Confirmation Modal */}
+            <ConfirmModal
+                isOpen={showDeleteConfirm}
+                onClose={() => setShowDeleteConfirm(false)}
+                onConfirm={handleConfirmDeleteProvider}
+                loading={isDeleting}
+                title="Delete IPTV Provider"
+                description={
+                    <span>
+                        Are you sure you want to delete IPTV provider <strong className="text-white">"{library.name}"</strong>? This will permanently remove all of its channels, guide schedules, and shortlists.
+                    </span>
+                }
+                confirmText="Delete Provider"
+                variant="danger"
+            />
         </div>
     );
 }

@@ -23,6 +23,7 @@ import { toast, Toaster } from 'sonner';
 import Hls from 'hls.js';
 import { useMusicPlayer } from '@/context/MusicPlayerContext';
 import TheaterLiveTvPlayer from '@/components/TheaterLiveTvPlayer';
+import { ConfirmModal } from '@/components/ConfirmModal';
 
 interface TheaterLibrary {
     id: string;
@@ -165,6 +166,8 @@ function TheaterPageContent() {
     const [loadingLibraries, setLoadingLibraries] = useState(true);
     const [loadingItems, setLoadingItems] = useState(false);
     const [scanningPlex, setScanningPlex] = useState(false);
+    const [deleteLibConfirm, setDeleteLibConfirm] = useState<{ id: string; name: string } | null>(null);
+    const [isDeletingLibrary, setIsDeletingLibrary] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [globalSearchResults, setGlobalSearchResults] = useState<{ inLibraries: any[]; externalAvailable: any[] } | null>(null);
     const [isSearchingGlobal, setIsSearchingGlobal] = useState(false);
@@ -1006,12 +1009,19 @@ function TheaterPageContent() {
         }
     };
 
-    const handleDeleteLibrary = async (libId: string, libName: string) => {
-        if (!confirm(`Are you sure you want to delete "${libName}"?`)) return;
+    const handleDeleteLibrary = (libId: string, libName: string) => {
+        setDeleteLibConfirm({ id: libId, name: libName });
+    };
+
+    const handleConfirmDeleteLibrary = async () => {
+        if (!deleteLibConfirm) return;
+        const { id: libId, name: libName } = deleteLibConfirm;
+        setIsDeletingLibrary(true);
         try {
             const res = await fetch(`/api/theater/libraries?id=${libId}`, { method: 'DELETE' });
             if (res.ok) {
                 toast.success(`"${libName}" deleted`);
+                setDeleteLibConfirm(null);
                 const remaining = libraries.filter(l => l.id !== libId);
                 setLibraries(remaining);
                 if (remaining.length > 0) {
@@ -1035,6 +1045,8 @@ function TheaterPageContent() {
             }
         } catch {
             toast.error('Error deleting library');
+        } finally {
+            setIsDeletingLibrary(false);
         }
     };
 
@@ -6081,6 +6093,22 @@ function TheaterPageContent() {
                     </div>
                 </div>
             )}
+
+            {/* Custom Delete Library/Provider Confirmation Modal */}
+            <ConfirmModal
+                isOpen={!!deleteLibConfirm}
+                onClose={() => setDeleteLibConfirm(null)}
+                onConfirm={handleConfirmDeleteLibrary}
+                loading={isDeletingLibrary}
+                title={activeContentTab === 'live' ? 'Delete IPTV Provider' : 'Delete Library'}
+                description={
+                    <span>
+                        Are you sure you want to delete {activeContentTab === 'live' ? 'IPTV provider' : 'library'} <strong className="text-white">"{deleteLibConfirm?.name}"</strong>? This will permanently remove its media records and configuration.
+                    </span>
+                }
+                confirmText={activeContentTab === 'live' ? 'Delete Provider' : 'Delete Library'}
+                variant="danger"
+            />
         </>
     );
 }
