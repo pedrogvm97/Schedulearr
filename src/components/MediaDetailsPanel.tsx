@@ -1507,7 +1507,7 @@ function MediaDetailsPanelInner({
                 )}
             </div>
 
-            <style jsx>{`
+            <style>{`
                 .mask-gradient-b {
                     mask-image: linear-gradient(to bottom, black 40%, transparent 100%);
                     -webkit-mask-image: linear-gradient(to bottom, black 40%, transparent 100%);

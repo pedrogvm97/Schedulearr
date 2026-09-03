@@ -32,6 +32,8 @@ export interface SonarrSeries {
     genres?: string[];
     qualityProfileId: number;
     path?: string;
+    sizeOnDisk?: number;
+    tvdbId?: number;
 }
 
 export interface SonarrQualityProfile {

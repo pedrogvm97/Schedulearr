@@ -111,6 +111,19 @@ const db = {
             throw err;
         }
     },
+    transaction: (fn: any) => {
+        try {
+            return getDb().transaction(fn);
+        } catch (err: any) {
+            if (err.message && (err.message.includes('malformed') || err.message.includes('corrupt') || err.message.includes('SQLITE_CORRUPT'))) {
+                console.error('[DB ERROR] Malformed disk image detected during transaction. Recovering...', err.message);
+                handleCorruptDatabase();
+                _db = null;
+                return getDb().transaction(fn);
+            }
+            throw err;
+        }
+    },
 };
 
 function initializeSchema(d: any) {

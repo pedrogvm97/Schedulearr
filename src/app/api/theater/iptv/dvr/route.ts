@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import { spawn, ChildProcess } from 'child_process';
@@ -252,7 +252,7 @@ export async function POST(req: NextRequest) {
                                     channel_id: chan.id,
                                     channel_name: chan.name,
                                     channel_logo: chan.logo,
-                                    stream_url: chan.url,
+                                    stream_url: chan.streams?.[0]?.url || (chan as any).url || '',
                                     program_title: prog.title,
                                     program_description: prog.description,
                                     start_time: prog.start_time,

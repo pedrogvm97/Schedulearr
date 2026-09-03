@@ -185,7 +185,7 @@ export async function GET(req: NextRequest) {
         // 1. Check in-memory cache (valid for 24 hours)
         const cached = logoCache.get(logoUrl);
         if (cached && cached.expiry > now) {
-            return new Response(cached.buffer, {
+            return new Response(new Uint8Array(cached.buffer), {
                 status: 200,
                 headers: {
                     'Content-Type': cached.contentType,
@@ -250,7 +250,7 @@ export async function GET(req: NextRequest) {
         }
         logoCache.set(logoUrl, { buffer, contentType, expiry: now + 24 * 60 * 60 * 1000 });
 
-        return new Response(buffer, {
+        return new Response(new Uint8Array(buffer), {
             status: 200,
             headers: {
                 'Content-Type': contentType,

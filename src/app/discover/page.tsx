@@ -9,12 +9,11 @@ import {
     HardDrive, Percent, PlayCircle, ChevronUp,
     PlaySquare, Square, Trash2, MoveHorizontal, MoreVertical,
     CheckCircle2, Copy, ListOrdered, RefreshCw, Layers,
-    Disc, Music, Radio, ArrowDownToLine
+    Disc, Music, Radio, ArrowDownToLine, Play
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import { CustomSelect } from '@/components/CustomSelect';
 import { twColorToHex } from '@/lib/instanceColor';
-import { SchedulerQueuePanel } from '@/components/SchedulerQueuePanel';
 import { MediaDetailsPanel } from '@/components/MediaDetailsPanel';
 import { PersonDetailsPanel } from '@/components/PersonDetailsPanel';
 import { InteractiveSearchModal } from '@/components/InteractiveSearchModal';

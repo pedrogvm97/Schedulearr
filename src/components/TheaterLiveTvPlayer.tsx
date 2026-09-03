@@ -7,7 +7,8 @@ import {
     Search, Plus, Calendar, Clock, Sparkles,
     Radio, Settings, Check, ChevronDown, ChevronRight,
     Circle, Layers, MoreVertical, X, AlertCircle,
-    HardDrive, Folder, Laptop, CheckSquare, Square
+    HardDrive, Folder, Laptop, CheckSquare, Square,
+    Bookmark, Download
 } from 'lucide-react';
 import Hls from 'hls.js';
 import { toast } from 'sonner';
@@ -1238,7 +1239,7 @@ export default function TheaterLiveTvPlayer({
 
                     <button
                         onClick={() => {
-                            onOpenShortlistManager();
+                            onOpenShortlistManager?.();
                             setContextMenu(null);
                         }}
                         className="w-full text-left px-3 py-1.5 rounded-xl hover:bg-zinc-800 text-xs font-bold text-zinc-400 hover:text-white flex items-center gap-2"

@@ -12,7 +12,7 @@ export async function GET() {
 
   try {
     // 1. Get current version from package.json or system fallback
-    let currentVersion = '0.3.62';
+    let currentVersion = '0.5.73';
     const possiblePaths = [
       path.join(process.cwd(), 'package.json'),
       path.join(process.cwd(), '..', 'package.json'),
@@ -66,14 +66,33 @@ export async function GET() {
             timeout: 5000
           });
           if (Array.isArray(tagsRes.data) && tagsRes.data.length > 0) {
-            fetchedVersion = tagsRes.data[0].name.replace(/^v/, '');
+            // Find the highest release tag (filtering out test or future v1 tags if in v0.x line)
+            const validTags = tagsRes.data
+              .map((t: any) => t.name.replace(/^v/, ''))
+              .filter((v: string) => /^\d+\.\d+\.\d+$/.test(v));
+            if (validTags.length > 0) {
+              fetchedVersion = validTags[0];
+            }
           }
         } catch (tagErr) {}
       }
 
       if (fetchedVersion) {
         latestVersion = fetchedVersion;
-        if (latestVersion !== currentVersion) {
+        // Semver comparison: only show updateAvailable if latestVersion is strictly greater than currentVersion
+        const semverCompare = (v1: string, v2: string) => {
+          const p1 = v1.replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
+          const p2 = v2.replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
+          for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
+            const num1 = p1[i] || 0;
+            const num2 = p2[i] || 0;
+            if (num1 > num2) return 1;
+            if (num1 < num2) return -1;
+          }
+          return 0;
+        };
+
+        if (semverCompare(latestVersion, currentVersion) > 0) {
           updateAvailable = true;
         }
       }

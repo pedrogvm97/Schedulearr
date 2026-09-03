@@ -1,4 +1,4 @@
-import { getInstances } from './src/lib/db.ts';
+import { getInstances } from './src/lib/db';
 import axios from 'axios';
 
 async function run() {

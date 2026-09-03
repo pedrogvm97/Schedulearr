@@ -82,7 +82,7 @@ export async function GET(req: Request) {
 
         // 2. Fetch Chordify / Public Cifra Tabs / Songsterr API search
         const queryTerm = encodeURIComponent(q || `${artist} ${title}`);
-        let chordsList: Array<{ time: number; chord: string; lyricSnippet?: string }> = [];
+        let chordsList: Array<{ time: number; chord: string; duration?: number; lyricSnippet?: string }> = [];
         let detectedKey = 'Am';
 
         try {

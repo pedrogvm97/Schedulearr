@@ -15,8 +15,10 @@ export interface IptvChannel {
     name: string;
     cleanName?: string;
     logo?: string;
+    rawLogo?: string;
     group: string;
     tvgId?: string;
+    tvgName?: string;
     url: string;
     streams?: StreamItem[];
 }

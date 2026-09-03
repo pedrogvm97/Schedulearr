@@ -1,4 +1,4 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getInstances, getSetting } from "@/lib/db";
 import { getAllMovies } from "@/lib/radarr";
 import { getAllSeries, getEpisodeFiles } from "@/lib/sonarr";
@@ -18,7 +18,7 @@ export async function GET() {
         const ignoredKeysStr = getSetting("media_smart_clean_ignored_keys") || "[]";
         let ignoredKeys = [];
         try { ignoredKeys = JSON.parse(ignoredKeysStr); } catch { ignoredKeys = []; }
-        const ignoredSet = new Set(ignoredKeys.map(k => k.toLowerCase()));
+        const ignoredSet = new Set(ignoredKeys.map((k: string) => k.toLowerCase()));
 
         const plexInstances = getInstances("plex", true);
         let plexWatchMap = new Map();
@@ -76,7 +76,7 @@ export async function GET() {
                                 bySeasonMap.get(sn).push(f);
                             }
                             for (const [seasonNum, files] of bySeasonMap.entries()) {
-                                const size = files.reduce((acc, f) => acc + (f.size || 0), 0);
+                                const size = files.reduce((acc: number, f: any) => acc + (f.size || 0), 0);
                                 if (size === 0) continue;
                                 const key = `season-${inst.id}-${s.id}-${seasonNum}`.toLowerCase();
                                 if (immunityEnabled) {
@@ -109,7 +109,7 @@ export async function GET() {
         else if (mode === "unplayed") allCandidates.sort((a, b) => { if (a.isWatched !== b.isWatched) return a.isWatched ? 1 : -1; return new Date(a.added).getTime() - new Date(b.added).getTime(); });
 
         return NextResponse.json({ candidates: allCandidates, seriesLevel });
-    } catch (error) {
+    } catch (error: any) {
         console.error("Error fetching smart clean candidates:", error);
         return NextResponse.json({ error: error.message || "Failed to fetch candidates" }, { status: 500 });
     }

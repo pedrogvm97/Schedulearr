@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import { Server, Sliders, Shield, Wrench, Heart } from "lucide-react";
 import { toast } from "sonner";
 import { CustomSelect } from "@/components/CustomSelect";
-import { AnalyticsPanel } from "@/components/AnalyticsPanel";
 import { ProfilesPanel } from "@/components/ProfilesPanel";
 import { PasswordPromptModal } from "@/components/PasswordPromptModal";
 
@@ -83,6 +82,10 @@ export default function Settings() {
         containerName?: string;
         image?: string;
         available: boolean;
+        ports?: Array<{ host: number; container: number }>;
+        dataHostPath?: string;
+        isDataWritable?: boolean;
+        reason?: string;
     } | null>(null);
     const [updateLogs, setUpdateLogs] = useState<{ type: 'info' | 'warn' | 'error' | 'success', message: string }[]>([]);
 
@@ -297,6 +300,22 @@ export default function Settings() {
             setCandidates([]);
         }
         setLoadingCandidates(false);
+    };
+
+    const toggleIgnoreCandidate = async (key: string) => {
+        const current = candidates.find(c => c.key === key);
+        if (!current) return;
+        const nextIgnored = !current.ignored;
+        setCandidates(prev => prev.map(c => c.key === key ? { ...c, ignored: nextIgnored } : c));
+        try {
+            await fetch('/api/media/smart-clean', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'toggle-ignore', key, ignored: nextIgnored })
+            });
+        } catch (e) {
+            console.error('Failed to toggle ignore candidate', e);
+        }
     };
 
     const fetchInstances = async () => {
@@ -2167,7 +2186,7 @@ export default function Settings() {
                                         ) : (
                                             <>
                                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                                                Update App
+                                                Update App {versionInfo?.latestVersion ? `to v${versionInfo.latestVersion}` : ''}
                                             </>
                                         )}
                                     </button>

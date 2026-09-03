@@ -141,6 +141,7 @@ async function fetchXtreamLiveChannels(
                 id: string;
                 name: string;
                 cleanName: string;
+                canonicalKey: string;
                 logo?: string;
                 group: string;
                 tvgId?: string;

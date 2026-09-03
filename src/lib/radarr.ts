@@ -25,6 +25,9 @@ export interface RadarrMovie {
             }
         }
     };
+    folder?: string;
+    tmdbId?: number;
+    statistics?: any;
 }
 
 export interface RadarrQualityProfile {

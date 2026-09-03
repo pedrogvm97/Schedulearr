@@ -532,7 +532,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             toast.error('This playlist is empty');
             return;
         }
-        playAudioTrack(items[0], items);
+        playTrack(items[0], items);
         toast.success(`Playing playlist "${playlist.name}" (${items.length} tracks)`);
     };
 
@@ -1278,11 +1278,14 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
     // Track Selection & Audio Playback Handlers
     const playTrack = (track: MediaItem, queue?: MediaItem[], index?: number) => {
-        const { cleanArtist, cleanTitle } = sanitizeSongMetadata(track.title || track.name || '', track.artist);
+        if (!track) return;
+        const rawTitle = track.title || track.name || 'Track';
+        const rawArtist = track.artist || '';
+        const { cleanArtist, cleanTitle } = sanitizeSongMetadata(rawTitle, rawArtist);
         const cleanTrack: MediaItem = {
             ...track,
-            title: cleanTitle || track.title || track.name || 'Track',
-            artist: cleanArtist || track.artist || 'Artist',
+            title: cleanTitle || rawTitle || 'Track',
+            artist: cleanArtist || rawArtist || 'Artist',
             uploader: track.artist !== cleanArtist ? track.artist : (track as any).uploader
         };
 
@@ -1988,10 +1991,11 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                 addToQueue
             }}
         >
-            {/* Embedded YouTube Player Container for direct lossless web audio */}
-            <div style={{ position: 'fixed', top: '-9999px', left: '-9999px', width: '1px', height: '1px', pointerEvents: 'none', opacity: 0 }}>
-                <div id="schedulearr-yt-iframe-player" />
-            </div>
+            {/* Embedded YouTube Player Container for direct lossless web audio (unmanaged HTML container to prevent React reconciliation crashes) */}
+            <div
+                style={{ position: 'fixed', top: '-9999px', left: '-9999px', width: '1px', height: '1px', pointerEvents: 'none', opacity: 0 }}
+                dangerouslySetInnerHTML={{ __html: '<div id="schedulearr-yt-iframe-player"></div>' }}
+            />
 
             {/* Global Persistent Audio Element for Local Files & Plex */}
             <audio
@@ -2262,7 +2266,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             {/* Minimized Volume Control Slider */}
                             <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-zinc-900/90 border border-zinc-800 shrink-0">
                                 <button
-                                    onClick={toggleAudioMute}
+                                    onClick={toggleMute}
                                     className="text-zinc-400 hover:text-white transition-colors cursor-pointer"
                                     title={isAudioMuted ? "Unmute" : "Mute"}
                                 >

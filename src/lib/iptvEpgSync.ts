@@ -99,7 +99,7 @@ export function scanDvrRulesForLibrary(libraryId: string): number {
                                 channel_id: chan.id,
                                 channel_name: chan.name,
                                 channel_logo: chan.logo,
-                                stream_url: chan.url,
+                                stream_url: chan.streams?.[0]?.url || (chan as any).url || '',
                                 program_title: prog.title,
                                 program_description: prog.description,
                                 start_time: prog.start_time,

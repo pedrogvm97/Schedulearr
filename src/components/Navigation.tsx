@@ -72,6 +72,7 @@ const mobileCoreNavItems = [
 export function Navigation() {
     const pathname = usePathname();
     const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
+    const [appVersion, setAppVersion] = useState('0.5.73');
     const [activeMusicCount, setActiveMusicCount] = useState(0);
 
     useEffect(() => {
@@ -86,6 +87,14 @@ export function Navigation() {
         };
         checkQueue();
         const interval = setInterval(checkQueue, 4000);
+
+        fetch('/api/system/version')
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (data?.currentVersion) setAppVersion(data.currentVersion);
+            })
+            .catch(() => {});
+
         return () => clearInterval(interval);
     }, []);
 
@@ -101,7 +110,10 @@ export function Navigation() {
                     <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-500/20 via-teal-500/10 to-zinc-900 p-1 border border-emerald-500/30 flex items-center justify-center shadow-[0_0_12px_rgba(16,185,129,0.25)]">
                         <img src="/icon.png" alt="Schedulearr" className="w-full h-full object-contain" />
                     </div>
-                    <span className="font-black text-base text-white tracking-tight">Schedulearr</span>
+                    <div className="flex items-center gap-1.5">
+                        <span className="font-black text-base text-white tracking-tight">Schedulearr</span>
+                        <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-zinc-800 text-emerald-400 border border-emerald-500/30">v{appVersion}</span>
+                    </div>
                 </Link>
 
                 <div className="flex items-center gap-2">
@@ -122,7 +134,10 @@ export function Navigation() {
                         <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500/20 via-teal-500/10 to-zinc-900 p-1.5 border border-emerald-500/30 transition-transform group-hover:scale-105 shadow-[0_0_15px_rgba(16,185,129,0.15)] flex items-center justify-center">
                             <img src="/icon.png" alt="Schedulearr Logo" className="w-full h-full object-contain" />
                         </div>
-                        <span className="font-black text-lg text-white tracking-tight">Schedulearr</span>
+                        <div className="flex items-center gap-2">
+                            <span className="font-black text-lg text-white tracking-tight">Schedulearr</span>
+                            <span className="text-[10px] font-mono font-black px-1.5 py-0.5 rounded bg-zinc-800 text-emerald-400 border border-emerald-500/30">v{appVersion}</span>
+                        </div>
                     </Link>
 
                     {/* Clean Wrapped Desktop Items */}

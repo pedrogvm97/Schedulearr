@@ -17,7 +17,7 @@ import {
     Disc, User, ListMusic, Youtube, Globe, Heart, PlaySquare, ArrowDownToLine,
     Headphones, RadioTower, Info, Mic2, FileText, Edit3, ChevronDown,
     Terminal, AlertTriangle, Bug, Code, Cpu, Monitor, RefreshCcw, CheckCheck, Zap,
-    UploadCloud, Clapperboard
+    UploadCloud, Clapperboard, AlertCircle
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import Hls from 'hls.js';
@@ -26,6 +26,7 @@ import TheaterLiveTvPlayer from '@/components/TheaterLiveTvPlayer';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import { AddIptvProviderModal } from '@/components/AddIptvProviderModal';
 import { smartMatchScore, normalizeSearchTerm } from '@/lib/searchUtils';
+import { sanitizeSongMetadata } from '@/lib/songSanitizer';
 
 interface TheaterLibrary {
     id: string;
@@ -57,6 +58,10 @@ interface MediaItem {
     streamUrl: string;
     source?: string;
     youtubeId?: string;
+    seasonNumber?: number;
+    episodeNumber?: number;
+    seriesTitle?: string;
+    showTitle?: string;
 }
 
 interface MusicPlaylist {
@@ -275,6 +280,7 @@ function TheaterPageContent() {
 
     // Music Studio Specific States
     const [musicTab, setMusicTab] = useState<'tracks' | 'albums' | 'artists' | 'playlists' | 'online'>('albums');
+    const [musicCodecFilter, setMusicCodecFilter] = useState<'all' | 'lossless' | 'flac' | 'mp3' | 'm4a' | 'opus'>('all');
     const [playlists, setPlaylists] = useState<MusicPlaylist[]>([]);
     const [selectedAlbum, setSelectedAlbum] = useState<{ name: string; artist: string; posterUrl?: string; tracks: MediaItem[] } | null>(null);
     const [albumOfficialData, setAlbumOfficialData] = useState<{ album?: any; tracks: any[] } | null>(null);
@@ -355,23 +361,149 @@ function TheaterPageContent() {
         prevChannelRef.current = playingChannel;
     }, [playingVideo, playingChannel]);
 
-    // Handle URL search params (e.g. from Music Inspector: ?tab=music&search=...&autoplay=true)
+    // Helper to keep URL query parameters in sync with browser address bar and history
+    const syncUrlState = useCallback((updates: {
+        tab?: string;
+        subtab?: string;
+        q?: string;
+        codec?: string;
+        modal?: string | null;
+    }, push = false) => {
+        if (typeof window === 'undefined') return;
+        const url = new URL(window.location.href);
+        if (updates.tab !== undefined) {
+            if (updates.tab && updates.tab !== 'movie') url.searchParams.set('tab', updates.tab);
+            else url.searchParams.delete('tab');
+        }
+        if (updates.subtab !== undefined) {
+            if (updates.subtab && updates.subtab !== 'albums') url.searchParams.set('subtab', updates.subtab);
+            else url.searchParams.delete('subtab');
+        }
+        if (updates.q !== undefined) {
+            if (updates.q.trim()) {
+                url.searchParams.set('q', updates.q.trim());
+                url.searchParams.delete('search');
+            } else {
+                url.searchParams.delete('q');
+                url.searchParams.delete('search');
+            }
+        }
+        if (updates.codec !== undefined) {
+            if (updates.codec && updates.codec !== 'all') url.searchParams.set('codec', updates.codec);
+            else url.searchParams.delete('codec');
+        }
+        if (updates.modal !== undefined) {
+            if (updates.modal) url.searchParams.set('modal', updates.modal);
+            else url.searchParams.delete('modal');
+        }
+
+        const newPath = url.pathname + (url.search ? url.search : '');
+        if (push) {
+            window.history.pushState({ ...window.history.state, ...updates }, '', newPath);
+        } else {
+            window.history.replaceState({ ...window.history.state, ...updates }, '', newPath);
+        }
+    }, []);
+
+    // Modal Navigation Helpers with History State (so Mouse Back button closes modals cleanly without exiting or reloading)
+    const openAlbumModal = (album: any) => {
+        setSelectedAlbum(album);
+        syncUrlState({ modal: 'album' }, true);
+    };
+    const closeAlbumModal = () => {
+        setSelectedAlbum(null);
+        setAlbumOfficialData(null);
+        syncUrlState({ modal: null }, false);
+    };
+
+    const openArtistModal = (artist: any) => {
+        setSelectedArtist(artist);
+        syncUrlState({ modal: 'artist' }, true);
+    };
+    const closeArtistModal = () => {
+        setSelectedArtist(null);
+        syncUrlState({ modal: null }, false);
+    };
+
+    const openShowModal = (show: any) => {
+        setSelectedShow(show);
+        setSelectedShowSeason(null);
+        syncUrlState({ modal: 'show' }, true);
+    };
+    const closeShowModal = () => {
+        setSelectedShow(null);
+        setSelectedShowSeason(null);
+        syncUrlState({ modal: null }, false);
+    };
+
+    // Listen to browser & mouse Back / Forward navigation events (popstate)
+    useEffect(() => {
+        const handlePopState = () => {
+            // 1. If an album, artist, or show modal is open, close it and prevent leaving the tab or resetting searches!
+            if (selectedAlbum) {
+                setSelectedAlbum(null);
+                setAlbumOfficialData(null);
+                return;
+            }
+            if (selectedArtist) {
+                setSelectedArtist(null);
+                return;
+            }
+            if (selectedShow) {
+                setSelectedShow(null);
+                setSelectedShowSeason(null);
+                return;
+            }
+
+            // 2. Read URL parameters to restore tab, subtab, codec, and search query
+            const params = new URLSearchParams(window.location.search);
+            const tab = params.get('tab');
+            if (tab && ['movie', 'show', 'live', 'music', 'photos'].includes(tab)) {
+                setActiveContentTab(tab as any);
+            } else {
+                setActiveContentTab('movie');
+            }
+
+            const subtab = params.get('subtab') || params.get('musicTab');
+            if (subtab && ['albums', 'artists', 'tracks', 'playlists', 'online'].includes(subtab)) {
+                setMusicTab(subtab as any);
+            }
+
+            const q = params.get('q') || params.get('search') || '';
+            setSearchQuery(q);
+
+            const codec = params.get('codec');
+            if (codec && ['all', 'lossless', 'flac', 'mp3', 'm4a', 'opus'].includes(codec)) {
+                setMusicCodecFilter(codec as any);
+            }
+        };
+
+        window.addEventListener('popstate', handlePopState);
+        return () => window.removeEventListener('popstate', handlePopState);
+    }, [selectedAlbum, selectedArtist, selectedShow]);
+
+    // Handle Initial URL search params on mount
     useEffect(() => {
         const tabParam = searchParams.get('tab');
         const searchParam = searchParams.get('search') || searchParams.get('play') || searchParams.get('q');
         const artistParam = searchParams.get('artist');
+        const subtabParam = searchParams.get('subtab') || searchParams.get('musicTab');
+        const codecParam = searchParams.get('codec');
 
-        if (tabParam === 'music' || searchParam || artistParam) {
-            setActiveContentTab('music');
-            if (searchParam || artistParam) {
-                const fullQuery = artistParam && searchParam && !searchParam.toLowerCase().includes(artistParam.toLowerCase())
-                    ? `${artistParam} - ${searchParam}`
-                    : (searchParam || artistParam || '');
-                setMusicTab('online');
-                setOnlineMusicQuery(fullQuery);
-                setSearchQuery(fullQuery);
-                handleSearchOnlineMusic(fullQuery);
-            }
+        if (tabParam && ['movie', 'show', 'live', 'music', 'photos'].includes(tabParam)) {
+            setActiveContentTab(tabParam as any);
+        }
+        if (subtabParam && ['albums', 'artists', 'tracks', 'playlists', 'online'].includes(subtabParam)) {
+            setMusicTab(subtabParam as any);
+        }
+        if (codecParam && ['all', 'lossless', 'flac', 'mp3', 'm4a', 'opus'].includes(codecParam)) {
+            setMusicCodecFilter(codecParam as any);
+        }
+        if (searchParam || artistParam) {
+            const fullQuery = artistParam && searchParam && !searchParam.toLowerCase().includes(artistParam.toLowerCase())
+                ? `${artistParam} - ${searchParam}`
+                : (searchParam || artistParam || '');
+            setSearchQuery(fullQuery);
         }
     }, [searchParams]);
 
@@ -501,7 +633,7 @@ function TheaterPageContent() {
     const liveVideoRef = useRef<HTMLVideoElement>(null);
     const hlsInstanceRef = useRef<Hls | null>(null);
 
-    const handleOpenInVlc = (video: VideoStreamItem) => {
+    const handleOpenInVlc = (video: MediaItem) => {
         const streamOrigin = window.location.origin;
         const directStreamUrl = video.streamUrl.startsWith('http') ? video.streamUrl : `${streamOrigin}${video.streamUrl}`;
         const transcodeStreamUrl = `${directStreamUrl}${directStreamUrl.includes('?') ? '&' : '?'}transcode=universal`;
@@ -600,10 +732,14 @@ function TheaterPageContent() {
                 setLibraries(libs);
                 if (libs.length > 0 && (!activeLibraryId || !libs.some(l => l.id === activeLibraryId))) {
                     setActiveLibraryId(libs[0].id);
-                    // Auto-select content tab matching first library type
-                    const firstType = libs[0].type;
-                    if (firstType === 'movie' || firstType === 'show' || firstType === 'live' || firstType === 'music') {
-                        setActiveContentTab(firstType);
+                    // Auto-select content tab matching first library type ONLY on first initial load if no URL tab is present
+                    const urlTab = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('tab') : null;
+                    if (!urlTab) {
+                        const firstType = libs[0].type;
+                        if (firstType === 'movie' || firstType === 'show' || firstType === 'live' || firstType === 'music') {
+                            // Only set if user hasn't switched away from movie or if not music
+                            setActiveContentTab(prev => (prev === 'movie' ? firstType : prev));
+                        }
                     }
                 }
             }
@@ -1052,7 +1188,7 @@ function TheaterPageContent() {
                 setLibraries(remaining);
                 if (remaining.length > 0) {
                     if (activeContentTab === 'live') {
-                        const nextLive = remaining.find(l => l.type === 'iptv');
+                        const nextLive = remaining.find(l => l.type === 'live');
                         setActiveLibraryId(nextLive ? nextLive.id : null);
                         if (!nextLive) {
                             setIptvChannels([]);
@@ -1526,10 +1662,79 @@ function TheaterPageContent() {
         }
     };
 
-    // Music Player Handlers (powered by global MusicPlayerContext)
-    const handlePlayTrack = (track: MediaItem, queueList?: MediaItem[], startIndex = 0) => {
+    // Helper to search local server items for matching artist and title, prioritizing highest quality (FLAC > WAV > M4A > MP3)
+    const findBestLocalTrack = useCallback((queryArtist?: string, queryTitle?: string): MediaItem | null => {
+        if (!queryTitle && !queryArtist) return null;
+        const rawT = queryTitle || '';
+        const rawA = queryArtist || '';
+        const { cleanArtist, cleanTitle } = sanitizeSongMetadata(rawT, rawA);
+        const normTitle = normalizeSearchTerm(cleanTitle);
+        const normArtist = normalizeSearchTerm(cleanArtist);
+
+        const candidates = items.filter(i => {
+            if (i.category !== 'audio') return false;
+            const { cleanArtist: cArtist, cleanTitle: cTitle } = sanitizeSongMetadata(i.title || i.name || '', i.artist);
+            const iNormTitle = normalizeSearchTerm(cTitle);
+            const iNormName = normalizeSearchTerm(i.name?.replace(/\.[^/.]+$/, ''));
+            const iNormArtist = normalizeSearchTerm(cArtist || i.artist || '');
+
+            const matchTitle = (normTitle && (iNormTitle === normTitle || iNormName.includes(normTitle) || normTitle.includes(iNormTitle)));
+            if (!matchTitle) return false;
+
+            if (normArtist && iNormArtist) {
+                return iNormArtist.includes(normArtist) || normArtist.includes(iNormArtist);
+            }
+            return true;
+        });
+
+        if (candidates.length === 0) return null;
+
+        // Audio quality ranking: FLAC > ALAC > WAV > AIFF > M4A > AAC > MP3 > OPUS > OGG
+        const qualityRank: Record<string, number> = {
+            FLAC: 100,
+            ALAC: 95,
+            WAV: 90,
+            AIFF: 85,
+            M4A: 70,
+            AAC: 65,
+            MP3: 50,
+            OPUS: 40,
+            OGG: 30
+        };
+
+        candidates.sort((a, b) => {
+            const rankA = qualityRank[(a.extension || '').toUpperCase()] || 20;
+            const rankB = qualityRank[(b.extension || '').toUpperCase()] || 20;
+            return rankB - rankA;
+        });
+
+        return candidates[0];
+    }, [items]);
+
+    // Music Player Handlers (powered by global MusicPlayerContext) with local-first prioritization
+    const handlePlayTrack = useCallback((track: MediaItem, queueList?: MediaItem[], startIndex = 0) => {
+        if (!track) return;
+        const isOnlineOrMissing = Boolean(
+            track.youtubeId ||
+            track.id?.startsWith('yt-') ||
+            track.id?.startsWith('online-') ||
+            track.id?.startsWith('deezer-') ||
+            track.id?.startsWith('itunes-') ||
+            track.streamUrl?.includes('/music/stream?q=') ||
+            !track.path
+        );
+
+        if (isOnlineOrMissing) {
+            const localMatch = findBestLocalTrack(track.artist, track.title || track.name);
+            if (localMatch) {
+                toast.success(`Playing local high-quality file (${(localMatch.extension || 'FLAC').toUpperCase()}) from server!`);
+                playTrack(localMatch, queueList, startIndex);
+                return;
+            }
+        }
+
         playTrack(track, queueList, startIndex);
-    };
+    }, [findBestLocalTrack, playTrack]);
 
     const handlePlayAlbum = (albumTracks: MediaItem[]) => {
         playAlbum(albumTracks);
@@ -1913,9 +2118,83 @@ function TheaterPageContent() {
         }
     };
 
-    // Filter & Sort Items with Smart Search Relevance Scoring
+    // Visual Status Badge Component for tracks (Local / Server / Online / Missing / Downloading)
+    const renderTrackStatusBadge = (track: MediaItem) => {
+        const isOnline = Boolean(
+            track.youtubeId ||
+            track.id?.startsWith('yt-') ||
+            track.id?.startsWith('online-') ||
+            track.id?.startsWith('deezer-') ||
+            track.id?.startsWith('itunes-') ||
+            track.streamUrl?.includes('/music/stream?q=') ||
+            !track.path
+        );
+
+        const queued = musicQueueJobs.find(j => {
+            const jTitle = (j.title || '').toLowerCase();
+            const tTitle = (track.title || track.name || '').toLowerCase();
+            return jTitle && tTitle && (jTitle.includes(tTitle) || tTitle.includes(jTitle));
+        });
+
+        if (queued && (queued.status === 'downloading' || queued.status === 'queued')) {
+            return (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-500/15 text-sky-400 border border-sky-500/30 text-[9px] font-black uppercase tracking-wider shrink-0">
+                    <RefreshCw size={9} className="animate-spin text-sky-400" />
+                    {queued.status === 'downloading' ? `Downloading ${queued.progress || 0}%` : 'Queued'}
+                </span>
+            );
+        }
+
+        if (!isOnline && track.path) {
+            const ext = (track.extension || 'AUDIO').toUpperCase();
+            const isLossless = ['FLAC', 'WAV', 'ALAC', 'AIFF'].includes(ext);
+            return (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[9px] font-black uppercase tracking-wider shrink-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    On Server • {ext}
+                    {isLossless && (
+                        <span className="ml-0.5 px-1 py-0.2 rounded bg-emerald-500/30 text-[8px] text-emerald-200">Hi-Res</span>
+                    )}
+                </span>
+            );
+        }
+
+        return (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[9px] font-black uppercase tracking-wider shrink-0">
+                <Globe size={10} className="text-amber-400" />
+                Online Stream
+            </span>
+        );
+    };
+
+    // Filter & Sort Items with Smart Search Relevance Scoring & Codec Filtering
     const filteredItems = useMemo(() => {
         let list = [...items];
+
+        // Codec & Quality filter for Music Studio
+        if (activeContentTab === 'music' && musicCodecFilter !== 'all') {
+            list = list.filter(i => {
+                if (i.category !== 'audio') return false;
+                const ext = (i.extension || '').toUpperCase();
+                if (musicCodecFilter === 'lossless') {
+                    return ['FLAC', 'ALAC', 'WAV', 'AIFF'].includes(ext);
+                }
+                if (musicCodecFilter === 'flac') {
+                    return ext === 'FLAC';
+                }
+                if (musicCodecFilter === 'mp3') {
+                    return ext === 'MP3';
+                }
+                if (musicCodecFilter === 'm4a') {
+                    return ['M4A', 'AAC'].includes(ext);
+                }
+                if (musicCodecFilter === 'opus') {
+                    return ['OPUS', 'OGG'].includes(ext);
+                }
+                return true;
+            });
+        }
+
         if (searchQuery.trim()) {
             const scoredList: Array<{ item: MediaItem; score: number }> = [];
 
@@ -1960,14 +2239,15 @@ function TheaterPageContent() {
         });
 
         return list;
-    }, [items, searchQuery, sortBy, sortOrder]);
+    }, [items, searchQuery, sortBy, sortOrder, activeContentTab, musicCodecFilter]);
 
-    // Music: Derived Albums and Artists with Search Relevance Ranking
+    // Music: Derived Albums with Track-Aware Search Relevance Ranking
     const musicAlbums = useMemo(() => {
         const map = new Map<string, { name: string; artist: string; posterUrl?: string; tracks: MediaItem[]; score: number }>();
         const q = searchQuery.trim();
 
         for (const item of filteredItems) {
+            if (item.category !== 'audio') continue;
             const albumName = item.album || 'Single / Unknown Album';
             const artistName = item.artist || 'Various Artists';
             const key = `${artistName} - ${albumName}`;
@@ -1985,20 +2265,28 @@ function TheaterPageContent() {
             const alb = map.get(key)!;
             if (!alb.posterUrl && item.posterUrl) alb.posterUrl = item.posterUrl;
             alb.tracks.push(item);
+            if (q) {
+                const trackScore = smartMatchScore(q, item.title, item.name);
+                if (trackScore > alb.score) {
+                    alb.score = trackScore;
+                }
+            }
         }
 
         const albumsList = Array.from(map.values());
         if (q) {
-            return albumsList.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+            return albumsList.filter(a => a.score > 0).sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
         }
         return albumsList.sort((a, b) => a.name.localeCompare(b.name));
     }, [filteredItems, searchQuery]);
 
+    // Music: Derived Artists with Track-Aware Search Relevance Ranking
     const musicArtists = useMemo(() => {
         const map = new Map<string, { name: string; posterUrl?: string; albums: any[]; tracks: MediaItem[]; score: number }>();
         const q = searchQuery.trim();
 
         for (const item of filteredItems) {
+            if (item.category !== 'audio') continue;
             const artistName = item.artist || 'Unknown Artist';
             if (!map.has(artistName)) {
                 const score = q ? smartMatchScore(q, artistName) : 0;
@@ -2013,11 +2301,17 @@ function TheaterPageContent() {
             const art = map.get(artistName)!;
             if (!art.posterUrl && item.posterUrl) art.posterUrl = item.posterUrl;
             art.tracks.push(item);
+            if (q) {
+                const trackScore = smartMatchScore(q, item.title, item.name, item.album);
+                if (trackScore > art.score) {
+                    art.score = trackScore;
+                }
+            }
         }
 
         const artistsList = Array.from(map.values());
         if (q) {
-            return artistsList.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+            return artistsList.filter(a => a.score > 0).sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
         }
         return artistsList.sort((a, b) => a.name.localeCompare(b.name));
     }, [filteredItems, searchQuery]);
@@ -2082,8 +2376,8 @@ function TheaterPageContent() {
             const itemTitle = String(item.title || item.name || '');
             const itemPath = String(item.path || '');
             const itemFolder = String(item.folder || '').toLowerCase();
-            const isShowItem = isPlexShow || activeContentTab === 'show' || itemFolder.includes('season') || itemFolder.includes('show') || /s\d+e\d+/i.test(itemTitle) || /s\d+e\d+/i.test(itemPath);
-            if (!isShowItem && activeContentTab !== 'show') continue;
+            const isShowItem = isPlexShow || (activeContentTab as string) === 'show' || itemFolder.includes('season') || itemFolder.includes('show') || /s\d+e\d+/i.test(itemTitle) || /s\d+e\d+/i.test(itemPath);
+            if (!isShowItem && (activeContentTab as string) !== 'show') continue;
 
             const showName = isPlexShow ? item.title : extractShowName(item);
             const parsed = parseSeasonEpisode(itemTitle) || parseSeasonEpisode(itemPath) || parseSeasonEpisode(String(item.name || '')) || { season: 1, episode: 1 };
@@ -2131,6 +2425,7 @@ function TheaterPageContent() {
 
     const handleOpenShow = async (show: any) => {
         setSelectedShowSeason(null);
+        syncUrlState({ modal: 'show' }, true);
         if (show.ratingKey && (!show.seasons || show.seasons.length === 0)) {
             setLoadingShowEpisodes(true);
             setSelectedShow({
@@ -2174,7 +2469,7 @@ function TheaterPageContent() {
                 setLoadingShowEpisodes(false);
             }
         } else {
-            setSelectedShow(show);
+            openShowModal(show);
         }
     };
 
@@ -2289,8 +2584,7 @@ function TheaterPageContent() {
                     s.seasons.some(sn => sn.episodes.some(ep => ep.id === item.id || ep.path === item.path))
                 );
                 if (matchShow && matchShow.totalEpisodes > 1) {
-                    setSelectedShow(matchShow);
-                    setSelectedShowSeason(null);
+                    openShowModal(matchShow);
                     return;
                 }
             }
@@ -2502,15 +2796,18 @@ function TheaterPageContent() {
                             {/* Music Sub-Tabs: Albums, Artists/Composers, Songs, Playlists, Online Search */}
                             <div className="flex flex-wrap items-center gap-2 bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800 shadow-inner">
                                 {[
-                                    { id: 'albums', label: 'Albums', icon: <Disc size={15} /> },
-                                    { id: 'artists', label: 'Artists & Composers', icon: <User size={15} /> },
-                                    { id: 'tracks', label: 'Songs', icon: <Music size={15} /> },
+                                    { id: 'albums', label: `Albums (${musicAlbums.length})`, icon: <Disc size={15} /> },
+                                    { id: 'artists', label: `Artists (${musicArtists.length})`, icon: <User size={15} /> },
+                                    { id: 'tracks', label: `Songs (${filteredItems.filter(i => i.category === 'audio').length})`, icon: <Music size={15} /> },
                                     { id: 'playlists', label: `Playlists (${playlists.length})`, icon: <ListMusic size={15} /> },
-                                    { id: 'online', label: 'Online Search (YouTube / Spotify)', icon: <Youtube size={15} className="text-red-400" /> }
+                                    { id: 'online', label: `Online Search (${onlineResults.length})`, icon: <Youtube size={15} className="text-red-400" /> }
                                 ].map(t => (
                                     <button
                                         key={t.id}
-                                        onClick={() => setMusicTab(t.id as any)}
+                                        onClick={() => {
+                                            setMusicTab(t.id as any);
+                                            syncUrlState({ subtab: t.id });
+                                        }}
                                         className={`flex items-center gap-2 px-4 py-2 text-sm font-black rounded-xl transition-all ${
                                             musicTab === t.id
                                                 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-md'
@@ -2519,6 +2816,36 @@ function TheaterPageContent() {
                                     >
                                         {t.icon}
                                         <span>{t.label}</span>
+                                    </button>
+                                ))}
+                            </div>
+
+                            {/* Audio Quality & Codec Filters */}
+                            <div className="flex flex-wrap items-center gap-1.5 bg-zinc-950/80 p-1.5 rounded-2xl border border-zinc-800/80">
+                                <span className="text-[10px] font-black uppercase tracking-wider text-zinc-500 px-2 flex items-center gap-1">
+                                    <Sliders size={11} className="text-amber-400" /> Codec:
+                                </span>
+                                {[
+                                    { id: 'all', label: 'All' },
+                                    { id: 'lossless', label: 'FLAC / Lossless' },
+                                    { id: 'flac', label: 'FLAC' },
+                                    { id: 'm4a', label: 'M4A / AAC' },
+                                    { id: 'mp3', label: 'MP3' },
+                                    { id: 'opus', label: 'Opus / OGG' }
+                                ].map(f => (
+                                    <button
+                                        key={f.id}
+                                        onClick={() => {
+                                            setMusicCodecFilter(f.id as any);
+                                            syncUrlState({ codec: f.id });
+                                        }}
+                                        className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all ${
+                                            musicCodecFilter === f.id
+                                                ? 'bg-amber-500 text-black shadow-md font-black'
+                                                : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
+                                        }`}
+                                    >
+                                        {f.label}
                                     </button>
                                 ))}
                             </div>
@@ -2537,13 +2864,15 @@ function TheaterPageContent() {
                                     </button>
                                 )}
 
-                                <button
-                                    onClick={() => handleDeleteLibrary(activeLibrary.id, activeLibrary.name)}
-                                    className="p-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition-all text-xs font-bold"
-                                    title="Delete Music Library"
-                                >
-                                    <Trash2 size={14} />
-                                </button>
+                                {activeLibrary && (
+                                    <button
+                                        onClick={() => handleDeleteLibrary(activeLibrary.id, activeLibrary.name)}
+                                        className="p-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition-all text-xs font-bold"
+                                        title="Delete Music Library"
+                                    >
+                                        <Trash2 size={14} />
+                                    </button>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -2623,13 +2952,15 @@ function TheaterPageContent() {
                                 </button>
                             </div>
 
-                            <button
-                                onClick={() => handleDeleteLibrary(activeLibrary.id, activeLibrary.name)}
-                                className="p-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition-all text-xs font-bold"
-                                title="Delete Library"
-                            >
-                                <Trash2 size={14} />
-                            </button>
+                            {activeLibrary && (
+                                <button
+                                    onClick={() => handleDeleteLibrary(activeLibrary.id, activeLibrary.name)}
+                                    className="p-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition-all text-xs font-bold"
+                                    title="Delete Library"
+                                >
+                                    <Trash2 size={14} />
+                                </button>
+                            )}
                         </div>
                     </div>
                 ) : null}
@@ -2680,7 +3011,27 @@ function TheaterPageContent() {
                                         {searchQuery.trim() ? (
                                             <>
                                                 <p className="text-xl font-bold text-white">No albums found in library for "{searchQuery}"</p>
-                                                <p className="text-sm text-zinc-400">Showing YouTube &amp; online matches below:</p>
+                                                <p className="text-sm text-zinc-400">Search songs or switch to Online Search / YouTube:</p>
+                                                <div className="pt-2 flex items-center justify-center gap-3">
+                                                    <button
+                                                        onClick={() => {
+                                                            setMusicTab('tracks');
+                                                            syncUrlState({ subtab: 'tracks' });
+                                                        }}
+                                                        className="px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-black inline-flex items-center gap-1.5"
+                                                    >
+                                                        <Music size={14} /> Search Songs ({filteredItems.filter(i => i.category === 'audio').length})
+                                                    </button>
+                                                    <button
+                                                        onClick={() => {
+                                                            setMusicTab('online');
+                                                            syncUrlState({ subtab: 'online' });
+                                                        }}
+                                                        className="px-4 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/40 text-xs font-black inline-flex items-center gap-1.5"
+                                                    >
+                                                        <Youtube size={14} /> Search YouTube ({onlineResults.length})
+                                                    </button>
+                                                </div>
                                             </>
                                         ) : (
                                             <>
@@ -2694,7 +3045,7 @@ function TheaterPageContent() {
                                         {musicAlbums.map((album, idx) => (
                                             <div
                                                 key={idx}
-                                                onClick={() => setSelectedAlbum(album)}
+                                                onClick={() => openAlbumModal(album)}
                                                 className="group flex flex-col bg-[#09090b] border border-zinc-900 hover:border-amber-500/50 rounded-3xl overflow-hidden transition-all duration-300 shadow-xl cursor-pointer hover:-translate-y-1.5"
                                             >
                                                 <div className="relative aspect-square bg-zinc-900 overflow-hidden flex items-center justify-center border-b border-zinc-900">
@@ -2738,7 +3089,7 @@ function TheaterPageContent() {
                                                             const artName = album.artist || 'Unknown Artist';
                                                             const artistTracks = items.filter(i => (i.artist || 'Unknown Artist') === artName);
                                                             const artistAlbums = musicAlbums.filter(a => a.artist === artName);
-                                                            setSelectedArtist({ name: artName, posterUrl: album.posterUrl, albums: artistAlbums, tracks: artistTracks });
+                                                            openArtistModal({ name: artName, posterUrl: album.posterUrl, albums: artistAlbums, tracks: artistTracks });
                                                         }}
                                                         className="text-xs text-zinc-400 font-medium truncate hover:text-amber-400 hover:underline cursor-pointer transition-colors"
                                                         title="View Artist"
@@ -2749,85 +3100,6 @@ function TheaterPageContent() {
                                                 </div>
                                             </div>
                                         ))}
-                                    </div>
-                                )}
-
-                                {/* Always show YouTube Online Matches when searching in Albums tab */}
-                                {searchQuery.trim() && (
-                                    <div className="pt-6 space-y-3">
-                                        <div className="flex items-center justify-between px-2">
-                                            <span className="text-sm font-black uppercase tracking-wider text-red-400 flex items-center gap-2">
-                                                <Youtube size={18} /> YouTube &amp; Online Streaming Matches ({onlineResults.length})
-                                            </span>
-                                            {loadingOnline && (
-                                                <span className="text-xs text-amber-400 font-bold flex items-center gap-1.5">
-                                                    <RefreshCw size={12} className="animate-spin" /> Searching YouTube...
-                                                </span>
-                                            )}
-                                        </div>
-
-                                        {onlineResults.length > 0 ? (
-                                            <div className="space-y-2">
-                                                {onlineResults.map(song => (
-                                                    <div
-                                                        key={song.id}
-                                                        onClick={() => handlePlayTrack(song, onlineResults)}
-                                                        className="flex items-center justify-between p-3 sm:p-4 rounded-2xl bg-zinc-950/70 border border-zinc-900 hover:border-red-500/40 transition-all cursor-pointer group gap-3 sm:gap-4"
-                                                    >
-                                                        <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
-                                                            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-zinc-900 overflow-hidden flex items-center justify-center text-zinc-400 shrink-0">
-                                                                {song.posterUrl ? (
-                                                                    <img src={song.posterUrl} alt="" className="w-full h-full object-cover" />
-                                                                ) : (
-                                                                    <Youtube size={22} className="text-red-500" />
-                                                                )}
-                                                            </div>
-                                                            <div className="flex-1 min-w-0">
-                                                                <h4 className="font-bold text-sm sm:text-base text-white truncate group-hover:text-red-400 transition-colors">
-                                                                    {song.title}
-                                                                </h4>
-                                                                <p className="text-xs text-zinc-400 truncate flex items-center gap-1.5">
-                                                                    <span
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation();
-                                                                            setSearchQuery(song.artist);
-                                                                        }}
-                                                                        className="hover:text-amber-400 hover:underline cursor-pointer transition-colors"
-                                                                        title="Pivot to Artist"
-                                                                    >
-                                                                        {song.artist}
-                                                                    </span>
-                                                                    {' • '}
-                                                                    <span className="text-red-400 shrink-0">{song.source}</span>
-                                                                    {' • '}
-                                                                    <span className="shrink-0">{song.duration}</span>
-                                                                </p>
-                                                            </div>
-                                                        </div>
-
-                                                        <div className="flex items-center gap-2 shrink-0">
-                                                            <button
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    handleDownloadTrack(song);
-                                                                }}
-                                                                className="px-3 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 text-xs font-bold transition-all flex items-center gap-1.5"
-                                                                title="Download / Save Track"
-                                                            >
-                                                                <Download size={14} />
-                                                                <span className="hidden sm:inline">Download</span>
-                                                            </button>
-
-                                                            <button className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-red-500/15 group-hover:bg-red-500 text-red-400 group-hover:text-white flex items-center justify-center transition-all shrink-0">
-                                                                <Play size={15} className="ml-0.5" />
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        ) : !loadingOnline ? (
-                                            <p className="text-sm text-zinc-500 px-2 italic">No online YouTube tracks found for "{searchQuery}"</p>
-                                        ) : null}
                                     </div>
                                 )}
                             </div>
@@ -2842,7 +3114,27 @@ function TheaterPageContent() {
                                         {searchQuery.trim() ? (
                                             <>
                                                 <p className="text-xl font-bold text-white">No artists found in library for "{searchQuery}"</p>
-                                                <p className="text-sm text-zinc-400">Showing YouTube &amp; online matches below:</p>
+                                                <p className="text-sm text-zinc-400">Search songs or switch to Online Search / YouTube:</p>
+                                                <div className="pt-2 flex items-center justify-center gap-3">
+                                                    <button
+                                                        onClick={() => {
+                                                            setMusicTab('tracks');
+                                                            syncUrlState({ subtab: 'tracks' });
+                                                        }}
+                                                        className="px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-black inline-flex items-center gap-1.5"
+                                                    >
+                                                        <Music size={14} /> Search Songs ({filteredItems.filter(i => i.category === 'audio').length})
+                                                    </button>
+                                                    <button
+                                                        onClick={() => {
+                                                            setMusicTab('online');
+                                                            syncUrlState({ subtab: 'online' });
+                                                        }}
+                                                        className="px-4 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/40 text-xs font-black inline-flex items-center gap-1.5"
+                                                    >
+                                                        <Youtube size={14} /> Search YouTube ({onlineResults.length})
+                                                    </button>
+                                                </div>
                                             </>
                                         ) : (
                                             <>
@@ -2858,7 +3150,7 @@ function TheaterPageContent() {
                                                 key={idx}
                                                 onClick={() => {
                                                     const artistAlbums = musicAlbums.filter(a => a.artist === artist.name);
-                                                    setSelectedArtist({ name: artist.name, posterUrl: artist.posterUrl, albums: artistAlbums, tracks: artist.tracks });
+                                                    openArtistModal({ name: artist.name, posterUrl: artist.posterUrl, albums: artistAlbums, tracks: artist.tracks });
                                                 }}
                                                 className="p-5 rounded-3xl bg-[#09090b] border border-zinc-900 hover:border-amber-500/50 transition-all text-center space-y-3 cursor-pointer group hover:-translate-y-1.5 shadow-xl"
                                             >
@@ -2877,85 +3169,6 @@ function TheaterPageContent() {
                                         ))}
                                     </div>
                                 )}
-
-                                {/* Always show YouTube Online Matches when searching in Artists tab */}
-                                {searchQuery.trim() && (
-                                    <div className="pt-6 space-y-3">
-                                        <div className="flex items-center justify-between px-2">
-                                            <span className="text-sm font-black uppercase tracking-wider text-red-400 flex items-center gap-2">
-                                                <Youtube size={18} /> YouTube &amp; Online Streaming Matches ({onlineResults.length})
-                                            </span>
-                                            {loadingOnline && (
-                                                <span className="text-xs text-amber-400 font-bold flex items-center gap-1.5">
-                                                    <RefreshCw size={12} className="animate-spin" /> Searching YouTube...
-                                                </span>
-                                            )}
-                                        </div>
-
-                                        {onlineResults.length > 0 ? (
-                                            <div className="space-y-2">
-                                                {onlineResults.map(song => (
-                                                    <div
-                                                        key={song.id}
-                                                        onClick={() => handlePlayTrack(song, onlineResults)}
-                                                        className="flex items-center justify-between p-3 sm:p-4 rounded-2xl bg-zinc-950/70 border border-zinc-900 hover:border-red-500/40 transition-all cursor-pointer group gap-3 sm:gap-4"
-                                                    >
-                                                        <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
-                                                            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-zinc-900 overflow-hidden flex items-center justify-center text-zinc-400 shrink-0">
-                                                                {song.posterUrl ? (
-                                                                    <img src={song.posterUrl} alt="" className="w-full h-full object-cover" />
-                                                                ) : (
-                                                                    <Youtube size={22} className="text-red-500" />
-                                                                )}
-                                                            </div>
-                                                            <div className="flex-1 min-w-0">
-                                                                <h4 className="font-bold text-sm sm:text-base text-white truncate group-hover:text-red-400 transition-colors">
-                                                                    {song.title}
-                                                                </h4>
-                                                                <p className="text-xs text-zinc-400 truncate flex items-center gap-1.5">
-                                                                    <span
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation();
-                                                                            setSearchQuery(song.artist);
-                                                                        }}
-                                                                        className="hover:text-amber-400 hover:underline cursor-pointer transition-colors"
-                                                                        title="Pivot to Artist"
-                                                                    >
-                                                                        {song.artist}
-                                                                    </span>
-                                                                    {' • '}
-                                                                    <span className="text-red-400 shrink-0">{song.source}</span>
-                                                                    {' • '}
-                                                                    <span className="shrink-0">{song.duration}</span>
-                                                                </p>
-                                                            </div>
-                                                        </div>
-
-                                                        <div className="flex items-center gap-2 shrink-0">
-                                                            <button
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    handleDownloadTrack(song);
-                                                                }}
-                                                                className="px-3 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 text-xs font-bold transition-all flex items-center gap-1.5"
-                                                                title="Download / Save Track"
-                                                            >
-                                                                <Download size={14} />
-                                                                <span className="hidden sm:inline">Download</span>
-                                                            </button>
-
-                                                            <button className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-red-500/15 group-hover:bg-red-500 text-red-400 group-hover:text-white flex items-center justify-center transition-all shrink-0">
-                                                                <Play size={15} className="ml-0.5" />
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        ) : !loadingOnline ? (
-                                            <p className="text-sm text-zinc-500 px-2 italic">No online YouTube tracks found for "{searchQuery}"</p>
-                                        ) : null}
-                                    </div>
-                                )}
                             </div>
                         )}
 
@@ -2968,7 +3181,18 @@ function TheaterPageContent() {
                                         {searchQuery.trim() ? (
                                             <>
                                                 <p className="text-xl font-bold text-white">No tracks found in library for "{searchQuery}"</p>
-                                                <p className="text-sm text-zinc-400">Showing YouTube &amp; online matches below:</p>
+                                                <p className="text-sm text-zinc-400">Search online streaming &amp; YouTube:</p>
+                                                <div className="pt-2 flex items-center justify-center gap-3">
+                                                    <button
+                                                        onClick={() => {
+                                                            setMusicTab('online');
+                                                            syncUrlState({ subtab: 'online' });
+                                                        }}
+                                                        className="px-4 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/40 text-xs font-black inline-flex items-center gap-1.5"
+                                                    >
+                                                        <Youtube size={14} /> Search YouTube ({onlineResults.length})
+                                                    </button>
+                                                </div>
                                             </>
                                         ) : (
                                             <>
@@ -3006,17 +3230,20 @@ function TheaterPageContent() {
                                                         </div>
 
                                                         <div className="flex-1 min-w-0">
-                                                            <h4 className="font-bold text-xs sm:text-base truncate group-hover:text-amber-400 transition-colors">
-                                                                {track.title}
-                                                            </h4>
-                                                            <p className="text-[11px] sm:text-xs text-zinc-500 truncate">
+                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                <h4 className="font-bold text-xs sm:text-base truncate group-hover:text-amber-400 transition-colors">
+                                                                    {track.title}
+                                                                </h4>
+                                                                {renderTrackStatusBadge(track)}
+                                                            </div>
+                                                            <p className="text-[11px] sm:text-xs text-zinc-500 truncate flex items-center gap-1.5 mt-0.5">
                                                                 <span
                                                                     onClick={(e) => {
                                                                         e.stopPropagation();
                                                                         const artName = track.artist || 'Unknown Artist';
                                                                         const artistTracks = items.filter(i => (i.artist || 'Unknown Artist') === artName);
                                                                         const artistAlbums = musicAlbums.filter(a => a.artist === artName);
-                                                                        setSelectedArtist({ name: artName, posterUrl: track.posterUrl, albums: artistAlbums, tracks: artistTracks });
+                                                                        openArtistModal({ name: artName, posterUrl: track.posterUrl, albums: artistAlbums, tracks: artistTracks });
                                                                     }}
                                                                     className="hover:text-amber-400 hover:underline cursor-pointer transition-colors"
                                                                     title="View Artist"
@@ -3029,7 +3256,7 @@ function TheaterPageContent() {
                                                                         e.stopPropagation();
                                                                         if (track.album) {
                                                                             const alb = musicAlbums.find(a => a.name === track.album);
-                                                                            if (alb) setSelectedAlbum(alb);
+                                                                            if (alb) openAlbumModal(alb);
                                                                         }
                                                                     }}
                                                                     className="hover:text-amber-400 hover:underline cursor-pointer transition-colors"
@@ -3037,6 +3264,12 @@ function TheaterPageContent() {
                                                                 >
                                                                     {track.album || 'Single'}
                                                                 </span>
+                                                                {track.durationMs ? (
+                                                                    <>
+                                                                        {' • '}
+                                                                        <span>{Math.floor(track.durationMs / 60000)}:{Math.floor((track.durationMs % 60000) / 1000).toString().padStart(2, '0')}</span>
+                                                                    </>
+                                                                ) : null}
                                                             </p>
                                                         </div>
                                                     </div>
@@ -3075,83 +3308,19 @@ function TheaterPageContent() {
                                     </div>
                                 )}
 
-                                {/* YouTube Online Matches Embedded in Songs Tab when Searching */}
+                                {/* Dedicated bottom link to Online YouTube matches when searching */}
                                 {searchQuery.trim() && (
-                                    <div className="pt-6 space-y-3">
-                                        <div className="flex items-center justify-between px-2">
-                                            <span className="text-sm font-black uppercase tracking-wider text-red-400 flex items-center gap-2">
-                                                <Youtube size={18} /> YouTube &amp; Online Streaming Matches ({onlineResults.length})
-                                            </span>
-                                            {loadingOnline && (
-                                                <span className="text-xs text-amber-400 font-bold flex items-center gap-1.5">
-                                                    <RefreshCw size={12} className="animate-spin" /> Searching YouTube...
-                                                </span>
-                                            )}
-                                        </div>
-
-                                        {onlineResults.length > 0 ? (
-                                            <div className="space-y-2">
-                                                {onlineResults.map(song => (
-                                                    <div
-                                                        key={song.id}
-                                                        onClick={() => handlePlayTrack(song, onlineResults)}
-                                                        className="flex items-center justify-between p-2.5 sm:p-4 rounded-2xl bg-zinc-950/70 border border-zinc-900 hover:border-red-500/40 transition-all cursor-pointer group gap-2.5 sm:gap-4"
-                                                    >
-                                                        <div className="flex items-center gap-2.5 sm:gap-4 flex-1 min-w-0">
-                                                            <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-xl bg-zinc-900 overflow-hidden flex items-center justify-center text-zinc-400 shrink-0">
-                                                                {song.posterUrl ? (
-                                                                    <img src={song.posterUrl} alt="" className="w-full h-full object-cover" />
-                                                                ) : (
-                                                                    <Youtube size={20} className="text-red-500" />
-                                                                )}
-                                                            </div>
-                                                            <div className="flex-1 min-w-0">
-                                                                <h4 className="font-bold text-xs sm:text-base text-white truncate group-hover:text-red-400 transition-colors">
-                                                                    {song.title}
-                                                                </h4>
-                                                                <p className="text-[11px] sm:text-xs text-zinc-500 truncate flex items-center gap-1">
-                                                                    <span
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation();
-                                                                            setSearchQuery(song.artist);
-                                                                        }}
-                                                                        className="hover:text-amber-400 hover:underline cursor-pointer transition-colors"
-                                                                        title="Pivot to Artist"
-                                                                    >
-                                                                        {song.artist}
-                                                                    </span>
-                                                                    {' • '}
-                                                                    <span className="text-red-400 shrink-0">{song.source}</span>
-                                                                    {' • '}
-                                                                    <span className="shrink-0">{song.duration}</span>
-                                                                </p>
-                                                            </div>
-                                                        </div>
-
-                                                        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-                                                            <button
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    handleDownloadTrack(song);
-                                                                }}
-                                                                className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 text-xs font-bold transition-all flex items-center gap-1"
-                                                                title="Download / Save to Library or Device"
-                                                            >
-                                                                <Download size={13} />
-                                                                <span className="hidden sm:inline">Download / Add</span>
-                                                                <span className="sm:hidden text-[11px]">Add</span>
-                                                            </button>
-
-                                                            <button className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-red-500/15 group-hover:bg-red-500 text-red-400 group-hover:text-white flex items-center justify-center transition-all shrink-0">
-                                                                <Play size={14} className="ml-0.5" />
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        ) : !loadingOnline ? (
-                                            <p className="text-xs text-zinc-600 px-2 italic">No online YouTube tracks found for "{searchQuery}"</p>
-                                        ) : null}
+                                    <div className="pt-4 flex justify-center">
+                                        <button
+                                            onClick={() => {
+                                                setMusicTab('online');
+                                                syncUrlState({ subtab: 'online' });
+                                            }}
+                                            className="px-5 py-2.5 rounded-2xl bg-zinc-950 border border-zinc-800 hover:border-red-500/40 text-zinc-300 hover:text-white text-xs font-bold flex items-center gap-2 transition-all shadow-sm"
+                                        >
+                                            <Youtube size={15} className="text-red-400" />
+                                            View {onlineResults.length} YouTube / Online Results for "{searchQuery}"
+                                        </button>
                                     </div>
                                 )}
                             </div>
@@ -3561,7 +3730,7 @@ function TheaterPageContent() {
                 )}
 
                 {/* ── External Movies & Series Results from Providers (Netflix, HBO, Disney, Prime, etc.) ── */}
-                {searchQuery.trim() && (activeContentTab === 'movie' || activeContentTab === 'show' || activeContentTab === 'all') && (
+                {searchQuery.trim() && (activeContentTab === 'movie' || activeContentTab === 'show') && (
                     <div className="pt-8 space-y-4 border-t border-zinc-900 mt-6">
                         <div className="flex items-center justify-between">
                             <div>
@@ -3589,15 +3758,7 @@ function TheaterPageContent() {
                                     .map(item => (
                                         <div
                                             key={item.id}
-                                            onClick={() => setSelectedItemForDetails({
-                                                ...item,
-                                                isTmdb: true,
-                                                tmdbId: item.tmdbId,
-                                                title: item.title,
-                                                year: item.year,
-                                                poster: item.posterUrl,
-                                                type: item.type
-                                            })}
+                                            onClick={() => handlePlayItem(item)}
                                             className="group flex flex-col bg-[#09090b] border border-zinc-900 hover:border-amber-500/50 rounded-3xl overflow-hidden transition-all duration-300 shadow-xl cursor-pointer hover:-translate-y-1.5"
                                         >
                                             <div className="relative aspect-[2/3] bg-zinc-900 overflow-hidden flex items-center justify-center border-b border-zinc-900">
@@ -3658,12 +3819,12 @@ function TheaterPageContent() {
             {/* ── Album Detail Modal (Full Discography, Metadata, Fix Match & Track Downloads) ── */}
             {selectedAlbum && (
                 <div 
-                    onClick={(e) => { if (e.target === e.currentTarget) setSelectedAlbum(null); }}
+                    onClick={(e) => { if (e.target === e.currentTarget) closeAlbumModal(); }}
                     className="fixed inset-0 z-[220] flex items-center justify-center p-4 sm:p-6 bg-black/45 backdrop-blur-sm animate-in fade-in duration-200"
                 >
                     <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-3xl p-6 sm:p-8 space-y-6 shadow-2xl relative max-h-[85vh] overflow-y-auto custom-scrollbar flex flex-col">
                         <button
-                            onClick={() => setSelectedAlbum(null)}
+                            onClick={closeAlbumModal}
                             className="absolute top-6 right-6 p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all cursor-pointer"
                         >
                             <X size={20} />
@@ -3717,8 +3878,8 @@ function TheaterPageContent() {
                                         const artName = albumOfficialData?.album?.artist || selectedAlbum.artist;
                                         const artistTracks = items.filter(i => (i.artist || 'Various Artists') === artName);
                                         const artistAlbums = musicAlbums.filter(a => a.artist === artName);
-                                        setSelectedArtist({ name: artName, posterUrl: albumOfficialData?.album?.coverUrl || selectedAlbum.posterUrl, albums: artistAlbums, tracks: artistTracks });
-                                        setSelectedAlbum(null);
+                                        openArtistModal({ name: artName, posterUrl: albumOfficialData?.album?.coverUrl || selectedAlbum.posterUrl, albums: artistAlbums, tracks: artistTracks });
+                                        closeAlbumModal();
                                     }}
                                     className="text-sm font-semibold text-zinc-400 hover:text-amber-400 cursor-pointer transition-colors truncate"
                                     title="View Artist Discography"
@@ -3747,7 +3908,7 @@ function TheaterPageContent() {
                                     <button
                                         onClick={() => {
                                             handlePlayAlbum(selectedAlbum.tracks);
-                                            setSelectedAlbum(null);
+                                            closeAlbumModal();
                                         }}
                                         className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-black uppercase text-xs tracking-widest rounded-2xl transition-all shadow-lg shadow-amber-500/20 flex items-center gap-2 cursor-pointer"
                                     >
@@ -4024,11 +4185,13 @@ function TheaterPageContent() {
                                                                 )}
                                                             </span>
                                                         ) : isInLibrary ? (
-                                                            <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[9px] font-black uppercase shrink-0">
-                                                                In Library
+                                                            <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[9px] font-black uppercase shrink-0 flex items-center gap-1">
+                                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                                                On Server • {(localTrack?.extension || 'LOCAL').toUpperCase()}
                                                             </span>
                                                         ) : (
-                                                            <span className="px-1.5 py-0.5 rounded bg-zinc-800/80 text-zinc-500 text-[9px] font-mono shrink-0">
+                                                            <span className="px-2 py-0.5 rounded-md bg-red-500/15 text-red-400 border border-red-500/30 text-[9px] font-black uppercase shrink-0 flex items-center gap-1">
+                                                                <AlertCircle size={9} className="text-red-400" />
                                                                 Missing
                                                             </span>
                                                         )}
@@ -4110,7 +4273,12 @@ function TheaterPageContent() {
                                     >
                                         <div className="flex items-center gap-3 min-w-0">
                                             <span className="w-6 text-zinc-600 font-mono font-bold group-hover:text-amber-400">{i + 1}</span>
-                                            <span className="font-bold text-white group-hover:text-amber-400 transition-colors truncate">{track.title}</span>
+                                            <div className="flex items-center gap-2 truncate">
+                                                <span className="font-bold text-white group-hover:text-amber-400 transition-colors truncate">{track.title}</span>
+                                                <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[9px] font-black uppercase shrink-0">
+                                                    {(track.extension || 'LOCAL').toUpperCase()}
+                                                </span>
+                                            </div>
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <button
@@ -4147,10 +4315,13 @@ function TheaterPageContent() {
 
             {/* ── TV Show & Series Season & Episode Detail Modal ── */}
             {selectedShow && (
-                <div className="fixed inset-0 z-[220] flex items-center justify-center p-4 sm:p-6 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200">
+                <div 
+                    onClick={(e) => { if (e.target === e.currentTarget) closeShowModal(); }}
+                    className="fixed inset-0 z-[220] flex items-center justify-center p-4 sm:p-6 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200"
+                >
                     <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-4xl p-6 sm:p-8 space-y-6 shadow-2xl relative max-h-[88vh] overflow-y-auto custom-scrollbar flex flex-col">
                         <button
-                            onClick={() => { setSelectedShow(null); setSelectedShowSeason(null); }}
+                            onClick={closeShowModal}
                             className="absolute top-6 right-6 p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all cursor-pointer"
                         >
                             <X size={20} />
@@ -4183,7 +4354,7 @@ function TheaterPageContent() {
                                             const firstEp = selectedShow.seasons[0]?.episodes[0];
                                             if (firstEp) {
                                                 setPlayingVideo(firstEp);
-                                                setSelectedShow(null);
+                                                closeShowModal();
                                             }
                                         }}
                                         className="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black uppercase text-xs tracking-widest rounded-2xl transition-all shadow-lg shadow-emerald-500/20 flex items-center gap-2 cursor-pointer"
@@ -4232,7 +4403,7 @@ function TheaterPageContent() {
                                         key={ep.id}
                                         onClick={() => {
                                             setPlayingVideo(ep);
-                                            setSelectedShow(null);
+                                            closeShowModal();
                                         }}
                                         className="flex items-center justify-between p-3.5 rounded-2xl bg-zinc-900/40 hover:bg-zinc-900/80 border border-zinc-800/80 hover:border-emerald-500/40 transition-all cursor-pointer group text-xs gap-3"
                                     >
@@ -4264,10 +4435,13 @@ function TheaterPageContent() {
 
             {/* ── Artist & Composer Showcase Detail Modal ── */}
             {selectedArtist && (
-                <div className="fixed inset-0 z-[225] flex items-center justify-center p-4 sm:p-6 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200">
+                <div 
+                    onClick={(e) => { if (e.target === e.currentTarget) closeArtistModal(); }}
+                    className="fixed inset-0 z-[225] flex items-center justify-center p-4 sm:p-6 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200"
+                >
                     <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-4xl p-6 sm:p-8 space-y-6 shadow-2xl relative max-h-[88vh] overflow-y-auto custom-scrollbar flex flex-col">
                         <button
-                            onClick={() => setSelectedArtist(null)}
+                            onClick={closeArtistModal}
                             className="absolute top-6 right-6 p-2.5 rounded-2xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all z-20"
                             title="Close Artist Detail"
                         >
@@ -4299,7 +4473,7 @@ function TheaterPageContent() {
                                     <button
                                         onClick={() => {
                                             handlePlayAlbum(selectedArtist.tracks);
-                                            setSelectedArtist(null);
+                                            closeArtistModal();
                                         }}
                                         className="px-6 py-3.5 bg-amber-500 hover:bg-amber-400 text-black font-black uppercase text-xs tracking-widest rounded-2xl transition-all shadow-lg shadow-amber-500/20 flex items-center gap-2"
                                     >
@@ -4310,7 +4484,7 @@ function TheaterPageContent() {
                                         onClick={() => {
                                             const shuffled = [...selectedArtist.tracks].sort(() => Math.random() - 0.5);
                                             handlePlayAlbum(shuffled);
-                                            setSelectedArtist(null);
+                                            closeArtistModal();
                                         }}
                                         className="px-5 py-3.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 hover:text-white font-black uppercase text-xs tracking-widest rounded-2xl border border-zinc-800 transition-all flex items-center gap-2"
                                         title="Shuffle all songs by this artist"
@@ -4340,8 +4514,8 @@ function TheaterPageContent() {
                                         <div
                                             key={i}
                                             onClick={() => {
-                                                setSelectedAlbum(alb);
-                                                setSelectedArtist(null);
+                                                openAlbumModal(alb);
+                                                closeArtistModal();
                                             }}
                                             className="p-3.5 rounded-2xl bg-zinc-950/80 border border-zinc-900 hover:border-amber-500/50 transition-all cursor-pointer group space-y-2 shadow-sm hover:-translate-y-1"
                                         >
@@ -4377,7 +4551,10 @@ function TheaterPageContent() {
                                         <div className="flex items-center gap-3.5 min-w-0">
                                             <span className="w-6 text-zinc-600 font-mono font-bold group-hover:text-amber-400 text-xs">{i + 1}</span>
                                             <div className="min-w-0">
-                                                <h4 className="font-bold text-white group-hover:text-amber-400 transition-colors truncate">{track.title}</h4>
+                                                <div className="flex items-center gap-2">
+                                                    <h4 className="font-bold text-white group-hover:text-amber-400 transition-colors truncate">{track.title}</h4>
+                                                    {renderTrackStatusBadge(track)}
+                                                </div>
                                                 <p className="text-xs text-zinc-500 truncate">{track.album || 'Single'}</p>
                                             </div>
                                         </div>

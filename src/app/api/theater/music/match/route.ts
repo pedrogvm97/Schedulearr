@@ -21,12 +21,16 @@ export async function GET(req: Request) {
 
         let results: Array<{
             id: string;
+            trackId?: string | number;
+            collectionId?: string | number;
             title: string;
             artist: string;
             album: string;
             releaseYear?: string;
             coverUrl?: string;
             durationMs?: number;
+            genre?: string;
+            trackCount?: number;
             source: string;
         }> = [];
 

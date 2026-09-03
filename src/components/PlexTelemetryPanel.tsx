@@ -540,14 +540,14 @@ function PlexTelemetryPanelInner() {
                         <div className="flex items-center justify-between">
                             <h2 className="text-lg font-black text-white flex items-center gap-2">
                                 <Activity className="text-emerald-500" size={20} /> Live Streams
-                                {data.activeStreamsCount > 0 && (
+                                {Boolean(data && data.activeStreamsCount > 0) && (
                                     <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                                        LIVE ({data.activeStreamsCount} • {data.totalBandwidthMbps} Mbps)
+                                        LIVE ({data?.activeStreamsCount} • {data?.totalBandwidthMbps} Mbps)
                                     </span>
                                 )}
                             </h2>
 
-                            {data.activeStreamsCount > 0 && (
+                            {Boolean(data && data.activeStreamsCount > 0) && (
                                 <button
                                     onClick={handleClearAllSessions}
                                     disabled={terminatingId !== null}
@@ -564,14 +564,14 @@ function PlexTelemetryPanelInner() {
                             )}
                         </div>
                         
-                        {data.sessions.length === 0 ? (
+                        {!data || data.sessions.length === 0 ? (
                             <div className="p-8 text-center bg-zinc-950/40 rounded-2xl border border-zinc-800/80 border-dashed">
                                 <Activity className="mx-auto text-zinc-700 mb-2" size={28} />
                                 <p className="text-zinc-400 font-bold text-xs">No Active Streams Currently</p>
                             </div>
                         ) : (
                             <div className="grid grid-cols-1 gap-4">
-                                {data.sessions.map(s => {
+                                {(data?.sessions || []).map(s => {
                                     const isMusic = s.mediaType === 'music' || s.mediaType === 'track' || s.mediaType === 'audio';
                                     return (
                                         <div key={s.id} className="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800/90 shadow-xl flex gap-4">
@@ -694,7 +694,7 @@ function PlexTelemetryPanelInner() {
                                         <Tooltip 
                                             contentStyle={{ backgroundColor: '#09090b', borderColor: '#27272a', borderRadius: '12px', fontSize: '12px' }}
                                             itemStyle={{ fontWeight: 'bold' }}
-                                            formatter={(value: number) => [`${value.toFixed(1)} hours`, undefined]}
+                                            formatter={(value: any) => [`${Number(value || 0).toFixed(1)} hours`, '']}
                                         />
                                         <Legend wrapperStyle={{ fontSize: '10px' }} />
                                         {topHistoricalUsers.map((u, idx) => (
@@ -940,12 +940,12 @@ function PlexTelemetryPanelInner() {
                                                 }}
                                             />
                                             <div className="w-full h-full bg-zinc-900 items-center justify-center text-zinc-700 hidden" style={{ display: 'none' }}>
-                                                {m.mediaType === 'series' ? <Tv size={24} /> : m.mediaType === 'track' ? <Music size={24} /> : <Film size={24} />}
+                                                {((m as any).mediaType || m.type) === 'series' ? <Tv size={24} /> : ((m as any).mediaType || m.type) === 'track' ? <Music size={24} /> : <Film size={24} />}
                                             </div>
                                         </>
                                     ) : (
                                         <div className="w-full h-full bg-zinc-900 flex items-center justify-center">
-                                            {m.mediaType === 'series' ? <Tv className="text-zinc-700" size={24} /> : m.mediaType === 'track' ? <Music className="text-zinc-700" size={24} /> : <Film className="text-zinc-700" size={24} />}
+                                            {((m as any).mediaType || m.type) === 'series' ? <Tv className="text-zinc-700" size={24} /> : ((m as any).mediaType || m.type) === 'track' ? <Music className="text-zinc-700" size={24} /> : <Film className="text-zinc-700" size={24} />}
                                         </div>
                                     )}
                                     <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent p-3 flex flex-col justify-end">
