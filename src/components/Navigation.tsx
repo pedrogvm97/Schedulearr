@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -72,6 +72,22 @@ const mobileCoreNavItems = [
 export function Navigation() {
     const pathname = usePathname();
     const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
+    const [activeMusicCount, setActiveMusicCount] = useState(0);
+
+    useEffect(() => {
+        const checkQueue = async () => {
+            try {
+                const res = await fetch('/api/theater/music/queue');
+                if (res.ok) {
+                    const data = await res.json();
+                    setActiveMusicCount((data.activeCount || 0) + (data.queuedCount || 0));
+                }
+            } catch {}
+        };
+        checkQueue();
+        const interval = setInterval(checkQueue, 4000);
+        return () => clearInterval(interval);
+    }, []);
 
     const allNavItems = [...primaryNavItems, ...secondaryNavItems];
 
@@ -125,6 +141,11 @@ export function Navigation() {
                                 >
                                     <span>{item.icon(active)}</span>
                                     <span className="tracking-tight">{item.label}</span>
+                                    {item.href === '/downloads' && activeMusicCount > 0 && (
+                                        <span className="w-4 h-4 rounded-full bg-amber-500 text-black text-[9px] font-black flex items-center justify-center animate-pulse">
+                                            {activeMusicCount}
+                                        </span>
+                                    )}
                                 </Link>
                             );
                         })}
@@ -147,8 +168,13 @@ export function Navigation() {
                                         : 'text-zinc-400 hover:text-zinc-200'
                                 }`}
                             >
-                                <div className={`transition-transform duration-200 ${active ? 'scale-110' : ''}`}>
+                                <div className={`transition-transform duration-200 relative ${active ? 'scale-110' : ''}`}>
                                     {item.icon(active)}
+                                    {item.href === '/downloads' && activeMusicCount > 0 && (
+                                        <span className="absolute -top-1.5 -right-2 w-3.5 h-3.5 rounded-full bg-amber-500 text-black text-[8px] font-black flex items-center justify-center animate-pulse">
+                                            {activeMusicCount}
+                                        </span>
+                                    )}
                                 </div>
                                 <span className={`text-[10px] font-black uppercase tracking-wider mt-0.5 ${active ? 'text-white' : 'text-zinc-500'}`}>
                                     {item.label}

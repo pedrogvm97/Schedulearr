@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
-import { Film, Pause, Play, Trash2, Info, ShieldCheck, Clock, HardDrive, Tv, Sliders, Radio, Users, Download as DownloadIcon } from "lucide-react";
+import { Film, Pause, Play, Trash2, Info, ShieldCheck, Clock, HardDrive, Tv, Sliders, Radio, Users, Download as DownloadIcon, Music, Folder } from "lucide-react";
 import { MediaDetailsPanel } from "@/components/MediaDetailsPanel";
 import { ProfilesPanel } from "@/components/ProfilesPanel";
 import { IndexersPanel } from "@/components/IndexersPanel";
@@ -29,6 +29,26 @@ interface Torrent {
     tvdbId?: number;
     mediaType?: 'movie' | 'series';
     [key: string]: any;
+}
+
+interface MusicJob {
+    id: string;
+    title: string;
+    artist: string;
+    album: string;
+    format: string;
+    qualityLabel: string;
+    targetFolder: string;
+    outputPath: string;
+    coverUrl?: string;
+    status: 'queued' | 'downloading' | 'completed' | 'failed' | 'canceled';
+    progress: number;
+    speedBps: number;
+    sizeBytes: number;
+    error?: string;
+    createdAt: number;
+    startedAt?: number;
+    completedAt?: number;
 }
 
 // ─── Shared formatting helpers ─────────────────────────────────────────────────
@@ -184,6 +204,99 @@ function MediaCardRow({ torrent, onOpenMedia, onPauseResume, onDeleteClick }: Me
     );
 }
 
+// ─── Unified Music Download Row ───────────────────────────────────────────────
+interface MusicJobRowProps {
+    job: MusicJob;
+    onCancel: (id: string) => void;
+}
+
+function MusicJobRow({ job, onCancel }: MusicJobRowProps) {
+    const isCompleted = job.status === 'completed';
+    const isFailed = job.status === 'failed';
+    const isDownloading = job.status === 'downloading';
+
+    return (
+        <div className="p-3 md:px-4 md:py-3 hover:bg-zinc-800/40 transition-colors flex flex-col md:grid md:grid-cols-[auto_2fr_0.8fr_1fr_1fr_1fr_auto] gap-3 md:gap-4 md:items-center relative group">
+            {/* Poster thumbnail */}
+            <div className="w-10 h-14 rounded-md overflow-hidden bg-zinc-950 border border-zinc-800 flex-shrink-0 group-hover:border-amber-500/30 shadow-sm relative flex items-center justify-center">
+                <img
+                    src={job.coverUrl || `/api/theater/music/cover?artist=${encodeURIComponent(job.artist)}&album=${encodeURIComponent(job.album)}`}
+                    className="w-full h-full object-cover"
+                    alt=""
+                    onError={(e) => {
+                        (e.target as HTMLImageElement).src = `/api/theater/music/cover?artist=${encodeURIComponent(job.artist)}&album=${encodeURIComponent(job.album)}`;
+                    }}
+                />
+            </div>
+
+            {/* Title + badges + destination folder */}
+            <div className="min-w-0 pr-2 md:pr-0">
+                <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                    <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded-sm bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                        Music • {job.qualityLabel || 'Audio'}
+                    </span>
+                    <span className="text-[10px] text-zinc-400 font-mono truncate max-w-[280px]" title={job.outputPath || job.targetFolder}>
+                        📁 {job.outputPath || job.targetFolder}
+                    </span>
+                </div>
+                <h3 className="text-sm font-medium text-white truncate">
+                    {job.title} <span className="text-zinc-500 font-normal text-xs">— {job.artist} ({job.album})</span>
+                </h3>
+            </div>
+
+            {/* Size */}
+            <div className="text-sm text-zinc-400 flex items-center md:items-start group-hover:text-zinc-300 transition-colors font-mono">
+                <span className="md:hidden text-xs text-zinc-500 uppercase font-semibold mr-2 w-16">Size:</span>
+                {job.sizeBytes > 0 ? formatBytes(job.sizeBytes) : job.format === 'flac' ? '~35 MB' : '~10 MB'}
+            </div>
+
+            {/* Progress */}
+            <div className="flex items-center gap-2">
+                <span className="md:hidden text-xs text-zinc-500 uppercase font-semibold w-16">Progress:</span>
+                <span className="text-sm text-zinc-300 w-12 text-right">{job.progress}%</span>
+                <div className="w-16 h-1.5 bg-zinc-800 rounded-full overflow-hidden hidden lg:block border border-zinc-900 shadow-inner">
+                    <div
+                        className={`h-full ${isCompleted ? 'bg-emerald-500' : isFailed ? 'bg-red-500' : 'bg-amber-500'}`}
+                        style={{ width: `${job.progress}%` }}
+                    />
+                </div>
+            </div>
+
+            {/* Down Speed */}
+            <div className="flex md:block items-center">
+                <div className="md:hidden text-xs text-zinc-500 uppercase font-semibold mb-0 mr-2 w-16">Speed:</div>
+                <div className="flex items-center gap-3 text-xs w-full">
+                    <span className="text-amber-400 font-mono w-1/2 md:w-auto" title="Download Speed">
+                        {isDownloading ? `↓${formatSpeed(job.speedBps || 450000)}` : '-'}
+                    </span>
+                </div>
+            </div>
+
+            {/* Status / State Badge */}
+            <div className="text-xs font-bold uppercase tracking-wide">
+                <span className={`px-2 py-0.5 rounded text-[11px] ${
+                    isCompleted ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                    isFailed ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
+                    'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                }`}>
+                    {job.status}
+                </span>
+            </div>
+
+            {/* Actions */}
+            <div className="absolute top-3 right-3 md:relative md:top-auto md:right-auto flex-shrink-0 flex items-center gap-1.5">
+                <button
+                    onClick={() => onCancel(job.id)}
+                    className="p-1.5 bg-red-500/10 hover:bg-red-500/80 hover:text-white text-red-500 rounded-md transition-all shadow-sm cursor-pointer"
+                    title="Remove from Queue"
+                >
+                    <Trash2 size={15} />
+                </button>
+            </div>
+        </div>
+    );
+}
+
 // ─── Main Content Component ───────────────────────────────────────────────────
 function DownloadsContent() {
     const searchParams = useSearchParams();
@@ -195,13 +308,40 @@ function DownloadsContent() {
 
     const [activeTab, setActiveTab] = useState<'downloads' | 'profiles' | 'indexers' | 'users'>(initialTab);
     const [torrents, setTorrents] = useState<Torrent[]>([]);
+    const [musicJobs, setMusicJobs] = useState<MusicJob[]>([]);
+    const [downloadMediaFilter, setDownloadMediaFilter] = useState<'all' | 'torrents' | 'music'>('all');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
+    const fetchMusicQueue = async () => {
+        try {
+            const res = await fetch('/api/theater/music/queue');
+            if (res.ok) {
+                const data = await res.json();
+                setMusicJobs(data.jobs || []);
+            }
+        } catch {}
+    };
+
+    const handleCancelMusicJob = async (id: string) => {
+        try {
+            const res = await fetch(`/api/theater/music/queue?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+            if (res.ok) {
+                toast.success('Removed music download job');
+                fetchMusicQueue();
+            }
+        } catch {
+            toast.error('Failed to cancel job');
+        }
+    };
+
     useEffect(() => {
         const tab = searchParams.get('tab');
-        if (tab && ['downloads', 'profiles', 'indexers', 'users'].includes(tab)) {
+        if (tab === 'music') {
+            setActiveTab('downloads');
+            setDownloadMediaFilter('music');
+        } else if (tab && ['downloads', 'profiles', 'indexers', 'users'].includes(tab)) {
             setActiveTab(tab as any);
         }
     }, [searchParams]);
@@ -299,8 +439,12 @@ function DownloadsContent() {
 
     useEffect(() => {
         fetchTorrents();
+        fetchMusicQueue();
         fetchSettings();
-        const interval = setInterval(fetchTorrents, 5000);
+        const interval = setInterval(() => {
+            fetchTorrents();
+            fetchMusicQueue();
+        }, 3000);
         return () => clearInterval(interval);
     }, []);
 
@@ -471,7 +615,7 @@ function DownloadsContent() {
                                 : 'text-zinc-500 hover:text-zinc-300'
                         }`}
                     >
-                        <DownloadIcon size={16} /> Downloads ({torrents.length})
+                        <DownloadIcon size={16} /> Transfers ({torrents.length + musicJobs.length})
                     </button>
                     <button
                         onClick={() => setActiveTab('profiles')}
@@ -541,10 +685,48 @@ function DownloadsContent() {
                         </div>
                     )}
 
-                    {/* ── Torrent List ─────────────────────────────────────────────────── */}
-                    {loading && torrents.length === 0 ? (
-                        <div className="text-zinc-500 text-center py-10">Loading torrents...</div>
-                    ) : torrents.length === 0 ? (
+                    {/* ── Media Sub-Filters ────────────────────────────────────────────── */}
+                    <div className="flex items-center justify-between flex-wrap gap-3 pb-2 border-b border-zinc-800/80">
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => setDownloadMediaFilter('all')}
+                                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                                    downloadMediaFilter === 'all'
+                                        ? 'bg-zinc-800 text-white shadow-md'
+                                        : 'text-zinc-500 hover:text-zinc-300'
+                                }`}
+                            >
+                                All Media ({torrents.length + musicJobs.length})
+                            </button>
+                            <button
+                                onClick={() => setDownloadMediaFilter('torrents')}
+                                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                                    downloadMediaFilter === 'torrents'
+                                        ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30 shadow-md'
+                                        : 'text-zinc-500 hover:text-zinc-300'
+                                }`}
+                            >
+                                <DownloadIcon size={14} /> Torrents ({torrents.length})
+                            </button>
+                            <button
+                                onClick={() => setDownloadMediaFilter('music')}
+                                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                                    downloadMediaFilter === 'music'
+                                        ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-md'
+                                        : 'text-zinc-500 hover:text-zinc-300'
+                                }`}
+                            >
+                                <Music size={14} /> Music &amp; Audio ({musicJobs.length})
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* ── Transfers List ─────────────────────────────────────────────────── */}
+                    {loading && torrents.length === 0 && musicJobs.length === 0 ? (
+                        <div className="text-zinc-500 text-center py-10">Loading transfers...</div>
+                    ) : (downloadMediaFilter === 'torrents' && torrents.length === 0) ||
+                        (downloadMediaFilter === 'music' && musicJobs.length === 0) ||
+                        (downloadMediaFilter === 'all' && torrents.length === 0 && musicJobs.length === 0) ? (
                         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-8 text-center text-zinc-500">
                             No active downloads found.
                         </div>
@@ -554,7 +736,7 @@ function DownloadsContent() {
                             <div className="hidden md:grid grid-cols-[auto_2fr_0.8fr_1fr_1fr_1fr_auto] gap-4 p-4 border-b border-zinc-800 bg-zinc-950/40 text-xs font-semibold text-zinc-400">
                                 <span className="w-10">Media</span>
                                 <span className="cursor-pointer flex items-center gap-1 hover:text-white" onClick={() => toggleSort('name')}>
-                                    Release {sortField === 'name' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
+                                    Release / Title {sortField === 'name' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
                                 </span>
                                 <span className="cursor-pointer flex items-center gap-1 hover:text-white" onClick={() => toggleSort('size')}>
                                     Size {sortField === 'size' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
@@ -565,23 +747,37 @@ function DownloadsContent() {
                                 <span className="cursor-pointer flex items-center gap-1 hover:text-white" onClick={() => toggleSort('dlspeed')}>
                                     Down Speed {sortField === 'dlspeed' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
                                 </span>
-                                <span>Up Speed</span>
+                                <span>Status / Indexer</span>
                                 <span className="text-right">Actions</span>
                             </div>
 
                             <div className="divide-y divide-zinc-800/60">
-                                {sortedTorrents.map((t) => (
-                                    <MediaCardRow
-                                        key={`${t.instanceId}-${t.hash}`}
-                                        torrent={t}
-                                        onOpenMedia={handleOpenMedia}
-                                        onPauseResume={handleAction}
-                                        onDeleteClick={(torrent) => {
-                                            setSelectedHash({ hash: torrent.hash, name: torrent.name, instanceId: torrent.instanceId });
-                                            setDeleteModalOpen(true);
-                                        }}
-                                    />
-                                ))}
+                                {/* Music & Audio Downloads */}
+                                {(downloadMediaFilter === 'all' || downloadMediaFilter === 'music') &&
+                                    musicJobs.map((j) => (
+                                        <MusicJobRow
+                                            key={j.id}
+                                            job={j}
+                                            onCancel={handleCancelMusicJob}
+                                        />
+                                    ))
+                                }
+
+                                {/* Torrent Downloads */}
+                                {(downloadMediaFilter === 'all' || downloadMediaFilter === 'torrents') &&
+                                    sortedTorrents.map((t) => (
+                                        <MediaCardRow
+                                            key={`${t.instanceId}-${t.hash}`}
+                                            torrent={t}
+                                            onOpenMedia={handleOpenMedia}
+                                            onPauseResume={handleAction}
+                                            onDeleteClick={(torrent) => {
+                                                setSelectedHash({ hash: torrent.hash, name: torrent.name, instanceId: torrent.instanceId });
+                                                setDeleteModalOpen(true);
+                                            }}
+                                        />
+                                    ))
+                                }
                             </div>
                         </div>
                     )}

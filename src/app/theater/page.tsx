@@ -284,6 +284,13 @@ function TheaterPageContent() {
     const [isSearchingFixMatch, setIsSearchingFixMatch] = useState(false);
     const [isGrabbingAll, setIsGrabbingAll] = useState(false);
     const [grabProgress, setGrabProgress] = useState<{ current: number; total: number; title: string } | null>(null);
+    const [selectedDownloadQuality, setSelectedDownloadQuality] = useState<'mp3' | 'flac' | 'm4a' | 'opus' | 'original'>('mp3');
+    const [musicQueueJobs, setMusicQueueJobs] = useState<any[]>([]);
+    const [musicQueueStatus, setMusicQueueStatus] = useState<{ activeCount: number; queuedCount: number; currentJob: any | null }>({
+        activeCount: 0,
+        queuedCount: 0,
+        currentJob: null
+    });
     const [selectedArtist, setSelectedArtist] = useState<{ name: string; posterUrl?: string; albums: any[]; tracks: MediaItem[] } | null>(null);
     const [isCreatePlaylistModalOpen, setIsCreatePlaylistModalOpen] = useState(false);
     const [newPlaylistName, setNewPlaylistName] = useState('');
@@ -1229,68 +1236,91 @@ function TheaterPageContent() {
         });
     };
 
-    // Grab a single track to server library
+    // Polling background music queue
+    const fetchMusicQueue = useCallback(async () => {
+        try {
+            const res = await fetch('/api/theater/music/queue');
+            if (res.ok) {
+                const data = await res.json();
+                setMusicQueueJobs(data.jobs || []);
+                setMusicQueueStatus({
+                    activeCount: data.activeCount || 0,
+                    queuedCount: data.queuedCount || 0,
+                    currentJob: data.currentJob || null
+                });
+            }
+        } catch {}
+    }, []);
+
+    useEffect(() => {
+        fetchMusicQueue();
+        const interval = setInterval(fetchMusicQueue, 2000);
+        return () => clearInterval(interval);
+    }, [fetchMusicQueue]);
+
+    // Grab a single track into background download queue
     const handleGrabSingleTrack = async (trk: any) => {
         if (!activeLibrary) {
             toast.error('No active music library selected');
             return;
         }
         const targetFolder = (activeLibrary.folders && activeLibrary.folders[0]) || './data/music';
-        toast.info(`Looking for and downloading "${trk.title}"...`);
         try {
-            const res = await fetch('/api/theater/music/grab', {
+            const res = await fetch('/api/theater/music/queue', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     title: trk.title,
                     artist: trk.artist || selectedAlbum?.artist,
                     album: trk.album || selectedAlbum?.name,
+                    format: selectedDownloadQuality,
                     targetFolder,
                     libraryId: activeLibrary.id,
-                    coverUrl: trk.posterUrl || selectedAlbum?.posterUrl
+                    coverUrl: trk.posterUrl || albumOfficialData?.album?.coverUrl || selectedAlbum?.posterUrl
                 })
             });
             if (res.ok) {
-                toast.success(`Grabbed "${trk.title}"! Added to library.`);
-                handleRescanLibrary(activeLibrary);
+                toast.success(`Queued "${trk.title}" in background downloader.`);
+                fetchMusicQueue();
             } else {
-                const d = await res.json().catch(() => ({}));
-                toast.error(d.error || `Could not grab "${trk.title}"`);
+                toast.error(`Could not queue "${trk.title}"`);
             }
         } catch {
-            toast.error('Network error downloading track');
+            toast.error('Network error queueing track');
         }
     };
 
-    // Grab all missing album tracks sequentially
+    // Grab all missing album tracks in background download queue (NON-BLOCKING)
     const handleGrabAllMissing = async (missingList: any[]) => {
         if (!activeLibrary || missingList.length === 0) return;
-        setIsGrabbingAll(true);
         const targetFolder = (activeLibrary.folders && activeLibrary.folders[0]) || './data/music';
-        let success = 0;
-        for (let idx = 0; idx < missingList.length; idx++) {
-            const trk = missingList[idx];
-            setGrabProgress({ current: idx + 1, total: missingList.length, title: trk.title });
-            try {
-                const res = await fetch('/api/theater/music/grab', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        title: trk.title,
-                        artist: trk.artist || selectedAlbum?.artist,
-                        album: trk.album || selectedAlbum?.name,
-                        targetFolder,
-                        libraryId: activeLibrary.id,
-                        coverUrl: trk.posterUrl || selectedAlbum?.posterUrl
-                    })
-                });
-                if (res.ok) success++;
-            } catch {}
+        const coverUrl = albumOfficialData?.album?.coverUrl || selectedAlbum?.posterUrl;
+
+        const payload = missingList.map(trk => ({
+            title: trk.title,
+            artist: trk.artist || selectedAlbum?.artist,
+            album: trk.album || selectedAlbum?.name,
+            format: selectedDownloadQuality,
+            targetFolder,
+            libraryId: activeLibrary.id,
+            coverUrl: trk.posterUrl || coverUrl
+        }));
+
+        try {
+            const res = await fetch('/api/theater/music/queue', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ items: payload })
+            });
+            if (res.ok) {
+                toast.success(`Added ${payload.length} tracks to background downloader! You can safely close this screen.`);
+                fetchMusicQueue();
+            } else {
+                toast.error('Failed to add tracks to download queue.');
+            }
+        } catch {
+            toast.error('Network error submitting download queue');
         }
-        setIsGrabbingAll(false);
-        setGrabProgress(null);
-        toast.success(`Downloaded ${success} of ${missingList.length} tracks to server!`);
-        handleRescanLibrary(activeLibrary);
     };
 
     // Fix Match Search & Apply
@@ -2667,11 +2697,22 @@ function TheaterPageContent() {
                                                 className="group flex flex-col bg-[#09090b] border border-zinc-900 hover:border-amber-500/50 rounded-3xl overflow-hidden transition-all duration-300 shadow-xl cursor-pointer hover:-translate-y-1.5"
                                             >
                                                 <div className="relative aspect-square bg-zinc-900 overflow-hidden flex items-center justify-center border-b border-zinc-900">
-                                                    {album.posterUrl ? (
-                                                        <img src={album.posterUrl} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" loading="lazy" />
-                                                    ) : (
-                                                        <Disc size={56} className="text-zinc-700 group-hover:text-amber-400 group-hover:scale-110 transition-all duration-500" />
-                                                    )}
+                                                    <img
+                                                        src={album.posterUrl || `/api/theater/music/cover?artist=${encodeURIComponent(album.artist)}&album=${encodeURIComponent(album.name)}`}
+                                                        alt=""
+                                                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                                        loading="lazy"
+                                                        onError={(e) => {
+                                                            const fallback = `/api/theater/music/cover?artist=${encodeURIComponent(album.artist)}&album=${encodeURIComponent(album.name)}`;
+                                                            const img = e.target as HTMLImageElement;
+                                                            if (img.src !== fallback && !img.src.includes('/api/theater/music/cover')) {
+                                                                img.src = fallback;
+                                                            } else {
+                                                                img.style.display = 'none';
+                                                            }
+                                                        }}
+                                                    />
+                                                    <Disc size={56} className="text-zinc-800 -z-0 absolute" />
                                                     <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                                                         <button
                                                             onClick={(e) => {
@@ -3630,15 +3671,19 @@ function TheaterPageContent() {
                         {/* Album Header & Metadata Card */}
                         <div className="flex flex-col sm:flex-row items-center gap-6 pb-4 border-b border-zinc-900">
                             <div className="w-36 h-36 rounded-3xl bg-zinc-900 border border-zinc-800 overflow-hidden flex items-center justify-center text-amber-400 shrink-0 shadow-2xl relative group">
-                                {albumOfficialData?.album?.coverUrl || selectedAlbum.posterUrl ? (
-                                    <img 
-                                        src={albumOfficialData?.album?.coverUrl || selectedAlbum.posterUrl} 
-                                        alt="" 
-                                        className="w-full h-full object-cover" 
-                                    />
-                                ) : (
-                                    <Disc size={56} />
-                                )}
+                                <img 
+                                    src={albumOfficialData?.album?.coverUrl || selectedAlbum.posterUrl || `/api/theater/music/cover?artist=${encodeURIComponent(selectedAlbum.artist)}&album=${encodeURIComponent(selectedAlbum.name)}`} 
+                                    alt="" 
+                                    className="w-full h-full object-cover relative z-10" 
+                                    onError={(e) => {
+                                        const fallback = `/api/theater/music/cover?artist=${encodeURIComponent(selectedAlbum.artist)}&album=${encodeURIComponent(selectedAlbum.name)}`;
+                                        const img = e.target as HTMLImageElement;
+                                        if (img.src !== fallback && !img.src.includes('/api/theater/music/cover')) {
+                                            img.src = fallback;
+                                        }
+                                    }}
+                                />
+                                <Disc size={56} className="text-zinc-800 z-0 absolute" />
                             </div>
 
                             <div className="space-y-2 text-center sm:text-left flex-1 min-w-0">
@@ -3708,18 +3753,17 @@ function TheaterPageContent() {
                                         <Play size={15} /> Play Album
                                     </button>
 
-                                    {/* Download All Missing Tracks button */}
+                                    {/* Download All Missing Tracks button (Background Queue) */}
                                     {albumOfficialData?.tracks && albumOfficialData.tracks.some((ot: any) => !selectedAlbum.tracks.some((lt: any) => normalizeSearchTerm(lt.title) === normalizeSearchTerm(ot.title))) && (
                                         <button
-                                            disabled={isGrabbingAll}
                                             onClick={() => {
                                                 const missing = albumOfficialData.tracks.filter((ot: any) => 
                                                     !selectedAlbum.tracks.some((lt: any) => normalizeSearchTerm(lt.title) === normalizeSearchTerm(ot.title))
                                                 );
                                                 handleGrabAllMissing(missing);
                                             }}
-                                            className="px-4 py-2.5 bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-black font-black uppercase text-xs tracking-widest rounded-2xl border border-amber-500/30 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                                            title="Download all missing tracks directly to server library"
+                                            className="px-4 py-2.5 bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-black font-black uppercase text-xs tracking-widest rounded-2xl border border-amber-500/30 transition-all flex items-center gap-2 cursor-pointer shadow-lg shadow-amber-500/10"
+                                            title="Download all missing tracks directly to server library in the background"
                                         >
                                             <DownloadCloud size={14} /> Download All Missing
                                         </button>
@@ -3754,24 +3798,87 @@ function TheaterPageContent() {
                             </div>
                         </div>
 
-                        {/* Batch Grab Progress Banner */}
-                        {grabProgress && (
-                            <div className="p-3.5 rounded-2xl bg-amber-500/15 border border-amber-500/30 space-y-2 animate-in fade-in">
-                                <div className="flex items-center justify-between text-xs font-bold text-amber-300">
-                                    <span className="flex items-center gap-2">
-                                        <RefreshCw size={13} className="animate-spin" />
-                                        Downloading track {grabProgress.current} of {grabProgress.total}: "{grabProgress.title}"
-                                    </span>
-                                    <span className="font-mono">{Math.round((grabProgress.current / grabProgress.total) * 100)}%</span>
+                        {/* Download Options: Quality, Destination Folder & Estimated Size */}
+                        <div className="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800/80 space-y-3">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                                {/* Quality Selector */}
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <span className="font-bold text-zinc-400 shrink-0">Quality Preset:</span>
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                        {[
+                                            { id: 'mp3', label: 'MP3 320k', est: '~10 MB' },
+                                            { id: 'flac', label: 'FLAC Lossless', est: '~35 MB' },
+                                            { id: 'm4a', label: 'AAC 256k', est: '~8 MB' },
+                                            { id: 'opus', label: 'Opus 160k', est: '~5 MB' },
+                                            { id: 'original', label: 'Original', est: 'Source' }
+                                        ].map((q) => (
+                                            <button
+                                                key={q.id}
+                                                type="button"
+                                                onClick={() => setSelectedDownloadQuality(q.id as any)}
+                                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                                                    selectedDownloadQuality === q.id
+                                                        ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20'
+                                                        : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200 border border-zinc-800'
+                                                }`}
+                                                title={`Estimated ${q.est} per track`}
+                                            >
+                                                {q.label}
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
-                                <div className="w-full h-1.5 bg-zinc-900 rounded-full overflow-hidden">
-                                    <div 
-                                        className="h-full bg-amber-500 transition-all duration-300"
-                                        style={{ width: `${(grabProgress.current / grabProgress.total) * 100}%` }}
-                                    />
+
+                                {/* Estimated Size */}
+                                <div className="flex items-center gap-2 text-zinc-400 font-mono text-xs shrink-0">
+                                    <span className="text-zinc-500">Est. Size:</span>
+                                    <span className="text-amber-400 font-bold">
+                                        {selectedDownloadQuality === 'flac' ? '~35 MB' : selectedDownloadQuality === 'mp3' ? '~10 MB' : selectedDownloadQuality === 'm4a' ? '~8 MB' : selectedDownloadQuality === 'opus' ? '~5 MB' : '~10 MB'} / track
+                                    </span>
                                 </div>
                             </div>
-                        )}
+
+                            {/* Target Folder Path */}
+                            <div className="flex items-center gap-2 text-xs text-zinc-400 bg-zinc-900/60 px-3.5 py-2 rounded-xl border border-zinc-800">
+                                <Folder size={14} className="text-amber-400 shrink-0" />
+                                <span className="text-zinc-500 font-bold shrink-0">Server Destination:</span>
+                                <span className="font-mono text-zinc-300 truncate" title={`${(activeLibrary?.folders && activeLibrary.folders[0]) || './data/music'}/${selectedAlbum.artist}/${selectedAlbum.name}/`}>
+                                    {`${(activeLibrary?.folders && activeLibrary.folders[0]) || './data/music'}/${selectedAlbum.artist}/${selectedAlbum.name}/`}
+                                </span>
+                            </div>
+                        </div>
+
+                        {/* Active Background Queue Status for this Album */}
+                        {(() => {
+                            const albumJobs = musicQueueJobs.filter(j => 
+                                (j.artist.toLowerCase() === selectedAlbum.artist.toLowerCase() || j.album.toLowerCase() === selectedAlbum.name.toLowerCase()) &&
+                                (j.status === 'downloading' || j.status === 'queued')
+                            );
+                            if (albumJobs.length === 0) return null;
+                            const active = albumJobs.find(j => j.status === 'downloading');
+                            return (
+                                <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-2.5 animate-in fade-in">
+                                    <div className="flex items-center justify-between text-xs font-bold text-amber-300">
+                                        <span className="flex items-center gap-2">
+                                            <RefreshCw size={13} className="animate-spin text-amber-400" />
+                                            Downloading in background: "{active?.title || albumJobs[0].title}"
+                                        </span>
+                                        <span className="font-mono text-[11px] bg-amber-500/20 text-amber-300 px-2.5 py-0.5 rounded-lg border border-amber-500/30">
+                                            {albumJobs.length} track{albumJobs.length > 1 ? 's' : ''} in queue • {active?.progress || 15}%
+                                        </span>
+                                    </div>
+                                    <div className="w-full h-2 bg-zinc-900 rounded-full overflow-hidden">
+                                        <div 
+                                            className="h-full bg-amber-500 transition-all duration-300"
+                                            style={{ width: `${active?.progress || 20}%` }}
+                                        />
+                                    </div>
+                                    <p className="text-[11px] text-zinc-400">
+                                        Running in background. You are free to close this modal, listen to music, or navigate anywhere!
+                                    </p>
+                                </div>
+                            );
+                        })()}
 
                         {/* Fix Match Inline Search Panel */}
                         {isFixMatchOpen && (
@@ -3876,7 +3983,21 @@ function TheaterPageContent() {
                                                         <span className={`font-bold truncate ${isInLibrary ? 'text-white group-hover:text-amber-400' : 'text-zinc-400'}`}>
                                                             {officialTrack.title}
                                                         </span>
-                                                        {isInLibrary ? (
+                                                        {queuedJob ? (
+                                                            <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-black uppercase shrink-0 flex items-center gap-1">
+                                                                {queuedJob.status === 'downloading' ? (
+                                                                    <>
+                                                                        <RefreshCw size={9} className="animate-spin text-amber-400" />
+                                                                        Downloading ({queuedJob.progress}%)
+                                                                    </>
+                                                                ) : (
+                                                                    <>
+                                                                        <Clock size={9} className="text-zinc-400" />
+                                                                        Queued
+                                                                    </>
+                                                                )}
+                                                            </span>
+                                                        ) : isInLibrary ? (
                                                             <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[9px] font-black uppercase shrink-0">
                                                                 In Library
                                                             </span>
@@ -3921,6 +4042,20 @@ function TheaterPageContent() {
                                                             <Play size={13} className="ml-0.5" />
                                                         </button>
                                                     </>
+                                                ) : queuedJob ? (
+                                                    <div className="px-2.5 py-1.5 rounded-lg bg-amber-500/10 text-amber-300 border border-amber-500/20 flex items-center gap-1.5 text-[11px] font-bold">
+                                                        {queuedJob.status === 'downloading' ? (
+                                                            <>
+                                                                <RefreshCw size={11} className="animate-spin text-amber-400" />
+                                                                <span>{queuedJob.progress}%</span>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <Clock size={11} className="text-zinc-500" />
+                                                                <span>Queued</span>
+                                                            </>
+                                                        )}
+                                                    </div>
                                                 ) : (
                                                     /* If missing: Grab / Download Track to Server Library */
                                                     <button
@@ -3929,7 +4064,7 @@ function TheaterPageContent() {
                                                             handleGrabSingleTrack(officialTrack);
                                                         }}
                                                         className="px-2.5 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/30 flex items-center gap-1.5 transition-all text-[11px] font-bold cursor-pointer"
-                                                        title="Grab and save track to server library"
+                                                        title="Grab and save track to server library in background"
                                                     >
                                                         <DownloadCloud size={13} />
                                                         <span>Download</span>
@@ -6548,6 +6683,29 @@ function TheaterPageContent() {
                             </button>
                         </div>
                     </div>
+                </div>
+            )}
+
+            {/* Floating Background Music Download Indicator */}
+            {(musicQueueStatus.activeCount > 0 || musicQueueStatus.queuedCount > 0) && (
+                <div className="fixed bottom-24 right-6 z-[180] flex items-center gap-3 bg-zinc-950/95 border border-amber-500/40 px-4 py-2.5 rounded-2xl shadow-2xl backdrop-blur-md animate-in slide-in-from-bottom-5">
+                    <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+                        <DownloadCloud size={16} className="animate-pulse" />
+                    </div>
+                    <div className="min-w-0 pr-2">
+                        <p className="text-xs font-bold text-white truncate max-w-[200px]">
+                            {musicQueueStatus.currentJob ? `Downloading "${musicQueueStatus.currentJob.title}"` : 'Downloading Music...'}
+                        </p>
+                        <p className="text-[10px] text-zinc-400 font-mono">
+                            {musicQueueStatus.activeCount + musicQueueStatus.queuedCount} remaining • {musicQueueStatus.currentJob?.progress || 10}%
+                        </p>
+                    </div>
+                    <Link
+                        href="/downloads?tab=music"
+                        className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-black uppercase tracking-wider transition-all shrink-0"
+                    >
+                        View
+                    </Link>
                 </div>
             )}
 
