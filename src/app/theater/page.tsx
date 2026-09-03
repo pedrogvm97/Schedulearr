@@ -3238,7 +3238,20 @@ function TheaterPageContent() {
                                                     <div className="flex items-center gap-2.5 sm:gap-4 flex-1 min-w-0">
                                                         <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-zinc-900 overflow-hidden flex items-center justify-center text-zinc-400 shrink-0 relative">
                                                             {track.posterUrl ? (
-                                                                <img src={track.posterUrl} alt="" className="w-full h-full object-cover" />
+                                                                <img
+                                                                    src={track.posterUrl}
+                                                                    alt=""
+                                                                    className="w-full h-full object-cover"
+                                                                    onError={(e) => {
+                                                                        const fallback = `/api/theater/music/cover?artist=${encodeURIComponent(track.artist || '')}&album=${encodeURIComponent(track.album || '')}&title=${encodeURIComponent(track.title || '')}`;
+                                                                        const img = e.target as HTMLImageElement;
+                                                                        if (img.src !== fallback && !img.src.includes('/api/theater/music/cover')) {
+                                                                            img.src = fallback;
+                                                                        } else {
+                                                                            img.style.display = 'none';
+                                                                        }
+                                                                    }}
+                                                                />
                                                             ) : (
                                                                 <Music size={20} />
                                                             )}
@@ -3442,7 +3455,20 @@ function TheaterPageContent() {
                                                         <div className="flex items-center gap-2.5 sm:gap-4 flex-1 min-w-0">
                                                             <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-xl bg-zinc-900 overflow-hidden flex items-center justify-center text-zinc-400 shrink-0">
                                                                 {song.posterUrl ? (
-                                                                    <img src={song.posterUrl} alt="" className="w-full h-full object-cover" />
+                                                                    <img
+                                                                        src={song.posterUrl}
+                                                                        alt=""
+                                                                        className="w-full h-full object-cover"
+                                                                        onError={(e) => {
+                                                                            const fallback = `/api/theater/music/cover?artist=${encodeURIComponent(song.artist || '')}&album=${encodeURIComponent(song.album || '')}&title=${encodeURIComponent(song.title || '')}`;
+                                                                            const img = e.target as HTMLImageElement;
+                                                                            if (img.src !== fallback && !img.src.includes('/api/theater/music/cover')) {
+                                                                                img.src = fallback;
+                                                                            } else {
+                                                                                img.style.display = 'none';
+                                                                            }
+                                                                        }}
+                                                                    />
                                                                 ) : (
                                                                     <Youtube size={20} className="text-red-500" />
                                                                 )}

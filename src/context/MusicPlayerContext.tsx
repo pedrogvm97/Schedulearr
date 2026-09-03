@@ -9,7 +9,8 @@ import {
     RefreshCw, ChevronDown, Sliders, Cast, Tv, Trash2, Plus,
     Image as ImageIcon, Guitar, Activity, Zap, Layers, Music2,
     Terminal, AlertTriangle, RotateCcw, Copy, User, ExternalLink, Calendar, Radio,
-    Star, ListPlus, Heart, Youtube, Wrench
+    Star, ListPlus, Heart, Youtube, Wrench,
+    Globe, HardDrive, Server
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { sanitizeSongMetadata } from '@/lib/songSanitizer';
@@ -591,6 +592,56 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     const [audioPlaybackError, setAudioPlaybackError] = useState<{ code?: number; name?: string; message: string; details?: string; suggestion?: string; } | null>(null);
     const [audioNerdLogs, setAudioNerdLogs] = useState<{ id: string; timestamp: string; level: 'info' | 'warn' | 'error' | 'success'; message: string; details?: any }[]>([]);
     const [showAudioNerdModal, setShowAudioNerdModal] = useState(false);
+    const [bottomCoverError, setBottomCoverError] = useState(false);
+    const [vinylCoverError, setVinylCoverError] = useState(false);
+    const [normalCoverError, setNormalCoverError] = useState(false);
+
+    const getCoverFallbackUrl = (artist?: string, album?: string, title?: string) => {
+        const params = new URLSearchParams();
+        if (artist) params.set('artist', artist);
+        if (album) params.set('album', album);
+        if (title) params.set('title', title);
+        return `/api/theater/music/cover?${params.toString()}`;
+    };
+
+    const getAudioSourceInfo = (item: MediaItem | null, currentStreamUrl?: string) => {
+        if (!item) return { label: 'Audio', sublabel: 'Audio', type: 'unknown', isServer: false, colorClass: 'bg-zinc-800 text-zinc-300 border-zinc-700' };
+        
+        const stream = currentStreamUrl || item.streamUrl || '';
+        const hasLocalPath = Boolean(item.path);
+        const isYt = Boolean(item.youtubeId || item.id?.startsWith('yt-') || stream.includes('youtube') || stream.includes('googlevideo'));
+        const isOnlineSearch = stream.includes('/api/theater/music/stream') || stream.includes('online');
+
+        if (isYt || isOnlineSearch) {
+            return {
+                label: 'Web Stream',
+                sublabel: 'Online',
+                type: 'web',
+                isServer: false,
+                colorClass: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+            };
+        }
+
+        if (hasLocalPath || stream.includes('/api/theater/stream') || stream.includes('/api/plex')) {
+            const isTranscoding = stream.includes('transcode=audio') || stream.includes('transcode=mp3');
+            const ext = (item.extension || (item.path ? item.path.split('.').pop() : '') || 'audio').toUpperCase();
+            return {
+                label: isTranscoding ? `Server Transcode (${ext})` : `Server File (${ext})`,
+                sublabel: 'Server Storage',
+                type: 'server',
+                isServer: true,
+                colorClass: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+            };
+        }
+
+        return {
+            label: 'Stream',
+            sublabel: 'Audio',
+            type: 'stream',
+            isServer: false,
+            colorClass: 'bg-zinc-800 text-zinc-300 border-zinc-700'
+        };
+    };
     const [audioLogFilter, setAudioLogFilter] = useState<'all' | 'info' | 'warn' | 'error' | 'success'>('all');
     const [audioLogSearch, setAudioLogSearch] = useState('');
 
@@ -1282,15 +1333,21 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         const rawTitle = track.title || track.name || 'Track';
         const rawArtist = track.artist || '';
         const { cleanArtist, cleanTitle } = sanitizeSongMetadata(rawTitle, rawArtist);
+        const fallbackCover = getCoverFallbackUrl(cleanArtist || rawArtist, track.album, cleanTitle || rawTitle);
+        const effectiveCover = (track.posterUrl && !track.posterUrl.includes('default')) ? track.posterUrl : fallbackCover;
         const effectiveStream = track.streamUrl || (track.path ? `/api/theater/stream?path=${encodeURIComponent(track.path)}` : '');
         const cleanTrack: MediaItem = {
             ...track,
             title: cleanTitle || rawTitle || 'Track',
             artist: cleanArtist || rawArtist || 'Artist',
+            posterUrl: effectiveCover,
             streamUrl: effectiveStream,
             uploader: track.artist !== cleanArtist ? track.artist : (track as any).uploader
         };
 
+        setBottomCoverError(false);
+        setVinylCoverError(false);
+        setNormalCoverError(false);
         setPlayingAudio(cleanTrack);
         setIsAudioPlaying(true);
         if (queue && queue.length > 0) {
@@ -2227,23 +2284,45 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             title="Click to open Expanded Player with Big Art & Synced Lyrics"
                         >
                             <div className="w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl bg-zinc-900 border border-zinc-800 overflow-hidden flex items-center justify-center text-amber-400 shrink-0 relative shadow-md group-hover/art:scale-105 group-hover/art:border-amber-500/50 transition-all">
-                                {playingAudio.posterUrl ? (
-                                    <img src={playingAudio.posterUrl} alt="" className="w-full h-full object-cover" />
+                                {playingAudio.posterUrl && !bottomCoverError ? (
+                                    <img
+                                        src={playingAudio.posterUrl}
+                                        alt=""
+                                        className="w-full h-full object-cover"
+                                        onError={() => {
+                                            const fallback = getCoverFallbackUrl(playingAudio.artist, playingAudio.album, playingAudio.title);
+                                            if (playingAudio.posterUrl !== fallback) {
+                                                setPlayingAudio(prev => prev ? { ...prev, posterUrl: fallback } : prev);
+                                            } else {
+                                                setBottomCoverError(true);
+                                            }
+                                        }}
+                                    />
                                 ) : (
-                                    <Music size={20} />
+                                    <div className="w-full h-full bg-gradient-to-tr from-amber-600/20 to-zinc-900 flex items-center justify-center text-amber-400">
+                                        <Music size={20} />
+                                    </div>
                                 )}
                                 <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/art:opacity-100 flex items-center justify-center transition-opacity">
                                     <Maximize size={14} className="text-white" />
                                 </div>
                             </div>
                             <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-1 min-w-0">
+                                <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
                                     <h4 className="font-bold text-white text-xs sm:text-base truncate leading-snug group-hover/art:text-amber-400 transition-colors">{playingAudio.title}</h4>
-                                    {audioPlaybackStatus === 'loading' && (
-                                        <span className="shrink-0 px-1 py-0.2 rounded text-[8px] sm:text-[9px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 animate-pulse border border-amber-500/30">
+                                    {audioPlaybackStatus === 'loading' || audioPlaybackStatus === 'buffering' ? (
+                                        <span className="shrink-0 px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 animate-pulse border border-amber-500/30">
                                             Load
                                         </span>
-                                    )}
+                                    ) : (() => {
+                                        const srcInfo = getAudioSourceInfo(playingAudio, audioRef.current?.src);
+                                        return (
+                                            <span className={`shrink-0 px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-black uppercase tracking-wider border flex items-center gap-1 shadow-sm ${srcInfo.colorClass}`} title={srcInfo.sublabel}>
+                                                {srcInfo.isServer ? <HardDrive size={9} /> : <Globe size={9} />}
+                                                <span>{srcInfo.isServer ? 'Server File' : 'Web Stream'}</span>
+                                            </span>
+                                        );
+                                    })()}
                                 </div>
                                 <div className="flex items-center gap-1.5 truncate">
                                     <button
@@ -2784,11 +2863,19 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
                                                         {/* Center Label */}
                                                         <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden border-2 border-amber-500/60 shadow-2xl flex items-center justify-center z-10 pointer-events-none">
-                                                            {playingAudio.posterUrl ? (
+                                                            {playingAudio.posterUrl && !vinylCoverError ? (
                                                                 <img
                                                                     src={playingAudio.posterUrl}
                                                                     alt=""
                                                                     className="w-full h-full object-cover pointer-events-none"
+                                                                    onError={() => {
+                                                                        const fallback = getCoverFallbackUrl(playingAudio.artist, playingAudio.album, playingAudio.title);
+                                                                        if (playingAudio.posterUrl !== fallback) {
+                                                                            setPlayingAudio(prev => prev ? { ...prev, posterUrl: fallback } : prev);
+                                                                        } else {
+                                                                            setVinylCoverError(true);
+                                                                        }
+                                                                    }}
                                                                 />
                                                             ) : (
                                                                 <div className="w-full h-full bg-gradient-to-tr from-amber-600 to-amber-400 flex items-center justify-center text-black font-black text-[10px] text-center p-1 pointer-events-none">
@@ -2838,8 +2925,20 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 ) : (
                                     /* ── Normal High-Res Cover Artwork View ── */
                                     <div className="relative max-h-[30vh] sm:max-h-[34vh] md:max-h-[38vh] aspect-square w-auto h-full rounded-[2rem] bg-zinc-900 border-2 border-zinc-800/80 overflow-hidden shadow-2xl flex items-center justify-center">
-                                        {playingAudio.posterUrl ? (
-                                            <img src={playingAudio.posterUrl} alt="" className="w-full h-full object-cover" />
+                                        {playingAudio.posterUrl && !normalCoverError ? (
+                                            <img
+                                                src={playingAudio.posterUrl}
+                                                alt=""
+                                                className="w-full h-full object-cover"
+                                                onError={() => {
+                                                    const fallback = getCoverFallbackUrl(playingAudio.artist, playingAudio.album, playingAudio.title);
+                                                    if (playingAudio.posterUrl !== fallback) {
+                                                        setPlayingAudio(prev => prev ? { ...prev, posterUrl: fallback } : prev);
+                                                    } else {
+                                                        setNormalCoverError(true);
+                                                    }
+                                                }}
+                                            />
                                         ) : (
                                             <Disc size={72} className="text-amber-400" />
                                         )}
@@ -2850,8 +2949,19 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             {/* Track Info & Clickable Artist */}
                             <div className="text-center space-y-1 w-full px-2 shrink-0">
                                 <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                                    {/* Playback Source Indicator Badge */}
+                                    {(() => {
+                                        const srcInfo = getAudioSourceInfo(playingAudio, audioRef.current?.src);
+                                        return (
+                                            <span className={`px-2.5 py-0.5 rounded-md border text-[9px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm ${srcInfo.colorClass}`} title={srcInfo.sublabel}>
+                                                {srcInfo.isServer ? <HardDrive size={10} className="text-emerald-400" /> : <Globe size={10} className="text-cyan-400" />}
+                                                <span>{srcInfo.label}</span>
+                                            </span>
+                                        );
+                                    })()}
+
                                     <span className="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[9px] font-black uppercase tracking-wider">
-                                        {playingAudio.extension?.toUpperCase() === 'FLAC' ? 'FLAC 24-bit' : `${playingAudio.extension?.toUpperCase() || 'Audio'}`}
+                                        {playingAudio.extension?.toUpperCase() === 'FLAC' ? 'FLAC Lossless' : `${playingAudio.extension?.toUpperCase() || 'Audio'}`}
                                     </span>
                                     {playingAudio.album && (
                                         <button

@@ -36,6 +36,7 @@ export async function GET(req: NextRequest) {
         const { searchParams } = new URL(req.url);
         const artist = searchParams.get('artist') || '';
         const album = searchParams.get('album') || '';
+        const title = searchParams.get('title') || '';
         const rawPath = searchParams.get('path');
 
         // 1. If direct image path is supplied and exists
@@ -161,13 +162,24 @@ export async function GET(req: NextRequest) {
             } catch {}
         }
 
-        // 3. Query iTunes API for official album artwork
-        const queryTerm = `${artist} ${album}`.trim();
-        if (queryTerm) {
+        // 3. Query iTunes and Deezer with prioritized candidate terms
+        const cleanAlbum = album
+            .replace(/\s*[\(\[][^\)\]]*(?:deluxe|edition|remaster|bonus|explicit|version|repack|anniversary|expanded|special)[^\)\]]*[\)\]]/gi, '')
+            .trim();
+
+        const candidateQueries = Array.from(new Set([
+            `${artist} ${album}`.trim(),
+            cleanAlbum && cleanAlbum !== album ? `${artist} ${cleanAlbum}`.trim() : '',
+            title ? `${artist} ${title}`.trim() : '',
+            cleanAlbum || album
+        ])).filter(Boolean);
+
+        for (const queryTerm of candidateQueries) {
+            // A. iTunes Search
             try {
                 const itunesRes = await axios.get(`https://itunes.apple.com/search?term=${encodeURIComponent(queryTerm)}&entity=album&limit=1`, {
                     timeout: 4000,
-                    headers: { 'User-Agent': 'Schedulearr/0.5.69' }
+                    headers: { 'User-Agent': 'Schedulearr/0.5.76' }
                 });
 
                 if (Array.isArray(itunesRes.data?.results) && itunesRes.data.results.length > 0) {
@@ -184,7 +196,6 @@ export async function GET(req: NextRequest) {
 
                         const imgBuffer = Buffer.from(imgRes.data);
                         if (imgBuffer.length > 500) {
-                            // Auto-cache to local album folder if directory exists
                             if (targetDir && fs.existsSync(targetDir)) {
                                 try {
                                     fs.writeFileSync(path.join(targetDir, 'cover.jpg'), imgBuffer);
@@ -204,11 +215,11 @@ export async function GET(req: NextRequest) {
                 }
             } catch {}
 
-            // 4. Query Deezer API fallback
+            // B. Deezer Search
             try {
                 const deezerRes = await axios.get(`https://api.deezer.com/search/album?q=${encodeURIComponent(queryTerm)}&limit=1`, {
                     timeout: 4000,
-                    headers: { 'User-Agent': 'Schedulearr/0.5.69' }
+                    headers: { 'User-Agent': 'Schedulearr/0.5.76' }
                 });
 
                 if (Array.isArray(deezerRes.data?.data) && deezerRes.data.data.length > 0) {
