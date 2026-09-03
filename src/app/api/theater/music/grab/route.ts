@@ -5,11 +5,10 @@ import axios from 'axios';
 import { exec } from 'child_process';
 import util from 'util';
 import db from '@/lib/db';
-import ffmpegStatic from 'ffmpeg-static';
+import { ensureFfmpegBinaries } from '@/lib/ytdlp';
 import { downloadAudioFile } from '@/lib/musicDownloader';
 
 const execPromise = util.promisify(exec);
-const ffmpegPath: string = ffmpegStatic || 'ffmpeg';
 
 export const dynamic = 'force-dynamic';
 
@@ -109,9 +108,17 @@ export async function POST(req: Request) {
 
         const albumDir = path.join(musicRoot, cleanArtist, cleanAlbum);
         if (!fs.existsSync(albumDir)) {
-            fs.mkdirSync(albumDir, { recursive: true });
+            try {
+                fs.mkdirSync(albumDir, { recursive: true });
+            } catch (mkdirErr: any) {
+                console.error(`[GRAB] Failed to create album directory: ${albumDir}`, mkdirErr.message);
+                return NextResponse.json({
+                    error: `Cannot create directory "${albumDir}". Please verify folder permissions. (${mkdirErr.message})`
+                }, { status: 500 });
+            }
         }
 
+        const { ffmpegPath } = ensureFfmpegBinaries();
         const effectiveExt = saveFormat === 'original'
             ? (sourceFormat === 'opus' ? 'opus' : 'm4a')
             : saveFormat;

@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback, useRef, Suspense } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import {
-    Film, Tv, Music, Image as ImageIcon, Folder, Plus,
+    Film, Tv, Music, Image as ImageIcon, Folder, Plus, Settings,
     Play, Pause, Volume2, VolumeX, Maximize, X, Minimize2, Maximize2, Minus,
     Search, Trash2, ArrowRight, ChevronRight, ChevronLeft,
     HardDrive, RefreshCw, LayoutGrid, List as Rows,
@@ -1005,15 +1006,29 @@ function TheaterPageContent() {
     };
 
     const handleDeleteLibrary = async (libId: string, libName: string) => {
-        if (!confirm(`Are you sure you want to delete the library "${libName}"?`)) return;
+        if (!confirm(`Are you sure you want to delete "${libName}"?`)) return;
         try {
             const res = await fetch(`/api/theater/libraries?id=${libId}`, { method: 'DELETE' });
             if (res.ok) {
-                toast.success(`Library "${libName}" deleted`);
+                toast.success(`"${libName}" deleted`);
                 const remaining = libraries.filter(l => l.id !== libId);
                 setLibraries(remaining);
-                if (remaining.length > 0) setActiveLibraryId(remaining[0].id);
-                else setActiveLibraryId(null);
+                if (remaining.length > 0) {
+                    if (activeContentTab === 'live') {
+                        const nextLive = remaining.find(l => l.type === 'iptv');
+                        setActiveLibraryId(nextLive ? nextLive.id : null);
+                        if (!nextLive) {
+                            setIptvChannels([]);
+                            setIptvGroups([]);
+                        }
+                    } else {
+                        setActiveLibraryId(remaining[0].id);
+                    }
+                } else {
+                    setActiveLibraryId(null);
+                    setIptvChannels([]);
+                    setIptvGroups([]);
+                }
             } else {
                 toast.error('Failed to delete library');
             }
@@ -2061,6 +2076,17 @@ function TheaterPageContent() {
                                     className="p-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white transition-colors shrink-0"
                                 >
                                     <RefreshCw size={16} className={loadingItems ? 'animate-spin text-emerald-400' : ''} />
+                                </button>
+                            )}
+
+                            {/* Delete Active IPTV Provider */}
+                            {activeLibrary && activeContentTab === 'live' && (
+                                <button
+                                    onClick={() => handleDeleteLibrary(activeLibrary.id, activeLibrary.name)}
+                                    title="Delete IPTV Provider"
+                                    className="p-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors shrink-0"
+                                >
+                                    <Trash2 size={16} />
                                 </button>
                             )}
 

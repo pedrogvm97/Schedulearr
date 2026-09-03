@@ -57,3 +57,5 @@ update_key.ts
 *.bak
 *.tmp
 .antigravity/
+/bin/ffmpeg*
+/bin/ffprobe*

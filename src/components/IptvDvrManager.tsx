@@ -471,6 +471,26 @@ export function IptvDvrManager() {
         }
     };
 
+    const handleDeleteProvider = async (id: string, name: string) => {
+        if (!confirm(`Are you sure you want to delete IPTV provider "${name}"? This will permanently remove all of its channels, guide schedules, and shortlists.`)) {
+            return;
+        }
+        try {
+            const res = await fetch(`/api/theater/libraries?id=${encodeURIComponent(id)}`, {
+                method: 'DELETE'
+            });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.error || 'Failed to delete IPTV provider');
+            }
+            toast.success(`Provider "${name}" deleted`);
+            fetchAllData();
+        } catch (err: any) {
+            console.error('Delete provider error:', err);
+            toast.error(err.message || 'Failed to delete provider');
+        }
+    };
+
     const handleSaveRule = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!ruleName || !ruleQuery || !ruleFolder) {
@@ -1256,16 +1276,25 @@ export function IptvDvrManager() {
                                                 )}
                                             </div>
                                         </div>
-                                        <button
-                                            onClick={() => {
-                                                setSelectedLibraryId(lib.id);
-                                                setIsSettingsOpen(true);
-                                            }}
-                                            className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white text-xs font-bold cursor-pointer transition-colors"
-                                            title="Edit Provider, EPG Schedule & Sync"
-                                        >
-                                            <Settings size={14} />
-                                        </button>
+                                        <div className="flex items-center gap-1.5 shrink-0">
+                                            <button
+                                                onClick={() => {
+                                                    setSelectedLibraryId(lib.id);
+                                                    setIsSettingsOpen(true);
+                                                }}
+                                                className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white text-xs font-bold cursor-pointer transition-colors"
+                                                title="Edit Provider, EPG Schedule & Sync"
+                                            >
+                                                <Settings size={14} />
+                                            </button>
+                                            <button
+                                                onClick={() => handleDeleteProvider(lib.id, lib.name)}
+                                                className="p-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 border border-red-500/20 text-xs font-bold cursor-pointer transition-colors"
+                                                title="Delete IPTV Provider"
+                                            >
+                                                <Trash2 size={14} />
+                                            </button>
+                                        </div>
                                     </div>
 
                                     <div className="text-[11px] text-zinc-500 font-mono truncate bg-zinc-900/60 p-2 rounded-xl border border-zinc-800/80">

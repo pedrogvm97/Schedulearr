@@ -63,23 +63,17 @@ export async function GET(req: Request) {
             });
 
             if (dlResult.success && fs.existsSync(tempFilePath)) {
-                const stat = fs.statSync(tempFilePath);
-                const fileStream = fs.createReadStream(tempFilePath);
+                const fileBuffer = fs.readFileSync(tempFilePath);
+                try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch {}
+                const asciiName = safeFilename.replace(/[^a-zA-Z0-9._-]/g, '_');
+                const encodedName = encodeURIComponent(safeFilename);
 
-                fileStream.on('close', () => {
-                    setTimeout(() => {
-                        try {
-                            if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
-                        } catch {}
-                    }, 5000);
-                });
-
-                return new Response(Readable.toWeb(fileStream) as any, {
+                return new Response(new Uint8Array(fileBuffer), {
                     status: 200,
                     headers: {
                         'Content-Type': mimeType,
-                        'Content-Length': stat.size.toString(),
-                        'Content-Disposition': `attachment; filename="${encodeURIComponent(safeFilename)}"; filename*=UTF-8''${encodeURIComponent(safeFilename)}`,
+                        'Content-Length': fileBuffer.length.toString(),
+                        'Content-Disposition': `attachment; filename="${asciiName}"; filename*=UTF-8''${encodedName}`,
                         'Cache-Control': 'no-cache, no-store'
                     }
                 });

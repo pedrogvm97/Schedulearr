@@ -1416,9 +1416,9 @@ function MediaDetailsPanelInner({
                                         <button
                                             key={idx}
                                             onClick={() => setActiveStreamSourceIdx(idx)}
-                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
                                                 activeStreamSourceIdx === idx
-                                                    ? 'bg-amber-500 text-black shadow-md'
+                                                    ? 'bg-amber-500 text-black shadow-md font-black'
                                                     : 'text-zinc-400 hover:text-white'
                                             }`}
                                         >
@@ -1426,6 +1426,18 @@ function MediaDetailsPanelInner({
                                         </button>
                                     ))}
                                 </div>
+
+                                {(streamData.sources[activeStreamSourceIdx]?.url || streamData.sources[0]?.url) && (
+                                    <a
+                                        href={streamData.sources[activeStreamSourceIdx]?.url || streamData.sources[0]?.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="p-2.5 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-all shadow-md active:scale-95"
+                                        title="Open Stream in New Tab"
+                                    >
+                                        <ExternalLink size={18} />
+                                    </a>
+                                )}
 
                                 <button
                                     onClick={() => setIsWatchingWebStream(false)}
@@ -1443,9 +1455,9 @@ function MediaDetailsPanelInner({
                                 <button
                                     key={idx}
                                     onClick={() => setActiveStreamSourceIdx(idx)}
-                                    className={`px-2.5 py-1 rounded-lg text-xs font-bold shrink-0 transition-all ${
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold shrink-0 transition-all ${
                                         activeStreamSourceIdx === idx
-                                            ? 'bg-amber-500 text-black shadow-md'
+                                            ? 'bg-amber-500 text-black shadow-md font-black'
                                             : 'bg-zinc-900 text-zinc-400 border border-zinc-800'
                                     }`}
                                 >
@@ -1481,14 +1493,14 @@ function MediaDetailsPanelInner({
                             </div>
                         )}
 
-                        {/* Embedded Iframe Player with sandboxed popups */}
+                        {/* Embedded Iframe Player without sandbox restrictions */}
                         <div className="flex-1 w-full bg-black rounded-2xl overflow-hidden mt-3 border border-zinc-800/80 relative shadow-2xl">
                             <iframe
                                 src={streamData.sources[activeStreamSourceIdx]?.url || streamData.sources[0]?.url}
                                 className="w-full h-full border-0"
                                 allowFullScreen
                                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                                sandbox="allow-scripts allow-same-origin allow-forms allow-presentation allow-fullscreen"
+                                referrerPolicy="origin"
                             />
                         </div>
                     </div>

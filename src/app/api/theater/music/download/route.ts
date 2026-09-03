@@ -103,7 +103,7 @@ export async function GET(req: NextRequest) {
                 });
             }
 
-            return new Response(fileBuffer, {
+            return new Response(new Uint8Array(fileBuffer), {
                 status: 200,
                 headers: {
                     'Content-Type': mimeType,
@@ -348,8 +348,9 @@ export async function POST(req: Request) {
                 targetStreamUrl = new URL(targetStreamUrl, req.url).toString();
             }
 
+            const isInternalSearchStream = targetStreamUrl.includes('/api/theater/music/stream');
             const isPreviewUrl = targetStreamUrl.includes('preview') || targetStreamUrl.includes('dzcdn.net') || targetStreamUrl.includes('mzstatic.com');
-            if (targetStreamUrl.startsWith('http') && !isPreviewUrl) {
+            if (targetStreamUrl.startsWith('http') && !isPreviewUrl && !isInternalSearchStream) {
                 try {
                     console.log(`[DOWNLOAD TO SERVER] Fetching remote audio stream: ${targetStreamUrl}`);
                     const remoteRes = await axios.get(targetStreamUrl, {

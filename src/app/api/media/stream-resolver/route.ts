@@ -59,28 +59,41 @@ export async function GET(req: Request) {
                     quality: '1080p'
                 });
                 sources.push({
-                    name: 'AutoEmbed (IMDb Mirror)',
-                    url: `https://autoembed.to/movie/imdb/${resolvedImdbId}`,
+                    name: 'VidSrc.me (IMDb Mirror)',
+                    url: `https://vidsrc.me/embed/movie?imdb=${resolvedImdbId}`,
                     type: 'embed',
                     quality: '1080p'
                 });
                 sources.push({
-                    name: '2Embed (IMDb Server)',
-                    url: `https://www.2embed.cc/embed/${resolvedImdbId}`,
+                    name: 'VidSrc.pm (IMDb Alt)',
+                    url: `https://vidsrc.pm/embed/movie?imdb=${resolvedImdbId}`,
+                    type: 'embed',
+                    quality: '1080p'
+                });
+                sources.push({
+                    name: 'SmashyStream (IMDb Multi)',
+                    url: `https://embed.smashystream.com/playere.php?imdb=${resolvedImdbId}`,
+                    type: 'embed',
+                    quality: '1080p'
+                });
+                sources.push({
+                    name: 'VidSrc.su (Stream Server)',
+                    url: `https://vidsrc.su/embed/movie/${resolvedImdbId}`,
                     type: 'embed',
                     quality: '1080p'
                 });
             }
-            if (resolvedTmdbId) {
+            const tmdbOrImdb = resolvedTmdbId || resolvedImdbId;
+            if (tmdbOrImdb) {
                 sources.push({
-                    name: 'Embed.su (TMDB Multi-Audio)',
-                    url: `https://embed.su/embed/movie/${resolvedTmdbId}`,
+                    name: 'VidLink (TMDB Multi-Audio)',
+                    url: `https://vidlink.pro/movie/${tmdbOrImdb}`,
                     type: 'embed',
                     quality: '1080p'
                 });
                 sources.push({
-                    name: 'SuperEmbed (TMDB)',
-                    url: `https://multiembed.mov/?video_id=${resolvedTmdbId}&tmdb=1`,
+                    name: 'Videasy (TMDB Fast)',
+                    url: `https://player.videasy.to/movie/${tmdbOrImdb}`,
                     type: 'embed',
                     quality: '1080p'
                 });
@@ -95,28 +108,41 @@ export async function GET(req: Request) {
                     quality: '1080p'
                 });
                 sources.push({
-                    name: 'AutoEmbed (IMDb TV)',
-                    url: `https://autoembed.to/tv/imdb/${resolvedImdbId}/${season}/${episode}`,
+                    name: 'VidSrc.me (IMDb TV Mirror)',
+                    url: `https://vidsrc.me/embed/tv?imdb=${resolvedImdbId}&season=${season}&episode=${episode}`,
                     type: 'embed',
                     quality: '1080p'
                 });
                 sources.push({
-                    name: '2Embed (IMDb TV)',
-                    url: `https://www.2embed.cc/embedtv/${resolvedImdbId}&s=${season}&e=${episode}`,
+                    name: 'VidSrc.pm (IMDb TV Alt)',
+                    url: `https://vidsrc.pm/embed/tv?imdb=${resolvedImdbId}&season=${season}&episode=${episode}`,
+                    type: 'embed',
+                    quality: '1080p'
+                });
+                sources.push({
+                    name: 'SmashyStream (IMDb TV)',
+                    url: `https://embed.smashystream.com/playere.php?imdb=${resolvedImdbId}&season=${season}&episode=${episode}`,
+                    type: 'embed',
+                    quality: '1080p'
+                });
+                sources.push({
+                    name: 'VidSrc.su (IMDb TV Server)',
+                    url: `https://vidsrc.su/embed/tv/${resolvedImdbId}/${season}/${episode}`,
                     type: 'embed',
                     quality: '1080p'
                 });
             }
-            if (resolvedTmdbId) {
+            const tmdbOrImdb = resolvedTmdbId || resolvedImdbId;
+            if (tmdbOrImdb) {
                 sources.push({
-                    name: 'Embed.su (TMDB Episode)',
-                    url: `https://embed.su/embed/tv/${resolvedTmdbId}/${season}/${episode}`,
+                    name: 'VidLink (TMDB Episode)',
+                    url: `https://vidlink.pro/tv/${tmdbOrImdb}/${season}/${episode}`,
                     type: 'embed',
                     quality: '1080p'
                 });
                 sources.push({
-                    name: 'SuperEmbed (TMDB TV)',
-                    url: `https://multiembed.mov/?video_id=${resolvedTmdbId}&tmdb=1&s=${season}&e=${episode}`,
+                    name: 'Videasy (TMDB Episode)',
+                    url: `https://player.videasy.to/tv/${tmdbOrImdb}/${season}/${episode}`,
                     type: 'embed',
                     quality: '1080p'
                 });

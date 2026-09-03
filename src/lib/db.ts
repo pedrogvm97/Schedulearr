@@ -782,6 +782,10 @@ export const createTheaterLibrary = (id: string, name: string, type: string, fol
 
 export const deleteTheaterLibrary = (id: string) => {
     try {
+        db.prepare('DELETE FROM iptv_channels WHERE library_id = ?').run(id);
+        db.prepare('DELETE FROM iptv_epg WHERE library_id = ?').run(id);
+        db.prepare('DELETE FROM iptv_shortlists WHERE library_id = ?').run(id);
+        db.prepare('DELETE FROM theater_items_cache WHERE library_id = ?').run(id);
         const stmt = db.prepare('DELETE FROM theater_libraries WHERE id = ?');
         stmt.run(id);
         return true;

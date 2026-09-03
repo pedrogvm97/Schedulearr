@@ -203,22 +203,18 @@ export function MusicDownloadModal({
                         setCurrentDownloadStatus(`Ready: ${finalName}`);
                         setDownloadProgress(100);
 
-                        // 1. Direct browser attachment navigation (Guarantees native download prompt on iOS, Android, and Desktop)
+                        // Trigger download via anchor element (prevents Edge top-level navigation interruptions)
                         try {
-                            window.location.assign(prepData.downloadUrl);
+                            const a = document.createElement('a');
+                            a.href = prepData.downloadUrl;
+                            a.download = finalName;
+                            document.body.appendChild(a);
+                            a.click();
+                            setTimeout(() => {
+                                try { if (a.parentNode) a.parentNode.removeChild(a); } catch {}
+                            }, 1000);
                         } catch {
-                            // Fallback to anchor click if navigation is blocked
-                            try {
-                                const a = document.createElement('a');
-                                a.href = prepData.downloadUrl;
-                                a.download = finalName;
-                                a.target = '_self';
-                                document.body.appendChild(a);
-                                a.click();
-                                setTimeout(() => {
-                                    try { if (a.parentNode) a.parentNode.removeChild(a); } catch {}
-                                }, 3000);
-                            } catch {}
+                            window.location.assign(prepData.downloadUrl);
                         }
 
                         successCount++;
@@ -227,9 +223,13 @@ export function MusicDownloadModal({
                 } else {
                     const errData = await prepRes.json().catch(() => ({}));
                     console.warn(`Server prep failed for ${tTitle}:`, errData.error);
+                    if (!currentTrack.path) {
+                        toast.error(errData.error || `Failed to process download for "${tTitle}"`);
+                        continue;
+                    }
                 }
 
-                // Fallback: Direct stream / local file endpoint
+                // Fallback for local library files: Direct download endpoint
                 const { url: directUrl, filename: directFilename } = getDownloadUrlForTrack(currentTrack);
                 setReadyFile({
                     url: directUrl,
@@ -241,12 +241,11 @@ export function MusicDownloadModal({
                 const a = document.createElement('a');
                 a.href = directUrl;
                 a.download = directFilename;
-                a.target = '_self';
                 document.body.appendChild(a);
                 a.click();
                 setTimeout(() => {
                     try { if (a.parentNode) a.parentNode.removeChild(a); } catch {}
-                }, 3000);
+                }, 1000);
 
                 successCount++;
             } catch (err: any) {
@@ -311,9 +310,13 @@ export function MusicDownloadModal({
                 if (res.ok) {
                     savedCount++;
                     setDownloadProgress(100);
+                } else {
+                    const errData = await res.json().catch(() => ({}));
+                    toast.error(errData.error || `Could not save "${tTitle}" to server library.`);
                 }
-            } catch {
+            } catch (fetchErr: any) {
                 clearInterval(progressTimer);
+                toast.error(`Network error: ${fetchErr.message}`);
             }
 
             setDownloadProgress(Math.round(((i + 1) / tracksToProcess.length) * 100));
@@ -323,7 +326,7 @@ export function MusicDownloadModal({
         if (savedCount > 0) {
             toast.success(`Saved ${savedCount} track${savedCount > 1 ? 's' : ''} to ${selectedDest.name}!`);
             setTimeout(() => onClose(), 1000);
-        } else {
+        } else if (tracksToProcess.length > 1) {
             toast.error('Could not save tracks to server library.');
         }
     };

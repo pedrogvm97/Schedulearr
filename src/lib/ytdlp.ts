@@ -46,7 +46,11 @@ export function ensureFfmpegBinaries(): { binDir: string; ffmpegPath: string; ff
 
     // 1. Copy ffmpeg if not present in bin
     if (!fs.existsSync(ffmpegDest)) {
-        const srcFfmpeg = typeof ffmpegStatic === 'string' ? ffmpegStatic : null;
+        let srcFfmpeg: string | null = typeof ffmpegStatic === 'string' ? ffmpegStatic : ((ffmpegStatic as any)?.default || null);
+        if (!srcFfmpeg || !fs.existsSync(srcFfmpeg)) {
+            const fallback = path.join(process.cwd(), 'node_modules', 'ffmpeg-static', isWin ? 'ffmpeg.exe' : 'ffmpeg');
+            if (fs.existsSync(fallback)) srcFfmpeg = fallback;
+        }
         if (srcFfmpeg && fs.existsSync(srcFfmpeg)) {
             try {
                 fs.copyFileSync(srcFfmpeg, ffmpegDest);
@@ -57,7 +61,13 @@ export function ensureFfmpegBinaries(): { binDir: string; ffmpegPath: string; ff
 
     // 2. Copy ffprobe if not present in bin
     if (!fs.existsSync(ffprobeDest)) {
-        const srcFfprobe = (ffprobeStatic as any)?.path || (typeof ffprobeStatic === 'string' ? ffprobeStatic : null);
+        let srcFfprobe: string | null = (ffprobeStatic as any)?.path || (ffprobeStatic as any)?.default?.path || (typeof ffprobeStatic === 'string' ? ffprobeStatic : null);
+        if (!srcFfprobe || !fs.existsSync(srcFfprobe)) {
+            const arch = process.arch === 'ia32' ? 'ia32' : 'x64';
+            const platform = isWin ? 'win32' : process.platform;
+            const fallback = path.join(process.cwd(), 'node_modules', 'ffprobe-static', 'bin', platform, arch, isWin ? 'ffprobe.exe' : 'ffprobe');
+            if (fs.existsSync(fallback)) srcFfprobe = fallback;
+        }
         if (srcFfprobe && fs.existsSync(srcFfprobe)) {
             try {
                 fs.copyFileSync(srcFfprobe, ffprobeDest);
@@ -66,11 +76,57 @@ export function ensureFfmpegBinaries(): { binDir: string; ffmpegPath: string; ff
         }
     }
 
-    const effectiveFfmpeg = fs.existsSync(ffmpegDest) ? ffmpegDest : (ffmpegStatic || 'ffmpeg');
-    const effectiveFfprobe = fs.existsSync(ffprobeDest) ? ffprobeDest : ((ffprobeStatic as any)?.path || 'ffprobe');
+    // 3. Fall back to system PATH if not found in local modules
+    let systemFfmpeg: string | null = null;
+    let systemFfprobe: string | null = null;
+    if (!fs.existsSync(ffmpegDest)) {
+        try {
+            const cmd = isWin ? 'where.exe ffmpeg' : 'which ffmpeg';
+            const out = execSync(cmd, { stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim();
+            if (out) systemFfmpeg = out.split('\n')[0].trim();
+        } catch {}
+    }
+    if (!fs.existsSync(ffprobeDest)) {
+        try {
+            const cmd = isWin ? 'where.exe ffprobe' : 'which ffprobe';
+            const out = execSync(cmd, { stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim();
+            if (out) systemFfprobe = out.split('\n')[0].trim();
+        } catch {}
+    }
+
+    // Symlink or copy system binaries if available
+    if (systemFfmpeg && fs.existsSync(systemFfmpeg) && !fs.existsSync(ffmpegDest)) {
+        try {
+            if (!isWin) {
+                fs.symlinkSync(systemFfmpeg, ffmpegDest);
+            } else {
+                fs.copyFileSync(systemFfmpeg, ffmpegDest);
+            }
+        } catch {}
+    }
+    if (systemFfprobe && fs.existsSync(systemFfprobe) && !fs.existsSync(ffprobeDest)) {
+        try {
+            if (!isWin) {
+                fs.symlinkSync(systemFfprobe, ffprobeDest);
+            } else {
+                fs.copyFileSync(systemFfprobe, ffprobeDest);
+            }
+        } catch {}
+    }
+
+    const effectiveBinDir = fs.existsSync(ffmpegDest)
+        ? binDir
+        : (systemFfmpeg ? path.dirname(systemFfmpeg) : binDir);
+
+    const effectiveFfmpeg = fs.existsSync(ffmpegDest)
+        ? ffmpegDest
+        : (systemFfmpeg || (typeof ffmpegStatic === 'string' ? ffmpegStatic : (ffmpegStatic as any)?.default || 'ffmpeg'));
+    const effectiveFfprobe = fs.existsSync(ffprobeDest)
+        ? ffprobeDest
+        : (systemFfprobe || (ffprobeStatic as any)?.path || (ffprobeStatic as any)?.default?.path || 'ffprobe');
 
     return {
-        binDir,
+        binDir: effectiveBinDir,
         ffmpegPath: effectiveFfmpeg,
         ffprobePath: effectiveFfprobe
     };
