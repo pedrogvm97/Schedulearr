@@ -17,7 +17,7 @@ import {
     Disc, User, ListMusic, Youtube, Globe, Heart, PlaySquare, ArrowDownToLine,
     Headphones, RadioTower, Info, Mic2, FileText, Edit3, ChevronDown,
     Terminal, AlertTriangle, Bug, Code, Cpu, Monitor, RefreshCcw, CheckCheck, Zap,
-    UploadCloud, Clapperboard, AlertCircle
+    UploadCloud, Clapperboard, AlertCircle, GripVertical
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import Hls from 'hls.js';
@@ -265,6 +265,15 @@ function TheaterPageContent() {
     const [shortlistViewMode, setShortlistViewMode] = useState<'grid' | 'list'>('grid');
     const [shortlistPage, setShortlistPage] = useState(1);
     const shortlistPageSize = 80;
+    // Shortlist editor: EPG "now playing" search
+    const [shortlistEpgMap, setShortlistEpgMap] = useState<Record<string, { title: string; desc?: string }>>({});
+    const [shortlistEpgSearchMode, setShortlistEpgSearchMode] = useState(false);
+    const [shortlistEpgLoading, setShortlistEpgLoading] = useState(false);
+    // Shortlist editor: resolution filter
+    const [shortlistResolutionFilter, setShortlistResolutionFilter] = useState<string>('ALL');
+    // Shortlist editor: reorder panel drag state
+    const [showReorderPanel, setShowReorderPanel] = useState(false);
+    const [dragReorderIdx, setDragReorderIdx] = useState<number | null>(null);
     const [iptvUploadFile, setIptvUploadFile] = useState<File | null>(null);
     const [iptvEpgInput, setIptvEpgInput] = useState('');
     const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
@@ -2552,29 +2561,52 @@ function TheaterPageContent() {
     }, [filteredIptvChannels, iptvPage, iptvPageSize]);
 
     // Shortlist Modal Filtering & Pagination
+    const detectResolution = (name: string): string => {
+        const n = name.toUpperCase();
+        if (n.includes('4K') || n.includes('UHD') || n.includes('2160')) return '4K';
+        if (n.includes('1080') || n.includes('FHD')) return '1080p';
+        if (n.includes('720') || n.includes('HD')) return '720p';
+        if (n.includes(' SD') || n.includes('|SD') || n.endsWith('SD')) return 'SD';
+        return 'Unknown';
+    };
+
     const filteredShortlistChannels = useMemo(() => {
         let list = iptvChannels;
         if (shortlistCategoryFilter !== 'ALL') {
             list = list.filter(c => c.group === shortlistCategoryFilter);
         }
+        // Resolution filter
+        if (shortlistResolutionFilter !== 'ALL') {
+            list = list.filter(c => detectResolution(c.name) === shortlistResolutionFilter);
+        }
         const rawSearch = shortlistSearch.trim();
         if (rawSearch) {
-            // Support multi-term search: comma-separated terms are OR'd
-            const terms = rawSearch.split(',').map(t => t.trim()).filter(Boolean);
-            if (terms.length === 1) {
-                list = list.filter(c => smartMatchScore(terms[0], c.name, c.cleanName, c.group) > 0);
+            if (shortlistEpgSearchMode) {
+                // EPG "now playing" search: match programme title in shortlistEpgMap
+                const terms = rawSearch.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+                list = list.filter(c => {
+                    const prog = shortlistEpgMap[c.id];
+                    if (!prog) return false;
+                    return terms.some(t => prog.title.toLowerCase().includes(t));
+                });
             } else {
-                list = list.filter(c =>
-                    terms.some(term => smartMatchScore(term, c.name, c.cleanName, c.group) > 0)
-                );
+                // Normal name/group search: comma = OR
+                const terms = rawSearch.split(',').map(t => t.trim()).filter(Boolean);
+                if (terms.length === 1) {
+                    list = list.filter(c => smartMatchScore(terms[0], c.name, c.cleanName, c.group) > 0);
+                } else {
+                    list = list.filter(c =>
+                        terms.some(term => smartMatchScore(term, c.name, c.cleanName, c.group) > 0)
+                    );
+                }
             }
         }
         return list;
-    }, [iptvChannels, shortlistCategoryFilter, shortlistSearch]);
+    }, [iptvChannels, shortlistCategoryFilter, shortlistSearch, shortlistResolutionFilter, shortlistEpgSearchMode, shortlistEpgMap]);
 
     useEffect(() => {
         setShortlistPage(1);
-    }, [shortlistCategoryFilter, shortlistSearch]);
+    }, [shortlistCategoryFilter, shortlistSearch, shortlistResolutionFilter, shortlistEpgSearchMode]);
 
     const totalShortlistPages = Math.ceil(filteredShortlistChannels.length / shortlistPageSize) || 1;
     const paginatedShortlistChannels = useMemo(() => {
@@ -5848,28 +5880,69 @@ function TheaterPageContent() {
 
                             <div className="space-y-3">
                                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
-                                    {/* Search Bar */}
-                                    <div className="relative flex-1">
-                                        <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
-                                        <input
-                                            type="text"
-                                            placeholder="Search by name, group… use commas for multiple terms (e.g. dazn, sport tv, rtp)"
-                                            value={shortlistSearch}
-                                            onChange={e => setShortlistSearch(e.target.value)}
-                                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-zinc-500 outline-none focus:border-red-500 transition-colors"
-                                        />
-                                        {shortlistSearch && (
-                                            <button
-                                                type="button"
-                                                onClick={() => setShortlistSearch('')}
-                                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white p-0.5 cursor-pointer"
-                                            >
-                                                <X size={13} />
-                                            </button>
-                                        )}
+                                    {/* Search Bar with EPG mode toggle */}
+                                    <div className="relative flex-1 flex items-center gap-2">
+                                        <div className="relative flex-1">
+                                            <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+                                            <input
+                                                type="text"
+                                                placeholder={shortlistEpgSearchMode
+                                                    ? "Search by what's airing now (e.g. Champions League, News, Film…)"
+                                                    : "Search by name, group… commas = OR (e.g. dazn, sport tv, rtp)"}
+                                                value={shortlistSearch}
+                                                onChange={e => setShortlistSearch(e.target.value)}
+                                                className={`w-full bg-zinc-950 border rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-zinc-500 outline-none transition-colors ${shortlistEpgSearchMode ? 'border-amber-500/50 focus:border-amber-400' : 'border-zinc-800 focus:border-red-500'}`}
+                                            />
+                                            {shortlistSearch && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShortlistSearch('')}
+                                                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white p-0.5 cursor-pointer"
+                                                >
+                                                    <X size={13} />
+                                                </button>
+                                            )}
+                                        </div>
+                                        {/* EPG "Now Playing" search toggle */}
+                                        <button
+                                            type="button"
+                                            title={shortlistEpgSearchMode ? 'Switch to channel name search' : 'Search by what\'s airing now on each channel'}
+                                            onClick={async () => {
+                                                const next = !shortlistEpgSearchMode;
+                                                setShortlistEpgSearchMode(next);
+                                                if (next && Object.keys(shortlistEpgMap).length === 0 && activeLibrary) {
+                                                    setShortlistEpgLoading(true);
+                                                    try {
+                                                        const allKeys = iptvChannels.flatMap(c => [c.tvgId, c.tvgName, c.cleanName, c.name].filter(Boolean)).slice(0, 400);
+                                                        const unique = Array.from(new Set(allKeys));
+                                                        const res = await fetch(`/api/theater/iptv/epg?libraryId=${activeLibrary.id}&tvgIds=${encodeURIComponent(unique.join(','))}`);
+                                                        if (res.ok) {
+                                                            const data = await res.json();
+                                                            const now = new Date();
+                                                            const map: Record<string, { title: string; desc?: string }> = {};
+                                                            // Build channel id → current programme lookup
+                                                            for (const chan of iptvChannels) {
+                                                                const keys = [chan.tvgId, chan.tvgName, chan.cleanName, chan.name].filter(Boolean) as string[];
+                                                                for (const k of keys) {
+                                                                    const progs: any[] = data.epg?.[k] || data.epg?.[k?.toLowerCase()] || [];
+                                                                    const cur = progs.find((p: any) => new Date(p.start_time) <= now && new Date(p.end_time) >= now);
+                                                                    if (cur) { map[chan.id] = { title: cur.title, desc: cur.description }; break; }
+                                                                }
+                                                            }
+                                                            setShortlistEpgMap(map);
+                                                        }
+                                                    } catch {}
+                                                    setShortlistEpgLoading(false);
+                                                }
+                                            }}
+                                            className={`shrink-0 px-2.5 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${shortlistEpgSearchMode ? 'bg-amber-500/20 border-amber-500/50 text-amber-300' : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-amber-400 hover:border-amber-500/30'}`}
+                                        >
+                                            {shortlistEpgLoading ? <span className="w-3 h-3 border border-amber-400 border-t-transparent rounded-full animate-spin inline-block" /> : <Calendar size={13} />}
+                                            <span className="hidden sm:inline">Now Playing</span>
+                                        </button>
                                     </div>
 
-                                    {/* Category Filter & View Toggle */}
+                                    {/* Category Filter & View Toggle & Reorder */}
                                     <div className="flex items-center gap-2">
                                         <select
                                             value={shortlistCategoryFilter}
@@ -5906,8 +5979,92 @@ function TheaterPageContent() {
                                                 <Rows size={14} />
                                             </button>
                                         </div>
+
+                                        {/* Reorder selected channels panel toggle */}
+                                        {shortlistSelectedChanIds.length > 1 && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowReorderPanel(v => !v)}
+                                                title="Reorder selected channels"
+                                                className={`p-1.5 rounded-xl border text-xs font-bold flex items-center gap-1 transition-all ${showReorderPanel ? 'bg-purple-500/20 border-purple-500/50 text-purple-300' : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-purple-400 hover:border-purple-500/30'}`}
+                                            >
+                                                <GripVertical size={14} />
+                                                <span className="hidden sm:inline">Reorder</span>
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
+
+                                {/* Resolution Filter Chips */}
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-[10px] font-black text-zinc-600 uppercase tracking-wider shrink-0">Quality:</span>
+                                    {(['ALL', '4K', '1080p', '720p', 'SD', 'Unknown'] as const).map(r => (
+                                        <button
+                                            key={r}
+                                            type="button"
+                                            onClick={() => setShortlistResolutionFilter(r === shortlistResolutionFilter ? 'ALL' : r)}
+                                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition-all cursor-pointer ${shortlistResolutionFilter === r
+                                                ? r === '4K' ? 'bg-purple-500/20 border-purple-500/50 text-purple-300'
+                                                : r === '1080p' ? 'bg-blue-500/20 border-blue-500/50 text-blue-300'
+                                                : r === '720p' ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                                                : r === 'SD' ? 'bg-zinc-600/40 border-zinc-500 text-zinc-300'
+                                                : 'bg-zinc-800 border-zinc-700 text-white'
+                                                : 'bg-zinc-950 border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700'
+                                            }`}
+                                        >
+                                            {r === 'ALL' ? 'All Resolutions' : r}
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {/* Reorder Panel: drag-to-reorder selected channels */}
+                                {showReorderPanel && shortlistSelectedChanIds.length > 1 && (
+                                    <div className="bg-zinc-950 border border-purple-500/20 rounded-2xl p-3 space-y-1.5 max-h-56 overflow-y-auto custom-scrollbar">
+                                        <p className="text-[10px] font-black text-purple-400 uppercase tracking-wider px-1 mb-2">
+                                            Drag to reorder · {shortlistSelectedChanIds.length} channels selected
+                                        </p>
+                                        {shortlistSelectedChanIds.map((cid, idx) => {
+                                            const chan = iptvChannels.find(c => c.id === cid);
+                                            if (!chan) return null;
+                                            return (
+                                                <div
+                                                    key={cid}
+                                                    draggable
+                                                    onDragStart={() => setDragReorderIdx(idx)}
+                                                    onDragOver={e => { e.preventDefault(); }}
+                                                    onDrop={() => {
+                                                        if (dragReorderIdx === null || dragReorderIdx === idx) return;
+                                                        setShortlistSelectedChanIds(prev => {
+                                                            const arr = [...prev];
+                                                            const [moved] = arr.splice(dragReorderIdx, 1);
+                                                            arr.splice(idx, 0, moved);
+                                                            return arr;
+                                                        });
+                                                        setDragReorderIdx(null);
+                                                    }}
+                                                    onDragEnd={() => setDragReorderIdx(null)}
+                                                    className={`flex items-center gap-2.5 p-2 rounded-xl border cursor-grab active:cursor-grabbing transition-all select-none ${dragReorderIdx === idx ? 'opacity-40 border-purple-500/60 bg-purple-500/10' : 'bg-zinc-900/60 border-zinc-800 hover:border-zinc-700'}`}
+                                                >
+                                                    <GripVertical size={14} className="text-zinc-600 shrink-0" />
+                                                    <span className="text-[10px] text-zinc-500 font-mono w-5 shrink-0">{idx + 1}</span>
+                                                    {chan.logo && (
+                                                        <img src={chan.logo} alt="" className="w-5 h-5 object-contain rounded shrink-0" onError={e => (e.currentTarget.style.display = 'none')} />
+                                                    )}
+                                                    <span className="text-xs font-bold text-white truncate flex-1">{chan.name}</span>
+                                                    <span className="text-[10px] text-zinc-600 truncate max-w-[80px]">{chan.group}</span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setShortlistSelectedChanIds(prev => prev.filter(id => id !== cid))}
+                                                        className="text-zinc-600 hover:text-red-400 transition-colors shrink-0"
+                                                        title="Remove from shortlist"
+                                                    >
+                                                        <X size={12} />
+                                                    </button>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
 
                                 {/* Selection Status & Bulk Actions */}
                                 <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs">
@@ -5992,6 +6149,11 @@ function TheaterPageContent() {
                                                                 <span className="text-amber-400 font-mono">⚡{streamCount}</span>
                                                             )}
                                                         </div>
+                                                        {shortlistEpgMap[chan.id] && (
+                                                            <p className="truncate text-[10px] text-amber-300/80 mt-0.5 font-medium">
+                                                                ▶ {shortlistEpgMap[chan.id].title}
+                                                            </p>
+                                                        )}
                                                     </div>
                                                 </div>
                                             );
@@ -6027,9 +6189,20 @@ function TheaterPageContent() {
                                                                 <Tv2 size={14} className="text-zinc-600" />
                                                             )}
                                                         </div>
-                                                        <span className="truncate font-bold text-white text-xs">{chan.name}</span>
+                                                        <div className="min-w-0 flex-1">
+                                                            <span className="truncate font-bold text-white text-xs block">{chan.name}</span>
+                                                            {shortlistEpgMap[chan.id] && (
+                                                                <span className="truncate text-[10px] text-amber-300/70 font-medium block">
+                                                                    ▶ {shortlistEpgMap[chan.id].title}
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                     <div className="flex items-center gap-2 shrink-0">
+                                                        {/* Resolution badge */}
+                                                        {(() => { const r = detectResolution(chan.name); return r !== 'Unknown' ? (
+                                                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-black ${r === '4K' ? 'bg-purple-500/20 text-purple-300' : r === '1080p' ? 'bg-blue-500/20 text-blue-300' : r === '720p' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-zinc-700/50 text-zinc-400'}`}>{r}</span>
+                                                        ) : null; })()}
                                                         {chan.streams?.[0]?.quality && (
                                                             <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-[10px] text-zinc-400 font-mono">
                                                                 {chan.streams[0].quality}
