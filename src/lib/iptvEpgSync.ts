@@ -166,6 +166,79 @@ export async function executeEpgSync(libraryId: string, epgUrl: string): Promise
         const parser = new xml2js.Parser({ explicitArray: false });
         const parsed = await parser.parseStringPromise(xmlData);
 
+        // Step 3A: Parse XMLTV <channel> elements to build bidirectional ID <-> Name index
+        const xmlChannels = Array.isArray(parsed?.tv?.channel)
+            ? parsed.tv.channel
+            : (parsed?.tv?.channel ? [parsed.tv.channel] : []);
+
+        const xmlIdToNames = new Map<string, string[]>();
+        const nameToXmlIds = new Map<string, Set<string>>();
+
+        for (const ch of xmlChannels) {
+            const chId = ch.$?.id;
+            if (!chId) continue;
+
+            const names: string[] = [chId];
+            const rawDisplay = ch['display-name'];
+            if (Array.isArray(rawDisplay)) {
+                for (const d of rawDisplay) {
+                    const str = (typeof d === 'string' ? d : d?._ || '').trim();
+                    if (str) names.push(str);
+                }
+            } else if (rawDisplay) {
+                const str = (typeof rawDisplay === 'string' ? rawDisplay : rawDisplay?._ || '').trim();
+                if (str) names.push(str);
+            }
+
+            const cleanNames = names.map(n => n.toLowerCase().trim());
+            const normNames = names.map(n => n.toLowerCase().replace(/[^a-z0-9]/g, '')).filter(Boolean);
+            const allAliases = Array.from(new Set([...names, ...cleanNames, ...normNames]));
+            xmlIdToNames.set(chId, allAliases);
+
+            for (const alias of allAliases) {
+                if (!nameToXmlIds.has(alias)) {
+                    nameToXmlIds.set(alias, new Set());
+                }
+                nameToXmlIds.get(alias)!.add(chId);
+            }
+        }
+
+        // Step 3B: Cross-reference with current library channels to find target save aliases
+        const libraryChannels = getIptvChannels(libraryId);
+        const xmlIdToTargetKeys = new Map<string, Set<string>>();
+
+        for (const chan of libraryChannels) {
+            const chanKeys = [
+                chan.tvgId,
+                chan.tvgName,
+                chan.cleanName,
+                chan.name,
+                (chan.cleanName || chan.name || '').toLowerCase().trim(),
+                (chan.cleanName || chan.name || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+            ].filter(Boolean) as string[];
+
+            for (const key of chanKeys) {
+                const lowerKey = key.toLowerCase().trim();
+                const normKey = lowerKey.replace(/[^a-z0-9]/g, '');
+
+                // Direct match against XMLTV channel ID
+                if (xmlIdToNames.has(key) || xmlIdToNames.has(lowerKey)) {
+                    const xmlId = xmlIdToNames.has(key) ? key : lowerKey;
+                    if (!xmlIdToTargetKeys.has(xmlId)) xmlIdToTargetKeys.set(xmlId, new Set());
+                    chanKeys.forEach(k => xmlIdToTargetKeys.get(xmlId)!.add(k));
+                }
+
+                // Match against XMLTV display-name aliases
+                const matchedXmlIds = nameToXmlIds.get(lowerKey) || nameToXmlIds.get(normKey);
+                if (matchedXmlIds) {
+                    for (const xmlId of matchedXmlIds) {
+                        if (!xmlIdToTargetKeys.has(xmlId)) xmlIdToTargetKeys.set(xmlId, new Set());
+                        chanKeys.forEach(k => xmlIdToTargetKeys.get(xmlId)!.add(k));
+                    }
+                }
+            }
+        }
+
         const programmes = parsed?.tv?.programme;
         if (!programmes) {
             updateEpgSyncStatus(libraryId, {
@@ -195,7 +268,7 @@ export async function executeEpgSync(libraryId: string, epgUrl: string): Promise
             endTime: string;
         }> = [];
 
-        for (const p of progList.slice(0, 75000)) {
+        for (const p of progList.slice(0, 100000)) {
             const channelId = p.$?.channel;
             const startStr = p.$?.start;
             const stopStr = p.$?.stop;
@@ -205,6 +278,8 @@ export async function executeEpgSync(libraryId: string, epgUrl: string): Promise
             if (channelId && title && startStr && stopStr) {
                 const startTime = parseXmltvDate(startStr);
                 const endTime = parseXmltvDate(stopStr);
+
+                // 1. Always save under XMLTV channel ID
                 epgItems.push({
                     channelTvgId: channelId,
                     title,
@@ -212,6 +287,22 @@ export async function executeEpgSync(libraryId: string, epgUrl: string): Promise
                     startTime,
                     endTime
                 });
+
+                // 2. Also save under all matching library channel identifiers (name, cleanName, tvgId)
+                const targetKeys = xmlIdToTargetKeys.get(channelId);
+                if (targetKeys) {
+                    for (const targetKey of targetKeys) {
+                        if (targetKey !== channelId) {
+                            epgItems.push({
+                                channelTvgId: targetKey,
+                                title,
+                                description: desc || undefined,
+                                startTime,
+                                endTime
+                            });
+                        }
+                    }
+                }
             }
         }
 

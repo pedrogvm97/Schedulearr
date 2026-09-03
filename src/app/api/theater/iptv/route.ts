@@ -58,7 +58,7 @@ function detectQuality(name: string, group: string): { quality: string; label: s
 }
 
 // ── Filter Out Decorative Category Headers / Pseudo-Channels ──
-export function isDummyChannelOrHeader(name: string, url?: string): boolean {
+export function isDummyChannelOrHeader(name: string, url?: string, group?: string): boolean {
     if (!name) return true;
     const trimmed = name.trim();
     if (url) {
@@ -67,6 +67,22 @@ export function isDummyChannelOrHeader(name: string, url?: string): boolean {
     }
     // Only drop if name is solely symbols (e.g. "########", "-------", "=======")
     if (/^[#*=\-_~+/\\<>:\s]{3,}$/.test(trimmed)) return true;
+
+    // Drop decorative header patterns like "--- PT GENERALISTAS ---" or "=== CANAIS ==="
+    if (/^[\-=*#\s]{2,}.+[\-=*#\s]{2,}$/.test(trimmed)) return true;
+
+    // Drop pseudo-channels whose name is simply repeating the group / category name (e.g. "PT GENERALISTAS SD" in "PT| GENERALISTAS")
+    if (group) {
+        const normName = trimmed
+            .toLowerCase()
+            .replace(/\b(8k|4k|uhd|fhd|hd|sd|hevc|1080p|720p|576p|480p|2160p|raw|backup|alt)\b/gi, '')
+            .replace(/[^a-z0-9]/g, '');
+        const normGroup = group.toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (normName && normGroup && (normName === normGroup || (normGroup.includes(normName) && normName.length >= 6))) {
+            return true;
+        }
+    }
+
     return false;
 }
 
@@ -155,9 +171,9 @@ async function fetchXtreamLiveChannels(
             for (const s of streams) {
                 const rawName = s.name || `Channel ${++count}`;
                 const streamPlayUrl = `${host}/live/${encodeURIComponent(username)}/${encodeURIComponent(password)}/${s.stream_id}.${output}`;
-                if (isDummyChannelOrHeader(rawName, streamPlayUrl)) continue;
-
                 const group = catMap[String(s.category_id)] || 'General';
+                if (isDummyChannelOrHeader(rawName, streamPlayUrl, group)) continue;
+
                 const { quality, label, cleanName, canonicalKey } = detectQuality(rawName, group);
                 rawChannels.push({
                     id: `chan-${++count}`,
@@ -267,7 +283,7 @@ function parseM3uContent(content: string, libraryId: string): StoredIptvChannel[
 
             const { quality, label, cleanName, canonicalKey } = detectQuality(rawName, group);
 
-            if (!isDummyChannelOrHeader(rawName)) {
+            if (!isDummyChannelOrHeader(rawName, undefined, group)) {
                 currentInfo = {
                     id: `chan-${++count}`,
                     name: rawName,
@@ -282,7 +298,7 @@ function parseM3uContent(content: string, libraryId: string): StoredIptvChannel[
                 };
             }
         } else if (!line.startsWith('#') && currentInfo) {
-            if (!isDummyChannelOrHeader(currentInfo.name, line)) {
+            if (!isDummyChannelOrHeader(currentInfo.name, line, currentInfo.group)) {
                 rawChannels.push({
                     ...currentInfo,
                     url: line

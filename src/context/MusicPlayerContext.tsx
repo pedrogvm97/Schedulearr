@@ -2473,6 +2473,15 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 <Download size={15} />
                             </button>
 
+                            {/* Cast Music to Smart TV / Speaker */}
+                            <button
+                                onClick={() => openCastPicker(playingAudio)}
+                                className="p-2 sm:p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-purple-400 hover:border-purple-500/40 text-xs font-bold transition-all"
+                                title="Cast Music to Smart TV / Smart Speaker"
+                            >
+                                <Cast size={15} />
+                            </button>
+
                             {/* Playback Queue */}
                             <button
                                 onClick={() => setShowQueueDrawer(!showQueueDrawer)}

@@ -2557,8 +2557,17 @@ function TheaterPageContent() {
         if (shortlistCategoryFilter !== 'ALL') {
             list = list.filter(c => c.group === shortlistCategoryFilter);
         }
-        if (shortlistSearch.trim()) {
-            list = list.filter(c => smartMatchScore(shortlistSearch, c.name, c.cleanName, c.group) > 0);
+        const rawSearch = shortlistSearch.trim();
+        if (rawSearch) {
+            // Support multi-term search: comma-separated terms are OR'd
+            const terms = rawSearch.split(',').map(t => t.trim()).filter(Boolean);
+            if (terms.length === 1) {
+                list = list.filter(c => smartMatchScore(terms[0], c.name, c.cleanName, c.group) > 0);
+            } else {
+                list = list.filter(c =>
+                    terms.some(term => smartMatchScore(term, c.name, c.cleanName, c.group) > 0)
+                );
+            }
         }
         return list;
     }, [iptvChannels, shortlistCategoryFilter, shortlistSearch]);
@@ -4845,7 +4854,7 @@ function TheaterPageContent() {
                                         </button>
 
                                         {showVideoSettingsPopover && (
-                                            <div className="absolute top-12 right-0 z-50 w-72 p-4 rounded-2xl bg-zinc-950 border border-zinc-800 shadow-2xl space-y-3.5 animate-in fade-in duration-150">
+                                            <div className="absolute bottom-12 right-0 z-50 w-72 p-4 rounded-2xl bg-zinc-950 border border-zinc-800 shadow-2xl space-y-3.5 animate-in fade-in duration-150">
                                                 <div className="flex items-center justify-between border-b border-zinc-800/80 pb-2">
                                                     <span className="text-xs font-black uppercase tracking-wider text-zinc-300 flex items-center gap-1.5">
                                                         <Settings size={13} className="text-amber-400" /> Playback Settings
@@ -4935,6 +4944,16 @@ function TheaterPageContent() {
                                             </div>
                                         )}
                                     </div>
+
+                                    {/* Direct Cast to TV Button */}
+                                    <button
+                                        onClick={() => openCastPicker(playingVideo)}
+                                        className="p-2.5 rounded-xl bg-purple-500/15 hover:bg-purple-500 text-purple-400 hover:text-white border border-purple-500/30 transition-all flex items-center gap-1.5 text-xs font-bold"
+                                        title="Cast Video to Smart TV / Chromecast"
+                                    >
+                                        <Cast size={15} />
+                                        <span className="hidden sm:inline">Cast to TV</span>
+                                    </button>
 
                                     {/* Minimize & Close */}
                                     <button
@@ -5834,7 +5853,7 @@ function TheaterPageContent() {
                                         <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
                                         <input
                                             type="text"
-                                            placeholder="Search channels by name or category..."
+                                            placeholder="Search by name, group… use commas for multiple terms (e.g. dazn, sport tv, rtp)"
                                             value={shortlistSearch}
                                             onChange={e => setShortlistSearch(e.target.value)}
                                             className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-zinc-500 outline-none focus:border-red-500 transition-colors"

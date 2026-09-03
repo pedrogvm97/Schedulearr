@@ -134,6 +134,7 @@ export default function TheaterLiveTvPlayer({
         isLive: boolean;
     } | null>(null);
     const [recordingPadding, setRecordingPadding] = useState(15);
+    const [recordingDurationMinutes, setRecordingDurationMinutes] = useState(120);
     const [isScheduling, setIsScheduling] = useState(false);
 
     // Player state
@@ -378,13 +379,17 @@ export default function TheaterLiveTvPlayer({
         }
     }, [visibleChannels.length > 0 ? visibleChannels[0]?.id : '']);
 
-    // Fetch batch EPG for visible channels (first 50)
+    // Fetch batch EPG for visible channels
     useEffect(() => {
         if (!libraryId || visibleChannels.length === 0) return;
-        const tvgIds = visibleChannels
-            .slice(0, 50)
-            .map(c => c.tvgId)
-            .filter(Boolean) as string[];
+        const allKeys: string[] = [];
+        for (const c of visibleChannels.slice(0, 60)) {
+            if (c.tvgId) allKeys.push(c.tvgId);
+            if (c.tvgName) allKeys.push(c.tvgName);
+            if (c.cleanName) allKeys.push(c.cleanName);
+            if (c.name) allKeys.push(c.name);
+        }
+        const tvgIds = Array.from(new Set(allKeys.filter(Boolean)));
 
         if (tvgIds.length === 0) return;
 
@@ -403,10 +408,14 @@ export default function TheaterLiveTvPlayer({
 
     const refreshEpgData = async () => {
         if (!libraryId || visibleChannels.length === 0) return;
-        const tvgIds = visibleChannels
-            .slice(0, 100)
-            .map(c => c.tvgId)
-            .filter(Boolean) as string[];
+        const allKeys: string[] = [];
+        for (const c of visibleChannels.slice(0, 100)) {
+            if (c.tvgId) allKeys.push(c.tvgId);
+            if (c.tvgName) allKeys.push(c.tvgName);
+            if (c.cleanName) allKeys.push(c.cleanName);
+            if (c.name) allKeys.push(c.name);
+        }
+        const tvgIds = Array.from(new Set(allKeys.filter(Boolean)));
 
         if (tvgIds.length === 0) return;
 
@@ -518,11 +527,13 @@ export default function TheaterLiveTvPlayer({
 
                 const allLibs = Array.isArray(libRes) ? libRes : (libRes.libraries || []);
                 for (const lib of allLibs) {
+                    if (lib.type === 'iptv') continue;
                     let folders: string[] = [];
                     try {
                         folders = typeof lib.folders === 'string' ? JSON.parse(lib.folders) : (lib.folders || []);
                     } catch {}
                     folders.forEach((f, fi) => {
+                        if (!f || typeof f !== 'string' || f.startsWith('http') || !isNaN(Number(f))) return;
                         if (!list.some(d => d.path === f)) {
                             list.push({
                                 id: `lib-${lib.id}-${fi}`,
@@ -612,12 +623,32 @@ export default function TheaterLiveTvPlayer({
         };
     }, [currentChannel?.id, activeStreamRawUrl, activeStreamIdx]);
 
+    // Robust multi-alias EPG resolver for any channel
+    const getChanEpg = useCallback((chan?: IptvChannel | null): EpgProgram[] => {
+        if (!chan) return [];
+        const keys = [
+            chan.tvgId,
+            chan.tvgName,
+            chan.cleanName,
+            chan.name,
+            (chan.cleanName || chan.name || '').toLowerCase().trim(),
+            (chan.cleanName || chan.name || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+        ].filter(Boolean) as string[];
+
+        for (const k of keys) {
+            if (epgMap[k] && epgMap[k].length > 0) return epgMap[k];
+            const lk = k.toLowerCase().trim();
+            if (epgMap[lk] && epgMap[lk].length > 0) return epgMap[lk];
+            const nk = lk.replace(/[^a-z0-9]/g, '');
+            if (epgMap[nk] && epgMap[nk].length > 0) return epgMap[nk];
+        }
+        return [];
+    }, [epgMap]);
+
     // Current Airing Program & Upcoming for Playing Channel
     const currentChannelPrograms = useMemo(() => {
-        if (!currentChannel) return [];
-        const tvgId = currentChannel.tvgId || '';
-        return epgMap[tvgId] || epgMap[tvgId.toLowerCase()] || epgMap[currentChannel.name] || epgMap[currentChannel.cleanName || ''] || [];
-    }, [currentChannel, epgMap]);
+        return getChanEpg(currentChannel);
+    }, [currentChannel, getChanEpg]);
 
     const { currentProgram, upcomingProgram, progressPercent } = useMemo(() => {
         const now = new Date();
@@ -1140,8 +1171,7 @@ export default function TheaterLiveTvPlayer({
                         ) : (
                             visibleChannels.slice(0, channelRenderLimit).map(chan => {
                                 const isCurrent = currentChannel?.id === chan.id;
-                                const tvgKey = chan.tvgId || '';
-                                const chanEpg = (tvgKey && (epgMap[tvgKey] || epgMap[tvgKey.toLowerCase()])) || epgMap[chan.name] || epgMap[chan.cleanName || ''] || [];
+                                const chanEpg = getChanEpg(chan);
                                 const now = new Date();
                                 const prog = chanEpg.find(p => new Date(p.start_time) <= now && new Date(p.end_time) >= now);
                                 const isExpanded = expandedEpgChannelId === chan.id;
@@ -1657,8 +1687,7 @@ export default function TheaterLiveTvPlayer({
                                     <>
                                         {guideChannels.slice(0, guideRenderLimit).map(chan => {
                                             const isCurrent = currentChannel?.id === chan.id;
-                                            const tvgKey = chan.tvgId || '';
-                                            const chanEpg = (tvgKey && (epgMap[tvgKey] || epgMap[tvgKey.toLowerCase()])) || epgMap[chan.name] || epgMap[chan.cleanName || ''] || [];
+                                            const chanEpg = getChanEpg(chan);
 
                                             const baseDate = new Date(Date.now() + guideTimeOffsetHours * 60 * 60 * 1000);
                                             const windowStart = new Date(baseDate.getTime() - 1 * 60 * 60 * 1000);

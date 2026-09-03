@@ -1506,15 +1506,12 @@ export const getBatchIptvEpg = (
         for (const row of (rows || [])) {
             const exactKey = row.channel_tvg_id;
             const lowerKey = (exactKey || '').toLowerCase();
+            const normKey = lowerKey.replace(/[^a-z0-9]/g, '');
 
-            // Store by exact key
-            if (!result[exactKey]) result[exactKey] = [];
-            if (result[exactKey].length < limitPerChannel) result[exactKey].push(row);
-
-            // Also store by lowercased key for lookup flexibility
-            if (lowerKey && lowerKey !== exactKey) {
-                if (!result[lowerKey]) result[lowerKey] = [];
-                if (result[lowerKey].length < limitPerChannel) result[lowerKey].push(row);
+            const keysToStore = Array.from(new Set([exactKey, lowerKey, normKey])).filter(Boolean);
+            for (const k of keysToStore) {
+                if (!result[k]) result[k] = [];
+                if (result[k].length < limitPerChannel) result[k].push(row);
             }
         }
         return result;
