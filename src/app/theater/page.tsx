@@ -3754,12 +3754,26 @@ function TheaterPageContent() {
                                     </button>
 
                                     {/* Download All Missing Tracks button (Background Queue) */}
-                                    {albumOfficialData?.tracks && albumOfficialData.tracks.some((ot: any) => !selectedAlbum.tracks.some((lt: any) => normalizeSearchTerm(lt.title) === normalizeSearchTerm(ot.title))) && (
+                                    {albumOfficialData?.tracks && albumOfficialData.tracks.some((ot: any) => {
+                                        const cleanTrackTitle = (str: string | undefined | null) => (str || '').replace(/^\d+[\s\.\-_]+/, '').trim();
+                                        const normOt = normalizeSearchTerm(cleanTrackTitle(ot.title));
+                                        return !selectedAlbum.tracks.some((lt: any) => {
+                                            const normLt = normalizeSearchTerm(cleanTrackTitle(lt.title));
+                                            const normLn = normalizeSearchTerm(cleanTrackTitle(lt.name?.replace(/\.[^/.]+$/, '')));
+                                            return normLt === normOt || normLn === normOt;
+                                        });
+                                    }) && (
                                         <button
                                             onClick={() => {
-                                                const missing = albumOfficialData.tracks.filter((ot: any) => 
-                                                    !selectedAlbum.tracks.some((lt: any) => normalizeSearchTerm(lt.title) === normalizeSearchTerm(ot.title))
-                                                );
+                                                const cleanTrackTitle = (str: string | undefined | null) => (str || '').replace(/^\d+[\s\.\-_]+/, '').trim();
+                                                const missing = albumOfficialData.tracks.filter((ot: any) => {
+                                                    const normOt = normalizeSearchTerm(cleanTrackTitle(ot.title));
+                                                    return !selectedAlbum.tracks.some((lt: any) => {
+                                                        const normLt = normalizeSearchTerm(cleanTrackTitle(lt.title));
+                                                        const normLn = normalizeSearchTerm(cleanTrackTitle(lt.name?.replace(/\.[^/.]+$/, '')));
+                                                        return normLt === normOt || normLn === normOt;
+                                                    });
+                                                });
                                                 handleGrabAllMissing(missing);
                                             }}
                                             className="px-4 py-2.5 bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-black font-black uppercase text-xs tracking-widest rounded-2xl border border-amber-500/30 transition-all flex items-center gap-2 cursor-pointer shadow-lg shadow-amber-500/10"
@@ -3947,26 +3961,37 @@ function TheaterPageContent() {
                         <div className="space-y-1">
                             {albumOfficialData?.tracks && albumOfficialData.tracks.length > 0 ? (
                                 albumOfficialData.tracks.map((officialTrack, i) => {
-                                    const localTrack = selectedAlbum.tracks.find(lt => 
-                                        smartMatchScore(officialTrack.title, lt.title, lt.name) >= 1200 ||
-                                        normalizeSearchTerm(lt.title) === normalizeSearchTerm(officialTrack.title)
-                                    );
+                                    const cleanTrackTitle = (str: string | undefined | null) => (str || '').replace(/^\d+[\s\.\-_]+/, '').trim();
+                                    const normOfficial = normalizeSearchTerm(cleanTrackTitle(officialTrack.title));
+
+                                    const localTrack = selectedAlbum.tracks.find(lt => {
+                                        const normLt = normalizeSearchTerm(cleanTrackTitle(lt.title));
+                                        const normLn = normalizeSearchTerm(cleanTrackTitle(lt.name?.replace(/\.[^/.]+$/, '')));
+                                        return normLt === normOfficial || normLn === normOfficial;
+                                    });
                                     const isInLibrary = Boolean(localTrack);
+
+                                    const queuedJob = musicQueueJobs.find(j => {
+                                        if (j.status !== 'downloading' && j.status !== 'queued') return false;
+                                        const normJobTitle = normalizeSearchTerm(cleanTrackTitle(j.title));
+                                        return normJobTitle === normOfficial;
+                                    });
 
                                     return (
                                         <div
                                             key={officialTrack.id || i}
                                             onClick={() => {
                                                 if (localTrack) {
-                                                    handlePlayTrack(localTrack, selectedAlbum.tracks, i);
-                                                } else if (officialTrack.streamUrl || officialTrack.previewUrl) {
+                                                    const lIdx = selectedAlbum.tracks.indexOf(localTrack);
+                                                    handlePlayTrack(localTrack, selectedAlbum.tracks, lIdx >= 0 ? lIdx : 0);
+                                                } else {
                                                     handlePlayTrack({
-                                                        id: officialTrack.id,
+                                                        id: `online-${officialTrack.id || officialTrack.title}`,
                                                         title: officialTrack.title,
-                                                        artist: officialTrack.artist,
+                                                        artist: officialTrack.artist || selectedAlbum.artist,
                                                         album: selectedAlbum.name,
-                                                        streamUrl: officialTrack.streamUrl || officialTrack.previewUrl,
-                                                        posterUrl: albumOfficialData.album?.coverUrl || selectedAlbum.posterUrl
+                                                        streamUrl: officialTrack.streamUrl || officialTrack.previewUrl || `/api/theater/music/stream?q=${encodeURIComponent(`${officialTrack.artist || selectedAlbum.artist} ${officialTrack.title}`)}`,
+                                                        posterUrl: albumOfficialData?.album?.coverUrl || selectedAlbum.posterUrl
                                                     } as any, [], 0);
                                                 }
                                             }}
