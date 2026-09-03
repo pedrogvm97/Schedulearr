@@ -3236,31 +3236,36 @@ function TheaterPageContent() {
                                                     }`}
                                                 >
                                                     <div className="flex items-center gap-2.5 sm:gap-4 flex-1 min-w-0">
-                                                        <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-zinc-900 overflow-hidden flex items-center justify-center text-zinc-400 shrink-0 relative">
-                                                            {track.posterUrl ? (
-                                                                <img
-                                                                    src={track.posterUrl}
-                                                                    alt=""
-                                                                    className="w-full h-full object-cover"
-                                                                    onError={(e) => {
-                                                                        const fallback = `/api/theater/music/cover?artist=${encodeURIComponent(track.artist || '')}&album=${encodeURIComponent(track.album || '')}&title=${encodeURIComponent(track.title || '')}`;
-                                                                        const img = e.target as HTMLImageElement;
-                                                                        if (img.src !== fallback && !img.src.includes('/api/theater/music/cover')) {
-                                                                            img.src = fallback;
-                                                                        } else {
-                                                                            img.style.display = 'none';
-                                                                        }
-                                                                    }}
-                                                                />
-                                                            ) : (
-                                                                <Music size={20} />
-                                                            )}
-                                                            {isCurrentPlaying && (
-                                                                <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-                                                                    <Volume2 size={18} className="text-amber-400 animate-pulse" />
+                                                        {(() => {
+                                                            const albumMatch = musicAlbums.find(a => a.name === track.album);
+                                                            const resolvedCover = track.posterUrl || albumMatch?.posterUrl || `/api/theater/music/cover?artist=${encodeURIComponent(track.artist || '')}&album=${encodeURIComponent(track.album || '')}&title=${encodeURIComponent(track.title || '')}`;
+                                                            return (
+                                                                <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-zinc-900 border border-zinc-800/80 overflow-hidden flex items-center justify-center text-zinc-400 shrink-0 relative shadow-sm">
+                                                                    <img
+                                                                        src={resolvedCover}
+                                                                        alt=""
+                                                                        className="w-full h-full object-cover relative z-10"
+                                                                        loading="lazy"
+                                                                        onError={(e) => {
+                                                                            const img = e.currentTarget;
+                                                                            const fallback = `/api/theater/music/cover?artist=${encodeURIComponent(track.artist || '')}&album=${encodeURIComponent(track.album || '')}&title=${encodeURIComponent(track.title || '')}`;
+                                                                            if (!img.dataset.hasFallback && img.src !== fallback) {
+                                                                                img.dataset.hasFallback = 'true';
+                                                                                img.src = fallback;
+                                                                            } else {
+                                                                                img.style.display = 'none';
+                                                                            }
+                                                                        }}
+                                                                    />
+                                                                    <Music size={18} className="text-zinc-600 absolute" />
+                                                                    {isCurrentPlaying && (
+                                                                        <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-20">
+                                                                            <Volume2 size={18} className="text-amber-400 animate-pulse" />
+                                                                        </div>
+                                                                    )}
                                                                 </div>
-                                                            )}
-                                                        </div>
+                                                            );
+                                                        })()}
 
                                                         <div className="flex-1 min-w-0">
                                                             <div className="flex items-center gap-2 flex-wrap">
@@ -3453,25 +3458,24 @@ function TheaterPageContent() {
                                                         className="flex items-center justify-between p-2.5 sm:p-4 bg-zinc-950/70 border border-zinc-900 hover:border-red-500/40 rounded-2xl transition-all cursor-pointer group gap-2.5 sm:gap-4"
                                                     >
                                                         <div className="flex items-center gap-2.5 sm:gap-4 flex-1 min-w-0">
-                                                            <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-xl bg-zinc-900 overflow-hidden flex items-center justify-center text-zinc-400 shrink-0">
-                                                                {song.posterUrl ? (
-                                                                    <img
-                                                                        src={song.posterUrl}
-                                                                        alt=""
-                                                                        className="w-full h-full object-cover"
-                                                                        onError={(e) => {
-                                                                            const fallback = `/api/theater/music/cover?artist=${encodeURIComponent(song.artist || '')}&album=${encodeURIComponent(song.album || '')}&title=${encodeURIComponent(song.title || '')}`;
-                                                                            const img = e.target as HTMLImageElement;
-                                                                            if (img.src !== fallback && !img.src.includes('/api/theater/music/cover')) {
-                                                                                img.src = fallback;
-                                                                            } else {
-                                                                                img.style.display = 'none';
-                                                                            }
-                                                                        }}
-                                                                    />
-                                                                ) : (
-                                                                    <Youtube size={20} className="text-red-500" />
-                                                                )}
+                                                            <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-xl bg-zinc-900 border border-zinc-800/80 overflow-hidden flex items-center justify-center text-zinc-400 shrink-0 relative shadow-sm">
+                                                                <img
+                                                                    src={song.posterUrl || `/api/theater/music/cover?artist=${encodeURIComponent(song.artist || '')}&album=${encodeURIComponent(song.album || '')}&title=${encodeURIComponent(song.title || '')}`}
+                                                                    alt=""
+                                                                    className="w-full h-full object-cover relative z-10"
+                                                                    loading="lazy"
+                                                                    onError={(e) => {
+                                                                        const img = e.currentTarget;
+                                                                        const fallback = `/api/theater/music/cover?artist=${encodeURIComponent(song.artist || '')}&album=${encodeURIComponent(song.album || '')}&title=${encodeURIComponent(song.title || '')}`;
+                                                                        if (!img.dataset.hasFallback && img.src !== fallback) {
+                                                                            img.dataset.hasFallback = 'true';
+                                                                            img.src = fallback;
+                                                                        } else {
+                                                                            img.style.display = 'none';
+                                                                        }
+                                                                    }}
+                                                                />
+                                                                <Youtube size={20} className="text-red-500 absolute" />
                                                             </div>
                                                             <div className="flex-1 min-w-0">
                                                                 <h4 className="font-bold text-xs sm:text-base text-white truncate group-hover:text-red-400 transition-colors">
