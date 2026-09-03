@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import axios from "axios";
 import os from "os";
-import { findSelfContainer, recreateSelfContainer } from "@/lib/docker";
+import { findSelfContainer, recreateSelfContainer, cleanupOrphanImages } from "@/lib/docker";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +43,11 @@ export async function POST() {
     } catch (pullError: any) {
       return NextResponse.json({ error: "Failed to pull latest image: " + pullError.message }, { status: 500 });
     }
+
+    // Clean up orphaned / dangling images from previous updates
+    try {
+      await cleanupOrphanImages(docker);
+    } catch (e) {}
 
     const finalImage = `${fromImage}:${tag}`;
 

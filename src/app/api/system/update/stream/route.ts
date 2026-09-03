@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import axios from "axios";
 import os from "os";
-import { findSelfContainer, recreateSelfContainer } from "@/lib/docker";
+import { findSelfContainer, recreateSelfContainer, cleanupOrphanImages } from "@/lib/docker";
 
 export const dynamic = "force-dynamic";
 
@@ -96,10 +96,21 @@ export async function GET(request: Request) {
 
         sendEvent("log", { type: "success", message: "[OK] All image layers are up to date." });
 
-        // Step 4: Restart the container (NOT recreate)
-        // Restarting is safe: the server dies, Docker's restart policy brings it back
-        // on the new image. Recreating inside the running process is broken because
-        // the server dies before it can start the new container.
+        // Step 3.5: Clean up orphaned / dangling images from prior builds
+        sendEvent("log", { type: "info", message: "[INFO] Pruning orphaned and dangling Docker images..." });
+        try {
+          const { deletedCount, spaceReclaimed } = await cleanupOrphanImages(docker);
+          if (deletedCount > 0) {
+            const mb = (spaceReclaimed / (1024 * 1024)).toFixed(1);
+            sendEvent("log", { type: "success", message: `[OK] Cleaned up ${deletedCount} orphaned image(s) (${mb} MB reclaimed).` });
+          } else {
+            sendEvent("log", { type: "info", message: "[INFO] No dangling images to prune." });
+          }
+        } catch (e: any) {
+          sendEvent("log", { type: "warn", message: `[WARN] Image pruning skipped: ${e.message}` });
+        }
+
+        // Step 4: Recreate the container
         sendEvent("log", { type: "info", message: "[INFO] Recreating container on newly pulled image layer..." });
 
         // Tell the UI we are done — give it time to receive the event before we die

@@ -149,8 +149,28 @@ export async function GET(req: Request) {
             }
         }
 
+        // Probe first source to verify it actually has this title (vidsrc returns 404 for missing titles)
+        let probeAvailable: boolean | null = null; // null = couldn't determine
+        if (sources.length > 0 && resolvedImdbId) {
+            const probeUrl = mediaType === 'movie'
+                ? `https://vidsrc.to/embed/movie/${resolvedImdbId}`
+                : `https://vidsrc.to/embed/tv/${resolvedImdbId}/${season}/${episode}`;
+            try {
+                const probeRes = await axios.head(probeUrl, {
+                    timeout: 5000,
+                    maxRedirects: 5,
+                    validateStatus: () => true
+                });
+                // vidsrc.to returns 200 when the movie exists, 404 when it doesn't
+                probeAvailable = probeRes.status >= 200 && probeRes.status < 400;
+            } catch {
+                probeAvailable = null; // network error — treat as unknown
+            }
+        }
+
         return NextResponse.json({
             available: sources.length > 0,
+            probeAvailable,  // null=unknown, true=confirmed, false=not found
             mediaType,
             imdbId: resolvedImdbId,
             tmdbId: resolvedTmdbId,

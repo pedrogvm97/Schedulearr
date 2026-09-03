@@ -82,6 +82,7 @@ interface IptvChannel {
     group: string;
     url: string;
     tvgId?: string;
+    tvgName?: string;
     streams?: Array<{ url: string; quality: string; label: string }>;
 }
 

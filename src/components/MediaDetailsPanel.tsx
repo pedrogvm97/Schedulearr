@@ -493,6 +493,7 @@ function MediaDetailsPanelInner({
     const [selectedCountry, setSelectedCountry] = useState<string>('PT');
     const [streamData, setStreamData] = useState<{
         available: boolean;
+        probeAvailable: boolean | null;
         sources: Array<{ name: string; url: string; type: string; quality: string }>;
         imdbId?: string;
         tmdbId?: string;
@@ -920,16 +921,34 @@ function MediaDetailsPanelInner({
                         {/* Web Stream & IMDb Player Action Card */}
                         <div className="pt-3 border-t border-white/5 space-y-2">
                             <span className="text-[11px] font-black text-zinc-500 uppercase tracking-widest block">Web Stream &amp; Playback</span>
-                            {streamData?.available && streamData.sources.length > 0 ? (
+                            {streamData === null ? (
+                                /* Loading probe */
+                                <div className="w-full h-12 flex items-center justify-center gap-2 rounded-2xl bg-zinc-900/60 border border-zinc-800 text-zinc-500 text-xs font-bold animate-pulse">
+                                    <span className="w-3.5 h-3.5 border border-zinc-500 border-t-transparent rounded-full animate-spin" />
+                                    Checking stream availability…
+                                </div>
+                            ) : streamData.probeAvailable === true ? (
+                                /* Confirmed available */
                                 <button
                                     onClick={() => setIsWatchingWebStream(true)}
-                                    className="w-full h-12 flex items-center justify-center gap-2.5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black uppercase text-xs sm:text-sm tracking-wider transition-all shadow-xl shadow-amber-500/20 active:scale-95"
+                                    className="w-full h-12 flex items-center justify-center gap-2.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black uppercase text-xs sm:text-sm tracking-wider transition-all shadow-xl shadow-emerald-500/20 active:scale-95"
                                 >
-                                    <Clapperboard size={18} /> Watch Web Stream (IMDb / Multi-Server)
+                                    <Clapperboard size={18} /> Stream from IMDb
+                                </button>
+                            ) : streamData.available && streamData.probeAvailable === null ? (
+                                /* Sources exist but probe failed/timed out — show as uncertain option */
+                                <button
+                                    onClick={() => setIsWatchingWebStream(true)}
+                                    className="w-full h-12 flex items-center justify-center gap-2.5 rounded-2xl bg-zinc-900/80 hover:bg-zinc-800 border border-zinc-700 text-zinc-300 hover:text-white font-black uppercase text-xs sm:text-sm tracking-wider transition-all active:scale-95"
+                                    title="Stream availability unverified — may or may not work"
+                                >
+                                    <Clapperboard size={18} /> Try Web Stream (Unverified)
                                 </button>
                             ) : (
-                                <div className="p-3 bg-zinc-900/60 rounded-xl border border-zinc-800 text-center">
-                                    <p className="text-xs text-zinc-500 font-medium">No direct web stream available for this title</p>
+                                /* Not available or probe returned false */
+                                <div className="p-3 bg-zinc-900/40 rounded-xl border border-zinc-800/60 text-center space-y-1">
+                                    <p className="text-xs text-zinc-600 font-bold uppercase tracking-wider">No IMDb stream found</p>
+                                    <p className="text-[10px] text-zinc-700">Not indexed on any known free server for this title</p>
                                 </div>
                             )}
                         </div>

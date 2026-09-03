@@ -219,7 +219,7 @@ export default function Settings() {
   <Config Name="Docker Socket" Target="/var/run/docker.sock" Default="/var/run/docker.sock" Mode="rw" Description="Docker socket for container management" Type="Path" Display="always" Required="true" Mask="false">/var/run/docker.sock</Config>
 </Container>`;
         const b64 = btoa(xml);
-        return `docker stop Schedulearr; docker rm Schedulearr; echo "${b64}" | base64 -d > /boot/config/plugins/dockerMan/templates-user/my-Schedulearr.xml; docker run -d --name=Schedulearr -p ${port}:3010 -v /var/run/docker.sock:/var/run/docker.sock -v ${dataPath}:/app/data --restart unless-stopped ghcr.io/pedrogvm97/schedulearr:latest`;
+        return `docker stop Schedulearr; docker rm Schedulearr; docker image prune -f; echo "${b64}" | base64 -d > /boot/config/plugins/dockerMan/templates-user/my-Schedulearr.xml; docker run -d --name=Schedulearr -p ${port}:3010 -v /var/run/docker.sock:/var/run/docker.sock -v ${dataPath}:/app/data --restart unless-stopped ghcr.io/pedrogvm97/schedulearr:latest; docker image prune -f`;
     };
 
     // Disk Usage

@@ -140,6 +140,68 @@ export async function findSelfContainer(docker: any, hostname: string): Promise<
   return null;
 }
 
+/**
+ * Sweeps and deletes orphaned / dangling Docker images (<none>:<none>) and unreferenced older image builds.
+ */
+export async function cleanupOrphanImages(docker?: any): Promise<{ deletedCount: number; spaceReclaimed: number }> {
+  let deletedCount = 0;
+  let spaceReclaimed = 0;
+  try {
+    const client = docker || getDockerClient();
+    
+    // 1. Docker API Prune Dangling Images
+    try {
+      const pruneRes = await client.post('/images/prune?filters=%7B%22dangling%22%3A%5B%22true%22%5D%7D');
+      if (pruneRes.data) {
+        deletedCount += (pruneRes.data.ImagesDeleted || []).length;
+        spaceReclaimed += pruneRes.data.SpaceReclaimed || 0;
+      }
+    } catch (e: any) {
+      console.warn('[Docker Cleanup] Prune dangling images request failed:', e.message);
+    }
+
+    // 2. Identify and delete untagged (<none>:<none>) or stale schedulearr images
+    try {
+      const imgRes = await client.get('/images/json?all=true');
+      const images = imgRes.data || [];
+      
+      // Determine image currently used by running containers so we NEVER delete active ones
+      const contRes = await client.get('/containers/json?all=false');
+      const runningContainers = contRes.data || [];
+      const activeImageIds = new Set<string>();
+      for (const c of runningContainers) {
+        if (c.ImageID) activeImageIds.add(c.ImageID);
+        if (c.Image) activeImageIds.add(c.Image);
+      }
+
+      for (const img of images) {
+        const id = img.Id || '';
+        if (activeImageIds.has(id)) continue;
+
+        const repoTags: string[] = img.RepoTags || [];
+        const isUntagged = repoTags.length === 0 || repoTags.every((t: string) => t.includes('<none>'));
+        const isSchedulearrStale = repoTags.some((t: string) => t.toLowerCase().includes('schedulearr')) && !activeImageIds.has(id);
+
+        if (isUntagged || isSchedulearrStale) {
+          try {
+            await client.delete(`/images/${encodeURIComponent(id)}?force=false`);
+            deletedCount++;
+            spaceReclaimed += img.Size || 0;
+            console.log(`[Docker Cleanup] Removed orphaned/stale image: ${repoTags.join(', ') || id}`);
+          } catch (e) {
+            // In use by another stopped container or layer dependency — safe to skip
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn('[Docker Cleanup] Stale image sweep error:', e.message);
+    }
+  } catch (e: any) {
+    // Docker socket not available or permission error
+  }
+  return { deletedCount, spaceReclaimed };
+}
+
 export async function performStartupContainerCleanup(): Promise<void> {
   try {
     if (!fs.existsSync('/var/run/docker.sock')) return;
@@ -177,6 +239,9 @@ export async function performStartupContainerCleanup(): Promise<void> {
         } catch (e) {}
       }
     }
+
+    // Clean up orphaned / dangling images from previous updates
+    await cleanupOrphanImages(docker);
   } catch (e) {
     // Ignore cleanup errors on non-docker environments
   }
@@ -212,9 +277,12 @@ export async function recreateSelfContainer(docker: any, containerInfo: any, tar
     }
   };
 
+  const oldImageId = containerInfo.Image || '';
+
   const nodeScript = `
 const http = require('http');
 const oldId = '${containerInfo.Id}';
+const oldImageId = '${oldImageId}';
 const baseName = '${baseName}';
 const helperName = '${helperName}';
 const newConfig = ${JSON.stringify(newContainerConfig)};
@@ -242,10 +310,24 @@ setTimeout(() => {
         let createdId = baseName;
         try { createdId = JSON.parse(resData).Id || baseName; } catch(e) {}
         request('/containers/' + createdId + '/start', 'POST', null, () => {
-          // Delete updater helper container itself before exiting
-          request('/containers/' + helperName + '?v=true&force=true', 'DELETE', null, () => {
-            process.exit(0);
+          // After new container starts, prune dangling and orphaned images
+          request('/images/prune?filters=%7B%22dangling%22%3A%5B%22true%22%5D%7D', 'POST', null, () => {
+            // Delete old image if it is unreferenced and different from target
+            if (oldImageId && oldImageId !== newConfig.Image) {
+              request('/images/' + encodeURIComponent(oldImageId), 'DELETE', null, () => {
+                cleanupHelper();
+              });
+            } else {
+              cleanupHelper();
+            }
           });
+
+          function cleanupHelper() {
+            // Delete updater helper container itself before exiting
+            request('/containers/' + helperName + '?v=true&force=true', 'DELETE', null, () => {
+              process.exit(0);
+            });
+          }
         });
       });
     });

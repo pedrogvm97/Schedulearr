@@ -296,6 +296,20 @@ export async function GET(req: Request) {
 
         await Promise.all(promises);
 
+        // Sort external results: exact title match first, then by rating/popularity descending
+        const qLower = q.toLowerCase();
+        externalAvailable.sort((a, b) => {
+            const aTitle = (a.title || '').toLowerCase();
+            const bTitle = (b.title || '').toLowerCase();
+            const aExact = aTitle === qLower ? 0 : aTitle.startsWith(qLower) ? 1 : aTitle.includes(qLower) ? 2 : 3;
+            const bExact = bTitle === qLower ? 0 : bTitle.startsWith(qLower) ? 1 : bTitle.includes(qLower) ? 2 : 3;
+            if (aExact !== bExact) return aExact - bExact;
+            // Within same relevance tier, sort by rating desc
+            const aRating = Number(a.ratings || a.raw?.vote_average || 0);
+            const bRating = Number(b.ratings || b.raw?.vote_average || 0);
+            return bRating - aRating;
+        });
+
         return NextResponse.json({
             query: q,
             inLibraries,

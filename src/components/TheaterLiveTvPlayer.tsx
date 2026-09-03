@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import {
     Tv, Play, Cast, Volume2, VolumeX, Maximize,
@@ -20,6 +20,7 @@ export interface IptvChannel {
     logo?: string;
     group: string;
     tvgId?: string;
+    tvgName?: string;
     url: string;
     libraryId?: string;
     libraryName?: string;
@@ -653,10 +654,10 @@ export default function TheaterLiveTvPlayer({
 
     const { currentProgram, upcomingProgram, progressPercent } = useMemo(() => {
         const now = new Date();
-        const cur = currentChannelPrograms.find(p =>
+        const cur = currentChannelPrograms.find((p: EpgProgram) =>
             new Date(p.start_time) <= now && new Date(p.end_time) >= now
         );
-        const up = currentChannelPrograms.find(p => new Date(p.start_time) > now);
+        const up = currentChannelPrograms.find((p: EpgProgram) => new Date(p.start_time) > now);
 
         let pct = 0;
         if (cur) {
@@ -989,7 +990,7 @@ export default function TheaterLiveTvPlayer({
                                 </div>
 
                                 <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1">
-                                    {currentChannelPrograms.slice(0, 10).map((prog, idx) => {
+                                    {currentChannelPrograms.slice(0, 10).map((prog: EpgProgram, idx: number) => {
                                         const now = new Date();
                                         const isLive = new Date(prog.start_time) <= now && new Date(prog.end_time) >= now;
                                         return (
@@ -1212,7 +1213,7 @@ export default function TheaterLiveTvPlayer({
                                 const isCurrent = currentChannel?.id === chan.id;
                                 const chanEpg = getChanEpg(chan);
                                 const now = new Date();
-                                const prog = chanEpg.find(p => new Date(p.start_time) <= now && new Date(p.end_time) >= now);
+                                const prog = chanEpg.find((p: EpgProgram) => new Date(p.start_time) <= now && new Date(p.end_time) >= now);
                                 const isExpanded = expandedEpgChannelId === chan.id;
 
                                 return (
@@ -1310,7 +1311,7 @@ export default function TheaterLiveTvPlayer({
                                                 <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 block mb-1">
                                                     Upcoming Schedule
                                                 </span>
-                                                {chanEpg.slice(0, 5).map(ep => (
+                                                {chanEpg.slice(0, 5).map((ep: EpgProgram) => (
                                                     <div
                                                         key={ep.id}
                                                         onClick={() => openRecordModal(chan, ep)}
@@ -1732,7 +1733,7 @@ export default function TheaterLiveTvPlayer({
                                             const windowStart = new Date(baseDate.getTime() - 1 * 60 * 60 * 1000);
                                             const windowEnd = new Date(baseDate.getTime() + 6 * 60 * 60 * 1000);
 
-                                            const windowPrograms = chanEpg.filter(p =>
+                                            const windowPrograms = chanEpg.filter((p: EpgProgram) =>
                                                 new Date(p.end_time) >= windowStart && new Date(p.start_time) <= windowEnd
                                             );
 
@@ -1752,7 +1753,7 @@ export default function TheaterLiveTvPlayer({
                                                                 <img src={chan.logo} alt="" className="max-h-full max-w-full object-contain" onError={e => (e.currentTarget.style.display = 'none')} />
                                                             ) : (
                                                                 <Tv size={18} className="text-zinc-600" />
-                                                            )}
+                             )}
                                                         </div>
                                                         <div className="min-w-0 flex-1">
                                                             <p className="text-xs font-black text-white truncate group-hover:text-amber-400 transition-colors">
@@ -1769,7 +1770,7 @@ export default function TheaterLiveTvPlayer({
                                                                 No schedule data available for this time window.
                                                             </div>
                                                         ) : (
-                                                            windowPrograms.map((prog, idx) => {
+                                                            windowPrograms.map((prog: EpgProgram, idx: number) => {
                                                                 const now = new Date();
                                                                 const isLive = new Date(prog.start_time) <= now && new Date(prog.end_time) >= now;
                                                                 return (
