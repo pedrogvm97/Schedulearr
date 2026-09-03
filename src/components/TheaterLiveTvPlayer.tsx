@@ -8,7 +8,7 @@ import {
     Radio, Settings, Check, ChevronDown, ChevronRight,
     Circle, Layers, MoreVertical, X, AlertCircle,
     HardDrive, Folder, Laptop, CheckSquare, Square,
-    Bookmark, Download
+    Bookmark, Download, RefreshCw
 } from 'lucide-react';
 import Hls from 'hls.js';
 import { toast } from 'sonner';
@@ -397,6 +397,78 @@ export default function TheaterLiveTvPlayer({
             })
             .catch(() => {});
     }, [libraryId, visibleChannels.length > 0 ? visibleChannels[0].id : '']);
+
+    const [isSyncingEpg, setIsSyncingEpg] = useState(false);
+    const [syncProgressMsg, setSyncProgressMsg] = useState('');
+
+    const refreshEpgData = async () => {
+        if (!libraryId || visibleChannels.length === 0) return;
+        const tvgIds = visibleChannels
+            .slice(0, 100)
+            .map(c => c.tvgId)
+            .filter(Boolean) as string[];
+
+        if (tvgIds.length === 0) return;
+
+        try {
+            const res = await fetch(`/api/theater/iptv/epg?libraryId=${libraryId}&tvgIds=${encodeURIComponent(tvgIds.join(','))}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.epg) {
+                    setEpgMap(prev => ({ ...prev, ...data.epg }));
+                }
+            }
+        } catch {}
+    };
+
+    const handleSyncEpgFromGuide = async () => {
+        if (!libraryId) {
+            toast.error('No IPTV provider selected');
+            return;
+        }
+        setIsSyncingEpg(true);
+        setSyncProgressMsg('Connecting...');
+        try {
+            const res = await fetch('/api/theater/iptv/epg/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ libraryId })
+            });
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.error || 'Failed to start EPG sync. Ensure an XMLTV EPG URL is configured in Setup.');
+            }
+
+            const pollTimer = setInterval(async () => {
+                try {
+                    const statusRes = await fetch(`/api/theater/iptv/epg/sync?libraryId=${libraryId}`);
+                    if (statusRes.ok) {
+                        const sData = await statusRes.json();
+                        setSyncProgressMsg(`${sData.status || 'Syncing'} (${sData.progressPercent || 0}%)`);
+                        if (sData.status === 'completed') {
+                            clearInterval(pollTimer);
+                            setIsSyncingEpg(false);
+                            setSyncProgressMsg('');
+                            toast.success(`TV Guide synced! (${(sData.programCount || 0).toLocaleString()} programs loaded)`);
+                            await refreshEpgData();
+                        } else if (sData.status === 'error') {
+                            clearInterval(pollTimer);
+                            setIsSyncingEpg(false);
+                            setSyncProgressMsg('');
+                            toast.error(sData.error || 'EPG sync failed');
+                        }
+                    }
+                } catch {
+                    clearInterval(pollTimer);
+                    setIsSyncingEpg(false);
+                }
+            }, 2000);
+        } catch (err: any) {
+            setIsSyncingEpg(false);
+            setSyncProgressMsg('');
+            toast.error(err.message || 'Could not sync EPG');
+        }
+    };
 
     // Guide and OSD Overlay States
     const [isFullGuideOpen, setIsFullGuideOpen] = useState(false);
@@ -1523,6 +1595,16 @@ export default function TheaterLiveTvPlayer({
                                 </button>
 
                                 <button
+                                    onClick={handleSyncEpgFromGuide}
+                                    disabled={isSyncingEpg}
+                                    className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 border border-amber-500/30 text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                                    title="Sync XMLTV program schedule from provider"
+                                >
+                                    <RefreshCw size={12} className={isSyncingEpg ? 'animate-spin' : ''} />
+                                    <span>{isSyncingEpg ? (syncProgressMsg || 'Syncing...') : 'Sync EPG'}</span>
+                                </button>
+
+                                <button
                                     onClick={() => setIsFullGuideOpen(false)}
                                     className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 ml-2 cursor-pointer"
                                 >
@@ -1533,6 +1615,27 @@ export default function TheaterLiveTvPlayer({
 
                         {/* Guide Content Grid (Progressive Sliced Rendering) */}
                         <div className="flex-1 overflow-auto custom-scrollbar divide-y divide-zinc-900">
+                            {Object.keys(epgMap).length === 0 && (
+                                <div className="p-4 mx-4 my-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+                                            <Calendar size={18} />
+                                        </div>
+                                        <div>
+                                            <p className="text-xs font-black text-white">EPG Schedule Data Not Synced Yet</p>
+                                            <p className="text-[11px] text-zinc-400">Your channel streams are loaded, but the program guide schedule needs to be downloaded from your provider.</p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={handleSyncEpgFromGuide}
+                                        disabled={isSyncingEpg}
+                                        className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider transition-all shadow-lg shadow-amber-500/20 flex items-center gap-2 shrink-0 cursor-pointer disabled:opacity-50"
+                                    >
+                                        <RefreshCw size={13} className={isSyncingEpg ? 'animate-spin' : ''} />
+                                        <span>{isSyncingEpg ? (syncProgressMsg || 'Syncing Guide...') : 'Sync EPG Now'}</span>
+                                    </button>
+                                </div>
+                            )}
                             {(() => {
                                 const guideChannels = guideSearch.trim()
                                     ? visibleChannels.filter(c =>
