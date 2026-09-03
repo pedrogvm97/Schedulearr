@@ -105,6 +105,62 @@ export async function GET(req: NextRequest) {
             }
         }
 
+        // 2B. Artist Portrait Handling (when album is not specified or is generic)
+        const isArtistOnly = artist && (!album || album === 'Single' || album === 'Unknown Album' || album === 'Track' || album.trim() === '');
+        if (isArtistOnly) {
+            // Check local artist directory for artist.jpg, folder.jpg, etc.
+            for (const root of candidateFolders) {
+                if (!fs.existsSync(root)) continue;
+                const artistDir = path.join(root, artist);
+                if (fs.existsSync(artistDir)) {
+                    for (const aImg of ['artist.jpg', 'artist.png', 'folder.jpg', 'folder.png', 'cover.jpg', 'logo.png']) {
+                        const aPath = path.join(artistDir, aImg);
+                        if (fs.existsSync(aPath)) {
+                            const stat = fs.statSync(aPath);
+                            if (stat.isFile() && stat.size > 200) {
+                                const fileStream = fs.createReadStream(aPath);
+                                // @ts-ignore
+                                return new Response(fileStream as any, {
+                                    headers: {
+                                        'Content-Type': getMimeType(aPath),
+                                        'Content-Length': String(stat.size),
+                                        'Cache-Control': 'public, max-age=86400, immutable'
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Online Deezer Artist Search for official high-resolution artist portrait
+            try {
+                const dzRes = await axios.get(`https://api.deezer.com/search/artist?q=${encodeURIComponent(artist)}&limit=1`, {
+                    timeout: 5000,
+                    headers: { 'User-Agent': 'Mozilla/5.0' }
+                });
+                const dzArtist = dzRes.data?.data?.[0];
+                const picUrl = dzArtist?.picture_xl || dzArtist?.picture_big || dzArtist?.picture_medium;
+                if (picUrl && picUrl.startsWith('http')) {
+                    const imgRes = await axios.get(picUrl, {
+                        responseType: 'arraybuffer',
+                        timeout: 6000,
+                        headers: { 'User-Agent': 'Mozilla/5.0' }
+                    });
+                    const imgBuf = Buffer.from(imgRes.data);
+                    if (imgBuf.length > 500) {
+                        return new Response(imgBuf as any, {
+                            headers: {
+                                'Content-Type': 'image/jpeg',
+                                'Content-Length': String(imgBuf.length),
+                                'Cache-Control': 'public, max-age=86400, immutable'
+                            }
+                        });
+                    }
+                }
+            } catch {}
+        }
+
         // 3. Query iTunes API for official album artwork
         const queryTerm = `${artist} ${album}`.trim();
         if (queryTerm) {
@@ -180,6 +236,35 @@ export async function GET(req: NextRequest) {
                                 }
                             });
                         }
+                    }
+                }
+            } catch {}
+        }
+
+        // 4B. Fallback to Artist Portrait if album-specific artwork could not be found
+        if (artist) {
+            try {
+                const dzRes = await axios.get(`https://api.deezer.com/search/artist?q=${encodeURIComponent(artist)}&limit=1`, {
+                    timeout: 4000,
+                    headers: { 'User-Agent': 'Mozilla/5.0' }
+                });
+                const dzArtist = dzRes.data?.data?.[0];
+                const picUrl = dzArtist?.picture_xl || dzArtist?.picture_big || dzArtist?.picture_medium;
+                if (picUrl && picUrl.startsWith('http')) {
+                    const imgRes = await axios.get(picUrl, {
+                        responseType: 'arraybuffer',
+                        timeout: 5000,
+                        headers: { 'User-Agent': 'Mozilla/5.0' }
+                    });
+                    const imgBuf = Buffer.from(imgRes.data);
+                    if (imgBuf.length > 500) {
+                        return new Response(imgBuf as any, {
+                            headers: {
+                                'Content-Type': 'image/jpeg',
+                                'Content-Length': String(imgBuf.length),
+                                'Cache-Control': 'public, max-age=86400, immutable'
+                            }
+                        });
                     }
                 }
             } catch {}

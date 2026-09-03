@@ -1727,8 +1727,11 @@ function TheaterPageContent() {
         if (isOnlineOrMissing) {
             const localMatch = findBestLocalTrack(track.artist, track.title || track.name);
             if (localMatch) {
-                toast.success(`Playing local high-quality file (${(localMatch.extension || 'FLAC').toUpperCase()}) from server!`);
-                playTrack(localMatch, queueList, startIndex);
+                const trackToPlay: MediaItem = {
+                    ...localMatch,
+                    streamUrl: localMatch.streamUrl || (localMatch.path ? `/api/theater/stream?path=${encodeURIComponent(localMatch.path)}` : '')
+                };
+                playTrack(trackToPlay, queueList, startIndex);
                 return;
             }
         }
@@ -3149,17 +3152,34 @@ function TheaterPageContent() {
                                             <div
                                                 key={idx}
                                                 onClick={() => {
-                                                    const artistAlbums = musicAlbums.filter(a => a.artist === artist.name);
+                                                    const normArtName = normalizeSearchTerm(artist.name);
+                                                    const artistAlbums = musicAlbums.filter(a => {
+                                                        const normA = normalizeSearchTerm(a.artist);
+                                                        return normA === normArtName || normA.includes(normArtName) || normArtName.includes(normA);
+                                                    });
                                                     openArtistModal({ name: artist.name, posterUrl: artist.posterUrl, albums: artistAlbums, tracks: artist.tracks });
                                                 }}
                                                 className="p-5 rounded-3xl bg-[#09090b] border border-zinc-900 hover:border-amber-500/50 transition-all text-center space-y-3 cursor-pointer group hover:-translate-y-1.5 shadow-xl"
                                             >
                                                 <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-zinc-900 border-2 border-zinc-800 group-hover:border-amber-500/50 overflow-hidden mx-auto flex items-center justify-center shadow-lg relative">
-                                                    {artist.posterUrl ? (
-                                                        <img src={artist.posterUrl} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                                                    ) : (
+                                                    <img
+                                                        src={artist.posterUrl || `/api/theater/music/cover?artist=${encodeURIComponent(artist.name)}`}
+                                                        alt=""
+                                                        onError={(e) => {
+                                                            const img = e.currentTarget;
+                                                            const fallback = `/api/theater/music/cover?artist=${encodeURIComponent(artist.name)}`;
+                                                            if (img.src !== fallback && !img.src.includes('/api/theater/music/cover')) {
+                                                                img.src = fallback;
+                                                            } else {
+                                                                img.style.display = 'none';
+                                                                if (img.nextElementSibling) (img.nextElementSibling as HTMLElement).style.display = 'flex';
+                                                            }
+                                                        }}
+                                                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                                                    />
+                                                    <div className="hidden w-full h-full items-center justify-center">
                                                         <User size={36} className="text-zinc-700 group-hover:text-amber-400 transition-colors" />
-                                                    )}
+                                                    </div>
                                                 </div>
                                                 <div>
                                                     <h3 className="font-bold text-white text-base truncate group-hover:text-amber-400 transition-colors">{artist.name}</h3>
@@ -4451,11 +4471,24 @@ function TheaterPageContent() {
                         {/* Artist Header */}
                         <div className="flex flex-col sm:flex-row items-center gap-6 pb-6 border-b border-zinc-900">
                             <div className="w-36 h-36 sm:w-44 sm:h-44 rounded-full bg-zinc-900 border-2 border-zinc-800 overflow-hidden flex items-center justify-center text-amber-400 shrink-0 shadow-2xl relative">
-                                {selectedArtist.posterUrl ? (
-                                    <img src={selectedArtist.posterUrl} alt="" className="w-full h-full object-cover" />
-                                ) : (
+                                <img
+                                    src={selectedArtist.posterUrl || `/api/theater/music/cover?artist=${encodeURIComponent(selectedArtist.name)}`}
+                                    alt=""
+                                    onError={(e) => {
+                                        const img = e.currentTarget;
+                                        const fallback = `/api/theater/music/cover?artist=${encodeURIComponent(selectedArtist.name)}`;
+                                        if (img.src !== fallback && !img.src.includes('/api/theater/music/cover')) {
+                                            img.src = fallback;
+                                        } else {
+                                            img.style.display = 'none';
+                                            if (img.nextElementSibling) (img.nextElementSibling as HTMLElement).style.display = 'flex';
+                                        }
+                                    }}
+                                    className="w-full h-full object-cover"
+                                />
+                                <div className="hidden w-full h-full items-center justify-center">
                                     <User size={64} className="text-zinc-600" />
-                                )}
+                                </div>
                             </div>
 
                             <div className="space-y-2 text-center sm:text-left flex-1 min-w-0">

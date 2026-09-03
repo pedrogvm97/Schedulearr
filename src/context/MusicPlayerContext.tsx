@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useRef, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
     Play, Pause, Volume2, VolumeX, Maximize, Maximize2, Minimize2, X,
     Shuffle, Repeat, SkipForward, SkipBack,
@@ -1282,10 +1282,12 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         const rawTitle = track.title || track.name || 'Track';
         const rawArtist = track.artist || '';
         const { cleanArtist, cleanTitle } = sanitizeSongMetadata(rawTitle, rawArtist);
+        const effectiveStream = track.streamUrl || (track.path ? `/api/theater/stream?path=${encodeURIComponent(track.path)}` : '');
         const cleanTrack: MediaItem = {
             ...track,
             title: cleanTitle || rawTitle || 'Track',
             artist: cleanArtist || rawArtist || 'Artist',
+            streamUrl: effectiveStream,
             uploader: track.artist !== cleanArtist ? track.artist : (track as any).uploader
         };
 
@@ -1392,11 +1394,8 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     };
 
     const playAlbum = (tracks: MediaItem[]) => {
-        if (!tracks.length) return;
-        setAudioQueue(tracks);
-        setQueueIndex(0);
-        setPlayingAudio(tracks[0]);
-        setIsAudioPlaying(true);
+        if (!tracks || !tracks.length) return;
+        playTrack(tracks[0], tracks, 0);
     };
 
     const handlePlayAlbumCard = async (album: any) => {
@@ -1736,8 +1735,74 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     // Track if transcode retry was already attempted for current track to avoid infinite error loops
     const hasRetriedTranscodeRef = useRef(false);
 
-    // Stall watchdog for YouTube/online tracks that never start playing (server fetch timeout)
+    // Stall watchdog for tracks that never start playing (server fetch timeout or dead stream)
     const audioStallWatchdogRef = useRef<NodeJS.Timeout | null>(null);
+
+    const triggerAudioFallback = useCallback(async (track: MediaItem) => {
+        if (!track) return;
+        if (audioStallWatchdogRef.current) {
+            clearTimeout(audioStallWatchdogRef.current);
+            audioStallWatchdogRef.current = null;
+        }
+
+        const q = `${track.artist || ''} ${track.title || track.name || ''}`.trim();
+        if (!q) {
+            setIsAudioPlaying(false);
+            setAudioPlaybackStatus('error');
+            return;
+        }
+
+        addAudioNerdLog('warn', `Server stream unreachable for "${track.title}". Auto-switching to online stream.`);
+        setAudioPlaybackStatus('loading');
+
+        try {
+            const searchRes = await fetch(`/api/theater/music/online?q=${encodeURIComponent(q)}&limit=2`);
+            if (searchRes.ok) {
+                const searchData = await searchRes.json();
+                if (Array.isArray(searchData.results) && searchData.results.length > 0) {
+                    const onlineItem = searchData.results[0];
+                    const ytId = onlineItem.youtubeId || (onlineItem.id?.startsWith('yt-') ? onlineItem.id.replace('yt-', '') : '');
+                    if (ytId) {
+                        addAudioNerdLog('success', `Resolved online stream (${ytId}) for "${track.title}"`);
+                        setPlayingAudio(prev => {
+                            if (!prev || prev.id !== track.id) return prev;
+                            return {
+                                ...prev,
+                                youtubeId: ytId,
+                                streamUrl: `https://www.youtube.com/watch?v=${ytId}`,
+                                posterUrl: prev.posterUrl || onlineItem.posterUrl
+                            };
+                        });
+                        return;
+                    }
+                }
+            }
+        } catch {}
+
+        try {
+            const serverFallbackUrl = `/api/theater/music/stream?q=${encodeURIComponent(q)}`;
+            addAudioNerdLog('info', `Attempting server-side search stream for "${q}"`);
+            if (audioRef.current) {
+                audioRef.current.src = serverFallbackUrl;
+                audioRef.current.play().then(() => {
+                    setIsAudioPlaying(true);
+                    setAudioPlaybackStatus('playing');
+                }).catch(() => {
+                    setIsAudioPlaying(false);
+                    setAudioPlaybackStatus('error');
+                    setAudioPlaybackError({
+                        name: 'STREAM_FAILED',
+                        message: `Could not stream "${track.title}".`,
+                        details: 'Server stream and online audio fallback both failed to respond.',
+                        suggestion: 'Check your internet connection or server audio service.'
+                    });
+                });
+            }
+        } catch {
+            setIsAudioPlaying(false);
+            setAudioPlaybackStatus('error');
+        }
+    }, []);
 
     // When playingAudio changes, load source, fetch lyrics and fetch chords
     useEffect(() => {
@@ -1852,13 +1917,39 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             if (ytPlayerRef.current && ytPlayerReadyRef.current) {
                 try { ytPlayerRef.current.stopVideo(); } catch {}
             }
-            addAudioNerdLog('info', `Loading local track "${playingAudio.title}"`, {
-                url: playingAudio.streamUrl,
+
+            const effectiveStreamUrl = playingAudio.streamUrl || (playingAudio.path ? `/api/theater/stream?path=${encodeURIComponent(playingAudio.path)}` : '');
+
+            if (!effectiveStreamUrl) {
+                addAudioNerdLog('warn', `No streamUrl or path for "${playingAudio.title}", auto-falling back to online stream`);
+                triggerAudioFallback(playingAudio);
+                return;
+            }
+
+            addAudioNerdLog('info', `Loading stream for "${playingAudio.title}"`, {
+                url: effectiveStreamUrl,
                 path: playingAudio.path
             });
-            audioRef.current.src = playingAudio.streamUrl;
+
+            audioRef.current.src = effectiveStreamUrl;
+
+            // Auto-detect playback stall: if within 4.5 seconds audio hasn't started playing, trigger fallback!
+            if (audioStallWatchdogRef.current) clearTimeout(audioStallWatchdogRef.current);
+            audioStallWatchdogRef.current = setTimeout(() => {
+                if (audioRef.current && (audioRef.current.currentTime === 0 || audioRef.current.paused)) {
+                    addAudioNerdLog('warn', `Watchdog detected audio not playing for "${playingAudio.title}". Switching to fallback.`);
+                    triggerAudioFallback(playingAudio);
+                }
+            }, 4500);
+
             audioRef.current.play().catch((e) => {
                 addAudioNerdLog('warn', `Direct play() error: ${e.message}`);
+                if (e.name === 'NotAllowedError') {
+                    setIsAudioPlaying(false);
+                    setAudioPlaybackStatus('paused');
+                } else {
+                    triggerAudioFallback(playingAudio);
+                }
             });
         }
     }, [playingAudio?.id, playingAudio?.streamUrl]);
@@ -2024,6 +2115,8 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                     if (isAudioPlaying && audioRef.current?.paused) {
                         audioRef.current.play().catch(e => {
                             addAudioNerdLog('warn', `Autoplay prevented or paused: ${e.message}`);
+                            setIsAudioPlaying(false);
+                            setAudioPlaybackStatus('paused');
                         });
                     }
                 }}
@@ -2074,6 +2167,10 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                     if (isYt || !playingAudio || !audioRef.current?.src || audioRef.current?.src === '' || (typeof window !== 'undefined' && audioRef.current?.src === window.location.href)) {
                         return;
                     }
+                    if (audioStallWatchdogRef.current) {
+                        clearTimeout(audioStallWatchdogRef.current);
+                        audioStallWatchdogRef.current = null;
+                    }
                     const err = audioRef.current?.error;
                     const codeMap: Record<number, string> = {
                         1: 'MEDIA_ERR_ABORTED (User aborted fetching)',
@@ -2089,7 +2186,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                     });
 
                     // Automatic fallback to Server-Side Audio Transcode (attempted ONCE only)
-                    if (playingAudio && !hasRetriedTranscodeRef.current && !audioRef.current?.src.includes('transcode=')) {
+                    if (playingAudio.streamUrl && !hasRetriedTranscodeRef.current && !audioRef.current?.src.includes('transcode=')) {
                         hasRetriedTranscodeRef.current = true;
                         const separator = playingAudio.streamUrl.includes('?') ? '&' : '?';
                         const transcodeUrl = `${playingAudio.streamUrl}${separator}transcode=audio&t=${Date.now()}`;
@@ -2097,28 +2194,12 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                         setAudioPlaybackStatus('loading');
                         if (audioRef.current) {
                             audioRef.current.src = transcodeUrl;
-                            audioRef.current.play().catch(e => {
-                                setIsAudioPlaying(false);
-                                setAudioPlaybackStatus('error');
-                                setAudioPlaybackError({
-                                    code: err?.code,
-                                    name: codeName,
-                                    message: `Direct stream failed for "${playingAudio.title}".`,
-                                    details: `Browser could not decode format. Server transcode attempt failed: ${e.message}`,
-                                    suggestion: 'Click "Force Transcode" or view Nerd Logs for detailed diagnostics.'
-                                });
+                            audioRef.current.play().catch(() => {
+                                triggerAudioFallback(playingAudio);
                             });
                         }
                     } else {
-                        setIsAudioPlaying(false);
-                        setAudioPlaybackStatus('error');
-                        setAudioPlaybackError({
-                            code: err?.code,
-                            name: codeName,
-                            message: `Unable to stream "${playingAudio?.title || 'Track'}".`,
-                            details: `Stream source unreachable or codec unsupported: ${audioRef.current?.currentSrc || playingAudio?.streamUrl}`,
-                            suggestion: 'Click "Force Transcode" or check Nerd Logs.'
-                        });
+                        triggerAudioFallback(playingAudio);
                     }
                 }}
             />
