@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { Component, useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
     Search, Plus, Film, Tv, CheckCircle,
     Filter, X, Star, Calendar,
@@ -9,7 +9,8 @@ import {
     HardDrive, Percent, PlayCircle, ChevronUp,
     PlaySquare, Square, Trash2, MoveHorizontal, MoreVertical,
     CheckCircle2, Copy, ListOrdered, RefreshCw, Layers,
-    Disc, Music, Radio, ArrowDownToLine, Play
+    Disc, Music, Radio, ArrowDownToLine, Play,
+    FolderPlus, AlertCircle
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import { CustomSelect } from '@/components/CustomSelect';
@@ -20,6 +21,44 @@ import { InteractiveSearchModal } from '@/components/InteractiveSearchModal';
 import { DeleteMediaModal } from '@/components/DeleteMediaModal';
 import { MusicInspectorModal } from '@/components/MusicInspectorModal';
 import { IptvDvrManager } from '@/components/IptvDvrManager';
+import { ManageLibrariesModal } from '@/components/ManageLibrariesModal';
+
+class IptvErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean; error: Error | null }> {
+    constructor(props: { children: React.ReactNode }) {
+        super(props);
+        this.state = { hasError: false, error: null };
+    }
+    static getDerivedStateFromError(error: Error) {
+        return { hasError: true, error };
+    }
+    componentDidCatch(error: Error, errorInfo: any) {
+        console.error('IptvDvrManager error caught by ErrorBoundary:', error, errorInfo);
+    }
+    render() {
+        if (this.state.hasError) {
+            return (
+                <div className="p-8 bg-zinc-950/80 border border-red-500/30 rounded-3xl text-center space-y-4 max-w-xl mx-auto my-12 shadow-2xl">
+                    <div className="w-12 h-12 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-400 flex items-center justify-center mx-auto">
+                        <AlertCircle size={24} />
+                    </div>
+                    <div>
+                        <h3 className="text-base font-black text-white">Live TV & DVR Encountered an Issue</h3>
+                        <p className="text-xs text-zinc-400 mt-1">
+                            {this.state.error?.message || 'An unexpected error occurred while rendering the guide.'}
+                        </p>
+                    </div>
+                    <button
+                        onClick={() => this.setState({ hasError: false, error: null })}
+                        className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
+                    >
+                        Reload Live TV
+                    </button>
+                </div>
+            );
+        }
+        return this.props.children;
+    }
+}
 
 interface Instance {
     id: string;
@@ -628,6 +667,7 @@ function UnifiedMediaCard({
 // ──────────────────────────────────────────────
 export default function DiscoverPage() {
     const [mediaType, setMediaType] = useState<'movie' | 'series' | 'music' | 'iptv_dvr'>('movie');
+    const [isManageLibrariesOpen, setIsManageLibrariesOpen] = useState(false);
 
     useEffect(() => {
         if (typeof window !== 'undefined') {
@@ -1616,6 +1656,16 @@ export default function DiscoverPage() {
                                     <span>Filters</span>
                                 </button>
 
+                                {/* Libraries & Folders Management */}
+                                <button
+                                    onClick={() => setIsManageLibrariesOpen(true)}
+                                    className="flex items-center gap-2 px-4 py-2.5 text-xs font-black rounded-2xl border transition-all shrink-0 whitespace-nowrap bg-zinc-950 text-zinc-300 border-zinc-800 hover:text-white hover:border-zinc-700 hover:bg-zinc-900 shadow-sm"
+                                    title="Manage Media Libraries & Folders"
+                                >
+                                    <FolderPlus size={14} className="text-emerald-400" />
+                                    <span>Libraries & Folders</span>
+                                </button>
+
                                 {/* Refresh Cache */}
                                 <button
                                     onClick={() => loadLibrary()}
@@ -1886,7 +1936,9 @@ export default function DiscoverPage() {
 
                 {/* ── Content Grid / List ── */}
                 {mediaType === 'iptv_dvr' ? (
-                    <IptvDvrManager />
+                    <IptvErrorBoundary>
+                        <IptvDvrManager />
+                    </IptvErrorBoundary>
                 ) : mediaType === 'music' ? (
                     musicLoading || libraryLoading ? (
                         <div className="flex flex-col items-center justify-center py-40 gap-3">
@@ -2161,6 +2213,14 @@ export default function DiscoverPage() {
                         handleMusicSearch(label);
                     }}
                     onInteractiveSearch={handleOpenInteractiveSearch}
+                />
+            )}
+
+            {isManageLibrariesOpen && (
+                <ManageLibrariesModal
+                    isOpen={isManageLibrariesOpen}
+                    onClose={() => setIsManageLibrariesOpen(false)}
+                    onLibrariesChanged={() => loadLibrary()}
                 />
             )}
         </>

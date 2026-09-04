@@ -126,7 +126,17 @@ async function checkAndUpdate() {
 
           await docker.post(`/containers/${newId}/start`);
           await docker.delete(`/containers/${oldId}_old?force=true`);
-          console.log('[AutoUpdater] Container recreated and updated successfully.');
+
+          // Prune orphaned old images from disk
+          try {
+            await docker.post('/images/prune?filters=%7B%22dangling%22%3A%5B%22true%22%5D%7D');
+            const oldImgId = containerInfo.Image || '';
+            if (oldImgId && oldImgId !== finalImage) {
+              await docker.delete(`/images/${encodeURIComponent(oldImgId)}`).catch(() => {});
+            }
+          } catch (_) {}
+
+          console.log('[AutoUpdater] Container recreated, old container deleted, and orphaned images pruned successfully.');
         } else {
           await docker.post(`/containers/${containerId}/restart`);
           console.log('[AutoUpdater] Container restarted successfully.');

@@ -10,7 +10,7 @@ import {
     Image as ImageIcon, Guitar, Activity, Zap, Layers, Music2,
     Terminal, AlertTriangle, RotateCcw, Copy, User, ExternalLink, Calendar, Radio,
     Star, ListPlus, Heart, Youtube, Wrench,
-    Globe, HardDrive, Server
+    Globe, HardDrive, Server, CheckCircle2, AlertCircle
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { sanitizeSongMetadata } from '@/lib/songSanitizer';
@@ -51,6 +51,7 @@ export interface MediaItem {
     streamUrl: string;
     source?: string;
     youtubeId?: string;
+    isLocal?: boolean;
 }
 
 interface LyricsData {
@@ -607,23 +608,34 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     const getAudioSourceInfo = (item: MediaItem | null, currentStreamUrl?: string) => {
         if (!item) return { label: 'Audio', sublabel: 'Audio', type: 'unknown', isServer: false, colorClass: 'bg-zinc-800 text-zinc-300 border-zinc-700' };
         
-        const stream = currentStreamUrl || item.streamUrl || '';
-        const hasLocalPath = Boolean(item.path);
-        const isYt = Boolean(item.youtubeId || item.id?.startsWith('yt-') || stream.includes('youtube') || stream.includes('googlevideo'));
-        const isOnlineSearch = stream.includes('/api/theater/music/stream') || stream.includes('online');
+        const isYt = Boolean(
+            item.youtubeId || 
+            item.id?.startsWith('yt-') || 
+            item.source?.includes('YouTube') ||
+            item.folder === 'YouTube' ||
+            item.artist === 'YouTube' ||
+            item.album === 'YouTube Music' ||
+            item.streamUrl?.includes('youtube.com') ||
+            item.streamUrl?.includes('googlevideo.com') ||
+            item.streamUrl?.includes('ytId=')
+        );
 
-        if (isYt || isOnlineSearch) {
+        if (isYt) {
             return {
-                label: 'Web Stream',
-                sublabel: 'Online',
-                type: 'web',
+                label: 'YouTube Stream',
+                sublabel: 'YouTube Music Web Stream',
+                type: 'youtube',
                 isServer: false,
-                colorClass: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                colorClass: 'bg-red-500/20 text-red-300 border-red-500/40'
             };
         }
 
-        if (hasLocalPath || stream.includes('/api/theater/stream') || stream.includes('/api/plex')) {
-            const isTranscoding = stream.includes('transcode=audio') || stream.includes('transcode=mp3');
+        const stream = item.streamUrl || currentStreamUrl || '';
+        const hasLocalPath = Boolean(item.path);
+        const isLocalFlag = Boolean(item.isLocal || (item as any).isDownloaded || (item as any).downloaded);
+
+        if (hasLocalPath || isLocalFlag || stream.includes('/api/theater/stream') || stream.includes('/api/plex')) {
+            const isTranscoding = stream.includes('transcode=audio') || stream.includes('transcode=mp3') || currentStreamUrl?.includes('transcode=');
             const ext = (item.extension || (item.path ? item.path.split('.').pop() : '') || 'audio').toUpperCase();
             return {
                 label: isTranscoding ? `Server Transcode (${ext})` : `Server File (${ext})`,
@@ -634,9 +646,21 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             };
         }
 
+        const isOnlineSearch = stream.includes('/api/theater/music/stream') || item.id?.startsWith('online-') || item.id?.startsWith('deezer-') || item.id?.startsWith('itunes-');
+
+        if (isOnlineSearch) {
+            return {
+                label: 'Web Stream',
+                sublabel: 'Online Stream',
+                type: 'web',
+                isServer: false,
+                colorClass: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+            };
+        }
+
         return {
             label: 'Stream',
-            sublabel: 'Audio',
+            sublabel: 'Audio Stream',
             type: 'stream',
             isServer: false,
             colorClass: 'bg-zinc-800 text-zinc-300 border-zinc-700'
@@ -1990,20 +2014,42 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
             audioRef.current.src = effectiveStreamUrl;
 
-            // Auto-detect playback stall: if within 4.5 seconds audio hasn't started playing, trigger fallback!
+            // Auto-detect playback stall: if within 8 seconds audio hasn't started playing, try transcode for server files!
             if (audioStallWatchdogRef.current) clearTimeout(audioStallWatchdogRef.current);
             audioStallWatchdogRef.current = setTimeout(() => {
                 if (audioRef.current && (audioRef.current.currentTime === 0 || audioRef.current.paused)) {
-                    addAudioNerdLog('warn', `Watchdog detected audio not playing for "${playingAudio.title}". Switching to fallback.`);
-                    triggerAudioFallback(playingAudio);
+                    addAudioNerdLog('warn', `Watchdog detected audio not playing for "${playingAudio.title}".`);
+                    if (playingAudio.path || playingAudio.isLocal) {
+                        if (!hasRetriedTranscodeRef.current && !audioRef.current.src.includes('transcode=')) {
+                            hasRetriedTranscodeRef.current = true;
+                            const separator = effectiveStreamUrl.includes('?') ? '&' : '?';
+                            const transcodeUrl = `${effectiveStreamUrl}${separator}transcode=audio&t=${Date.now()}`;
+                            addAudioNerdLog('info', `Watchdog attempting server transcode: ${transcodeUrl}`);
+                            audioRef.current.src = transcodeUrl;
+                            audioRef.current.play().catch(() => {});
+                        }
+                    } else {
+                        triggerAudioFallback(playingAudio);
+                    }
                 }
-            }, 4500);
+            }, 8000);
 
             audioRef.current.play().catch((e) => {
                 addAudioNerdLog('warn', `Direct play() error: ${e.message}`);
                 if (e.name === 'NotAllowedError') {
                     setIsAudioPlaying(false);
                     setAudioPlaybackStatus('paused');
+                } else if (playingAudio.path || playingAudio.isLocal) {
+                    if (!hasRetriedTranscodeRef.current && !audioRef.current?.src.includes('transcode=')) {
+                        hasRetriedTranscodeRef.current = true;
+                        const separator = effectiveStreamUrl.includes('?') ? '&' : '?';
+                        const transcodeUrl = `${effectiveStreamUrl}${separator}transcode=audio&t=${Date.now()}`;
+                        addAudioNerdLog('info', `Direct play failed, retrying server transcode: ${transcodeUrl}`);
+                        if (audioRef.current) {
+                            audioRef.current.src = transcodeUrl;
+                            audioRef.current.play().catch(() => {});
+                        }
+                    }
                 } else {
                     triggerAudioFallback(playingAudio);
                 }
@@ -2252,9 +2298,27 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                         if (audioRef.current) {
                             audioRef.current.src = transcodeUrl;
                             audioRef.current.play().catch(() => {
-                                triggerAudioFallback(playingAudio);
+                                if (playingAudio.path || playingAudio.isLocal) {
+                                    setAudioPlaybackStatus('error');
+                                    setAudioPlaybackError({
+                                        name: 'SERVER_AUDIO_ERROR',
+                                        message: `Could not play server file "${playingAudio.title}".`,
+                                        details: 'Direct playback and server transcode both failed.',
+                                        suggestion: 'Ensure file is accessible and ffmpeg is installed.'
+                                    });
+                                } else {
+                                    triggerAudioFallback(playingAudio);
+                                }
                             });
                         }
+                    } else if (playingAudio.path || playingAudio.isLocal) {
+                        setAudioPlaybackStatus('error');
+                        setAudioPlaybackError({
+                            name: 'SERVER_AUDIO_ERROR',
+                            message: `Could not play server file "${playingAudio.title}".`,
+                            details: 'Direct playback and server transcode both failed.',
+                            suggestion: 'Ensure file is accessible and ffmpeg is installed.'
+                        });
                     } else {
                         triggerAudioFallback(playingAudio);
                     }
@@ -2318,8 +2382,8 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         const srcInfo = getAudioSourceInfo(playingAudio, audioRef.current?.src);
                                         return (
                                             <span className={`shrink-0 px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-black uppercase tracking-wider border flex items-center gap-1 shadow-sm ${srcInfo.colorClass}`} title={srcInfo.sublabel}>
-                                                {srcInfo.isServer ? <HardDrive size={9} /> : <Globe size={9} />}
-                                                <span>{srcInfo.isServer ? 'Server File' : 'Web Stream'}</span>
+                                                {srcInfo.isServer ? <HardDrive size={9} /> : srcInfo.type === 'youtube' ? <Youtube size={9} /> : <Globe size={9} />}
+                                                <span>{srcInfo.label}</span>
                                             </span>
                                         );
                                     })()}
@@ -3636,6 +3700,27 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                         title={`Click to view album "${album.title}" tracklist & details`}
                                                                     >
                                                                         <div className="aspect-square w-full rounded-xl overflow-hidden bg-zinc-950 flex items-center justify-center relative shadow-md">
+                                                                            {/* Status pill on cover */}
+                                                                            <div className="absolute top-1.5 left-1.5 z-10 pointer-events-none">
+                                                                                {album.downloadStatus === 'downloaded' ? (
+                                                                                    <span className="px-1.5 py-0.5 rounded-md bg-emerald-950/90 backdrop-blur-md border border-emerald-500/50 text-emerald-300 text-[8px] font-black uppercase tracking-wider flex items-center gap-1 shadow-lg">
+                                                                                        <CheckCircle2 size={9} /> On Disk
+                                                                                    </span>
+                                                                                ) : album.downloadStatus === 'downloading' ? (
+                                                                                    <span className="px-1.5 py-0.5 rounded-md bg-blue-950/90 backdrop-blur-md border border-blue-500/50 text-blue-300 text-[8px] font-black uppercase tracking-wider flex items-center gap-1 animate-pulse shadow-lg">
+                                                                                        <ArrowDownToLine size={9} className="animate-bounce" /> Downloading
+                                                                                    </span>
+                                                                                ) : album.downloadStatus === 'missing' ? (
+                                                                                    <span className="px-1.5 py-0.5 rounded-md bg-amber-950/90 backdrop-blur-md border border-amber-500/50 text-amber-300 text-[8px] font-black uppercase tracking-wider flex items-center gap-1 shadow-lg">
+                                                                                        <AlertCircle size={9} /> Missing
+                                                                                    </span>
+                                                                                ) : (
+                                                                                    <span className="px-1.5 py-0.5 rounded-md bg-zinc-950/90 backdrop-blur-md border border-zinc-700/50 text-zinc-400 text-[8px] font-black uppercase tracking-wider flex items-center gap-1 shadow-lg">
+                                                                                        <Disc size={9} /> Catalog
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
+
                                                                             {coverImg ? (
                                                                                 <img src={coverImg} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                                                                             ) : (
@@ -3660,30 +3745,59 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                                 </span>
                                                                             )}
                                                                         </div>
-                                                                        <div>
+                                                                        <div className="space-y-1">
                                                                             <h4 className="font-bold text-white text-xs truncate group-hover:text-amber-400 transition-colors" title={album.title}>
                                                                                 {album.title}
                                                                             </h4>
+                                                                            <div className="flex items-center gap-1 flex-wrap">
+                                                                                {album.downloadStatus === 'downloaded' ? (
+                                                                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[8px] font-black uppercase tracking-wider">
+                                                                                        <CheckCircle2 size={8} /> Downloaded
+                                                                                    </span>
+                                                                                ) : album.downloadStatus === 'downloading' ? (
+                                                                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-300 border border-blue-500/30 text-[8px] font-black uppercase tracking-wider animate-pulse">
+                                                                                        <ArrowDownToLine size={8} /> In Queue{album.downloadPercent ? ` (${album.downloadPercent}%)` : ''}
+                                                                                    </span>
+                                                                                ) : album.downloadStatus === 'missing' ? (
+                                                                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30 text-[8px] font-black uppercase tracking-wider">
+                                                                                        <AlertCircle size={8} /> Added • Missing
+                                                                                    </span>
+                                                                                ) : (
+                                                                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700/60 text-[8px] font-black uppercase tracking-wider">
+                                                                                        <Disc size={8} /> Catalog
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
                                                                             <div className="flex items-center justify-between pt-1">
                                                                                 <span className="text-[10px] text-zinc-500 font-medium">
                                                                                     {album.trackCount ? `${album.trackCount} Tracks` : 'Album'}
                                                                                 </span>
-                                                                                <button
-                                                                                    onClick={(e) => {
-                                                                                        e.stopPropagation();
-                                                                                        handleDownloadTrack({
-                                                                                            id: `album-${album.id || ai}`,
-                                                                                            title: album.title,
-                                                                                            artist: artistData.artistName,
-                                                                                            album: album.title,
-                                                                                            posterUrl: coverImg
-                                                                                        } as any);
-                                                                                    }}
-                                                                                    className="px-2 py-0.5 rounded-md bg-zinc-800 hover:bg-amber-500 text-zinc-400 hover:text-black text-[9px] font-bold uppercase transition-all flex items-center gap-1"
-                                                                                    title="Download Album"
-                                                                                >
-                                                                                    <Download size={10} /> Download
-                                                                                </button>
+                                                                                {album.downloadStatus === 'downloaded' ? (
+                                                                                    <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[9px] font-bold uppercase flex items-center gap-0.5">
+                                                                                        <CheckCircle2 size={9} /> Saved
+                                                                                    </span>
+                                                                                ) : album.downloadStatus === 'downloading' ? (
+                                                                                    <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[9px] font-bold uppercase flex items-center gap-0.5 animate-pulse">
+                                                                                        <ArrowDownToLine size={9} /> Queue
+                                                                                    </span>
+                                                                                ) : (
+                                                                                    <button
+                                                                                        onClick={(e) => {
+                                                                                            e.stopPropagation();
+                                                                                            handleDownloadTrack({
+                                                                                                id: `album-${album.id || ai}`,
+                                                                                                title: album.title,
+                                                                                                artist: artistData.artistName,
+                                                                                                album: album.title,
+                                                                                                posterUrl: coverImg
+                                                                                            } as any);
+                                                                                        }}
+                                                                                        className="px-2 py-0.5 rounded-md bg-zinc-800 hover:bg-amber-500 text-zinc-400 hover:text-black text-[9px] font-bold uppercase transition-all flex items-center gap-1"
+                                                                                        title="Download Album"
+                                                                                    >
+                                                                                        <Download size={10} /> Download
+                                                                                    </button>
+                                                                                )}
                                                                             </div>
                                                                         </div>
                                                                     </div>
@@ -4787,6 +4901,27 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                             title={`Click to view album "${album.title}" tracklist & details`}
                                                         >
                                                             <div className="aspect-square w-full rounded-xl overflow-hidden bg-zinc-950 flex items-center justify-center relative shadow-md">
+                                                                {/* Status pill on cover */}
+                                                                <div className="absolute top-1.5 left-1.5 z-10 pointer-events-none">
+                                                                    {album.downloadStatus === 'downloaded' ? (
+                                                                        <span className="px-1.5 py-0.5 rounded-md bg-emerald-950/90 backdrop-blur-md border border-emerald-500/50 text-emerald-300 text-[8px] font-black uppercase tracking-wider flex items-center gap-1 shadow-lg">
+                                                                            <CheckCircle2 size={9} /> On Disk
+                                                                        </span>
+                                                                    ) : album.downloadStatus === 'downloading' ? (
+                                                                        <span className="px-1.5 py-0.5 rounded-md bg-blue-950/90 backdrop-blur-md border border-blue-500/50 text-blue-300 text-[8px] font-black uppercase tracking-wider flex items-center gap-1 animate-pulse shadow-lg">
+                                                                            <ArrowDownToLine size={9} className="animate-bounce" /> Downloading
+                                                                        </span>
+                                                                    ) : album.downloadStatus === 'missing' ? (
+                                                                        <span className="px-1.5 py-0.5 rounded-md bg-amber-950/90 backdrop-blur-md border border-amber-500/50 text-amber-300 text-[8px] font-black uppercase tracking-wider flex items-center gap-1 shadow-lg">
+                                                                            <AlertCircle size={9} /> Missing
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="px-1.5 py-0.5 rounded-md bg-zinc-950/90 backdrop-blur-md border border-zinc-700/50 text-zinc-400 text-[8px] font-black uppercase tracking-wider flex items-center gap-1 shadow-lg">
+                                                                            <Disc size={9} /> Catalog
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+
                                                                 {coverImg ? (
                                                                     <img src={coverImg} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                                                                 ) : (
@@ -4811,30 +4946,59 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                     </span>
                                                                 )}
                                                             </div>
-                                                            <div>
+                                                            <div className="space-y-1">
                                                                 <h4 className="font-bold text-white text-xs truncate group-hover:text-amber-400 transition-colors" title={album.title}>
                                                                     {album.title}
                                                                 </h4>
+                                                                <div className="flex items-center gap-1 flex-wrap">
+                                                                    {album.downloadStatus === 'downloaded' ? (
+                                                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[8px] font-black uppercase tracking-wider">
+                                                                            <CheckCircle2 size={8} /> Downloaded
+                                                                        </span>
+                                                                    ) : album.downloadStatus === 'downloading' ? (
+                                                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-300 border border-blue-500/30 text-[8px] font-black uppercase tracking-wider animate-pulse">
+                                                                            <ArrowDownToLine size={8} /> In Queue{album.downloadPercent ? ` (${album.downloadPercent}%)` : ''}
+                                                                        </span>
+                                                                    ) : album.downloadStatus === 'missing' ? (
+                                                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30 text-[8px] font-black uppercase tracking-wider">
+                                                                            <AlertCircle size={8} /> Added • Missing
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700/60 text-[8px] font-black uppercase tracking-wider">
+                                                                            <Disc size={8} /> Catalog
+                                                                        </span>
+                                                                    )}
+                                                                </div>
                                                                 <div className="flex items-center justify-between pt-1">
                                                                     <span className="text-[10px] text-zinc-500 font-medium">
                                                                         {album.trackCount ? `${album.trackCount} Tracks` : 'Album'}
                                                                     </span>
-                                                                    <button
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation();
-                                                                            handleDownloadTrack({
-                                                                                id: `album-${album.id || ai}`,
-                                                                                title: album.title,
-                                                                                artist: artistData.artistName,
-                                                                                album: album.title,
-                                                                                posterUrl: coverImg
-                                                                            } as any);
-                                                                        }}
-                                                                        className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-amber-500 text-zinc-400 hover:text-black text-[10px] font-bold uppercase transition-all flex items-center gap-1"
-                                                                        title="Download Album"
-                                                                    >
-                                                                        <Download size={11} /> Download
-                                                                    </button>
+                                                                    {album.downloadStatus === 'downloaded' ? (
+                                                                        <span className="px-2 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold uppercase flex items-center gap-1">
+                                                                            <CheckCircle2 size={10} /> Saved
+                                                                        </span>
+                                                                    ) : album.downloadStatus === 'downloading' ? (
+                                                                        <span className="px-2 py-1 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px] font-bold uppercase flex items-center gap-1 animate-pulse">
+                                                                            <ArrowDownToLine size={10} /> Queue
+                                                                        </span>
+                                                                    ) : (
+                                                                        <button
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                handleDownloadTrack({
+                                                                                    id: `album-${album.id || ai}`,
+                                                                                    title: album.title,
+                                                                                    artist: artistData.artistName,
+                                                                                    album: album.title,
+                                                                                    posterUrl: coverImg
+                                                                                } as any);
+                                                                            }}
+                                                                            className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-amber-500 text-zinc-400 hover:text-black text-[10px] font-bold uppercase transition-all flex items-center gap-1"
+                                                                            title="Download Album"
+                                                                        >
+                                                                            <Download size={11} /> Download
+                                                                        </button>
+                                                                    )}
                                                                 </div>
                                                             </div>
                                                         </div>

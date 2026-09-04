@@ -55,6 +55,65 @@ interface IptvShortlist {
     channelIds: string[];
 }
 
+function safeDate(val: any): Date | null {
+    if (!val) return null;
+    if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+    if (typeof val === 'number') {
+        const d = new Date(val > 1e11 ? val : val * 1000);
+        return isNaN(d.getTime()) ? null : d;
+    }
+    if (typeof val === 'string') {
+        const trimmed = val.trim();
+        if (!trimmed) return null;
+        // Check XMLTV format: 20260904080000 +0000 or 20260904080000
+        const xmltvMatch = trimmed.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})\s*([+-]\d{4})?/);
+        if (xmltvMatch) {
+            const [, y, m, d, h, min, s, tz] = xmltvMatch;
+            const tzFmt = tz ? `${tz.slice(0, 3)}:${tz.slice(3, 5)}` : 'Z';
+            const parsed = new Date(`${y}-${m}-${d}T${h}:${min}:${s}${tzFmt}`);
+            if (!isNaN(parsed.getTime())) return parsed;
+        }
+        const d = new Date(trimmed);
+        if (!isNaN(d.getTime())) return d;
+    }
+    return null;
+}
+
+function safeTimestamp(val: any): number {
+    const d = safeDate(val);
+    return d ? d.getTime() : 0;
+}
+
+function safeFormatTime(val: any, options: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' }): string {
+    const d = safeDate(val);
+    if (!d) return '--:--';
+    try {
+        return d.toLocaleTimeString([], options);
+    } catch {
+        return '--:--';
+    }
+}
+
+function safeFormatDate(val: any, options?: Intl.DateTimeFormatOptions): string {
+    const d = safeDate(val);
+    if (!d) return 'Unknown date';
+    try {
+        return d.toLocaleDateString([], options);
+    } catch {
+        return 'Unknown date';
+    }
+}
+
+function safeFormatDateTime(val: any, options?: Intl.DateTimeFormatOptions): string {
+    const d = safeDate(val);
+    if (!d) return 'Unknown date';
+    try {
+        return d.toLocaleString([], options);
+    } catch {
+        return 'Unknown date';
+    }
+}
+
 export function IptvDvrManager() {
     const [libraries, setLibraries] = useState<any[]>([]);
     const [selectedLibraryId, setSelectedLibraryId] = useState<string>('');
@@ -821,11 +880,11 @@ export function IptvDvrManager() {
                                 <div className="text-zinc-400 font-mono font-bold flex items-center gap-1.5">
                                     <Clock size={13} className="text-amber-400" />
                                     <span>
-                                        {timelineWindowStart.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
+                                        {safeFormatDate(timelineWindowStart, { weekday: 'short', month: 'short', day: 'numeric' })}
                                         {' '}
-                                        {timelineWindowStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        {safeFormatTime(timelineWindowStart, { hour: '2-digit', minute: '2-digit' })}
                                         {' - '}
-                                        {new Date(timelineWindowStart.getTime() + timelineWindowHours * 3600 * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        {safeFormatTime(new Date(timelineWindowStart.getTime() + timelineWindowHours * 3600 * 1000), { hour: '2-digit', minute: '2-digit' })}
                                     </span>
                                 </div>
 
@@ -901,7 +960,7 @@ export function IptvDvrManager() {
                                                 key={idx}
                                                 className="flex-1 min-w-[80px] p-2.5 text-center text-[11px] font-mono font-bold text-zinc-300 border-r border-zinc-800/60 shrink-0"
                                             >
-                                                {tickTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                {safeFormatTime(tickTime, { hour: '2-digit', minute: '2-digit' })}
                                             </div>
                                         );
                                     })}
@@ -920,9 +979,9 @@ export function IptvDvrManager() {
 
                                     // Filter programs that overlap this time window
                                     const windowProgs = progs.filter(p => {
-                                        const s = new Date(p.start_time).getTime();
-                                        const e = new Date(p.end_time).getTime();
-                                        return e >= windowStartMs && s <= windowEndMs;
+                                        const s = safeTimestamp(p.start_time);
+                                        const e = safeTimestamp(p.end_time);
+                                        return s > 0 && e > 0 && e >= windowStartMs && s <= windowEndMs;
                                     });
 
                                     // Calculate "NOW" red line indicator percentage
@@ -978,8 +1037,8 @@ export function IptvDvrManager() {
                                                     </div>
                                                 ) : (
                                                     windowProgs.map((prog: any, pIdx: number) => {
-                                                        const pStart = new Date(prog.start_time).getTime();
-                                                        const pEnd = new Date(prog.end_time).getTime();
+                                                        const pStart = safeTimestamp(prog.start_time);
+                                                        const pEnd = safeTimestamp(prog.end_time);
                                                         const clampedStart = Math.max(windowStartMs, pStart);
                                                         const clampedEnd = Math.min(windowEndMs, pEnd);
 
@@ -1006,7 +1065,7 @@ export function IptvDvrManager() {
                                                                         ? 'bg-amber-500/15 hover:bg-amber-500/25 border-amber-500/50 shadow-md shadow-amber-500/5 z-10'
                                                                         : 'bg-zinc-900/70 hover:bg-zinc-800/90 border-zinc-800 hover:border-zinc-700'
                                                                 }`}
-                                                                title={`${prog.title}\n${new Date(prog.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(prog.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}\n${prog.description || ''}`}
+                                                                title={`${prog.title}\n${safeFormatTime(prog.start_time)} - ${safeFormatTime(prog.end_time)}\n${prog.description || ''}`}
                                                             >
                                                                 <div className="flex items-center justify-between gap-1">
                                                                     <span className={`text-[11px] font-bold truncate ${isLiveNow ? 'text-amber-300 font-black' : 'text-zinc-200'}`}>
@@ -1019,7 +1078,7 @@ export function IptvDvrManager() {
                                                                     )}
                                                                 </div>
                                                                 <div className="text-[10px] text-zinc-400 font-mono truncate">
-                                                                    {new Date(prog.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(prog.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                                    {safeFormatTime(prog.start_time)} - {safeFormatTime(prog.end_time)}
                                                                 </div>
                                                             </div>
                                                         );
@@ -1039,29 +1098,27 @@ export function IptvDvrManager() {
                             {visibleGuideChannels.slice(0, 40).map(chan => {
                                 const progs = getChannelPrograms(chan);
                                 const now = new Date();
+                                const nowMs = now.getTime();
                                 const currentProg = progs.find(p => {
-                                    const s = new Date(p.start_time);
-                                    const e = new Date(p.end_time);
-                                    return now >= s && now <= e;
+                                    const s = safeTimestamp(p.start_time);
+                                    const e = safeTimestamp(p.end_time);
+                                    return s > 0 && e > 0 && nowMs >= s && nowMs <= e;
                                 }) || progs[0];
                                 const upcomingProgs = progs.filter(p => p !== currentProg).slice(0, 4);
 
                                 const calculateProgress = (prog: any) => {
                                     if (!prog) return 0;
-                                    const s = new Date(prog.start_time).getTime();
-                                    const e = new Date(prog.end_time).getTime();
-                                    const curr = now.getTime();
+                                    const s = safeTimestamp(prog.start_time);
+                                    const e = safeTimestamp(prog.end_time);
+                                    if (!s || !e || e <= s) return 0;
+                                    const curr = nowMs;
                                     if (curr < s) return 0;
                                     if (curr > e) return 100;
                                     return Math.min(100, Math.max(0, Math.round(((curr - s) / (e - s)) * 100)));
                                 };
 
                                 const formatTime = (iso: string) => {
-                                    try {
-                                        return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                                    } catch {
-                                        return '';
-                                    }
+                                    return safeFormatTime(iso);
                                 };
 
                                 return (
@@ -1292,7 +1349,7 @@ export function IptvDvrManager() {
                         {libraries.map(lib => {
                             const epgSource = lib.folders?.[1];
                             const schedHours = lib.folders?.[2] || '24';
-                            const lastSynced = lib.folders?.[3] ? new Date(lib.folders[3]) : null;
+                            const lastSynced = lib.folders?.[3] ? safeDate(lib.folders[3]) : null;
 
                             return (
                                 <div key={lib.id} className="p-4 bg-zinc-950 rounded-2xl border border-zinc-800 space-y-3">
@@ -1337,7 +1394,7 @@ export function IptvDvrManager() {
 
                                     <div className="pt-1 flex items-center justify-between text-[11px] text-zinc-500 border-t border-zinc-900">
                                         <span>
-                                            {lastSynced ? `Synced: ${lastSynced.toLocaleDateString()}` : 'Not synced yet'}
+                                            {lastSynced ? `Synced: ${safeFormatDate(lastSynced)}` : 'Not synced yet'}
                                         </span>
                                         <button
                                             onClick={() => {
@@ -1668,7 +1725,7 @@ export function IptvDvrManager() {
                                                     <span className="text-[10px] text-zinc-400 font-bold">({rec.channel_name})</span>
                                                 </div>
                                                 <span className="text-[11px] text-zinc-500">
-                                                    {new Date(rec.start_time).toLocaleString()} &rarr; {new Date(rec.end_time).toLocaleTimeString()}
+                                                    {safeFormatDateTime(rec.start_time)} &rarr; {safeFormatTime(rec.end_time)}
                                                 </span>
                                             </div>
                                         </div>
@@ -2013,7 +2070,7 @@ export function IptvDvrManager() {
                                     </p>
                                 )}
                                 <div className="text-[11px] text-amber-400 font-mono font-bold pt-1">
-                                    {new Date(selectedGuideProgram.program.start_time).toLocaleString()} - {new Date(selectedGuideProgram.program.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    {safeFormatDateTime(selectedGuideProgram.program.start_time)} - {safeFormatTime(selectedGuideProgram.program.end_time, { hour: '2-digit', minute: '2-digit' })}
                                 </div>
                             </div>
 
@@ -2131,10 +2188,10 @@ export function IptvDvrManager() {
                                             }`}
                                         >
                                             <span className="text-[10px] font-bold uppercase">
-                                                {isToday ? 'Today' : d.toLocaleDateString([], { weekday: 'short' })}
+                                                {isToday ? 'Today' : safeFormatDate(d, { weekday: 'short' })}
                                             </span>
                                             <span className="text-xs font-mono font-black">
-                                                {d.toLocaleDateString([], { month: 'numeric', day: 'numeric' })}
+                                                {safeFormatDate(d, { month: 'numeric', day: 'numeric' })}
                                             </span>
                                         </button>
                                     );
@@ -2194,10 +2251,10 @@ export function IptvDvrManager() {
                                 const nowMs = now.getTime();
 
                                 return selectedDayProgs.map((prog: any, idx: number) => {
-                                    const s = new Date(prog.start_time);
-                                    const e = new Date(prog.end_time);
-                                    const isLiveNow = nowMs >= s.getTime() && nowMs <= e.getTime();
-                                    const isPast = nowMs > e.getTime();
+                                    const sMs = safeTimestamp(prog.start_time);
+                                    const eMs = safeTimestamp(prog.end_time);
+                                    const isLiveNow = sMs > 0 && eMs > 0 && nowMs >= sMs && nowMs <= eMs;
+                                    const isPast = eMs > 0 && nowMs > eMs;
 
                                     return (
                                         <div
@@ -2213,7 +2270,7 @@ export function IptvDvrManager() {
                                             <div className="space-y-1 flex-1 min-w-0">
                                                 <div className="flex items-center gap-2">
                                                     <span className="font-mono text-xs font-black text-amber-400">
-                                                        {s.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {e.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                        {safeFormatTime(prog.start_time)} - {safeFormatTime(prog.end_time)}
                                                     </span>
                                                     {isLiveNow && (
                                                         <span className="px-1.5 py-0.2 rounded bg-red-500 text-white text-[9px] font-black uppercase tracking-wider animate-pulse">
