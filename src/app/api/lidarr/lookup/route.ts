@@ -61,8 +61,14 @@ export async function GET(req: Request) {
         const rawAlbums = itunesRes?.data?.results || [];
         const albumMap = new Map<string, any>();
         const genresSet = new Set<string>();
+        const isUserVarious = cleanTerm.toLowerCase().includes('various');
 
         for (const item of rawAlbums) {
+            // Ignore generic Various Artists compilation releases unless user searched for Various Artists
+            if (!isUserVarious && (item.artistName?.toLowerCase() === 'various artists' || item.artistName?.toLowerCase() === 'various')) {
+                continue;
+            }
+
             if (item.primaryGenreName) genresSet.add(item.primaryGenreName);
             const albumKey = (item.collectionName || '').toLowerCase().trim();
             if (albumKey && !albumMap.has(albumKey)) {
@@ -92,7 +98,21 @@ export async function GET(req: Request) {
 
         const sortedAlbums = Array.from(albumMap.values()).sort((a, b) => (b.year || 0) - (a.year || 0));
         const topArtwork = sortedAlbums[0]?.posterUrl || wikiThumbnail;
-        const canonicalArtist = rawAlbums[0]?.artistName || cleanTerm;
+
+        // Resolve canonical artist name: strictly avoid "Various Artists" / "Various" unless user explicitly searched for it
+        const candidateArtists = rawAlbums
+            .map((item: any) => item.artistName)
+            .filter((name: string) => {
+                if (!name) return false;
+                if (!isUserVarious && (name.toLowerCase() === 'various artists' || name.toLowerCase() === 'various')) return false;
+                return true;
+            });
+        const exactMatch = candidateArtists.find((name: string) => name.toLowerCase() === cleanTerm.toLowerCase());
+        const partialMatch = candidateArtists.find((name: string) => 
+            name.toLowerCase().includes(cleanTerm.toLowerCase()) || cleanTerm.toLowerCase().includes(name.toLowerCase())
+        );
+        const wikiName = wikiRes?.data?.title && !wikiRes.data.title.toLowerCase().includes('various') ? wikiRes.data.title : null;
+        const canonicalArtist = exactMatch || partialMatch || candidateArtists[0] || wikiName || cleanTerm;
 
         // Retrieve active local download queue jobs
         const queueStatus = musicDownloadQueue.getStatus();

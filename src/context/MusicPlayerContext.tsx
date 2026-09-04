@@ -1815,12 +1815,27 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
     // Track if transcode retry was already attempted for current track to avoid infinite error loops
     const hasRetriedTranscodeRef = useRef(false);
+    const hasAttemptedFallbackRef = useRef(false);
 
     // Stall watchdog for tracks that never start playing (server fetch timeout or dead stream)
     const audioStallWatchdogRef = useRef<NodeJS.Timeout | null>(null);
 
     const triggerAudioFallback = useCallback(async (track: MediaItem) => {
         if (!track) return;
+        if (hasAttemptedFallbackRef.current) {
+            addAudioNerdLog('warn', `Fallback stream already attempted for "${track.title}". Halting fallback loop.`);
+            setIsAudioPlaying(false);
+            setAudioPlaybackStatus('error');
+            setAudioPlaybackError({
+                name: 'STREAM_FAILED',
+                message: `Could not stream "${track.title}".`,
+                details: 'Direct stream and fallback both failed to play.',
+                suggestion: 'Check server audio service or internet connection.'
+            });
+            return;
+        }
+        hasAttemptedFallbackRef.current = true;
+
         if (audioStallWatchdogRef.current) {
             clearTimeout(audioStallWatchdogRef.current);
             audioStallWatchdogRef.current = null;
@@ -1861,7 +1876,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         } catch {}
 
         try {
-            const serverFallbackUrl = `/api/theater/music/stream?q=${encodeURIComponent(q)}`;
+            const serverFallbackUrl = `/api/theater/music/stream?q=${encodeURIComponent(q)}&format=mp3&transcode=audio`;
             addAudioNerdLog('info', `Attempting server-side search stream for "${q}"`);
             if (audioRef.current) {
                 audioRef.current.src = serverFallbackUrl;
@@ -1903,6 +1918,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         const ytId = getYtId(playingAudio);
         if (audioStallWatchdogRef.current) clearTimeout(audioStallWatchdogRef.current);
         hasRetriedTranscodeRef.current = false;
+        hasAttemptedFallbackRef.current = false;
         setAudioPlaybackStatus('loading');
         setAudioPlaybackError(null);
         fetchLyrics(playingAudio);
@@ -2067,7 +2083,20 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             if (res.ok) {
                 const data = await res.json();
                 if (data.results && data.results.length > 0) {
-                    const match = data.results.find((r: any) => r.artistName?.toLowerCase() === target.toLowerCase()) || data.results[0];
+                    const validResults = (data.results as any[]).filter((r: any) => {
+                        const name = (r.artistName || '').toLowerCase();
+                        if (target.toLowerCase() !== 'various artists' && (name === 'various artists' || name.includes('various artists'))) {
+                            return false;
+                        }
+                        return true;
+                    });
+                    const candidatePool = validResults.length > 0 ? validResults : data.results;
+                    const match = candidatePool.find((r: any) => r.artistName?.toLowerCase() === target.toLowerCase())
+                        || candidatePool.find((r: any) => r.artistName?.toLowerCase().includes(target.toLowerCase()) || target.toLowerCase().includes(r.artistName?.toLowerCase()))
+                        || candidatePool[0];
+                    if (match && target.toLowerCase() !== 'various artists' && match.artistName?.toLowerCase() === 'various artists') {
+                        match.artistName = target;
+                    }
                     setArtistData(match);
                     addAudioNerdLog('info', `Fetched artist info for "${target}"`, { source: data.source });
                 } else {
@@ -2315,8 +2344,11 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         details: 'Direct playback and server transcode both failed.',
                                         suggestion: 'Ensure file is accessible and ffmpeg is installed.'
                                     });
-                                } else {
+                                } else if (!hasAttemptedFallbackRef.current) {
                                     triggerAudioFallback(playingAudio);
+                                } else {
+                                    setIsAudioPlaying(false);
+                                    setAudioPlaybackStatus('error');
                                 }
                             });
                         }
@@ -2328,8 +2360,11 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             details: 'Direct playback and server transcode both failed.',
                             suggestion: 'Ensure file is accessible and ffmpeg is installed.'
                         });
-                    } else {
+                    } else if (!hasAttemptedFallbackRef.current) {
                         triggerAudioFallback(playingAudio);
+                    } else {
+                        setIsAudioPlaying(false);
+                        setAudioPlaybackStatus('error');
                     }
                 }}
             />
@@ -3242,23 +3277,12 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 <div className="flex items-center justify-between gap-2 pb-2 border-b border-zinc-900 shrink-0">
                                     <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar scrollbar-none py-1 px-1 bg-zinc-900/90 rounded-2xl border border-zinc-800 shrink-0 max-w-full">
                                         <button
-                                            onClick={() => setExpandedSidePanel('karaoke')}
+                                            onClick={() => setExpandedSidePanel('search')}
                                             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
-                                                expandedSidePanel === 'karaoke' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
+                                                expandedSidePanel === 'search' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
                                             }`}
                                         >
-                                            <Mic2 size={13} /> Karaoke
-                                        </button>
-                                        <button
-                                            onClick={() => {
-                                                setExpandedSidePanel('artist');
-                                                fetchArtistInfo(playingAudio.artist);
-                                            }}
-                                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
-                                                expandedSidePanel === 'artist' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
-                                            }`}
-                                        >
-                                            <User size={13} /> Artist Bio
+                                            <Search size={13} /> Search
                                         </button>
                                         <button
                                             onClick={() => {
@@ -3270,6 +3294,17 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                             }`}
                                         >
                                             <Disc size={13} /> Album
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                setExpandedSidePanel('artist');
+                                                fetchArtistInfo(playingAudio.artist);
+                                            }}
+                                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
+                                                expandedSidePanel === 'artist' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
+                                            }`}
+                                        >
+                                            <User size={13} /> Artist Bio
                                         </button>
                                         <button
                                             onClick={() => setExpandedSidePanel('queue')}
@@ -3291,12 +3326,12 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                             <ListPlus size={13} /> Playlists ({inPlayerPlaylists.length})
                                         </button>
                                         <button
-                                            onClick={() => setExpandedSidePanel('search')}
+                                            onClick={() => setExpandedSidePanel('karaoke')}
                                             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
-                                                expandedSidePanel === 'search' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
+                                                expandedSidePanel === 'karaoke' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
                                             }`}
                                         >
-                                            <Search size={13} /> Search
+                                            <Mic2 size={13} /> Karaoke
                                         </button>
                                         <button
                                             onClick={() => setExpandedSidePanel('specs')}
@@ -3945,9 +3980,16 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                             </span>
                                                                             <Play size={13} className="w-5 text-amber-400 hidden group-hover:block shrink-0 fill-amber-400" />
                                                                             <div className="min-w-0 flex-1">
-                                                                                <p className={`text-xs font-bold truncate leading-snug ${isCurrentPlaying ? 'text-amber-400 font-black' : 'text-white group-hover:text-amber-300'}`}>
-                                                                                    {t.title}
-                                                                                </p>
+                                                                                <div className="flex items-center gap-1.5 min-w-0">
+                                                                                    <p className={`text-xs font-bold truncate leading-snug ${isCurrentPlaying ? 'text-amber-400 font-black' : 'text-white group-hover:text-amber-300'}`}>
+                                                                                        {t.title}
+                                                                                    </p>
+                                                                                    {t.isLocal && (
+                                                                                        <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shrink-0">
+                                                                                            {t.extension ? t.extension.toUpperCase() : 'LOCAL'}
+                                                                                        </span>
+                                                                                    )}
+                                                                                </div>
                                                                                 <p className="text-[11px] text-zinc-400 truncate">
                                                                                     {t.artist}
                                                                                 </p>
@@ -4037,10 +4079,10 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                     </span>
                                                     <span className="px-2 py-0.5 rounded-md bg-zinc-800 text-zinc-400 border border-zinc-700/60 text-[9px] font-mono font-bold">
                                                         {playingAudio.youtubeId || playingAudio.id?.startsWith('yt-')
-                                                            ? 'YouTube Lossless Web Stream'
-                                                            : (audioRef.current?.src?.includes('/api/theater/music/transcode')
+                                                            ? 'YouTube Web Stream (Opus/AAC)'
+                                                            : (audioRef.current?.src?.includes('/api/theater/music/transcode') || audioRef.current?.src?.includes('transcode=')
                                                                 ? 'FFmpeg Server Transcode Engine'
-                                                                : 'HTML5 Native Audio Decoder')}
+                                                                : (playingAudio.isLocal || playingAudio.path ? 'Server Storage (Direct Lossless)' : 'HTML5 Native Audio Decoder'))}
                                                     </span>
                                                 </div>
 
@@ -4090,7 +4132,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                 <div className="p-3 bg-zinc-900/60 rounded-xl border border-zinc-800 space-y-0.5">
                                                     <span className="text-[9px] font-black uppercase text-zinc-500 block">Quality Profile</span>
                                                     <span className="font-bold text-amber-400 font-mono truncate block">
-                                                        {playingAudio.extension?.toLowerCase() === 'flac' ? 'FLAC Lossless' : (playingAudio.extension?.toLowerCase() === 'wav' ? 'WAV Lossless' : (playingAudio.isLocal ? `${playingAudio.extension?.toUpperCase() || 'AUDIO'} Local` : 'Web Stream (~160–256 kbps)'))}
+                                                        {playingAudio.extension?.toLowerCase() === 'flac' ? 'FLAC Lossless' : (playingAudio.extension?.toLowerCase() === 'wav' ? 'WAV Lossless' : ((playingAudio.isLocal || playingAudio.path) ? `${playingAudio.extension?.toUpperCase() || 'AUDIO'} Local` : 'Web Stream (~160–256 kbps)'))}
                                                     </span>
                                                 </div>
                                                 <div className="p-3 bg-zinc-900/60 rounded-xl border border-zinc-800 space-y-0.5">
@@ -5665,7 +5707,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             <div className="p-3.5 rounded-2xl bg-zinc-900/60 border border-zinc-800 text-xs space-y-2">
                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-zinc-300 font-mono text-[11px]">
                                     <div><span className="text-zinc-500 font-sans">Engine:</span> <b className="text-amber-400">{playingAudio.youtubeId ? 'YouTube Stream' : (audioRef.current?.src?.includes('/api/theater/music/transcode') ? 'Server Transcoder' : 'Native Decoder')}</b></div>
-                                    <div><span className="text-zinc-500 font-sans">Quality:</span> <b className="text-emerald-400">{playingAudio.extension?.toLowerCase() === 'flac' ? 'FLAC Lossless' : (playingAudio.extension?.toLowerCase() === 'wav' ? 'WAV Lossless' : (playingAudio.isLocal ? `${playingAudio.extension?.toUpperCase() || 'Audio'} Local` : 'Web Stream (~160–256 kbps)'))}</b></div>
+                                    <div><span className="text-zinc-500 font-sans">Quality:</span> <b className="text-emerald-400">{playingAudio.extension?.toLowerCase() === 'flac' ? 'FLAC Lossless' : (playingAudio.extension?.toLowerCase() === 'wav' ? 'WAV Lossless' : ((playingAudio.isLocal || playingAudio.path) ? `${playingAudio.extension?.toUpperCase() || 'Audio'} Local` : 'Web Stream (~160–256 kbps)'))}</b></div>
                                     <div><span className="text-zinc-500 font-sans">Size:</span> <b className="text-white">{playingAudio.sizeBytes ? formatBytes(playingAudio.sizeBytes) : 'Bitstream'}</b></div>
                                     <div><span className="text-zinc-500 font-sans">Volume:</span> <b className="text-white">{Math.round(audioVolume * 100)}%</b></div>
                                 </div>

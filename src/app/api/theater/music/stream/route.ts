@@ -20,8 +20,8 @@ export async function GET(req: Request) {
         const directUrl = searchParams.get('url');
         const q = searchParams.get('q');
         const sourceFormat = (searchParams.get('sourceFormat') || searchParams.get('format') || 'm4a').toLowerCase();
-        const saveFormat = (searchParams.get('saveFormat') || searchParams.get('format') || 'original').toLowerCase();
         const isDownload = searchParams.get('download') === 'true';
+        const saveFormat = (searchParams.get('saveFormat') || searchParams.get('format') || (isDownload ? 'original' : 'mp3')).toLowerCase();
         const isTranscode = searchParams.get('transcode') === 'audio' || searchParams.get('transcode') === 'true';
 
         let targetUrl = '';
@@ -85,7 +85,7 @@ export async function GET(req: Request) {
         // ── MODE B: Transcoded Live Audio Stream (For In-Browser Web Player) ──
         const ytDlpBin = await ensureYtDlpBinary();
 
-        if (saveFormat === 'mp3' || saveFormat === 'flac' || saveFormat === 'wav' || isTranscode) {
+        if (saveFormat === 'mp3' || saveFormat === 'flac' || saveFormat === 'wav' || isTranscode || !isDownload) {
             const outFormat = saveFormat === 'flac' ? 'flac' : saveFormat === 'wav' ? 'wav' : 'mp3';
             const mimeType = outFormat === 'flac' ? 'audio/flac' : outFormat === 'wav' ? 'audio/wav' : 'audio/mpeg';
 

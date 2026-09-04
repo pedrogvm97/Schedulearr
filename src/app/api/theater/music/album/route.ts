@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import axios from 'axios';
+import { getTheaterLibraries, getCachedTheaterItems } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -293,7 +294,66 @@ export async function GET(req: Request) {
             }
         }
 
-        if (!albumInfo && tracks.length === 0) {
+        // 4. Enrich tracks with local server library files (Local-First Priority)
+        let finalTracks = tracks || [];
+        try {
+            const musicLibs = getTheaterLibraries().filter(l => l.type === 'music');
+            const localMusicItems: any[] = [];
+            for (const lib of musicLibs) {
+                const cached = getCachedTheaterItems(lib.id);
+                if (cached?.items && Array.isArray(cached.items)) {
+                    for (const itm of cached.items) {
+                        if (itm.category === 'audio' || itm.type === 'music' || itm.artist) {
+                            localMusicItems.push(itm);
+                        }
+                    }
+                }
+            }
+
+            if (localMusicItems.length > 0 && finalTracks.length > 0) {
+                finalTracks = finalTracks.map((trk: any) => {
+                    const normT = normalizeText(trk.title || trk.name);
+                    const baseT = normalizeText(getBaseTitle(trk.title || trk.name));
+                    const normA = normalizeText(trk.artist || albumInfo?.artist);
+
+                    const match = localMusicItems.find((localItm: any) => {
+                        const locTitle = normalizeText(localItm.title || localItm.name || '');
+                        const locBaseTitle = normalizeText(getBaseTitle(localItm.title || localItm.name || ''));
+                        const locArtist = normalizeText(localItm.artist || '');
+
+                        const titleMatches = (normT && locTitle === normT) ||
+                            (baseT && locBaseTitle && baseT === locBaseTitle) ||
+                            (locTitle.length >= 4 && normT.length >= 4 && (locTitle.includes(normT) || normT.includes(locTitle)));
+
+                        if (!titleMatches) return false;
+
+                        if (normA && locArtist) {
+                            return locArtist.includes(normA) || normA.includes(locArtist);
+                        }
+                        return true;
+                    });
+
+                    if (match) {
+                        return {
+                            ...trk,
+                            id: match.id,
+                            isLocal: true,
+                            isDownloaded: true,
+                            path: match.path,
+                            streamUrl: match.streamUrl || (match.path ? `/api/theater/stream?path=${encodeURIComponent(match.path)}` : trk.streamUrl),
+                            extension: match.extension || (match.path ? match.path.split('.').pop()?.toUpperCase() : trk.extension),
+                            folder: match.folder,
+                            libraryId: match.libraryId
+                        };
+                    }
+                    return trk;
+                });
+            }
+        } catch (enrichErr: any) {
+            console.warn('Local track enrichment error:', enrichErr.message);
+        }
+
+        if (!albumInfo && finalTracks.length === 0) {
             return NextResponse.json({
                 error: 'No confident album match found',
                 album: null,
@@ -303,7 +363,7 @@ export async function GET(req: Request) {
 
         return NextResponse.json({
             album: albumInfo,
-            tracks
+            tracks: finalTracks
         });
     } catch (error: any) {
         console.error('API /theater/music/album error:', error);
