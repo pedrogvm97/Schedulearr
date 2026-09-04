@@ -1362,10 +1362,29 @@ function TheaterPageContent() {
             .then(data => {
                 if (!active) return;
                 if (data.album && Array.isArray(data.tracks) && data.tracks.length > 0) {
-                    setAlbumOfficialData({
-                        album: data.album,
-                        tracks: data.tracks
-                    });
+                    // Verify that the returned album actually corresponds to selectedAlbum
+                    const clean = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+                    const base = (s: string) => clean((s || '').split(/[:\-\—\(\[]/)[0]);
+
+                    const targetFull = clean(selectedAlbum.name);
+                    const targetBase = base(selectedAlbum.name);
+                    const matchedFull = clean(data.album.title);
+                    const matchedBase = base(data.album.title);
+
+                    const isMatch = (targetFull && matchedFull && targetFull === matchedFull) ||
+                                    (targetBase && matchedBase && targetBase === matchedBase) ||
+                                    (targetBase && matchedFull.includes(targetBase)) ||
+                                    (matchedBase && targetFull.includes(matchedBase));
+
+                    if (isMatch) {
+                        setAlbumOfficialData({
+                            album: data.album,
+                            tracks: data.tracks
+                        });
+                    } else {
+                        // Discard mismatched album to preserve ripped album identity
+                        setAlbumOfficialData(null);
+                    }
                 } else {
                     setAlbumOfficialData(null);
                 }
@@ -4043,7 +4062,7 @@ function TheaterPageContent() {
                         <div className="flex flex-col sm:flex-row items-center gap-6 pb-4 border-b border-zinc-900">
                             <div className="w-36 h-36 rounded-3xl bg-zinc-900 border border-zinc-800 overflow-hidden flex items-center justify-center text-amber-400 shrink-0 shadow-2xl relative group">
                                 <img 
-                                    src={albumOfficialData?.album?.coverUrl || selectedAlbum.posterUrl || `/api/theater/music/cover?artist=${encodeURIComponent(selectedAlbum.artist)}&album=${encodeURIComponent(selectedAlbum.name)}`} 
+                                    src={selectedAlbum.posterUrl || albumOfficialData?.album?.coverUrl || `/api/theater/music/cover?artist=${encodeURIComponent(selectedAlbum.artist)}&album=${encodeURIComponent(selectedAlbum.name)}`} 
                                     alt="" 
                                     className="w-full h-full object-cover relative z-10" 
                                     onError={(e) => {
@@ -4079,21 +4098,21 @@ function TheaterPageContent() {
                                     )}
                                 </div>
 
-                                <h2 className="text-2xl sm:text-3xl font-black text-white truncate">
-                                    {albumOfficialData?.album?.title || selectedAlbum.name}
+                                <h2 className="text-2xl sm:text-3xl font-black text-white truncate" title={selectedAlbum.name}>
+                                    {selectedAlbum.tracks?.length > 0 ? selectedAlbum.name : (albumOfficialData?.album?.title || selectedAlbum.name)}
                                 </h2>
                                 <p
                                     onClick={() => {
-                                        const artName = albumOfficialData?.album?.artist || selectedAlbum.artist;
+                                        const artName = selectedAlbum.artist || albumOfficialData?.album?.artist || 'Various Artists';
                                         const artistTracks = items.filter(i => (i.artist || 'Various Artists') === artName);
                                         const artistAlbums = musicAlbums.filter(a => a.artist === artName);
-                                        openArtistModal({ name: artName, posterUrl: albumOfficialData?.album?.coverUrl || selectedAlbum.posterUrl, albums: artistAlbums, tracks: artistTracks });
+                                        openArtistModal({ name: artName, posterUrl: selectedAlbum.posterUrl || albumOfficialData?.album?.coverUrl, albums: artistAlbums, tracks: artistTracks });
                                         closeAlbumModal();
                                     }}
                                     className="text-sm font-semibold text-zinc-400 hover:text-amber-400 cursor-pointer transition-colors truncate"
                                     title="View Artist Discography"
                                 >
-                                    {albumOfficialData?.album?.artist || selectedAlbum.artist}
+                                    {selectedAlbum.artist || albumOfficialData?.album?.artist}
                                 </p>
 
                                 <div className="flex items-center justify-center sm:justify-start gap-3 text-xs text-zinc-400 font-bold">

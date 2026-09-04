@@ -2116,9 +2116,18 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             if (res.ok) {
                 const data = await res.json();
                 if (data.album) {
-                    setAlbumData(data.album);
-                    setAlbumTracks(Array.isArray(data.tracks) ? data.tracks : []);
-                    addAudioNerdLog('info', `Fetched album details for "${data.album.title}" by ${data.album.artist}`, { tracksCount: data.tracks?.length });
+                    const clean = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+                    const base = (s: string) => clean((s || '').split(/[:\-\—\(\[]/)[0]);
+                    const isMatch = !aName || clean(data.album.title) === clean(aName) || base(data.album.title) === base(aName) || clean(data.album.title).includes(base(aName)) || clean(aName).includes(base(data.album.title));
+
+                    if (isMatch) {
+                        setAlbumData(data.album);
+                        setAlbumTracks(Array.isArray(data.tracks) ? data.tracks : []);
+                        addAudioNerdLog('info', `Fetched album details for "${data.album.title}" by ${data.album.artist}`, { tracksCount: data.tracks?.length });
+                    } else {
+                        setAlbumData({ title: aName || 'Album', artist: artName || 'Artist', tracks: [] });
+                        setAlbumTracks([]);
+                    }
                 } else {
                     setAlbumData({ title: aName || 'Album', artist: artName || 'Artist', tracks: [] });
                     setAlbumTracks([]);
