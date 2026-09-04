@@ -25,7 +25,7 @@ import { useMusicPlayer } from '@/context/MusicPlayerContext';
 import TheaterLiveTvPlayer from '@/components/TheaterLiveTvPlayer';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import { AddIptvProviderModal } from '@/components/AddIptvProviderModal';
-import { smartMatchScore, normalizeSearchTerm } from '@/lib/searchUtils';
+import { smartMatchScore, normalizeSearchTerm, cleanTrackForMatching, findMatchingLocalTrack } from '@/lib/searchUtils';
 import { sanitizeSongMetadata } from '@/lib/songSanitizer';
 
 interface TheaterLibrary {
@@ -310,7 +310,7 @@ function TheaterPageContent() {
     const [isSearchingFixMatch, setIsSearchingFixMatch] = useState(false);
     const [isGrabbingAll, setIsGrabbingAll] = useState(false);
     const [grabProgress, setGrabProgress] = useState<{ current: number; total: number; title: string } | null>(null);
-    const [selectedDownloadQuality, setSelectedDownloadQuality] = useState<'mp3' | 'flac' | 'm4a' | 'opus' | 'original'>('mp3');
+    const [selectedDownloadQuality, setSelectedDownloadQuality] = useState<'original' | 'mp3' | 'm4a' | 'opus'>('mp3');
     const [musicQueueJobs, setMusicQueueJobs] = useState<any[]>([]);
     const [musicQueueStatus, setMusicQueueStatus] = useState<{ activeCount: number; queuedCount: number; currentJob: any | null }>({
         activeCount: 0,
@@ -321,6 +321,79 @@ function TheaterPageContent() {
     const [isCreatePlaylistModalOpen, setIsCreatePlaylistModalOpen] = useState(false);
     const [newPlaylistName, setNewPlaylistName] = useState('');
     const [addToPlaylistTrack, setAddToPlaylistTrack] = useState<MediaItem | null>(null);
+
+    // Dynamic Intelligent Track Matching & On-Disk Availability State
+    const albumTrackMatching = useMemo(() => {
+        if (!selectedAlbum) return { matchedRows: [], unmatchedLocalTracks: [], missingOfficialTracks: [], serverFormats: [], totalServerBytes: 0 };
+        
+        const localTracks = selectedAlbum.tracks || [];
+        const officialTracks = albumOfficialData?.tracks || [];
+        const totalServerBytes = localTracks.reduce((sum, t) => sum + (t.sizeBytes || 0), 0);
+        const formatSet = new Set(localTracks.map(t => (t.extension || '').toUpperCase()).filter(Boolean));
+        const serverFormats = Array.from(formatSet);
+
+        if (officialTracks.length === 0) {
+            return {
+                matchedRows: localTracks.map((lt, idx) => ({
+                    key: lt.id || lt.path || `local-${idx}`,
+                    trackNumber: lt.trackNumber || idx + 1,
+                    title: lt.title || lt.name?.replace(/\.[^/.]+$/, ''),
+                    duration: lt.duration || (lt.durationMs ? formatTime(lt.durationMs / 1000) : ''),
+                    localTrack: lt,
+                    officialTrack: null,
+                    isOnServer: true
+                })),
+                unmatchedLocalTracks: [],
+                missingOfficialTracks: [],
+                serverFormats,
+                totalServerBytes
+            };
+        }
+
+        const matchedLocalKeys = new Set<string>();
+        const missing: any[] = [];
+
+        const rows = officialTracks.map((ot: any, idx: number) => {
+            const local = findMatchingLocalTrack(ot, localTracks, matchedLocalKeys, selectedAlbum.artist);
+            if (local) {
+                const key = local.id || local.path || local.name || '';
+                if (key) matchedLocalKeys.add(key);
+                return {
+                    key: `match-${ot.id || idx}`,
+                    trackNumber: ot.trackNumber || idx + 1,
+                    title: ot.title,
+                    duration: ot.duration || (local.durationMs ? formatTime(local.durationMs / 1000) : ''),
+                    localTrack: local,
+                    officialTrack: ot,
+                    isOnServer: true
+                };
+            } else {
+                missing.push(ot);
+                return {
+                    key: `official-${ot.id || idx}`,
+                    trackNumber: ot.trackNumber || idx + 1,
+                    title: ot.title,
+                    duration: ot.duration || '',
+                    localTrack: null,
+                    officialTrack: ot,
+                    isOnServer: false
+                };
+            }
+        });
+
+        const unmatched = localTracks.filter(lt => {
+            const key = lt.id || lt.path || lt.name || '';
+            return !matchedLocalKeys.has(key);
+        });
+
+        return {
+            matchedRows: rows,
+            unmatchedLocalTracks: unmatched,
+            missingOfficialTracks: missing,
+            serverFormats,
+            totalServerBytes
+        };
+    }, [selectedAlbum, albumOfficialData]);
 
     // TV Show / Series Season & Episode Picker States
     const [selectedShow, setSelectedShow] = useState<{
@@ -4115,16 +4188,53 @@ function TheaterPageContent() {
                                     {selectedAlbum.artist || albumOfficialData?.album?.artist}
                                 </p>
 
-                                <div className="flex items-center justify-center sm:justify-start gap-3 text-xs text-zinc-400 font-bold">
-                                    <span>{selectedAlbum.tracks.length} In Library</span>
-                                    {albumOfficialData?.tracks && (
+                                <div className="flex items-center justify-center sm:justify-start gap-2 flex-wrap text-xs font-semibold text-zinc-400">
+                                    {selectedAlbum.tracks.length > 0 ? (
                                         <>
-                                            <span>•</span>
-                                            <span>{albumOfficialData.tracks.length} Official Tracks</span>
-                                            {albumOfficialData.tracks.length > selectedAlbum.tracks.length && (
+                                            <span className="flex items-center gap-1.5 text-emerald-400 font-bold">
+                                                <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                                                {selectedAlbum.tracks.length} Track{selectedAlbum.tracks.length > 1 ? 's' : ''} on Server
+                                            </span>
+                                            {albumTrackMatching.serverFormats.length > 0 && (
                                                 <>
-                                                    <span>•</span>
-                                                    <span className="text-amber-400">{albumOfficialData.tracks.length - selectedAlbum.tracks.length} Missing</span>
+                                                    <span className="text-zinc-600">•</span>
+                                                    <span className="px-1.5 py-0.5 rounded-md bg-zinc-800 text-zinc-300 font-mono text-[10px] font-bold">
+                                                        {albumTrackMatching.serverFormats.includes('FLAC') ? 'FLAC Lossless' : albumTrackMatching.serverFormats.join(' / ')}
+                                                    </span>
+                                                </>
+                                            )}
+                                            {albumTrackMatching.totalServerBytes > 0 && (
+                                                <>
+                                                    <span className="text-zinc-600">•</span>
+                                                    <span className="text-zinc-400 font-mono text-[11px]">
+                                                        {albumTrackMatching.totalServerBytes > 1024 * 1024 * 1024 
+                                                            ? `${(albumTrackMatching.totalServerBytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+                                                            : `${(albumTrackMatching.totalServerBytes / (1024 * 1024)).toFixed(1)} MB`}
+                                                    </span>
+                                                </>
+                                            )}
+                                            {albumOfficialData?.tracks && (
+                                                <>
+                                                    <span className="text-zinc-600">•</span>
+                                                    <span>{albumOfficialData.tracks.length} Catalog Tracks</span>
+                                                    {albumTrackMatching.missingOfficialTracks.length > 0 && (
+                                                        <>
+                                                            <span className="text-zinc-600">•</span>
+                                                            <span className="text-amber-400 font-bold">
+                                                                {albumTrackMatching.missingOfficialTracks.length} Missing
+                                                            </span>
+                                                        </>
+                                                    )}
+                                                </>
+                                            )}
+                                        </>
+                                    ) : (
+                                        <>
+                                            <span className="text-zinc-500">Not on Server</span>
+                                            {albumOfficialData?.tracks && (
+                                                <>
+                                                    <span className="text-zinc-600">•</span>
+                                                    <span>{albumOfficialData.tracks.length} Catalog Tracks</span>
                                                 </>
                                             )}
                                         </>
@@ -4132,100 +4242,102 @@ function TheaterPageContent() {
                                 </div>
 
                                 {/* Album Actions Toolbar */}
-                                <div className="pt-2 flex flex-wrap items-center justify-center sm:justify-start gap-2.5">
+                                <div className="pt-2 flex flex-wrap items-center justify-center sm:justify-start gap-2">
                                     <button
                                         onClick={() => {
-                                            handlePlayAlbum(selectedAlbum.tracks);
+                                            const tracksToPlay = selectedAlbum.tracks.length > 0
+                                                ? selectedAlbum.tracks
+                                                : (albumOfficialData?.tracks || []).map((ot: any) => ({
+                                                    id: `online-${ot.id || ot.title}`,
+                                                    title: ot.title,
+                                                    artist: ot.artist || selectedAlbum.artist,
+                                                    album: selectedAlbum.name,
+                                                    streamUrl: ot.streamUrl || ot.previewUrl || `/api/theater/music/stream?q=${encodeURIComponent(`${ot.artist || selectedAlbum.artist} ${ot.title}`)}`,
+                                                    posterUrl: albumOfficialData?.album?.coverUrl || selectedAlbum.posterUrl
+                                                } as any));
+                                            handlePlayAlbum(tracksToPlay);
                                             closeAlbumModal();
                                         }}
-                                        className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-black uppercase text-xs tracking-widest rounded-2xl transition-all shadow-lg shadow-amber-500/20 flex items-center gap-2 cursor-pointer"
+                                        className="h-9 px-4 bg-amber-500 hover:bg-amber-400 text-black font-black uppercase text-xs tracking-wider rounded-xl transition-all shadow-md shadow-amber-500/20 flex items-center gap-2 cursor-pointer shrink-0"
                                     >
-                                        <Play size={15} /> Play Album
+                                        <Play size={14} className="fill-black" />
+                                        <span>Play Album</span>
                                     </button>
 
-                                    {/* Download All Missing Tracks button (Background Queue) */}
-                                    {albumOfficialData?.tracks && albumOfficialData.tracks.some((ot: any) => {
-                                        const cleanTrackTitle = (str: string | undefined | null) => (str || '').replace(/^\d+[\s\.\-_]+/, '').trim();
-                                        const normOt = normalizeSearchTerm(cleanTrackTitle(ot.title));
-                                        return !selectedAlbum.tracks.some((lt: any) => {
-                                            const normLt = normalizeSearchTerm(cleanTrackTitle(lt.title));
-                                            const normLn = normalizeSearchTerm(cleanTrackTitle(lt.name?.replace(/\.[^/.]+$/, '')));
-                                            return normLt === normOt || normLn === normOt;
-                                        });
-                                    }) && (
+                                    {/* Download Missing Tracks (Only if missing tracks exist) */}
+                                    {albumTrackMatching.missingOfficialTracks.length > 0 && (
                                         <button
-                                            onClick={() => {
-                                                const cleanTrackTitle = (str: string | undefined | null) => (str || '').replace(/^\d+[\s\.\-_]+/, '').trim();
-                                                const missing = albumOfficialData.tracks.filter((ot: any) => {
-                                                    const normOt = normalizeSearchTerm(cleanTrackTitle(ot.title));
-                                                    return !selectedAlbum.tracks.some((lt: any) => {
-                                                        const normLt = normalizeSearchTerm(cleanTrackTitle(lt.title));
-                                                        const normLn = normalizeSearchTerm(cleanTrackTitle(lt.name?.replace(/\.[^/.]+$/, '')));
-                                                        return normLt === normOt || normLn === normOt;
-                                                    });
-                                                });
-                                                handleGrabAllMissing(missing);
-                                            }}
-                                            className="px-4 py-2.5 bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-black font-black uppercase text-xs tracking-widest rounded-2xl border border-amber-500/30 transition-all flex items-center gap-2 cursor-pointer shadow-lg shadow-amber-500/10"
-                                            title="Download all missing tracks directly to server library in the background"
+                                            onClick={() => handleGrabAllMissing(albumTrackMatching.missingOfficialTracks)}
+                                            className="h-9 px-3.5 bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-black font-bold text-xs rounded-xl border border-amber-500/30 transition-all flex items-center gap-2 cursor-pointer shrink-0 shadow-sm"
+                                            title="Download missing tracks from web audio stream directly to your server library"
                                         >
-                                            <DownloadCloud size={14} /> Download All Missing
+                                            <DownloadCloud size={14} />
+                                            <span>Download Missing ({albumTrackMatching.missingOfficialTracks.length})</span>
                                         </button>
                                     )}
 
-                                    <button
-                                        onClick={() => handleDownloadAlbum(selectedAlbum.tracks, selectedAlbum.name)}
-                                        className="px-4 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-black uppercase text-xs tracking-widest rounded-2xl border border-zinc-800 transition-all flex items-center gap-2 cursor-pointer"
-                                        title="Download All In-Library Tracks to this Device"
-                                    >
-                                        <Download size={14} /> Download Local
-                                    </button>
+                                    {/* Save to Device (Download from server to client device) */}
+                                    {selectedAlbum.tracks.length > 0 && (
+                                        <button
+                                            onClick={() => handleDownloadAlbum(selectedAlbum.tracks, selectedAlbum.name)}
+                                            className="h-9 px-3.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-bold text-xs rounded-xl border border-zinc-800 transition-all flex items-center gap-2 cursor-pointer shrink-0"
+                                            title="Save album tracks from server to this device"
+                                        >
+                                            <Download size={14} />
+                                            <span>Save to Device</span>
+                                        </button>
+                                    )}
 
+                                    {/* Fix Match */}
                                     <button
                                         onClick={() => setIsFixMatchOpen(!isFixMatchOpen)}
-                                        className={`px-3.5 py-2.5 rounded-2xl border text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                                        className={`h-9 px-3.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
                                             isFixMatchOpen ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-300' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
                                         }`}
                                         title="Fix Album Identification & Tracklist"
                                     >
-                                        <Sparkles size={13} /> Fix Match
+                                        <Sparkles size={13} />
+                                        <span>Match</span>
                                     </button>
 
-                                    <button
-                                        onClick={() => handleDeleteAlbum(selectedAlbum)}
-                                        className="p-2.5 rounded-2xl bg-zinc-900/80 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 border border-zinc-800 hover:border-red-500/30 transition-all cursor-pointer"
-                                        title="Delete Album Files from Server"
-                                    >
-                                        <Trash2 size={15} />
-                                    </button>
+                                    {/* Delete from Server */}
+                                    {selectedAlbum.tracks.length > 0 && (
+                                        <button
+                                            onClick={() => handleDeleteAlbum(selectedAlbum)}
+                                            className="h-9 w-9 rounded-xl bg-zinc-900 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 border border-zinc-800 hover:border-red-500/30 transition-all flex items-center justify-center cursor-pointer shrink-0 ml-auto"
+                                            title="Delete album files from server"
+                                        >
+                                            <Trash2 size={14} />
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         </div>
 
-                        {/* Download Options: Quality, Destination Folder & Estimated Size */}
-                        <div className="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800/80 space-y-3">
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                                {/* Quality Selector */}
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <span className="font-bold text-zinc-400 shrink-0">Quality Preset:</span>
-                                    <div className="flex flex-wrap items-center gap-1.5">
+                        {/* Download & Source Quality Settings Panel */}
+                        <div className="p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800/80 space-y-2.5">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-bold text-zinc-400 shrink-0 text-[11px] uppercase tracking-wider">
+                                        Grab Format:
+                                    </span>
+                                    <div className="flex items-center gap-1.5 flex-wrap">
                                         {[
-                                            { id: 'mp3', label: 'MP3 320k', est: '~10 MB' },
-                                            { id: 'flac', label: 'FLAC Lossless', est: '~35 MB' },
-                                            { id: 'm4a', label: 'AAC 256k', est: '~8 MB' },
-                                            { id: 'opus', label: 'Opus 160k', est: '~5 MB' },
-                                            { id: 'original', label: 'Original', est: 'Source' }
+                                            { id: 'original', label: 'Direct Stream', tag: 'Fastest (~160k)', est: '~5 MB' },
+                                            { id: 'mp3', label: 'MP3 320k', tag: 'Universal', est: '~10 MB' },
+                                            { id: 'm4a', label: 'AAC 256k', tag: 'High-Efficiency', est: '~8 MB' },
+                                            { id: 'opus', label: 'Opus 160k', tag: 'Lightweight', est: '~5 MB' }
                                         ].map((q) => (
                                             <button
                                                 key={q.id}
                                                 type="button"
                                                 onClick={() => setSelectedDownloadQuality(q.id as any)}
-                                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                                                     selectedDownloadQuality === q.id
-                                                        ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20'
-                                                        : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200 border border-zinc-800'
+                                                        ? 'bg-amber-500 text-black shadow-sm font-black'
+                                                        : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
                                                 }`}
-                                                title={`Estimated ${q.est} per track`}
+                                                title={`${q.tag} • Est. ${q.est} per track`}
                                             >
                                                 {q.label}
                                             </button>
@@ -4233,21 +4345,25 @@ function TheaterPageContent() {
                                     </div>
                                 </div>
 
-                                {/* Estimated Size */}
-                                <div className="flex items-center gap-2 text-zinc-400 font-mono text-xs shrink-0">
-                                    <span className="text-zinc-500">Est. Size:</span>
+                                <div className="text-[11px] text-zinc-500 font-mono flex items-center gap-1.5 shrink-0">
+                                    <span>Est. size:</span>
                                     <span className="text-amber-400 font-bold">
-                                        {selectedDownloadQuality === 'flac' ? '~35 MB' : selectedDownloadQuality === 'mp3' ? '~10 MB' : selectedDownloadQuality === 'm4a' ? '~8 MB' : selectedDownloadQuality === 'opus' ? '~5 MB' : '~10 MB'} / track
+                                        {selectedDownloadQuality === 'mp3' ? '~10 MB' : selectedDownloadQuality === 'm4a' ? '~8 MB' : '~5 MB'} / track
                                     </span>
                                 </div>
                             </div>
 
-                            {/* Target Folder Path */}
-                            <div className="flex items-center gap-2 text-xs text-zinc-400 bg-zinc-900/60 px-3.5 py-2 rounded-xl border border-zinc-800">
-                                <Folder size={14} className="text-amber-400 shrink-0" />
-                                <span className="text-zinc-500 font-bold shrink-0">Server Destination:</span>
-                                <span className="font-mono text-zinc-300 truncate" title={`${(activeLibrary?.folders && activeLibrary.folders[0]) || './data/music'}/${selectedAlbum.artist}/${selectedAlbum.name}/`}>
-                                    {`${(activeLibrary?.folders && activeLibrary.folders[0]) || './data/music'}/${selectedAlbum.artist}/${selectedAlbum.name}/`}
+                            {/* Honest Source Truth & Server Path */}
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] pt-1.5 border-t border-zinc-900">
+                                <div className="flex items-center gap-1.5 text-zinc-400 min-w-0">
+                                    <Folder size={12} className="text-amber-400 shrink-0" />
+                                    <span className="text-zinc-500 shrink-0 font-bold">Server Path:</span>
+                                    <span className="font-mono text-zinc-300 truncate" title={`${(activeLibrary?.folders && activeLibrary.folders[0]) || './data/music'}/${selectedAlbum.artist}/${selectedAlbum.name}/`}>
+                                        {`${(activeLibrary?.folders && activeLibrary.folders[0]) || './data/music'}/${selectedAlbum.artist}/${selectedAlbum.name}/`}
+                                    </span>
+                                </div>
+                                <span className="text-[10px] text-zinc-500 shrink-0">
+                                    Source: Web Audio Stream (~160–256 kbps) • No fake FLAC upscaling
                                 </span>
                             </div>
                         </div>
@@ -4347,194 +4463,231 @@ function TheaterPageContent() {
                             </div>
                         )}
 
-                        {/* Album Tracklist: Official Sequence + Local In-Library Status */}
+                        {/* Album Tracklist: Official Sequence + Server In-Library Status */}
                         <div className="space-y-1">
-                            {albumOfficialData?.tracks && albumOfficialData.tracks.length > 0 ? (
-                                albumOfficialData.tracks.map((officialTrack, i) => {
-                                    const cleanTrackTitle = (str: string | undefined | null) => (str || '').replace(/^\d+[\s\.\-_]+/, '').trim();
-                                    const normOfficial = normalizeSearchTerm(cleanTrackTitle(officialTrack.title));
+                            {albumTrackMatching.matchedRows.map((row, i) => {
+                                const localTrack = row.localTrack;
+                                const officialTrack = row.officialTrack;
+                                const isInLibrary = row.isOnServer;
 
-                                    const localTrack = selectedAlbum.tracks.find(lt => {
-                                        const normLt = normalizeSearchTerm(cleanTrackTitle(lt.title));
-                                        const normLn = normalizeSearchTerm(cleanTrackTitle(lt.name?.replace(/\.[^/.]+$/, '')));
-                                        return normLt === normOfficial || normLn === normOfficial;
-                                    });
-                                    const isInLibrary = Boolean(localTrack);
+                                const queuedJob = musicQueueJobs.find(j => {
+                                    if (j.status !== 'downloading' && j.status !== 'queued') return false;
+                                    const normJobTitle = cleanTrackForMatching(j.title, selectedAlbum.artist);
+                                    const normRowTitle = cleanTrackForMatching(row.title, selectedAlbum.artist);
+                                    return normJobTitle === normRowTitle;
+                                });
 
-                                    const queuedJob = musicQueueJobs.find(j => {
-                                        if (j.status !== 'downloading' && j.status !== 'queued') return false;
-                                        const normJobTitle = normalizeSearchTerm(cleanTrackTitle(j.title));
-                                        return normJobTitle === normOfficial;
-                                    });
+                                const trackSizeBytes = localTrack?.sizeBytes;
+                                const formatLabel = (localTrack?.extension || '').toUpperCase();
+                                const sizeLabel = trackSizeBytes ? (trackSizeBytes > 1024 * 1024 * 1024 ? `${(trackSizeBytes / (1024 * 1024 * 1024)).toFixed(2)} GB` : `${(trackSizeBytes / (1024 * 1024)).toFixed(1)} MB`) : '';
 
-                                    return (
-                                        <div
-                                            key={officialTrack.id || i}
-                                            onClick={() => {
-                                                if (localTrack) {
-                                                    const lIdx = selectedAlbum.tracks.indexOf(localTrack);
-                                                    handlePlayTrack(localTrack, selectedAlbum.tracks, lIdx >= 0 ? lIdx : 0);
-                                                } else {
-                                                    handlePlayTrack({
-                                                        id: `online-${officialTrack.id || officialTrack.title}`,
-                                                        title: officialTrack.title,
-                                                        artist: officialTrack.artist || selectedAlbum.artist,
-                                                        album: selectedAlbum.name,
-                                                        streamUrl: officialTrack.streamUrl || officialTrack.previewUrl || `/api/theater/music/stream?q=${encodeURIComponent(`${officialTrack.artist || selectedAlbum.artist} ${officialTrack.title}`)}`,
-                                                        posterUrl: albumOfficialData?.album?.coverUrl || selectedAlbum.posterUrl
-                                                    } as any, [], 0);
-                                                }
-                                            }}
-                                            className={`flex items-center justify-between p-3 rounded-2xl transition-all cursor-pointer group text-xs ${
-                                                isInLibrary ? 'hover:bg-zinc-900/60' : 'bg-zinc-950/40 hover:bg-zinc-900/40 opacity-75'
-                                            }`}
-                                        >
-                                            <div className="flex items-center gap-3 min-w-0 flex-1">
-                                                <span className="w-6 text-zinc-600 font-mono font-bold group-hover:text-amber-400 shrink-0">
-                                                    {officialTrack.trackNumber || i + 1}
-                                                </span>
-                                                <div className="min-w-0 flex-1">
-                                                    <div className="flex items-center gap-2">
-                                                        <span className={`font-bold truncate ${isInLibrary ? 'text-white group-hover:text-amber-400' : 'text-zinc-400'}`}>
-                                                            {officialTrack.title}
+                                return (
+                                    <div
+                                        key={row.key || i}
+                                        onClick={() => {
+                                            if (localTrack) {
+                                                const lIdx = selectedAlbum.tracks.indexOf(localTrack);
+                                                handlePlayTrack(localTrack, selectedAlbum.tracks, lIdx >= 0 ? lIdx : 0);
+                                            } else if (officialTrack) {
+                                                handlePlayTrack({
+                                                    id: `online-${officialTrack.id || officialTrack.title}`,
+                                                    title: officialTrack.title,
+                                                    artist: officialTrack.artist || selectedAlbum.artist,
+                                                    album: selectedAlbum.name,
+                                                    streamUrl: officialTrack.streamUrl || officialTrack.previewUrl || `/api/theater/music/stream?q=${encodeURIComponent(`${officialTrack.artist || selectedAlbum.artist} ${officialTrack.title}`)}`,
+                                                    posterUrl: albumOfficialData?.album?.coverUrl || selectedAlbum.posterUrl
+                                                } as any, [], 0);
+                                            }
+                                        }}
+                                        className={`flex items-center justify-between p-3 rounded-2xl transition-all cursor-pointer group text-xs ${
+                                            isInLibrary ? 'hover:bg-zinc-900/60' : 'bg-zinc-950/40 hover:bg-zinc-900/40 opacity-80'
+                                        }`}
+                                        title={localTrack?.path ? `Server file: ${localTrack.path}` : undefined}
+                                    >
+                                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                                            <span className="w-6 text-zinc-600 font-mono font-bold group-hover:text-amber-400 shrink-0">
+                                                {row.trackNumber || i + 1}
+                                            </span>
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <span className={`font-bold truncate ${isInLibrary ? 'text-white group-hover:text-amber-400' : 'text-zinc-400'}`}>
+                                                        {row.title}
+                                                    </span>
+                                                    {queuedJob ? (
+                                                        <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-black uppercase shrink-0 flex items-center gap-1">
+                                                            {queuedJob.status === 'downloading' ? (
+                                                                <>
+                                                                    <RefreshCw size={9} className="animate-spin text-amber-400" />
+                                                                    Downloading ({queuedJob.progress}%)
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <Clock size={9} className="text-zinc-400" />
+                                                                    Queued
+                                                                </>
+                                                            )}
                                                         </span>
-                                                        {queuedJob ? (
-                                                            <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-black uppercase shrink-0 flex items-center gap-1">
-                                                                {queuedJob.status === 'downloading' ? (
-                                                                    <>
-                                                                        <RefreshCw size={9} className="animate-spin text-amber-400" />
-                                                                        Downloading ({queuedJob.progress}%)
-                                                                    </>
-                                                                ) : (
-                                                                    <>
-                                                                        <Clock size={9} className="text-zinc-400" />
-                                                                        Queued
-                                                                    </>
-                                                                )}
-                                                            </span>
-                                                        ) : isInLibrary ? (
-                                                            <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[9px] font-black uppercase shrink-0 flex items-center gap-1">
-                                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                                                                On Server • {(localTrack?.extension || 'LOCAL').toUpperCase()}
-                                                            </span>
-                                                        ) : (
-                                                            <span className="px-2 py-0.5 rounded-md bg-red-500/15 text-red-400 border border-red-500/30 text-[9px] font-black uppercase shrink-0 flex items-center gap-1">
-                                                                <AlertCircle size={9} className="text-red-400" />
-                                                                Missing
-                                                            </span>
-                                                        )}
-                                                    </div>
+                                                    ) : isInLibrary ? (
+                                                        <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[9px] font-bold uppercase shrink-0 flex items-center gap-1.5">
+                                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                                            <span>On Server</span>
+                                                            {formatLabel && <span className="font-mono text-emerald-300">• {formatLabel === 'FLAC' ? 'FLAC' : formatLabel}</span>}
+                                                            {sizeLabel && <span className="font-mono text-zinc-400">({sizeLabel})</span>}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="px-2 py-0.5 rounded-md bg-zinc-800/80 text-zinc-400 border border-zinc-700/50 text-[9px] font-bold uppercase shrink-0 flex items-center gap-1">
+                                                            <AlertCircle size={9} className="text-amber-400/80" />
+                                                            <span>Not on Server</span>
+                                                            <span className="text-zinc-500">• Web Stream</span>
+                                                        </span>
+                                                    )}
                                                 </div>
                                             </div>
+                                        </div>
 
-                                            <div className="flex items-center gap-2 shrink-0 ml-3">
-                                                <span className="text-[11px] font-mono text-zinc-500 mr-1">
-                                                    {officialTrack.duration || (localTrack ? formatTime(localTrack.durationMs ? localTrack.durationMs / 1000 : 0) : '')}
-                                                </span>
+                                        <div className="flex items-center gap-2 shrink-0 ml-3">
+                                            <span className="text-[11px] font-mono text-zinc-500 mr-1">
+                                                {row.duration}
+                                            </span>
 
-                                                {/* If in library: Local Download & Delete buttons */}
-                                                {isInLibrary && localTrack ? (
-                                                    <>
-                                                        <button
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                handleDownloadTrack(localTrack);
-                                                            }}
-                                                            className="w-8 h-8 rounded-lg bg-zinc-900 hover:bg-emerald-500 text-zinc-400 hover:text-black flex items-center justify-center transition-all cursor-pointer"
-                                                            title="Download Track to this Device"
-                                                        >
-                                                            <Download size={13} />
-                                                        </button>
-                                                        <button
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                handleDeleteTrackFile(localTrack.path, localTrack.title);
-                                                            }}
-                                                            className="w-8 h-8 rounded-lg bg-zinc-900 hover:bg-red-500/20 text-zinc-500 hover:text-red-400 flex items-center justify-center transition-all cursor-pointer"
-                                                            title="Delete Track File from Server"
-                                                        >
-                                                            <Trash2 size={13} />
-                                                        </button>
-                                                        <button className="w-8 h-8 rounded-lg bg-zinc-900 group-hover:bg-amber-500 text-zinc-400 group-hover:text-black flex items-center justify-center transition-all cursor-pointer">
-                                                            <Play size={13} className="ml-0.5" />
-                                                        </button>
-                                                    </>
-                                                ) : queuedJob ? (
-                                                    <div className="px-2.5 py-1.5 rounded-lg bg-amber-500/10 text-amber-300 border border-amber-500/20 flex items-center gap-1.5 text-[11px] font-bold">
-                                                        {queuedJob.status === 'downloading' ? (
-                                                            <>
-                                                                <RefreshCw size={11} className="animate-spin text-amber-400" />
-                                                                <span>{queuedJob.progress}%</span>
-                                                            </>
-                                                        ) : (
-                                                            <>
-                                                                <Clock size={11} className="text-zinc-500" />
-                                                                <span>Queued</span>
-                                                            </>
-                                                        )}
-                                                    </div>
-                                                ) : (
-                                                    /* If missing: Grab / Download Track to Server Library */
+                                            {/* If on server: Save to Device & Delete buttons */}
+                                            {isInLibrary && localTrack ? (
+                                                <>
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleDownloadTrack(localTrack);
+                                                        }}
+                                                        className="w-8 h-8 rounded-lg bg-zinc-900 hover:bg-emerald-500 text-zinc-400 hover:text-black flex items-center justify-center transition-all cursor-pointer"
+                                                        title="Save Track to this Device"
+                                                    >
+                                                        <Download size={13} />
+                                                    </button>
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleDeleteTrackFile(localTrack.path, localTrack.title);
+                                                        }}
+                                                        className="w-8 h-8 rounded-lg bg-zinc-900 hover:bg-red-500/20 text-zinc-500 hover:text-red-400 flex items-center justify-center transition-all cursor-pointer"
+                                                        title="Delete Track File from Server"
+                                                    >
+                                                        <Trash2 size={13} />
+                                                    </button>
+                                                    <button className="w-8 h-8 rounded-lg bg-zinc-900 group-hover:bg-amber-500 text-zinc-400 group-hover:text-black flex items-center justify-center transition-all cursor-pointer">
+                                                        <Play size={13} className="ml-0.5" />
+                                                    </button>
+                                                </>
+                                            ) : queuedJob ? (
+                                                <div className="px-2.5 py-1.5 rounded-lg bg-amber-500/10 text-amber-300 border border-amber-500/20 flex items-center gap-1.5 text-[11px] font-bold">
+                                                    {queuedJob.status === 'downloading' ? (
+                                                        <>
+                                                            <RefreshCw size={11} className="animate-spin text-amber-400" />
+                                                            <span>{queuedJob.progress}%</span>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <Clock size={11} className="text-zinc-500" />
+                                                            <span>Queued</span>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                /* If not on server: Grab / Download Track to Server Library */
+                                                officialTrack && (
                                                     <button
                                                         onClick={(e) => {
                                                             e.stopPropagation();
                                                             handleGrabSingleTrack(officialTrack);
                                                         }}
                                                         className="px-2.5 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/30 flex items-center gap-1.5 transition-all text-[11px] font-bold cursor-pointer"
-                                                        title="Grab and save track to server library in background"
+                                                        title="Download track from web stream to server library in background"
                                                     >
                                                         <DownloadCloud size={13} />
                                                         <span>Download</span>
                                                     </button>
-                                                )}
-                                            </div>
-                                        </div>
-                                    );
-                                })
-                            ) : (
-                                /* Fallback: Local Tracks only */
-                                selectedAlbum.tracks.map((track, i) => (
-                                    <div
-                                        key={track.id}
-                                        onClick={() => handlePlayTrack(track, selectedAlbum.tracks, i)}
-                                        className="flex items-center justify-between p-3 rounded-2xl hover:bg-zinc-900/60 transition-all cursor-pointer group text-xs"
-                                    >
-                                        <div className="flex items-center gap-3 min-w-0">
-                                            <span className="w-6 text-zinc-600 font-mono font-bold group-hover:text-amber-400">{i + 1}</span>
-                                            <div className="flex items-center gap-2 truncate">
-                                                <span className="font-bold text-white group-hover:text-amber-400 transition-colors truncate">{track.title}</span>
-                                                <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[9px] font-black uppercase shrink-0">
-                                                    {(track.extension || 'LOCAL').toUpperCase()}
-                                                </span>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    handleDownloadTrack(track);
-                                                }}
-                                                className="w-8 h-8 rounded-lg bg-zinc-900 hover:bg-emerald-500 text-zinc-400 hover:text-black flex items-center justify-center transition-all cursor-pointer"
-                                                title="Download Track to this Device"
-                                            >
-                                                <Download size={13} />
-                                            </button>
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    handleDeleteTrackFile(track.path, track.title);
-                                                }}
-                                                className="w-8 h-8 rounded-lg bg-zinc-900 hover:bg-red-500/20 text-zinc-500 hover:text-red-400 flex items-center justify-center transition-all cursor-pointer"
-                                                title="Delete Track from Server"
-                                            >
-                                                <Trash2 size={13} />
-                                            </button>
-                                            <button className="w-8 h-8 rounded-lg bg-zinc-900 group-hover:bg-amber-500 text-zinc-400 group-hover:text-black flex items-center justify-center transition-all cursor-pointer">
-                                                <Play size={13} className="ml-0.5" />
-                                            </button>
+                                                )
+                                            )}
                                         </div>
                                     </div>
-                                ))
+                                );
+                            })}
+
+                            {/* Additional Unmatched Local Tracks on Server */}
+                            {albumTrackMatching.unmatchedLocalTracks.length > 0 && (
+                                <div className="pt-4 space-y-2">
+                                    <div className="px-3 py-1.5 rounded-xl bg-zinc-900/50 border border-zinc-800/80 flex items-center justify-between text-xs">
+                                        <span className="font-bold text-amber-400 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                                            <Disc size={13} /> Additional Tracks on Server ({albumTrackMatching.unmatchedLocalTracks.length})
+                                        </span>
+                                        <span className="text-[10px] text-zinc-500">
+                                            Files on server disk not in official catalog tracklist
+                                        </span>
+                                    </div>
+                                    {albumTrackMatching.unmatchedLocalTracks.map((lt, i) => {
+                                        const trackSizeBytes = lt.sizeBytes;
+                                        const formatLabel = (lt.extension || '').toUpperCase();
+                                        const sizeLabel = trackSizeBytes ? (trackSizeBytes > 1024 * 1024 * 1024 ? `${(trackSizeBytes / (1024 * 1024 * 1024)).toFixed(2)} GB` : `${(trackSizeBytes / (1024 * 1024)).toFixed(1)} MB`) : '';
+                                        return (
+                                            <div
+                                                key={lt.id || lt.path || `unmatched-${i}`}
+                                                onClick={() => {
+                                                    const lIdx = selectedAlbum.tracks.indexOf(lt);
+                                                    handlePlayTrack(lt, selectedAlbum.tracks, lIdx >= 0 ? lIdx : 0);
+                                                }}
+                                                className="flex items-center justify-between p-3 rounded-2xl hover:bg-zinc-900/60 transition-all cursor-pointer group text-xs"
+                                                title={`Server file: ${lt.path}`}
+                                            >
+                                                <div className="flex items-center gap-3 min-w-0 flex-1">
+                                                    <span className="w-6 text-zinc-600 font-mono font-bold group-hover:text-amber-400 shrink-0">
+                                                        {lt.trackNumber || albumTrackMatching.matchedRows.length + i + 1}
+                                                    </span>
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="flex items-center gap-2 flex-wrap">
+                                                            <span className="font-bold text-white group-hover:text-amber-400 transition-colors truncate">
+                                                                {lt.title || lt.name?.replace(/\.[^/.]+$/, '')}
+                                                            </span>
+                                                            <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[9px] font-bold uppercase shrink-0 flex items-center gap-1.5">
+                                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                                                <span>On Server</span>
+                                                                {formatLabel && <span className="font-mono text-emerald-300">• {formatLabel}</span>}
+                                                                {sizeLabel && <span className="font-mono text-zinc-400">({sizeLabel})</span>}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center gap-2 shrink-0 ml-3">
+                                                    <span className="text-[11px] font-mono text-zinc-500 mr-1">
+                                                        {lt.duration || (lt.durationMs ? formatTime(lt.durationMs / 1000) : '')}
+                                                    </span>
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleDownloadTrack(lt);
+                                                        }}
+                                                        className="w-8 h-8 rounded-lg bg-zinc-900 hover:bg-emerald-500 text-zinc-400 hover:text-black flex items-center justify-center transition-all cursor-pointer"
+                                                        title="Save Track to this Device"
+                                                    >
+                                                        <Download size={13} />
+                                                    </button>
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleDeleteTrackFile(lt.path, lt.title);
+                                                        }}
+                                                        className="w-8 h-8 rounded-lg bg-zinc-900 hover:bg-red-500/20 text-zinc-500 hover:text-red-400 flex items-center justify-center transition-all cursor-pointer"
+                                                        title="Delete Track File from Server"
+                                                    >
+                                                        <Trash2 size={13} />
+                                                    </button>
+                                                    <button className="w-8 h-8 rounded-lg bg-zinc-900 group-hover:bg-amber-500 text-zinc-400 group-hover:text-black flex items-center justify-center transition-all cursor-pointer">
+                                                        <Play size={13} className="ml-0.5" />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
                             )}
                         </div>
                     </div>

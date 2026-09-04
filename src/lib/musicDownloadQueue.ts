@@ -59,7 +59,9 @@ class MusicQueueManager {
             const cleanTitle = (item.title || 'Track').replace(/[<>:"/\\|?*]/g, '').trim();
             const cleanArtist = (item.artist || 'Artist').replace(/[<>:"/\\|?*]/g, '').trim();
             const cleanAlbum = (item.album || 'Album').replace(/[<>:"/\\|?*]/g, '').trim();
-            const fmt = item.format || 'original';
+            const rawFmt = item.format || 'mp3';
+            // Web audio streams cannot produce true lossless FLAC; fallback to MP3 320k to prevent fake bloated files
+            const fmt = rawFmt === 'flac' ? 'mp3' : rawFmt;
             const effectiveExt = fmt === 'original' ? 'm4a' : fmt;
 
             // Determine target folder
@@ -81,9 +83,8 @@ class MusicQueueManager {
             const outputPath = path.join(albumDir, `${cleanTitle}.${effectiveExt}`);
 
             let qualityLabel = 'Original Stream';
-            if (fmt === 'flac') qualityLabel = 'FLAC Lossless';
-            else if (fmt === 'mp3') qualityLabel = 'MP3 320 kbps';
-            else if (fmt === 'm4a') qualityLabel = 'M4A / AAC 256 kbps';
+            if (fmt === 'mp3') qualityLabel = 'MP3 320 kbps';
+            else if (fmt === 'm4a') qualityLabel = 'AAC 256 kbps';
             else if (fmt === 'opus') qualityLabel = 'Opus 160 kbps';
 
             const job: MusicDownloadJob = {

@@ -173,7 +173,9 @@ export async function downloadAudioFile(options: DownloadOptions): Promise<{ suc
     }
 
     const { binDir, ffmpegPath } = ensureFfmpegBinaries();
-    const outFormat = (format === 'original' ? 'mp3' : format).toLowerCase();
+    const requestedFmt = (format === 'original' ? 'mp3' : format).toLowerCase();
+    // Disallow fake lossy-to-lossless upscaling from web streams
+    const outFormat = requestedFmt === 'flac' ? 'mp3' : requestedFmt;
     const tempRawFile = path.join(os.tmpdir(), `raw_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.audio`);
     const tempFile = path.join(os.tmpdir(), `dl_temp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${outFormat}`);
     let downloaded = false;

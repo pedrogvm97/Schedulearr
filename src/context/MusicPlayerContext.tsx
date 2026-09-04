@@ -4090,7 +4090,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                 <div className="p-3 bg-zinc-900/60 rounded-xl border border-zinc-800 space-y-0.5">
                                                     <span className="text-[9px] font-black uppercase text-zinc-500 block">Quality Profile</span>
                                                     <span className="font-bold text-amber-400 font-mono truncate block">
-                                                        {playingAudio.extension?.toLowerCase() === 'flac' ? '24-bit Lossless Master' : (playingAudio.extension?.toLowerCase() === 'wav' ? '16-bit PCM' : '320kbps Stream')}
+                                                        {playingAudio.extension?.toLowerCase() === 'flac' ? 'FLAC Lossless' : (playingAudio.extension?.toLowerCase() === 'wav' ? 'WAV Lossless' : (playingAudio.isLocal ? `${playingAudio.extension?.toUpperCase() || 'AUDIO'} Local` : 'Web Stream (~160–256 kbps)'))}
                                                     </span>
                                                 </div>
                                                 <div className="p-3 bg-zinc-900/60 rounded-xl border border-zinc-800 space-y-0.5">
@@ -5665,7 +5665,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             <div className="p-3.5 rounded-2xl bg-zinc-900/60 border border-zinc-800 text-xs space-y-2">
                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-zinc-300 font-mono text-[11px]">
                                     <div><span className="text-zinc-500 font-sans">Engine:</span> <b className="text-amber-400">{playingAudio.youtubeId ? 'YouTube Stream' : (audioRef.current?.src?.includes('/api/theater/music/transcode') ? 'Server Transcoder' : 'Native Decoder')}</b></div>
-                                    <div><span className="text-zinc-500 font-sans">Quality:</span> <b className="text-emerald-400">{playingAudio.extension?.toLowerCase() === 'flac' ? '24-bit Lossless' : 'High Quality'}</b></div>
+                                    <div><span className="text-zinc-500 font-sans">Quality:</span> <b className="text-emerald-400">{playingAudio.extension?.toLowerCase() === 'flac' ? 'FLAC Lossless' : (playingAudio.extension?.toLowerCase() === 'wav' ? 'WAV Lossless' : (playingAudio.isLocal ? `${playingAudio.extension?.toUpperCase() || 'Audio'} Local` : 'Web Stream (~160–256 kbps)'))}</b></div>
                                     <div><span className="text-zinc-500 font-sans">Size:</span> <b className="text-white">{playingAudio.sizeBytes ? formatBytes(playingAudio.sizeBytes) : 'Bitstream'}</b></div>
                                     <div><span className="text-zinc-500 font-sans">Volume:</span> <b className="text-white">{Math.round(audioVolume * 100)}%</b></div>
                                 </div>

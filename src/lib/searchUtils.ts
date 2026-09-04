@@ -82,3 +82,78 @@ export function smartMatchScore(query: string, ...targets: (string | undefined |
 
     return maxScore;
 }
+
+/**
+ * Strips noise, opus/catalog notations, track numbers, artist prefixes, and parenthesized tags
+ * to cleanly compare track titles between ripped files and online catalog metadata.
+ */
+export function cleanTrackForMatching(str: string | undefined | null, artist?: string): string {
+    if (!str) return '';
+    let s = str.replace(/\.[^/.]+$/, ''); // remove file extension if present
+    if (artist) {
+        // Strip artist prefix if present (e.g. "Tchaikovsky - ")
+        const escapedArtist = artist.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        s = s.replace(new RegExp('^' + escapedArtist + '\\s*[-–—:]\\s*', 'i'), '');
+    }
+    // Strip leading track numbers (e.g. "01 - ", "1. ", "01 ")
+    s = s.replace(/^\d+[\s\.\-_]+/, '');
+    // Strip quotes and apostrophes
+    s = s.replace(/["'“”‘’]/g, '');
+    // Strip opus, catalog, number notation: "Op. 49", "Opus 49", "No. 1", "BWV 1001", "K. 545", etc.
+    s = s.replace(/\b(op|opus|no|bwv|k|kv|hob)\.?\s*\d+[a-z]?\b/gi, '');
+    // Strip parenthesized / bracketed tags (e.g. "(1880 Version)", "[2011 Remaster]")
+    s = s.replace(/\([^)]*\)/g, '').replace(/\[[^\]]*\]/g, '');
+    // Normalize unicode accents and strip all non-alphanumeric characters
+    return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '').trim();
+}
+
+/**
+ * Intelligent 4-tier track matcher between an official catalog track and a pool of local tracks.
+ */
+export function findMatchingLocalTrack<T extends { title?: string; name?: string; path?: string; id?: string; trackNumber?: number }>(
+    officialTrack: { title: string; trackNumber?: number },
+    localTracks: T[],
+    matchedKeys: Set<string>,
+    artist?: string
+): T | undefined {
+    const normOfficial = cleanTrackForMatching(officialTrack.title, artist);
+
+    // 1. Direct normalized match
+    for (const lt of localTracks) {
+        const key = lt.id || lt.path || lt.name || '';
+        if (key && matchedKeys.has(key)) continue;
+        const normTitle = cleanTrackForMatching(lt.title, artist);
+        const normName = cleanTrackForMatching(lt.name, artist);
+        if (normOfficial && (normTitle === normOfficial || normName === normOfficial)) {
+            return lt;
+        }
+    }
+
+    // 2. Containment / Substring match (for movements or subtitle variations, min 4 chars)
+    if (normOfficial.length >= 4) {
+        for (const lt of localTracks) {
+            const key = lt.id || lt.path || lt.name || '';
+            if (key && matchedKeys.has(key)) continue;
+            const normTitle = cleanTrackForMatching(lt.title, artist);
+            const normName = cleanTrackForMatching(lt.name, artist);
+            if (normTitle && (normTitle.includes(normOfficial) || normOfficial.includes(normTitle))) return lt;
+            if (normName && (normName.includes(normOfficial) || normOfficial.includes(normName))) return lt;
+        }
+    }
+
+    // 3. Track number fallback if available
+    const offNum = officialTrack.trackNumber;
+    if (offNum) {
+        for (const lt of localTracks) {
+            const key = lt.id || lt.path || lt.name || '';
+            if (key && matchedKeys.has(key)) continue;
+            const ltNum = lt.trackNumber || parseInt((lt.name || '').match(/^\d+/)?.[0] || '0', 10);
+            if (ltNum === offNum) {
+                return lt;
+            }
+        }
+    }
+
+    return undefined;
+}
+
