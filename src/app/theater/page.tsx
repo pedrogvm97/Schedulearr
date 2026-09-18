@@ -226,7 +226,11 @@ function TheaterPageContent() {
     }, [activeContentTab]);
 
     // Per-tab enabled library IDs (empty Set = all enabled)
-    const [enabledLibsByTab, setEnabledLibsByTab] = useState<Record<string, Set<string>>>(() => {
+    const isHydratedLibsRef = useRef(false);
+    const [enabledLibsByTab, setEnabledLibsByTab] = useState<Record<string, Set<string>>>({});
+
+    // Read saved library selections on client mount
+    useEffect(() => {
         if (typeof window !== 'undefined') {
             try {
                 const saved = localStorage.getItem('schedulearr_theater_enabled_libraries_by_tab');
@@ -238,14 +242,16 @@ function TheaterPageContent() {
                             result[tab] = new Set(ids as string[]);
                         }
                     }
-                    return result;
+                    setEnabledLibsByTab(result);
                 }
             } catch {}
+            isHydratedLibsRef.current = true;
         }
-        return {};
-    });
+    }, []);
 
+    // Persist library selections only after initial hydration has finished
     useEffect(() => {
+        if (!isHydratedLibsRef.current) return;
         if (typeof window !== 'undefined') {
             try {
                 const serialized: Record<string, string[]> = {};
@@ -402,13 +408,33 @@ function TheaterPageContent() {
         
         const localTracks = selectedAlbum.tracks || [];
         const officialTracks = albumOfficialData?.tracks || [];
-        const totalServerBytes = localTracks.reduce((sum, t) => sum + (t.sizeBytes || 0), 0);
-        const formatSet = new Set(localTracks.map(t => (t.extension || '').toUpperCase()).filter(Boolean));
+
+        // Pool all audio tracks on server that match this artist or album name across the library
+        const normArtist = (selectedAlbum.artist || '').toLowerCase().trim();
+        const normAlbum = (selectedAlbum.name || '').toLowerCase().trim();
+        const artistTracksPool = items.filter(it => {
+            if (it.category !== 'audio') return false;
+            const itArtist = (it.artist || '').toLowerCase().trim();
+            const itAlbum = (it.album || '').toLowerCase().trim();
+            const itPath = (it.path || '').toLowerCase();
+            if (normArtist && (itArtist.includes(normArtist) || normArtist.includes(itArtist) || itPath.includes(normArtist))) return true;
+            if (normAlbum && (itAlbum.includes(normAlbum) || normAlbum.includes(itAlbum))) return true;
+            return false;
+        });
+
+        // Combined pool with localTracks prioritized
+        const allAvailableLocalTracks = [
+            ...localTracks,
+            ...artistTracksPool.filter(at => !localTracks.some(lt => (lt.path && lt.path === at.path) || (lt.id && lt.id === at.id)))
+        ];
+
+        const totalServerBytes = allAvailableLocalTracks.reduce((sum, t) => sum + (t.sizeBytes || 0), 0);
+        const formatSet = new Set(allAvailableLocalTracks.map(t => (t.extension || '').toUpperCase()).filter(Boolean));
         const serverFormats = Array.from(formatSet);
 
         if (officialTracks.length === 0) {
             return {
-                matchedRows: localTracks.map((lt, idx) => ({
+                matchedRows: allAvailableLocalTracks.map((lt, idx) => ({
                     key: lt.id || lt.path || `local-${idx}`,
                     trackNumber: lt.trackNumber || idx + 1,
                     title: lt.title || lt.name?.replace(/\.[^/.]+$/, ''),
@@ -428,7 +454,12 @@ function TheaterPageContent() {
         const missing: any[] = [];
 
         const rows = officialTracks.map((ot: any, idx: number) => {
-            const local = findMatchingLocalTrack(ot, localTracks, matchedLocalKeys, selectedAlbum.artist);
+            // First search within the album's direct localTracks, then fallback to artistTracksPool
+            let local = findMatchingLocalTrack(ot, localTracks, matchedLocalKeys, selectedAlbum.artist);
+            if (!local) {
+                local = findMatchingLocalTrack(ot, allAvailableLocalTracks, matchedLocalKeys, selectedAlbum.artist);
+            }
+
             if (local) {
                 const key = local.id || local.path || local.name || '';
                 if (key) matchedLocalKeys.add(key);
@@ -455,7 +486,7 @@ function TheaterPageContent() {
             }
         });
 
-        const unmatched = localTracks.filter(lt => {
+        const unmatched = allAvailableLocalTracks.filter(lt => {
             const key = lt.id || lt.path || lt.name || '';
             return !matchedLocalKeys.has(key);
         });
@@ -467,7 +498,7 @@ function TheaterPageContent() {
             serverFormats,
             totalServerBytes
         };
-    }, [selectedAlbum, albumOfficialData]);
+    }, [selectedAlbum, albumOfficialData, items]);
 
     // TV Show / Series Season & Episode Picker States
     const [selectedShow, setSelectedShow] = useState<{
@@ -1457,7 +1488,10 @@ function TheaterPageContent() {
                 if (res.ok) {
                     const data = await res.json();
                     const fetched = Array.isArray(data.items) ? data.items : [];
-                    setItems(fetched.map((it: any) => ({ ...it, libraryId: lib.id, libraryName: lib.name })));
+                    setItems(prev => [
+                        ...prev.filter(it => it.libraryId !== lib.id),
+                        ...fetched.map((it: any) => ({ ...it, libraryId: lib.id, libraryName: lib.name }))
+                    ]);
                     toast.success(`Rescanned "${lib.name}" (${fetched.length} items)`);
                 } else {
                     toast.error(`Could not refresh "${lib.name}" items`);
@@ -1575,12 +1609,12 @@ function TheaterPageContent() {
                     if (res.ok) {
                         toast.success(`Deleted "${trackTitle}"`);
                         setFileDeleteConfirm(null);
+                        setItems(prev => prev.filter(t => t.path !== filePath));
                         if (selectedAlbum) {
                             const rem = selectedAlbum.tracks.filter(t => t.path !== filePath);
                             if (rem.length === 0) setSelectedAlbum(null);
                             else setSelectedAlbum({ ...selectedAlbum, tracks: rem });
                         }
-                        if (activeLibrary) handleRescanLibrary(activeLibrary);
                     } else {
                         const d = await res.json().catch(() => ({}));
                         toast.error(d.error || 'Failed to delete track file');
@@ -1605,17 +1639,34 @@ function TheaterPageContent() {
             confirmText: 'Delete Album Files',
             onConfirm: async () => {
                 try {
+                    const pathsToDelete = new Set(alb.tracks.map(t => t.path).filter(Boolean));
+                    let deletedCount = 0;
+
+                    // Delete each track file
                     for (const t of alb.tracks) {
                         if (t.path) {
-                            await fetch(`/api/theater/items?path=${encodeURIComponent(t.path)}&libraryId=${activeLibraryId || ''}`, {
+                            const res = await fetch(`/api/theater/items?path=${encodeURIComponent(t.path)}&libraryId=${activeLibraryId || ''}`, {
                                 method: 'DELETE'
                             });
+                            if (res.ok) deletedCount++;
                         }
                     }
-                    toast.success(`Album "${alb.name}" files deleted`);
+
+                    // Attempt folder cleanup if applicable
+                    const sampleTrack = alb.tracks.find(t => t.path);
+                    if (sampleTrack?.path) {
+                        const parts = sampleTrack.path.replace(/\\/g, '/').split('/');
+                        parts.pop();
+                        const folderPath = parts.join('/');
+                        await fetch(`/api/theater/items?folderPath=${encodeURIComponent(folderPath)}&libraryId=${activeLibraryId || ''}`, {
+                            method: 'DELETE'
+                        }).catch(() => {});
+                    }
+
+                    toast.success(`Album "${alb.name}" deleted (${deletedCount} files removed)`);
                     setFileDeleteConfirm(null);
                     setSelectedAlbum(null);
-                    if (activeLibrary) handleRescanLibrary(activeLibrary);
+                    setItems(prev => prev.filter(t => !pathsToDelete.has(t.path)));
                 } catch {
                     toast.error('Error deleting album');
                 }
@@ -2446,10 +2497,12 @@ function TheaterPageContent() {
         if (!isOnline && track.path) {
             const ext = (track.extension || 'AUDIO').toUpperCase();
             const isLossless = ['FLAC', 'WAV', 'ALAC', 'AIFF'].includes(ext);
+            const sizeLabel = track.sizeBytes ? (track.sizeBytes > 1024 * 1024 * 1024 ? `${(track.sizeBytes / (1024 * 1024 * 1024)).toFixed(2)} GB` : `${(track.sizeBytes / (1024 * 1024)).toFixed(1)} MB`) : '';
             return (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[9px] font-black uppercase tracking-wider shrink-0">
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[9px] font-black uppercase tracking-wider shrink-0" title={`Local file on server disk: ${track.path}`}>
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                    On Server • {ext}
+                    📁 LOCAL SERVER FILE • {ext}
+                    {sizeLabel && <span className="text-zinc-400 font-mono font-normal">({sizeLabel})</span>}
                     {isLossless && (
                         <span className="ml-0.5 px-1 py-0.2 rounded bg-emerald-500/30 text-[8px] text-emerald-200">Hi-Res</span>
                     )}
@@ -2457,10 +2510,20 @@ function TheaterPageContent() {
             );
         }
 
+        const isYt = Boolean(track.youtubeId || track.id?.startsWith('yt-') || track.streamUrl?.includes('ytId='));
+        if (isYt) {
+            return (
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-red-500/15 text-red-400 border border-red-500/30 text-[9px] font-black uppercase tracking-wider shrink-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
+                    📺 YOUTUBE STREAM
+                </span>
+            );
+        }
+
         return (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[9px] font-black uppercase tracking-wider shrink-0">
                 <Globe size={10} className="text-amber-400" />
-                Online Stream
+                🌐 WEB STREAM
             </span>
         );
     };
@@ -3629,6 +3692,12 @@ function TheaterPageContent() {
                                                                     </>
                                                                 ) : null}
                                                             </p>
+                                                            {track.path && (
+                                                                <div className="flex items-center gap-1 text-[10px] font-mono text-emerald-400/90 truncate mt-0.5 select-all" title={`Server path: ${track.path}`}>
+                                                                    <span className="text-zinc-500 font-bold shrink-0">Path:</span>
+                                                                    <span className="truncate">{track.path}</span>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     </div>
 
@@ -4320,17 +4389,20 @@ function TheaterPageContent() {
                                 <div className="pt-2 flex flex-wrap items-center justify-center sm:justify-start gap-2">
                                     <button
                                         onClick={() => {
-                                            const tracksToPlay = selectedAlbum.tracks.length > 0
-                                                ? selectedAlbum.tracks
-                                                : (albumOfficialData?.tracks || []).map((ot: any) => ({
-                                                    id: `online-${ot.id || ot.title}`,
-                                                    title: ot.title,
-                                                    artist: ot.artist || selectedAlbum.artist,
+                                            const tracksToPlay = albumTrackMatching.matchedRows.map((r, rIdx) => {
+                                                if (r.localTrack) return r.localTrack;
+                                                const ot = r.officialTrack;
+                                                return {
+                                                    id: `online-${ot?.id || r.title}-${rIdx}`,
+                                                    title: r.title,
+                                                    artist: ot?.artist || selectedAlbum.artist,
                                                     album: selectedAlbum.name,
-                                                    streamUrl: ot.streamUrl || ot.previewUrl || `/api/theater/music/stream?q=${encodeURIComponent(`${ot.artist || selectedAlbum.artist} ${ot.title}`)}`,
+                                                    streamUrl: ot?.streamUrl || ot?.previewUrl || `/api/theater/music/stream?q=${encodeURIComponent(`${ot?.artist || selectedAlbum.artist} ${r.title}`)}&format=mp3`,
                                                     posterUrl: albumOfficialData?.album?.coverUrl || selectedAlbum.posterUrl
-                                                } as any));
-                                            handlePlayAlbum(tracksToPlay);
+                                                } as any;
+                                            });
+                                            const finalTracks = tracksToPlay.length > 0 ? tracksToPlay : selectedAlbum.tracks;
+                                            handlePlayAlbum(finalTracks);
                                             closeAlbumModal();
                                         }}
                                         className="h-9 px-4 bg-amber-500 hover:bg-amber-400 text-black font-black uppercase text-xs tracking-wider rounded-xl transition-all shadow-md shadow-amber-500/20 flex items-center gap-2 cursor-pointer shrink-0"
@@ -4428,19 +4500,28 @@ function TheaterPageContent() {
                                 </div>
                             </div>
 
-                            {/* Honest Source Truth & Server Path */}
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] pt-1.5 border-t border-zinc-900">
-                                <div className="flex items-center gap-1.5 text-zinc-400 min-w-0">
-                                    <Folder size={12} className="text-amber-400 shrink-0" />
-                                    <span className="text-zinc-500 shrink-0 font-bold">Server Path:</span>
-                                    <span className="font-mono text-zinc-300 truncate" title={`${(activeLibrary?.folders && activeLibrary.folders[0]) || './data/music'}/${selectedAlbum.artist}/${selectedAlbum.name}/`}>
-                                        {`${(activeLibrary?.folders && activeLibrary.folders[0]) || './data/music'}/${selectedAlbum.artist}/${selectedAlbum.name}/`}
-                                    </span>
-                                </div>
-                                <span className="text-[10px] text-zinc-500 shrink-0">
-                                    Source: Web Audio Stream (~160–256 kbps) • No fake FLAC upscaling
-                                </span>
-                            </div>
+                            {/* Honest Source Truth & Server Storage Path */}
+                            {(() => {
+                                const sampleLocalPath = albumTrackMatching.matchedRows.find(r => r.localTrack?.path)?.localTrack?.path || selectedAlbum.tracks.find(t => t.path)?.path;
+                                const diskFolder = sampleLocalPath
+                                    ? sampleLocalPath.replace(/\\/g, '/').substring(0, sampleLocalPath.replace(/\\/g, '/').lastIndexOf('/')) + '/'
+                                    : `${(activeLibrary?.folders && activeLibrary.folders[0]) || '/data/Music - Pedro'}/${selectedAlbum.artist}/${selectedAlbum.name}/`;
+                                const downloadedCount = albumTrackMatching.matchedRows.filter(r => r.isOnServer).length;
+                                return (
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] pt-1.5 border-t border-zinc-900">
+                                        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                            <Folder size={12} className="text-amber-400 shrink-0" />
+                                            <span className="text-zinc-400 shrink-0 font-bold">Storage Location:</span>
+                                            <span className="font-mono text-emerald-400 truncate select-all" title={diskFolder}>
+                                                {diskFolder}
+                                            </span>
+                                        </div>
+                                        <span className="text-[10px] text-zinc-400 shrink-0 font-mono">
+                                            {downloadedCount} of {albumTrackMatching.matchedRows.length} songs on server disk
+                                        </span>
+                                    </div>
+                                );
+                            })()}
                         </div>
 
                         {/* Active Background Queue Status for this Album */}
@@ -4561,15 +4642,18 @@ function TheaterPageContent() {
                                         key={row.key || i}
                                         onClick={() => {
                                             if (localTrack) {
-                                                const lIdx = selectedAlbum.tracks.indexOf(localTrack);
-                                                handlePlayTrack(localTrack, selectedAlbum.tracks, lIdx >= 0 ? lIdx : 0);
+                                                const localList = albumTrackMatching.matchedRows
+                                                    .map(r => r.localTrack)
+                                                    .filter((t): t is MediaItem => Boolean(t));
+                                                const lIdx = localList.findIndex(t => (t.id && t.id === localTrack.id) || (t.path && t.path === localTrack.path));
+                                                handlePlayTrack(localTrack, localList.length > 0 ? localList : [localTrack], lIdx >= 0 ? lIdx : 0);
                                             } else if (officialTrack) {
                                                 handlePlayTrack({
                                                     id: `online-${officialTrack.id || officialTrack.title}`,
                                                     title: officialTrack.title,
                                                     artist: officialTrack.artist || selectedAlbum.artist,
                                                     album: selectedAlbum.name,
-                                                    streamUrl: officialTrack.streamUrl || officialTrack.previewUrl || `/api/theater/music/stream?q=${encodeURIComponent(`${officialTrack.artist || selectedAlbum.artist} ${officialTrack.title}`)}`,
+                                                    streamUrl: officialTrack.streamUrl || officialTrack.previewUrl || `/api/theater/music/stream?q=${encodeURIComponent(`${officialTrack.artist || selectedAlbum.artist} ${officialTrack.title}`)}&format=mp3`,
                                                     posterUrl: albumOfficialData?.album?.coverUrl || selectedAlbum.posterUrl
                                                 } as any, [], 0);
                                             }
@@ -4603,20 +4687,26 @@ function TheaterPageContent() {
                                                             )}
                                                         </span>
                                                     ) : isInLibrary ? (
-                                                        <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[9px] font-bold uppercase shrink-0 flex items-center gap-1.5">
+                                                        <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[9px] font-black uppercase shrink-0 flex items-center gap-1.5 shadow-sm">
                                                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                                                            <span>On Server</span>
-                                                            {formatLabel && <span className="font-mono text-emerald-300">• {formatLabel === 'FLAC' ? 'FLAC' : formatLabel}</span>}
+                                                            <span>📁 DOWNLOADED ON SERVER</span>
+                                                            {formatLabel && <span className="font-mono text-emerald-300">• {formatLabel}</span>}
                                                             {sizeLabel && <span className="font-mono text-zinc-400">({sizeLabel})</span>}
                                                         </span>
                                                     ) : (
                                                         <span className="px-2 py-0.5 rounded-md bg-zinc-800/80 text-zinc-400 border border-zinc-700/50 text-[9px] font-bold uppercase shrink-0 flex items-center gap-1">
                                                             <AlertCircle size={9} className="text-amber-400/80" />
-                                                            <span>Not on Server</span>
+                                                            <span>🌐 NOT ON SERVER</span>
                                                             <span className="text-zinc-500">• Web Stream</span>
                                                         </span>
                                                     )}
                                                 </div>
+                                                {localTrack?.path && (
+                                                    <div className="flex items-center gap-1 text-[10px] font-mono text-emerald-400/90 truncate mt-0.5 select-all" title={`Server path: ${localTrack.path}`}>
+                                                        <span className="text-zinc-500 font-bold shrink-0">Path:</span>
+                                                        <span className="truncate">{localTrack.path}</span>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
 
@@ -4721,13 +4811,19 @@ function TheaterPageContent() {
                                                             <span className="font-bold text-white group-hover:text-amber-400 transition-colors truncate">
                                                                 {lt.title || lt.name?.replace(/\.[^/.]+$/, '')}
                                                             </span>
-                                                            <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[9px] font-bold uppercase shrink-0 flex items-center gap-1.5">
+                                                            <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[9px] font-black uppercase shrink-0 flex items-center gap-1.5 shadow-sm">
                                                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                                                                <span>On Server</span>
+                                                                <span>📁 DOWNLOADED ON SERVER</span>
                                                                 {formatLabel && <span className="font-mono text-emerald-300">• {formatLabel}</span>}
                                                                 {sizeLabel && <span className="font-mono text-zinc-400">({sizeLabel})</span>}
                                                             </span>
                                                         </div>
+                                                        {lt.path && (
+                                                            <div className="flex items-center gap-1 text-[10px] font-mono text-emerald-400/90 truncate mt-0.5 select-all" title={`Server path: ${lt.path}`}>
+                                                                <span className="text-zinc-500 font-bold shrink-0">Path:</span>
+                                                                <span className="truncate">{lt.path}</span>
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 </div>
 

@@ -12,9 +12,13 @@ export const dynamic = 'force-dynamic';
 
 function resolveLocalPath(filePath: string): string | null {
     if (!filePath) return null;
+    const norm = (s: string) => s.normalize('NFC').replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"').trim().toLowerCase();
+
     const candidates = [
         filePath,
         decodeURIComponent(filePath),
+        filePath.replace(/'/g, '’'),
+        decodeURIComponent(filePath).replace(/'/g, '’'),
         filePath.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"'),
         decodeURIComponent(filePath).replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"'),
         filePath.replace(/^\/data\//, '/app/data/'),
@@ -32,16 +36,41 @@ function resolveLocalPath(filePath: string): string | null {
         }
     }
 
+    // Segment-by-segment case & quote-insensitive directory walker
     try {
-        const decoded = decodeURIComponent(filePath);
-        const dir = path.dirname(decoded);
-        const base = path.basename(decoded).toLowerCase();
-        const altDirs = [dir, dir.replace(/^\/data\//, '/app/data/'), dir.replace(/^\/app\/data\//, '/data/')];
-        for (const d of altDirs) {
-            if (fs.existsSync(d)) {
-                const files = fs.readdirSync(d);
-                const found = files.find(f => f.toLowerCase() === base || f.replace(/[\u2018\u2019]/g, "'").toLowerCase() === base.replace(/[\u2018\u2019]/g, "'").toLowerCase());
-                if (found) return path.join(d, found);
+        const bases = ['/data', '/app/data', '/mnt/user/data', '/mnt/user', '/app', process.cwd()];
+        const rawSegments = decodeURIComponent(filePath).split(/[\/\\]/).filter(Boolean);
+
+        for (const base of bases) {
+            if (!fs.existsSync(base)) continue;
+            let current = base;
+            let matched = true;
+
+            // Strip leading segments already matched in base
+            const remainingSegments = rawSegments.filter(seg => {
+                const sNorm = norm(seg);
+                return !base.toLowerCase().split(/[\/\\]/).filter(Boolean).includes(sNorm);
+            });
+
+            for (const seg of remainingSegments) {
+                const segNorm = norm(seg);
+                try {
+                    const entries = fs.readdirSync(current);
+                    const found = entries.find(e => norm(e) === segNorm);
+                    if (found) {
+                        current = path.join(current, found);
+                    } else {
+                        matched = false;
+                        break;
+                    }
+                } catch {
+                    matched = false;
+                    break;
+                }
+            }
+
+            if (matched && fs.existsSync(current)) {
+                return current;
             }
         }
     } catch {}
@@ -469,7 +498,7 @@ export async function GET(req: NextRequest) {
                     headers: {
                         'Content-Type': 'audio/mpeg',
                         'Cache-Control': 'no-cache, no-store, must-revalidate',
-                        'Accept-Ranges': 'none',
+                        'Accept-Ranges': 'bytes',
                         'X-Stream-Engine': 'Server-Side MP3 Transcode (320 kbps)',
                         'X-Stream-Source': 'Local Disk Transcode'
                     }

@@ -7,7 +7,7 @@ import { Readable } from 'stream';
 import axios from 'axios';
 import ffmpegStatic from 'ffmpeg-static';
 import { ensureYtDlpBinary, ensureFfmpegBinaries } from '@/lib/ytdlp';
-import { downloadAudioFile, extractDirectAudioStreamUrl } from '@/lib/musicDownloader';
+import { downloadAudioFile, extractDirectAudioStreamUrl, searchYouTubeVideoId } from '@/lib/musicDownloader';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,10 +27,16 @@ export async function GET(req: Request) {
         if (directUrl) {
             targetUrl = directUrl;
         } else if (ytId) {
-            cleanId = ytId.replace(/^yt-/, '');
+            cleanId = ytId.replace(/^yt-/, '').trim();
             targetUrl = `https://www.youtube.com/watch?v=${cleanId}`;
         } else if (q) {
-            targetUrl = `ytsearch1:${q}`;
+            // Fast YouTube video ID search (200ms) to avoid slow CLI scraping timeouts
+            cleanId = (await searchYouTubeVideoId(q)) || '';
+            if (cleanId) {
+                targetUrl = `https://www.youtube.com/watch?v=${cleanId}`;
+            } else {
+                targetUrl = `ytsearch1:${q}`;
+            }
         } else {
             return new NextResponse('ytId, url or q parameter is required', { status: 400 });
         }
@@ -186,7 +192,7 @@ export async function GET(req: Request) {
                     status: 200,
                     headers: {
                         'Content-Type': 'audio/mpeg',
-                        'Accept-Ranges': 'none',
+                        'Accept-Ranges': 'bytes',
                         'Cache-Control': 'no-cache, no-store',
                         'X-Stream-Source': 'Online Transcode'
                     }
@@ -264,7 +270,7 @@ export async function GET(req: Request) {
                 status: 200,
                 headers: {
                     'Content-Type': 'audio/mpeg',
-                    'Accept-Ranges': 'none',
+                    'Accept-Ranges': 'bytes',
                     'Cache-Control': 'no-cache, no-store',
                     'X-Stream-Source': 'Online Pipe'
                 }

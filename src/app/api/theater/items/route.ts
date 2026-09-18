@@ -354,6 +354,75 @@ export async function GET(req: Request) {
     }
 }
 
+function resolveLocalPath(filePath: string): string | null {
+    if (!filePath) return null;
+    const norm = (s: string) => s.normalize('NFC').replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"').trim().toLowerCase();
+
+    const candidates = [
+        filePath,
+        decodeURIComponent(filePath),
+        filePath.replace(/'/g, '’'),
+        decodeURIComponent(filePath).replace(/'/g, '’'),
+        filePath.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"'),
+        decodeURIComponent(filePath).replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"'),
+        filePath.replace(/^\/data\//, '/app/data/'),
+        filePath.replace(/^\/app\/data\//, '/data/'),
+        path.join(process.cwd(), filePath),
+        path.join('/app', filePath),
+        path.join('/app/data', filePath.replace(/^\/(app\/)?data\/?/, '')),
+        path.join('/mnt/user/data', filePath.replace(/^\/data\/?/, '')),
+        path.join('/mnt/user/appdata/schedulearr/data', filePath.replace(/^\/(app\/)?data\/?/, '')),
+        path.join('/mnt/user', filePath.replace(/^\//, ''))
+    ];
+
+    for (const c of candidates) {
+        if (c && fs.existsSync(c)) {
+            return c;
+        }
+    }
+
+    // Segment-by-segment case & quote-insensitive directory walker
+    try {
+        const bases = ['/data', '/app/data', '/mnt/user/data', '/mnt/user/appdata/schedulearr/data', '/mnt/user', '/app', process.cwd()];
+        const rawSegments = decodeURIComponent(filePath).split(/[\/\\]/).filter(Boolean);
+
+        for (const base of bases) {
+            if (!fs.existsSync(base)) continue;
+            let current = base;
+            let matched = true;
+
+            // Strip leading segments already matched in base
+            const remainingSegments = rawSegments.filter(seg => {
+                const sNorm = norm(seg);
+                return !base.toLowerCase().split(/[\/\\]/).filter(Boolean).includes(sNorm);
+            });
+
+            for (const seg of remainingSegments) {
+                const segNorm = norm(seg);
+                try {
+                    const entries = fs.readdirSync(current);
+                    const found = entries.find(e => norm(e) === segNorm);
+                    if (found) {
+                        current = path.join(current, found);
+                    } else {
+                        matched = false;
+                        break;
+                    }
+                } catch {
+                    matched = false;
+                    break;
+                }
+            }
+
+            if (matched && fs.existsSync(current)) {
+                return current;
+            }
+        }
+    } catch {}
+
+    return null;
+}
+
 export async function DELETE(req: Request) {
     try {
         const { searchParams } = new URL(req.url);
@@ -363,20 +432,21 @@ export async function DELETE(req: Request) {
 
         // 1. Delete single file from disk
         if (filePath) {
-            if (fs.existsSync(filePath)) {
+            const targetPath = resolveLocalPath(filePath) || filePath;
+            if (fs.existsSync(targetPath)) {
                 try {
-                    fs.unlinkSync(filePath);
+                    fs.unlinkSync(targetPath);
                 } catch (delErr: any) {
                     return NextResponse.json({ error: `Cannot delete file: ${delErr.message}` }, { status: 500 });
                 }
 
                 // If parent directory is now empty (or only contains orphaned cover/folder images), clean it up
                 try {
-                    const dir = path.dirname(filePath);
+                    const dir = path.dirname(targetPath);
                     const remaining = fs.readdirSync(dir);
                     const isOnlyArtwork = remaining.every(f => {
                         const low = f.toLowerCase();
-                        return low.includes('cover') || low.includes('folder') || low.includes('albumart');
+                        return low.includes('cover') || low.includes('folder') || low.includes('albumart') || low.includes('.nfo') || low.includes('.jpg') || low.includes('.png');
                     });
                     if (remaining.length === 0 || isOnlyArtwork) {
                         for (const f of remaining) {
@@ -389,7 +459,7 @@ export async function DELETE(req: Request) {
                 if (libraryId) clearCachedTheaterItems(libraryId);
                 else clearCachedTheaterItems();
 
-                return NextResponse.json({ success: true, deletedPath: filePath });
+                return NextResponse.json({ success: true, deletedPath: targetPath });
             } else {
                 return NextResponse.json({ error: 'File not found on disk' }, { status: 404 });
             }
@@ -397,9 +467,10 @@ export async function DELETE(req: Request) {
 
         // 2. Delete entire album or media folder from disk
         if (folderPath) {
-            if (fs.existsSync(folderPath)) {
+            const targetFolder = resolveLocalPath(folderPath) || folderPath;
+            if (fs.existsSync(targetFolder)) {
                 try {
-                    fs.rmSync(folderPath, { recursive: true, force: true });
+                    fs.rmSync(targetFolder, { recursive: true, force: true });
                 } catch (delErr: any) {
                     return NextResponse.json({ error: `Cannot delete folder: ${delErr.message}` }, { status: 500 });
                 }
@@ -407,7 +478,7 @@ export async function DELETE(req: Request) {
                 if (libraryId) clearCachedTheaterItems(libraryId);
                 else clearCachedTheaterItems();
 
-                return NextResponse.json({ success: true, deletedFolder: folderPath });
+                return NextResponse.json({ success: true, deletedFolder: targetFolder });
             } else {
                 return NextResponse.json({ error: 'Folder not found on disk' }, { status: 404 });
             }

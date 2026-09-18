@@ -613,35 +613,45 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     };
 
     const copyReportToClipboard = async (reportText: string) => {
+        let copied = false;
         try {
             if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
                 await navigator.clipboard.writeText(reportText);
-                toast.success('Nerd Diagnostics Report copied to clipboard!');
-                return;
+                copied = true;
             }
         } catch {}
 
-        // Fallback for non-HTTPS / restricted environments
-        try {
-            const textarea = document.createElement('textarea');
-            textarea.value = reportText;
-            textarea.style.position = 'fixed';
-            textarea.style.left = '-9999px';
-            textarea.style.top = '-9999px';
-            textarea.setAttribute('readonly', '');
-            document.body.appendChild(textarea);
-            textarea.focus();
-            textarea.select();
-            const successful = document.execCommand('copy');
-            document.body.removeChild(textarea);
-            if (successful) {
-                toast.success('Nerd Diagnostics Report copied to clipboard!');
-                return;
+        if (!copied && typeof document !== 'undefined') {
+            try {
+                const textarea = document.createElement('textarea');
+                textarea.value = reportText;
+                textarea.style.position = 'fixed';
+                textarea.style.top = '0';
+                textarea.style.left = '0';
+                textarea.style.width = '2em';
+                textarea.style.height = '2em';
+                textarea.style.padding = '0';
+                textarea.style.border = 'none';
+                textarea.style.outline = 'none';
+                textarea.style.boxShadow = 'none';
+                textarea.style.background = 'transparent';
+                textarea.style.opacity = '0';
+                document.body.appendChild(textarea);
+                textarea.focus();
+                textarea.select();
+                textarea.setSelectionRange(0, reportText.length);
+                copied = document.execCommand('copy');
+                document.body.removeChild(textarea);
+            } catch (err) {
+                console.error('Fallback copy failed:', err);
             }
-        } catch (err) {
-            console.error('Fallback copy failed:', err);
         }
-        toast.error('Could not copy automatically. Please select text manually.');
+
+        if (copied) {
+            toast.success('Nerd Diagnostics Report copied to clipboard!');
+        } else if (typeof window !== 'undefined') {
+            window.prompt('Copy diagnostics report manually (Ctrl+C / Cmd+C):', reportText);
+        }
     };
 
     const getAudioSourceInfo = (item: MediaItem | null, currentStreamUrl?: string) => {
@@ -1387,50 +1397,23 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         toast.info('Searching for Chromecast and Cast devices on your network...');
     };
 
-    // YouTube IFrame Player refs and state
-    const ytPlayerRef = useRef<any>(null);
-    const ytPlayerReadyRef = useRef(false);
-
     const getYtId = (track: MediaItem | null): string | null => {
         if (!track) return null;
-        if (track.youtubeId) return track.youtubeId.replace(/^yt-/, '');
-        if (track.id && track.id.startsWith('yt-')) return track.id.replace(/^yt-/, '');
+        if (track.youtubeId) return track.youtubeId.replace(/^yt-/, '').trim();
+        if (track.id && track.id.startsWith('yt-')) return track.id.replace(/^yt-/, '').trim();
         if (track.streamUrl) {
             try {
                 const url = new URL(track.streamUrl, 'http://localhost');
                 const ytParam = url.searchParams.get('ytId');
-                if (ytParam) return ytParam.replace(/^yt-/, '');
+                if (ytParam) return ytParam.replace(/^yt-/, '').trim();
+                const vParam = url.searchParams.get('v');
+                if (vParam) return vParam.trim();
             } catch {}
+            const match = track.streamUrl.match(/(?:v=|\/embed\/|\/watch\?v=|\.be\/)([a-zA-Z0-9_-]{11})/);
+            if (match && match[1]) return match[1];
         }
         return null;
     };
-
-    // Load YouTube IFrame API script once
-    useEffect(() => {
-        if (typeof window === 'undefined') return;
-        if (!(window as any).YT) {
-            const tag = document.createElement('script');
-            tag.src = 'https://www.youtube.com/iframe_api';
-            const firstScriptTag = document.getElementsByTagName('script')[0];
-            firstScriptTag?.parentNode?.insertBefore(tag, firstScriptTag);
-        }
-    }, []);
-
-    // Sync YouTube playback time and duration
-    useEffect(() => {
-        const timer = setInterval(() => {
-            const ytId = getYtId(playingAudio);
-            if (ytId && ytPlayerRef.current && ytPlayerReadyRef.current) {
-                try {
-                    const ct = ytPlayerRef.current.getCurrentTime?.();
-                    const dur = ytPlayerRef.current.getDuration?.();
-                    if (typeof ct === 'number' && !isNaN(ct)) setAudioCurrentTime(ct);
-                    if (typeof dur === 'number' && !isNaN(dur) && dur > 0) setAudioDuration(dur);
-                } catch {}
-            }
-        }, 300);
-        return () => clearInterval(timer);
-    }, [playingAudio?.id, playingAudio?.streamUrl, isAudioPlaying]);
 
     // Track Selection & Audio Playback Handlers
     const playTrack = (track: MediaItem, queue?: MediaItem[], index?: number) => {
@@ -1440,7 +1423,16 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         const { cleanArtist, cleanTitle } = sanitizeSongMetadata(rawTitle, rawArtist);
         const fallbackCover = getCoverFallbackUrl(cleanArtist || rawArtist, track.album, cleanTitle || rawTitle);
         const effectiveCover = (track.posterUrl && !track.posterUrl.includes('default')) ? track.posterUrl : fallbackCover;
-        const effectiveStream = track.streamUrl || (track.path ? `/api/theater/stream?path=${encodeURIComponent(track.path)}` : '');
+        const ytId = getYtId(track);
+        let effectiveStream = track.streamUrl || '';
+        if (ytId && (!effectiveStream || effectiveStream.includes('youtube.com') || effectiveStream.includes('youtu.be'))) {
+            effectiveStream = `/api/theater/music/stream?ytId=${encodeURIComponent(ytId)}&format=mp3`;
+        } else if (track.path && (!effectiveStream || effectiveStream.startsWith('/api/theater/stream?path='))) {
+            effectiveStream = `/api/theater/stream?path=${encodeURIComponent(track.path)}`;
+        } else if (!effectiveStream) {
+            const q = `${cleanArtist || rawArtist} ${cleanTitle || rawTitle}`.trim();
+            if (q) effectiveStream = `/api/theater/music/stream?q=${encodeURIComponent(q)}&format=mp3`;
+        }
         const cleanTrack: MediaItem = {
             ...track,
             title: cleanTitle || rawTitle || 'Track',
@@ -1592,17 +1584,6 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         const nextPlaying = !isAudioPlaying;
         setIsAudioPlaying(nextPlaying);
 
-        const ytId = getYtId(playingAudio);
-        if (ytId && ytPlayerRef.current && ytPlayerReadyRef.current) {
-            try {
-                if (nextPlaying) {
-                    ytPlayerRef.current.playVideo();
-                } else {
-                    ytPlayerRef.current.pauseVideo();
-                }
-            } catch {}
-        }
-
         if (audioRef.current) {
             try {
                 if (nextPlaying) {
@@ -1644,11 +1625,6 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
     const seekTo = (time: number) => {
         setAudioCurrentTime(time);
-        const ytId = getYtId(playingAudio);
-        if (ytId && ytPlayerRef.current && ytPlayerReadyRef.current) {
-            try { ytPlayerRef.current.seekTo(time, true); } catch {}
-            return;
-        }
         if (audioRef.current) {
             audioRef.current.currentTime = time;
         }
@@ -1725,13 +1701,10 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         const finalAngle = tonearmCustomAngle ?? 0;
         setTonearmCustomAngle(null);
 
-        const ytId = getYtId(playingAudio);
         if (finalAngle < 14) {
             // Needle parked off platter
             setIsAudioPlaying(false);
-            if (ytId && ytPlayerRef.current && ytPlayerReadyRef.current) {
-                try { ytPlayerRef.current.pauseVideo(); } catch {}
-            } else if (audioRef.current) {
+            if (audioRef.current) {
                 audioRef.current.pause();
             }
             setScratchFeedback('⏹️ Needle Parked (Paused)');
@@ -1744,9 +1717,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                 seekTo(cueTime);
             }
             setIsAudioPlaying(true);
-            if (ytId && ytPlayerRef.current && ytPlayerReadyRef.current) {
-                try { ytPlayerRef.current.playVideo(); } catch {}
-            } else if (audioRef.current) {
+            if (audioRef.current) {
                 audioRef.current.play().catch(() => {});
             }
             setTimeout(() => setScratchFeedback(null), 1200);
@@ -1777,10 +1748,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             if (dist > 6) {
                 hasDraggedDiscRef.current = true;
                 setIsScratchingDisc(true);
-                const ytId = getYtId(playingAudio);
-                if (ytId && ytPlayerRef.current && ytPlayerReadyRef.current) {
-                    try { ytPlayerRef.current.pauseVideo(); } catch {}
-                } else if (isAudioPlaying && audioRef.current) {
+                if (isAudioPlaying && audioRef.current) {
                     audioRef.current.pause();
                 }
             }
@@ -1823,10 +1791,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         // Resume playback after scratching only if was playing before
         if (wasPlayingBeforeDragRef.current) {
             setIsAudioPlaying(true);
-            const ytId = getYtId(playingAudio);
-            if (ytId && ytPlayerRef.current && ytPlayerReadyRef.current) {
-                try { ytPlayerRef.current.playVideo(); } catch {}
-            } else if (audioRef.current) {
+            if (audioRef.current) {
                 audioRef.current.play().catch(() => {});
             }
         }
@@ -1840,12 +1805,6 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             audioRef.current.volume = v;
             audioRef.current.muted = v === 0;
         }
-        if (ytPlayerRef.current && ytPlayerReadyRef.current) {
-            try {
-                ytPlayerRef.current.setVolume(v * 100);
-                if (v === 0) ytPlayerRef.current.mute(); else ytPlayerRef.current.unMute();
-            } catch {}
-        }
     };
 
     const toggleMute = () => {
@@ -1858,24 +1817,19 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                 setAudioVolume(0.8);
             }
         }
-        if (ytPlayerRef.current && ytPlayerReadyRef.current) {
-            try {
-                if (nextMuted) ytPlayerRef.current.mute();
-                else ytPlayerRef.current.unMute();
-            } catch {}
-        }
     };
 
     const closePlayer = () => {
         if (audioRef.current) audioRef.current.pause();
-        if (ytPlayerRef.current && ytPlayerReadyRef.current) {
-            try { ytPlayerRef.current.stopVideo(); } catch {}
-        }
         try {
             fetch('/api/theater/session?sessionId=schedulearr-music-player', { method: 'DELETE' }).catch(() => {});
         } catch {}
         setPlayingAudio(null);
         setIsAudioPlaying(false);
+        setIsExpandedPlayerOpen(false);
+        setShowLyricsModal(false);
+        setShowQueueDrawer(false);
+    };
         setIsExpandedPlayerOpen(false);
         setShowLyricsModal(false);
         setShowQueueDrawer(false);
@@ -1947,7 +1901,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             return {
                                 ...prev,
                                 youtubeId: ytId,
-                                streamUrl: `https://www.youtube.com/watch?v=${ytId}`,
+                                streamUrl: `/api/theater/music/stream?ytId=${encodeURIComponent(ytId)}&format=mp3`,
                                 posterUrl: prev.posterUrl || onlineItem.posterUrl
                             };
                         });
@@ -2006,98 +1960,16 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         fetchLyrics(playingAudio);
         fetchChords(playingAudio);
 
-        if (ytId) {
-            // YouTube Track Direct Playback via embedded IFrame Player
-            addAudioNerdLog('info', `Loading YouTube track "${playingAudio.title}" (${ytId})`);
-            if (audioRef.current) {
-                audioRef.current.pause();
-                audioRef.current.removeAttribute('src');
+        if (audioRef.current) {
+            let effectiveStreamUrl = playingAudio.streamUrl || '';
+            if (ytId && (!effectiveStreamUrl || effectiveStreamUrl.includes('youtube.com') || effectiveStreamUrl.includes('youtu.be'))) {
+                effectiveStreamUrl = `/api/theater/music/stream?ytId=${encodeURIComponent(ytId)}&format=mp3`;
+            } else if (playingAudio.path && (!effectiveStreamUrl || effectiveStreamUrl.startsWith('/api/theater/stream?path='))) {
+                effectiveStreamUrl = `/api/theater/stream?path=${encodeURIComponent(playingAudio.path)}`;
+            } else if (!effectiveStreamUrl) {
+                const q = `${playingAudio.artist || ''} ${playingAudio.title || playingAudio.name || ''}`.trim();
+                effectiveStreamUrl = `/api/theater/music/stream?q=${encodeURIComponent(q)}&format=mp3`;
             }
-
-            const initOrLoadYt = () => {
-                if (ytPlayerRef.current && ytPlayerReadyRef.current) {
-                    try {
-                        ytPlayerRef.current.loadVideoById(ytId);
-                        ytPlayerRef.current.playVideo();
-                    } catch (e: any) {
-                        addAudioNerdLog('warn', `YT loadVideoById error: ${e.message}`);
-                    }
-                } else if (typeof window !== 'undefined' && (window as any).YT && (window as any).YT.Player) {
-                    try {
-                        ytPlayerRef.current = new (window as any).YT.Player('schedulearr-yt-iframe-player', {
-                            height: '1',
-                            width: '1',
-                            videoId: ytId,
-                            playerVars: {
-                                autoplay: 1,
-                                controls: 0,
-                                disablekb: 1,
-                                fs: 0,
-                                playsinline: 1,
-                                origin: typeof window !== 'undefined' ? window.location.origin : undefined
-                            },
-                            events: {
-                                onReady: (event: any) => {
-                                    ytPlayerReadyRef.current = true;
-                                    try {
-                                        event.target.setVolume(audioVolume * 100);
-                                        if (isAudioMuted) event.target.mute();
-                                        event.target.playVideo();
-                                    } catch {}
-                                },
-                                onStateChange: (event: any) => {
-                                    const state = event.data;
-                                    // YT.PlayerState: PLAYING (1), PAUSED (2), BUFFERING (3), ENDED (0)
-                                    if (state === 1) {
-                                        setIsAudioPlaying(true);
-                                        setAudioPlaybackStatus('playing');
-                                        setAudioPlaybackError(null);
-                                        addAudioNerdLog('success', 'YouTube audio stream playing');
-                                    } else if (state === 2) {
-                                        setIsAudioPlaying(false);
-                                        setAudioPlaybackStatus('paused');
-                                    } else if (state === 3) {
-                                        setAudioPlaybackStatus('buffering');
-                                    } else if (state === 0) {
-                                        nextTrack();
-                                    }
-                                },
-                                onError: (event: any) => {
-                                    addAudioNerdLog('error', `YouTube Player Error Code: ${event.data}`);
-                                    setAudioPlaybackStatus('error');
-                                    setAudioPlaybackError({
-                                        name: 'YOUTUBE_PLAYBACK_ERROR',
-                                        message: `Could not play YouTube track "${playingAudio.title}".`,
-                                        details: `YouTube error code: ${event.data}`,
-                                        suggestion: 'Try another search result or grab to local library.'
-                                    });
-                                }
-                            }
-                        });
-                    } catch (e: any) {
-                        addAudioNerdLog('error', `YT Player Init Exception: ${e.message}`);
-                    }
-                }
-            };
-
-            if (typeof window !== 'undefined' && (window as any).YT && (window as any).YT.Player) {
-                initOrLoadYt();
-            } else {
-                const checkInterval = setInterval(() => {
-                    if (typeof window !== 'undefined' && (window as any).YT && (window as any).YT.Player) {
-                        clearInterval(checkInterval);
-                        initOrLoadYt();
-                    }
-                }, 200);
-                setTimeout(() => clearInterval(checkInterval), 6000);
-            }
-        } else if (audioRef.current) {
-            // Local file / Plex audio stream
-            if (ytPlayerRef.current && ytPlayerReadyRef.current) {
-                try { ytPlayerRef.current.stopVideo(); } catch {}
-            }
-
-            const effectiveStreamUrl = playingAudio.streamUrl || (playingAudio.path ? `/api/theater/stream?path=${encodeURIComponent(playingAudio.path)}` : '');
 
             if (!effectiveStreamUrl) {
                 addAudioNerdLog('warn', `No streamUrl or path for "${playingAudio.title}", auto-falling back to online stream`);
@@ -2112,7 +1984,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
             audioRef.current.src = effectiveStreamUrl;
 
-            // Auto-detect playback stall: if within 8 seconds audio hasn't started playing, try transcode for server files!
+            // Auto-detect playback stall: if within 8 seconds audio hasn't started playing, try transcode or fallback!
             if (audioStallWatchdogRef.current) clearTimeout(audioStallWatchdogRef.current);
             audioStallWatchdogRef.current = setTimeout(() => {
                 if (audioRef.current && (audioRef.current.currentTime === 0 || audioRef.current.paused)) {
@@ -2426,32 +2298,20 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                 addToQueue
             }}
         >
-            {/* Embedded YouTube Player Container for direct lossless web audio (unmanaged HTML container to prevent React reconciliation crashes) */}
-            <div
-                style={{ position: 'fixed', top: '-9999px', left: '-9999px', width: '1px', height: '1px', pointerEvents: 'none', opacity: 0 }}
-                dangerouslySetInnerHTML={{ __html: '<div id="schedulearr-yt-iframe-player"></div>' }}
-            />
-
-            {/* Global Persistent Audio Element for Local Files & Plex */}
+            {/* Global Persistent Audio Element for all Audio Playback (Local, Plex, YouTube, Online) */}
             <audio
                 ref={audioRef}
                 preload="auto"
                 onLoadStart={() => {
-                    const isYt = Boolean(getYtId(playingAudio));
-                    if (isYt) return;
                     setAudioPlaybackStatus('loading');
                     setAudioPlaybackError(null);
                     addAudioNerdLog('info', 'Audio loadstart event');
                 }}
                 onWaiting={() => {
-                    const isYt = Boolean(getYtId(playingAudio));
-                    if (isYt) return;
                     setAudioPlaybackStatus('buffering');
                     addAudioNerdLog('warn', 'Audio stream buffering/waiting for data');
                 }}
                 onCanPlay={() => {
-                    const isYt = Boolean(getYtId(playingAudio));
-                    if (isYt) return;
                     addAudioNerdLog('success', 'Audio stream ready (canplay)');
                     if (audioPlaybackStatus === 'loading' || audioPlaybackStatus === 'buffering') {
                         setAudioPlaybackStatus(isAudioPlaying ? 'playing' : 'paused');
@@ -2465,8 +2325,6 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                     }
                 }}
                 onPlaying={() => {
-                    const isYt = Boolean(getYtId(playingAudio));
-                    if (isYt) return;
                     if (audioStallWatchdogRef.current) {
                         clearTimeout(audioStallWatchdogRef.current);
                         audioStallWatchdogRef.current = null;
@@ -2477,38 +2335,27 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                     addAudioNerdLog('success', 'Audio stream playing');
                 }}
                 onPause={() => {
-                    const isYt = Boolean(getYtId(playingAudio));
-                    if (isYt) return;
                     setAudioPlaybackStatus('paused');
                     setIsAudioPlaying(false);
                     addAudioNerdLog('info', 'Audio paused');
                 }}
                 onStalled={() => {
-                    const isYt = Boolean(getYtId(playingAudio));
-                    if (isYt) return;
                     addAudioNerdLog('warn', 'Audio network stream stalled');
                 }}
                 onTimeUpdate={() => {
-                    const isYt = Boolean(getYtId(playingAudio));
-                    if (isYt) return;
                     if (audioRef.current) setAudioCurrentTime(audioRef.current.currentTime);
                 }}
                 onLoadedMetadata={() => {
-                    const isYt = Boolean(getYtId(playingAudio));
-                    if (isYt) return;
                     if (audioRef.current) {
                         setAudioDuration(audioRef.current.duration);
                         addAudioNerdLog('info', `Loaded audio metadata: duration ${audioRef.current.duration?.toFixed(1)}s`);
                     }
                 }}
                 onEnded={() => {
-                    const isYt = Boolean(getYtId(playingAudio));
-                    if (isYt) return;
                     nextTrack();
                 }}
                 onError={() => {
-                    const isYt = Boolean(getYtId(playingAudio));
-                    if (isYt || !playingAudio || !audioRef.current?.src || audioRef.current?.src === '' || (typeof window !== 'undefined' && audioRef.current?.src === window.location.href)) {
+                    if (!playingAudio || !audioRef.current?.src || audioRef.current?.src === '' || (typeof window !== 'undefined' && audioRef.current?.src === window.location.href)) {
                         return;
                     }
                     if (audioStallWatchdogRef.current) {
@@ -2661,6 +2508,12 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         </>
                                     )}
                                 </div>
+                                {playingAudio.path && (
+                                    <div className="flex items-center gap-1 text-[10px] font-mono text-emerald-400/90 truncate select-all" title={`Server file: ${playingAudio.path}`}>
+                                        <Folder size={10} className="shrink-0 text-emerald-500" />
+                                        <span className="truncate">{playingAudio.path}</span>
+                                    </div>
+                                )}
                             </div>
                         </div>
 
@@ -3322,6 +3175,12 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         </span>
                                     )}
                                 </div>
+                                {playingAudio.path && (
+                                    <div className="flex items-center justify-center gap-1.5 text-[11px] font-mono text-emerald-400/90 truncate max-w-lg mx-auto pt-0.5 select-all" title={`Server file: ${playingAudio.path}`}>
+                                        <Folder size={12} className="shrink-0 text-emerald-400" />
+                                        <span className="truncate">{playingAudio.path}</span>
+                                    </div>
+                                )}
 
                                 {/* 5-Star Rating & Playlist Action */}
                                 <div className="flex items-center justify-center gap-3 pt-1">
