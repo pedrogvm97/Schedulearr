@@ -6,8 +6,48 @@ import axios from 'axios';
 import { spawn } from 'child_process';
 import { Readable } from 'stream';
 import { detectHardwareEncoder, buildFFmpegArgs, getFFmpegPath, QualityPreset } from '@/lib/transcoder';
+import { ensureFfmpegBinaries } from '@/lib/ytdlp';
 
 export const dynamic = 'force-dynamic';
+
+function resolveLocalPath(filePath: string): string | null {
+    if (!filePath) return null;
+    const candidates = [
+        filePath,
+        decodeURIComponent(filePath),
+        filePath.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"'),
+        decodeURIComponent(filePath).replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"'),
+        filePath.replace(/^\/data\//, '/app/data/'),
+        filePath.replace(/^\/app\/data\//, '/data/'),
+        path.join(process.cwd(), filePath),
+        path.join('/app', filePath),
+        path.join('/app/data', filePath.replace(/^\/(app\/)?data\/?/, '')),
+        path.join('/mnt/user/data', filePath.replace(/^\/data\/?/, '')),
+        path.join('/mnt/user', filePath.replace(/^\//, ''))
+    ];
+
+    for (const c of candidates) {
+        if (c && fs.existsSync(c)) {
+            return c;
+        }
+    }
+
+    try {
+        const decoded = decodeURIComponent(filePath);
+        const dir = path.dirname(decoded);
+        const base = path.basename(decoded).toLowerCase();
+        const altDirs = [dir, dir.replace(/^\/data\//, '/app/data/'), dir.replace(/^\/app\/data\//, '/data/')];
+        for (const d of altDirs) {
+            if (fs.existsSync(d)) {
+                const files = fs.readdirSync(d);
+                const found = files.find(f => f.toLowerCase() === base || f.replace(/[\u2018\u2019]/g, "'").toLowerCase() === base.replace(/[\u2018\u2019]/g, "'").toLowerCase());
+                if (found) return path.join(d, found);
+            }
+        }
+    } catch {}
+
+    return null;
+}
 
 function getMimeType(filePath: string): string {
     const ext = path.extname(filePath).toLowerCase();
@@ -93,7 +133,7 @@ export async function GET(req: NextRequest) {
         const localPath = searchParams.get('localPath');
 
         // Check if local file is directly accessible on the host / container filesystem
-        const effectiveLocalPath = (localPath && fs.existsSync(localPath)) ? localPath : (filePath && fs.existsSync(filePath) ? filePath : null);
+        const effectiveLocalPath = (localPath && resolveLocalPath(localPath)) || (filePath && resolveLocalPath(filePath)) || null;
 
         // 1. Plex Stream or Server-Side Transcode Proxy
         if (plexPart && !effectiveLocalPath) {
@@ -268,8 +308,28 @@ export async function GET(req: NextRequest) {
         }
 
         // 2. Local File System Stream (Direct or Transcoded)
-        const targetLocalFile = effectiveLocalPath || filePath;
+        const targetLocalFile = effectiveLocalPath || (filePath && resolveLocalPath(filePath));
         if (!targetLocalFile || !fs.existsSync(targetLocalFile)) {
+            const rawExt = path.extname(filePath || '').toLowerCase();
+            const isAudioRequest = ['.mp3', '.flac', '.wav', '.m4a', '.aac', '.ogg', '.opus', '.wma', '.alac'].includes(rawExt);
+
+            // If requested an audio file that isn't accessible on disk, seamlessly redirect to online audio engine!
+            if (isAudioRequest && filePath) {
+                const parts = decodeURIComponent(filePath).split(/[\/\\]/).filter(Boolean);
+                const rawName = path.basename(filePath, rawExt).replace(/[/\\?%*:|"<>]/g, '').trim();
+                const parentFolder = parts.length > 1 ? parts[parts.length - 2] : '';
+                const grandParentFolder = parts.length > 2 ? parts[parts.length - 3] : '';
+
+                const candidateQuery = (grandParentFolder && !grandParentFolder.toLowerCase().includes('music') && !grandParentFolder.toLowerCase().includes('data'))
+                    ? `${grandParentFolder} ${rawName}`
+                    : (parentFolder && !parentFolder.toLowerCase().includes('music') && !parentFolder.toLowerCase().includes('data') ? `${parentFolder} ${rawName}` : rawName);
+
+                console.warn(`[THEATER STREAM] Local audio file not accessible at "${filePath}". Transparently redirecting to online audio stream for "${candidateQuery}"...`);
+
+                const streamUrl = new URL(`/api/theater/music/stream?q=${encodeURIComponent(candidateQuery)}&format=mp3`, req.url).toString();
+                return NextResponse.redirect(streamUrl);
+            }
+
             return new NextResponse('File not found', { status: 404 });
         }
 
@@ -342,17 +402,20 @@ export async function GET(req: NextRequest) {
         const isAudio = ['.flac', '.wav', '.m4a', '.aac', '.ogg', '.opus', '.ape', '.dsf', '.wma', '.mp3', '.aiff'].includes(ext);
         if (isAudio && (transcode === 'audio' || transcode === 'aac' || transcode === 'mp3' || transcode === 'true')) {
             try {
+                const { ffmpegPath } = ensureFfmpegBinaries();
                 const ffmpegArgs = [
                     ...(parseFloat(startTime) > 0 ? ['-ss', startTime] : []),
                     '-i', targetLocalFile,
+                    '-vn',
                     '-c:a', 'libmp3lame',
                     '-b:a', '320k',
+                    '-ar', '44100',
                     '-id3v2_version', '3',
                     '-f', 'mp3',
                     'pipe:1'
                 ];
 
-                const ffmpeg = spawn(ffmpegBin, ffmpegArgs);
+                const ffmpeg = spawn(ffmpegPath, ffmpegArgs);
 
                 ffmpeg.stderr.on('data', (d) => {
                     const str = d.toString();
@@ -365,10 +428,29 @@ export async function GET(req: NextRequest) {
                     try { ffmpeg.kill('SIGKILL'); } catch {}
                 });
 
+                // Pre-flight check: ensure FFmpeg successfully starts streaming audio data
+                let firstChunk: Buffer | null = null;
+                await new Promise<void>((resolve, reject) => {
+                    const onData = (chunk: Buffer) => {
+                        firstChunk = chunk;
+                        ffmpeg.stdout.off('data', onData);
+                        resolve();
+                    };
+                    ffmpeg.stdout.on('data', onData);
+                    ffmpeg.once('error', reject);
+                    ffmpeg.once('close', (code) => {
+                        if (!firstChunk) reject(new Error(`FFmpeg exited with code ${code} without audio output`));
+                    });
+                    setTimeout(() => {
+                        if (!firstChunk) reject(new Error('Audio transcode startup timeout'));
+                    }, 5000);
+                });
+
                 const webStream = new ReadableStream({
                     start(controller) {
-                        ffmpeg.stdout.on('data', (chunk) => {
-                            controller.enqueue(chunk);
+                        if (firstChunk) controller.enqueue(new Uint8Array(firstChunk));
+                        ffmpeg.stdout.on('data', (chunk: Buffer) => {
+                            controller.enqueue(new Uint8Array(chunk));
                         });
                         ffmpeg.stdout.on('end', () => {
                             controller.close();
@@ -388,7 +470,8 @@ export async function GET(req: NextRequest) {
                         'Content-Type': 'audio/mpeg',
                         'Cache-Control': 'no-cache, no-store, must-revalidate',
                         'Accept-Ranges': 'none',
-                        'X-Stream-Engine': 'Server-Side MP3 Transcode (320 kbps)'
+                        'X-Stream-Engine': 'Server-Side MP3 Transcode (320 kbps)',
+                        'X-Stream-Source': 'Local Disk Transcode'
                     }
                 });
             } catch (ffmpegErr: any) {
@@ -417,28 +500,31 @@ export async function GET(req: NextRequest) {
 
             const chunksize = (end - start) + 1;
             const fileStream = fs.createReadStream(targetLocalFile, { start, end });
+            const webStream = Readable.toWeb(fileStream);
 
-            // @ts-ignore
-            return new Response(fileStream as any, {
+            return new Response(webStream as any, {
                 status: 206,
                 headers: {
                     'Content-Range': `bytes ${start}-${end}/${fileSize}`,
                     'Accept-Ranges': 'bytes',
                     'Content-Length': String(chunksize),
                     'Content-Type': mimeType,
-                    'Cache-Control': 'no-cache'
+                    'Cache-Control': 'no-cache',
+                    'X-Stream-Source': 'Local Disk'
                 }
             });
         } else {
             const fileStream = fs.createReadStream(targetLocalFile);
-            // @ts-ignore
-            return new Response(fileStream as any, {
+            const webStream = Readable.toWeb(fileStream);
+
+            return new Response(webStream as any, {
                 status: 200,
                 headers: {
                     'Content-Length': String(fileSize),
                     'Content-Type': mimeType,
                     'Accept-Ranges': 'bytes',
-                    'Cache-Control': 'no-cache'
+                    'Cache-Control': 'no-cache',
+                    'X-Stream-Source': 'Local Disk'
                 }
             });
         }

@@ -205,9 +205,57 @@ function TheaterPageContent() {
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
     // Content-type tab system
-    const [activeContentTab, setActiveContentTab] = useState<'movie' | 'show' | 'live' | 'music' | 'photos'>('movie');
+    const [activeContentTab, setActiveContentTab] = useState<'movie' | 'show' | 'live' | 'music' | 'photos'>(() => {
+        if (typeof window !== 'undefined') {
+            try {
+                const saved = localStorage.getItem('schedulearr_theater_active_tab');
+                if (saved && ['movie', 'show', 'live', 'music', 'photos'].includes(saved)) {
+                    return saved as any;
+                }
+            } catch {}
+        }
+        return 'movie';
+    });
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            try {
+                localStorage.setItem('schedulearr_theater_active_tab', activeContentTab);
+            } catch {}
+        }
+    }, [activeContentTab]);
+
     // Per-tab enabled library IDs (empty Set = all enabled)
-    const [enabledLibsByTab, setEnabledLibsByTab] = useState<Record<string, Set<string>>>({});
+    const [enabledLibsByTab, setEnabledLibsByTab] = useState<Record<string, Set<string>>>(() => {
+        if (typeof window !== 'undefined') {
+            try {
+                const saved = localStorage.getItem('schedulearr_theater_enabled_libraries_by_tab');
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    const result: Record<string, Set<string>> = {};
+                    for (const [tab, ids] of Object.entries(parsed)) {
+                        if (Array.isArray(ids)) {
+                            result[tab] = new Set(ids as string[]);
+                        }
+                    }
+                    return result;
+                }
+            } catch {}
+        }
+        return {};
+    });
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            try {
+                const serialized: Record<string, string[]> = {};
+                for (const [tab, set] of Object.entries(enabledLibsByTab)) {
+                    serialized[tab] = Array.from(set);
+                }
+                localStorage.setItem('schedulearr_theater_enabled_libraries_by_tab', JSON.stringify(serialized));
+            } catch {}
+        }
+    }, [enabledLibsByTab]);
 
     const toggleLibraryInTab = (tab: string, libId: string, allLibIds: string[]) => {
         setEnabledLibsByTab(prev => {
@@ -2282,9 +2330,37 @@ function TheaterPageContent() {
             `\`\`\``
         ].join('\n');
 
-        if (typeof navigator !== 'undefined' && navigator.clipboard) {
-            navigator.clipboard.writeText(report);
-            toast.success('Nerd Tools debug report copied to clipboard!');
+        if (typeof navigator !== 'undefined' && navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(report).then(() => {
+                toast.success('Nerd Tools debug report copied to clipboard!');
+            }).catch(() => {
+                copyViaFallback();
+            });
+            return;
+        }
+        copyViaFallback();
+
+        function copyViaFallback() {
+            try {
+                const textarea = document.createElement('textarea');
+                textarea.value = report;
+                textarea.style.position = 'fixed';
+                textarea.style.left = '-9999px';
+                textarea.style.top = '-9999px';
+                textarea.setAttribute('readonly', '');
+                document.body.appendChild(textarea);
+                textarea.focus();
+                textarea.select();
+                const successful = document.execCommand('copy');
+                document.body.removeChild(textarea);
+                if (successful) {
+                    toast.success('Nerd Tools debug report copied to clipboard!');
+                    return;
+                }
+            } catch (err) {
+                console.error('Fallback copy failed:', err);
+            }
+            toast.error('Could not copy automatically. Please copy manually.');
         }
     };
 

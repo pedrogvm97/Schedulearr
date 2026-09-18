@@ -612,69 +612,143 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         return `/api/theater/music/cover?${params.toString()}`;
     };
 
+    const copyReportToClipboard = async (reportText: string) => {
+        try {
+            if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                await navigator.clipboard.writeText(reportText);
+                toast.success('Nerd Diagnostics Report copied to clipboard!');
+                return;
+            }
+        } catch {}
+
+        // Fallback for non-HTTPS / restricted environments
+        try {
+            const textarea = document.createElement('textarea');
+            textarea.value = reportText;
+            textarea.style.position = 'fixed';
+            textarea.style.left = '-9999px';
+            textarea.style.top = '-9999px';
+            textarea.setAttribute('readonly', '');
+            document.body.appendChild(textarea);
+            textarea.focus();
+            textarea.select();
+            const successful = document.execCommand('copy');
+            document.body.removeChild(textarea);
+            if (successful) {
+                toast.success('Nerd Diagnostics Report copied to clipboard!');
+                return;
+            }
+        } catch (err) {
+            console.error('Fallback copy failed:', err);
+        }
+        toast.error('Could not copy automatically. Please select text manually.');
+    };
+
     const getAudioSourceInfo = (item: MediaItem | null, currentStreamUrl?: string) => {
-        if (!item) return { label: 'Audio', sublabel: 'Audio', type: 'unknown', isServer: false, colorClass: 'bg-zinc-800 text-zinc-300 border-zinc-700' };
-        
+        if (!item) return { label: 'Audio', shortLabel: 'Audio', sublabel: 'Idle', type: 'unknown', isLocal: false, isPlex: false, isYt: false, isOnline: false, colorClass: 'bg-zinc-800 text-zinc-300 border-zinc-700' };
+
+        const stream = currentStreamUrl || item.streamUrl || '';
+        const isPlex = stream.includes('plexPart=') || stream.includes('/api/plex') || item.id?.startsWith('plex-') || Boolean((item as any).plexPart);
         const isYt = Boolean(
             item.youtubeId || 
             item.id?.startsWith('yt-') || 
-            item.source?.includes('YouTube') ||
+            item.source?.toLowerCase().includes('youtube') ||
             item.folder === 'YouTube' ||
             item.artist === 'YouTube' ||
             item.album === 'YouTube Music' ||
-            item.streamUrl?.includes('youtube.com') ||
-            item.streamUrl?.includes('googlevideo.com') ||
-            item.streamUrl?.includes('ytId=')
+            stream.includes('youtube.com') ||
+            stream.includes('youtu.be') ||
+            stream.includes('googlevideo.com') ||
+            stream.includes('ytId=')
         );
 
-        if (isYt) {
-            return {
-                label: 'YouTube Stream',
-                sublabel: 'YouTube Music Web Stream',
-                type: 'youtube',
-                isServer: false,
-                colorClass: 'bg-red-500/20 text-red-300 border-red-500/40'
-            };
-        }
-
-        const stream = item.streamUrl || currentStreamUrl || '';
-        const hasLocalPath = Boolean(item.path);
+        // 1. Local Disk File / Downloaded
+        const hasLocalPath = Boolean(item.path && !isPlex && (item.path.startsWith('/') || item.path.includes('\\') || item.path.includes(':')));
         const isLocalFlag = Boolean(item.isLocal || (item as any).isDownloaded || (item as any).downloaded);
+        const isLocalStream = stream.includes('/api/theater/stream?path=') || stream.includes('/api/theater/music/download?path=');
 
-        if (hasLocalPath || isLocalFlag || stream.includes('/api/theater/stream') || stream.includes('/api/plex')) {
-            const isTranscoding = stream.includes('transcode=audio') || stream.includes('transcode=mp3') || currentStreamUrl?.includes('transcode=');
-            const ext = (item.extension || (item.path ? item.path.split('.').pop() : '') || 'audio').toUpperCase();
+        if ((hasLocalPath || isLocalFlag || isLocalStream) && !isPlex) {
+            const isTranscoding = stream.includes('transcode=audio') || stream.includes('transcode=mp3');
+            const ext = (item.extension || (item.path ? item.path.split('.').pop() : '') || 'MP3').toUpperCase();
             return {
-                label: isTranscoding ? `Server Transcode (${ext})` : `Server File (${ext})`,
-                sublabel: 'Server Storage',
-                type: 'server',
-                isServer: true,
-                colorClass: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                label: isTranscoding ? `Local File (Transcode ${ext})` : `Local File / Download (${ext})`,
+                shortLabel: isTranscoding ? `Local Transcode` : `Local File (${ext})`,
+                sublabel: item.path || 'Local Storage',
+                type: 'local',
+                isLocal: true,
+                isPlex: false,
+                isYt: false,
+                isOnline: false,
+                colorClass: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-sm'
             };
         }
 
-        const isOnlineSearch = stream.includes('/api/theater/music/stream') || item.id?.startsWith('online-') || item.id?.startsWith('deezer-') || item.id?.startsWith('itunes-');
+        // 2. Plex Server Stream
+        if (isPlex) {
+            const isTranscoding = stream.includes('transcode=audio') || stream.includes('transcode=mp3');
+            const ext = (item.extension || 'AUDIO').toUpperCase();
+            return {
+                label: isTranscoding ? `Plex Server (Transcode ${ext})` : `Plex Server Stream (${ext})`,
+                shortLabel: isTranscoding ? `Plex Transcode` : `Plex Stream`,
+                sublabel: 'Plex Media Server',
+                type: 'plex',
+                isLocal: false,
+                isPlex: true,
+                isYt: false,
+                isOnline: false,
+                colorClass: 'bg-purple-500/20 text-purple-300 border-purple-500/50 shadow-sm'
+            };
+        }
+
+        // 3. YouTube Music Stream
+        if (isYt) {
+            const cleanYt = item.youtubeId || (item.id?.startsWith('yt-') ? item.id.replace('yt-', '') : '');
+            return {
+                label: 'YouTube Music Stream',
+                shortLabel: 'YouTube Stream',
+                sublabel: cleanYt ? `YouTube ID: ${cleanYt}` : 'YouTube Audio Stream',
+                type: 'youtube',
+                isLocal: false,
+                isPlex: false,
+                isYt: true,
+                isOnline: true,
+                colorClass: 'bg-rose-500/20 text-rose-300 border-rose-500/50 shadow-sm'
+            };
+        }
+
+        // 4. Online Music Search / Spotify / Deezer / iTunes Stream
+        const isOnlineSearch = stream.includes('/api/theater/music/stream') || item.id?.startsWith('online-') || item.id?.startsWith('deezer-') || item.id?.startsWith('itunes-') || item.id?.startsWith('spotify-');
+        const providerName = item.source || (item.id?.startsWith('deezer-') ? 'Deezer' : item.id?.startsWith('itunes-') ? 'Apple/iTunes' : item.id?.startsWith('spotify-') ? 'Spotify' : 'Online Engine');
 
         if (isOnlineSearch) {
             return {
-                label: 'Web Stream',
-                sublabel: 'Online Stream',
-                type: 'web',
-                isServer: false,
-                colorClass: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                label: `${providerName} Stream`,
+                shortLabel: `${providerName} Stream`,
+                sublabel: 'Online Web Audio Engine',
+                type: 'online',
+                isLocal: false,
+                isPlex: false,
+                isYt: false,
+                isOnline: true,
+                colorClass: 'bg-sky-500/20 text-sky-300 border-sky-500/50 shadow-sm'
             };
         }
 
         return {
-            label: 'Stream',
-            sublabel: 'Audio Stream',
+            label: 'Web Audio Stream',
+            shortLabel: 'Web Stream',
+            sublabel: stream || 'Network Audio',
             type: 'stream',
-            isServer: false,
+            isLocal: false,
+            isPlex: false,
+            isYt: false,
+            isOnline: true,
             colorClass: 'bg-zinc-800 text-zinc-300 border-zinc-700'
         };
     };
     const [audioLogFilter, setAudioLogFilter] = useState<'all' | 'info' | 'warn' | 'error' | 'success'>('all');
     const [audioLogSearch, setAudioLogSearch] = useState('');
+    const [audioLogOrder, setAudioLogOrder] = useState<'newest' | 'oldest'>('newest');
 
     const addAudioNerdLog = (level: 'info' | 'warn' | 'error' | 'success', message: string, details?: any) => {
         const id = Math.random().toString(36).substring(2, 9);
@@ -2068,11 +2142,19 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                         hasRetriedTranscodeRef.current = true;
                         const separator = effectiveStreamUrl.includes('?') ? '&' : '?';
                         const transcodeUrl = `${effectiveStreamUrl}${separator}transcode=audio&t=${Date.now()}`;
-                        addAudioNerdLog('info', `Direct play failed, retrying server transcode: ${transcodeUrl}`);
+                        addAudioNerdLog('info', `Direct play failed, auto-retrying with server transcode: ${transcodeUrl}`);
                         if (audioRef.current) {
                             audioRef.current.src = transcodeUrl;
-                            audioRef.current.play().catch(() => {});
+                            audioRef.current.play().catch(() => {
+                                if (!hasAttemptedFallbackRef.current) {
+                                    toast.info(`Local file unavailable, auto-playing online stream for "${playingAudio.title}"...`);
+                                    triggerAudioFallback(playingAudio);
+                                }
+                            });
                         }
+                    } else if (!hasAttemptedFallbackRef.current) {
+                        toast.info(`Local file unavailable, auto-playing online stream for "${playingAudio.title}"...`);
+                        triggerAudioFallback(playingAudio);
                     }
                 } else {
                     triggerAudioFallback(playingAudio);
@@ -2457,35 +2539,33 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                         if (audioRef.current) {
                             audioRef.current.src = transcodeUrl;
                             audioRef.current.play().catch(() => {
-                                if (playingAudio.path || playingAudio.isLocal) {
-                                    setAudioPlaybackStatus('error');
-                                    setAudioPlaybackError({
-                                        name: 'SERVER_AUDIO_ERROR',
-                                        message: `Could not play server file "${playingAudio.title}".`,
-                                        details: 'Direct playback and server transcode both failed.',
-                                        suggestion: 'Ensure file is accessible and ffmpeg is installed.'
-                                    });
-                                } else if (!hasAttemptedFallbackRef.current) {
+                                if (!hasAttemptedFallbackRef.current) {
+                                    toast.info(`Local file unavailable, auto-playing online stream for "${playingAudio.title}"...`);
                                     triggerAudioFallback(playingAudio);
                                 } else {
                                     setIsAudioPlaying(false);
                                     setAudioPlaybackStatus('error');
+                                    setAudioPlaybackError({
+                                        name: 'SERVER_AUDIO_ERROR',
+                                        message: `Could not play track "${playingAudio.title}".`,
+                                        details: 'Direct playback, server transcode, and online streaming all failed.',
+                                        suggestion: 'Check file path, audio server, and internet connection.'
+                                    });
                                 }
                             });
                         }
-                    } else if (playingAudio.path || playingAudio.isLocal) {
-                        setAudioPlaybackStatus('error');
-                        setAudioPlaybackError({
-                            name: 'SERVER_AUDIO_ERROR',
-                            message: `Could not play server file "${playingAudio.title}".`,
-                            details: 'Direct playback and server transcode both failed.',
-                            suggestion: 'Ensure file is accessible and ffmpeg is installed.'
-                        });
                     } else if (!hasAttemptedFallbackRef.current) {
+                        toast.info(`Local file unavailable, auto-playing online stream for "${playingAudio.title}"...`);
                         triggerAudioFallback(playingAudio);
                     } else {
                         setIsAudioPlaying(false);
                         setAudioPlaybackStatus('error');
+                        setAudioPlaybackError({
+                            name: 'SERVER_AUDIO_ERROR',
+                            message: `Could not play track "${playingAudio.title}".`,
+                            details: 'Direct playback and fallback both failed.',
+                            suggestion: 'Check file path, audio server, and internet connection.'
+                        });
                     }
                 }}
             />
@@ -2546,9 +2626,9 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                     ) : (() => {
                                         const srcInfo = getAudioSourceInfo(playingAudio, audioRef.current?.src);
                                         return (
-                                            <span className={`shrink-0 px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-black uppercase tracking-wider border flex items-center gap-1 shadow-sm ${srcInfo.colorClass}`} title={srcInfo.sublabel}>
-                                                {srcInfo.isServer ? <HardDrive size={9} /> : srcInfo.type === 'youtube' ? <Youtube size={9} /> : <Globe size={9} />}
-                                                <span>{srcInfo.label}</span>
+                                            <span className={`shrink-0 px-2 py-0.5 rounded text-[8px] sm:text-[9px] font-black uppercase tracking-wider border flex items-center gap-1 shadow-sm ${srcInfo.colorClass}`} title={`${srcInfo.label} — ${srcInfo.sublabel}`}>
+                                                {srcInfo.isLocal ? <HardDrive size={9} className="shrink-0" /> : srcInfo.isPlex ? <Server size={9} className="shrink-0" /> : srcInfo.isYt ? <Youtube size={9} className="shrink-0" /> : <Globe size={9} className="shrink-0" />}
+                                                <span>{srcInfo.shortLabel || srcInfo.label}</span>
                                             </span>
                                         );
                                     })()}
@@ -3191,8 +3271,8 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                     {(() => {
                                         const srcInfo = getAudioSourceInfo(playingAudio, audioRef.current?.src);
                                         return (
-                                            <span className={`px-2.5 py-0.5 rounded-md border text-[9px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm ${srcInfo.colorClass}`} title={srcInfo.sublabel}>
-                                                {srcInfo.isServer ? <HardDrive size={10} className="text-emerald-400" /> : <Globe size={10} className="text-cyan-400" />}
+                                            <span className={`px-2.5 py-0.5 rounded-md border text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5 shadow-sm ${srcInfo.colorClass}`} title={`${srcInfo.label} — ${srcInfo.sublabel}`}>
+                                                {srcInfo.isLocal ? <HardDrive size={10} className="text-emerald-400 shrink-0" /> : srcInfo.isPlex ? <Server size={10} className="text-purple-400 shrink-0" /> : srcInfo.isYt ? <Youtube size={10} className="text-rose-400 shrink-0" /> : <Globe size={10} className="text-sky-400 shrink-0" />}
                                                 <span>{srcInfo.label}</span>
                                             </span>
                                         );
@@ -4278,8 +4358,25 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         {/* Metadata & Identification Grid */}
                                         <div className="space-y-2">
                                             <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 flex items-center gap-1">
-                                                <Disc size={12} /> Track Metadata &amp; Identifiers
+                                                <Disc size={12} /> Track Metadata &amp; Origin
                                             </span>
+                                            {(() => {
+                                                const srcInfo = getAudioSourceInfo(playingAudio, audioRef.current?.src);
+                                                return (
+                                                    <div className={`p-3 rounded-2xl border flex items-center justify-between gap-2.5 ${srcInfo.colorClass}`}>
+                                                        <div className="flex items-center gap-2.5 min-w-0">
+                                                            {srcInfo.isLocal ? <HardDrive size={16} className="shrink-0 text-emerald-400" /> : srcInfo.isPlex ? <Server size={16} className="shrink-0 text-purple-400" /> : srcInfo.isYt ? <Youtube size={16} className="shrink-0 text-rose-400" /> : <Globe size={16} className="shrink-0 text-sky-400" />}
+                                                            <div className="min-w-0">
+                                                                <span className="font-black text-xs uppercase tracking-wider block truncate">{srcInfo.label}</span>
+                                                                <span className="text-[10px] opacity-80 font-mono block truncate">{srcInfo.sublabel}</span>
+                                                            </div>
+                                                        </div>
+                                                        <span className="px-2 py-0.5 rounded bg-black/40 text-[9px] font-mono font-bold uppercase shrink-0">
+                                                            {srcInfo.type}
+                                                        </span>
+                                                    </div>
+                                                );
+                                            })()}
                                             <div className="p-3.5 bg-zinc-900/40 rounded-2xl border border-zinc-800 text-xs space-y-2">
                                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-zinc-300">
                                                     <div><span className="text-zinc-500">Title:</span> <b className="text-white">{playingAudio.title}</b></div>
@@ -4289,7 +4386,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                     {playingAudio.releaseYear && (
                                                         <div><span className="text-zinc-500">Year:</span> <b className="text-white">{playingAudio.releaseYear}</b></div>
                                                     )}
-                                                    <div><span className="text-zinc-500">Source:</span> <b className="text-amber-400">{playingAudio.source || 'Local File'}</b></div>
+                                                    <div><span className="text-zinc-500">Source:</span> <b className="text-amber-400">{getAudioSourceInfo(playingAudio, audioRef.current?.src).label}</b></div>
                                                 </div>
                                                 <div className="pt-1.5 border-t border-zinc-800/80 text-[11px] font-mono space-y-1 text-zinc-400">
                                                     <div className="truncate"><span className="text-zinc-500">ID:</span> {playingAudio.id}</div>
@@ -4307,14 +4404,26 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                 <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 flex items-center gap-1">
                                                     <Terminal size={12} /> Live Event Trace &amp; Logs ({audioNerdLogs.length})
                                                 </span>
-                                                <div className="flex items-center gap-1.5">
+                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                    {/* Sort Order Toggle */}
+                                                    <button
+                                                        onClick={() => setAudioLogOrder(prev => prev === 'newest' ? 'oldest' : 'newest')}
+                                                        className={`px-2 py-0.5 rounded uppercase tracking-wider text-[10px] font-bold border transition-all cursor-pointer ${
+                                                            audioLogOrder === 'newest'
+                                                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm'
+                                                                : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
+                                                        }`}
+                                                        title="Toggle log ordering: Newest First or Oldest First"
+                                                    >
+                                                        {audioLogOrder === 'newest' ? '↓ Newest First' : '↑ Oldest First'}
+                                                    </button>
                                                     {/* Filter Pills */}
                                                     <div className="flex bg-zinc-900 p-0.5 rounded-lg border border-zinc-800 text-[10px] font-bold">
                                                         {(['all', 'info', 'warn', 'error', 'success'] as const).map(lvl => (
                                                             <button
                                                                 key={lvl}
                                                                 onClick={() => setAudioLogFilter(lvl)}
-                                                                className={`px-2 py-0.5 rounded uppercase tracking-wider transition-all ${
+                                                                className={`px-2 py-0.5 rounded uppercase tracking-wider transition-all cursor-pointer ${
                                                                     audioLogFilter === lvl
                                                                         ? 'bg-amber-500 text-black shadow-sm'
                                                                         : 'text-zinc-400 hover:text-white'
@@ -4330,7 +4439,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                             setAudioNerdLogs([]);
                                                             toast.success('Logs cleared');
                                                         }}
-                                                        className="p-1 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-900 transition-colors"
+                                                        className="p-1 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-900 transition-colors cursor-pointer"
                                                         title="Clear Event Logs"
                                                     >
                                                         <Trash2 size={13} />
@@ -4372,9 +4481,16 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                         );
                                                     }
 
-                                                    return filtered.map(log => (
+                                                    const ordered = audioLogOrder === 'newest' ? [...filtered].reverse() : filtered;
+
+                                                    return ordered.map((log, idx) => (
                                                         <div key={log.id} className="flex items-start gap-2 text-[11px] leading-tight hover:bg-zinc-900/40 p-0.5 rounded">
                                                             <span className="text-zinc-600 shrink-0 select-none">{log.timestamp}</span>
+                                                            {audioLogOrder === 'newest' && idx === 0 && (
+                                                                <span className="shrink-0 text-[8px] font-black uppercase px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                                                                    LATEST
+                                                                </span>
+                                                            )}
                                                             <span className={`shrink-0 uppercase font-black text-[9px] px-1 rounded ${
                                                                 log.level === 'error' ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
                                                                 log.level === 'warn' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
@@ -4425,6 +4541,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                             <div className="flex items-center gap-2">
                                                 <button
                                                     onClick={() => {
+                                                        const srcInfo = getAudioSourceInfo(playingAudio, audioRef.current?.currentSrc);
                                                         const report = [
                                                             `# Schedulearr Audio Diagnostics Report`,
                                                             `Time: ${new Date().toISOString()}`,
@@ -4432,16 +4549,20 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                             `Artist: ${playingAudio?.artist || 'Unknown'}`,
                                                             `Album: ${playingAudio?.album || 'Unknown'}`,
                                                             `Format: ${playingAudio?.extension || 'Unknown'}`,
+                                                            `Source Type: ${srcInfo.label}`,
+                                                            `Source Detail: ${srcInfo.sublabel}`,
+                                                            `Disk Path: ${playingAudio?.path || 'None (Remote / Stream)'}`,
                                                             `Stream URL: ${audioRef.current?.currentSrc || playingAudio?.streamUrl || 'None'}`,
                                                             `Status: ${audioPlaybackStatus}`,
                                                             `Ready State: ${audioRef.current?.readyState}`,
                                                             `Network State: ${audioRef.current?.networkState}`,
                                                             `Duration: ${audioDuration}s, Current: ${audioCurrentTime}s`,
                                                             `Active Error: ${JSON.stringify(audioPlaybackError)}`,
-                                                            `\n## Event Logs:\n` + audioNerdLogs.map(l => `[${l.timestamp}] [${l.level.toUpperCase()}] ${l.message}`).join('\n')
+                                                            `\n## Event Logs (${audioLogOrder === 'newest' ? 'Newest First' : 'Oldest First'}):\n` + 
+                                                            (audioLogOrder === 'newest' ? [...audioNerdLogs].reverse() : audioNerdLogs)
+                                                                .map(l => `[${l.timestamp}] [${l.level.toUpperCase()}] ${l.message}`).join('\n')
                                                         ].join('\n');
-                                                        navigator.clipboard.writeText(report);
-                                                        toast.success('Diagnostics report copied to clipboard!');
+                                                        copyReportToClipboard(report);
                                                     }}
                                                     className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-bold text-xs border border-zinc-800 flex items-center gap-1.5 transition-all cursor-pointer"
                                                 >
@@ -6024,6 +6145,34 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             </button>
                         </div>
 
+                        {/* Playback Source & Origin Banner */}
+                        {playingAudio && (() => {
+                            const srcInfo = getAudioSourceInfo(playingAudio, audioRef.current?.src);
+                            return (
+                                <div className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 ${srcInfo.colorClass}`}>
+                                    <div className="flex items-center gap-3 min-w-0">
+                                        <div className="p-2.5 rounded-xl bg-black/40 border border-white/10 shrink-0">
+                                            {srcInfo.isLocal ? <HardDrive size={20} className="text-emerald-400" /> : srcInfo.isPlex ? <Server size={20} className="text-purple-400" /> : srcInfo.isYt ? <Youtube size={20} className="text-rose-400" /> : <Globe size={20} className="text-sky-400" />}
+                                        </div>
+                                        <div className="min-w-0">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <span className="text-xs sm:text-sm font-black uppercase tracking-wider">{srcInfo.label}</span>
+                                                <span className="text-[9px] px-2 py-0.5 rounded-full bg-black/50 border border-white/10 font-mono font-bold uppercase">
+                                                    {srcInfo.type === 'local' ? 'Disk File' : srcInfo.type === 'plex' ? 'Plex Server' : srcInfo.type === 'youtube' ? 'YouTube Stream' : 'Online Stream'}
+                                                </span>
+                                            </div>
+                                            <p className="text-[11px] opacity-85 font-mono break-all mt-0.5">{srcInfo.sublabel}</p>
+                                        </div>
+                                    </div>
+                                    {playingAudio.path && (
+                                        <span className="hidden md:inline-flex text-[10px] font-mono px-2.5 py-1 rounded-xl bg-black/40 border border-white/10 max-w-[260px] truncate shrink-0" title={playingAudio.path}>
+                                            📁 {playingAudio.path.split(/[/\\]/).pop()}
+                                        </span>
+                                    )}
+                                </div>
+                            );
+                        })()}
+
                         {/* Telemetry & Specs Overview Grid */}
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                             <div className="p-2.5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-0.5">
@@ -6068,7 +6217,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                         {playingAudio && (
                             <div className="p-3.5 rounded-2xl bg-zinc-900/60 border border-zinc-800 text-xs space-y-2">
                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-zinc-300 font-mono text-[11px]">
-                                    <div><span className="text-zinc-500 font-sans">Engine:</span> <b className="text-amber-400">{playingAudio.youtubeId ? 'YouTube Stream' : (audioRef.current?.src?.includes('/api/theater/music/transcode') ? 'Server Transcoder' : 'Native Decoder')}</b></div>
+                                    <div><span className="text-zinc-500 font-sans">Engine:</span> <b className="text-amber-400">{playingAudio.youtubeId ? 'YouTube Stream' : (audioRef.current?.src?.includes('transcode=') ? 'Server Transcoder' : 'Native Decoder')}</b></div>
                                     <div><span className="text-zinc-500 font-sans">Quality:</span> <b className="text-emerald-400">{playingAudio.extension?.toLowerCase() === 'flac' ? 'FLAC Lossless' : (playingAudio.extension?.toLowerCase() === 'wav' ? 'WAV Lossless' : ((playingAudio.isLocal || playingAudio.path) ? `${playingAudio.extension?.toUpperCase() || 'Audio'} Local` : 'Web Stream (~160–256 kbps)'))}</b></div>
                                     <div><span className="text-zinc-500 font-sans">Size:</span> <b className="text-white">{playingAudio.sizeBytes ? formatBytes(playingAudio.sizeBytes) : 'Bitstream'}</b></div>
                                     <div><span className="text-zinc-500 font-sans">Volume:</span> <b className="text-white">{Math.round(audioVolume * 100)}%</b></div>
@@ -6102,13 +6251,25 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">
                                     Event Telemetry Trace ({audioNerdLogs.length} events)
                                 </span>
-                                <div className="flex items-center gap-1.5">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                    {/* Sort Order Toggle */}
+                                    <button
+                                        onClick={() => setAudioLogOrder(prev => prev === 'newest' ? 'oldest' : 'newest')}
+                                        className={`px-2 py-0.5 rounded uppercase tracking-wider text-[10px] font-bold border transition-all cursor-pointer ${
+                                            audioLogOrder === 'newest'
+                                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm'
+                                                : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
+                                        }`}
+                                        title="Toggle log ordering: Newest First or Oldest First"
+                                    >
+                                        {audioLogOrder === 'newest' ? '↓ Newest First' : '↑ Oldest First'}
+                                    </button>
                                     <div className="flex bg-zinc-900 p-0.5 rounded-lg border border-zinc-800 text-[10px] font-bold">
                                         {(['all', 'info', 'warn', 'error', 'success'] as const).map(lvl => (
                                             <button
                                                 key={lvl}
                                                 onClick={() => setAudioLogFilter(lvl)}
-                                                className={`px-2 py-0.5 rounded uppercase tracking-wider transition-all ${
+                                                className={`px-2 py-0.5 rounded uppercase tracking-wider transition-all cursor-pointer ${
                                                     audioLogFilter === lvl
                                                         ? 'bg-amber-500 text-black shadow-sm'
                                                         : 'text-zinc-400 hover:text-white'
@@ -6123,7 +6284,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                             setAudioNerdLogs([]);
                                             toast.success('Logs cleared');
                                         }}
-                                        className="p-1 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-900 transition-colors"
+                                        className="p-1 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-zinc-900 transition-colors cursor-pointer"
                                         title="Clear Event Logs"
                                     >
                                         <Trash2 size={13} />
@@ -6165,9 +6326,16 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         );
                                     }
 
-                                    return filtered.map(log => (
+                                    const ordered = audioLogOrder === 'newest' ? [...filtered].reverse() : filtered;
+
+                                    return ordered.map((log, idx) => (
                                         <div key={log.id} className="flex items-start gap-2 text-[11px] leading-tight hover:bg-zinc-900/40 p-0.5 rounded">
                                             <span className="text-zinc-600 shrink-0 select-none">{log.timestamp}</span>
+                                            {audioLogOrder === 'newest' && idx === 0 && (
+                                                <span className="shrink-0 text-[8px] font-black uppercase px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                                                    LATEST
+                                                </span>
+                                            )}
                                             <span className={`shrink-0 uppercase font-black text-[9px] px-1 rounded ${
                                                 log.level === 'error' ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
                                                 log.level === 'warn' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
@@ -6195,7 +6363,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             <div className="flex items-center gap-2">
                                 <button
                                     onClick={handleForceAudioTranscode}
-                                    className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md shadow-amber-500/20"
+                                    className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md shadow-amber-500/20 cursor-pointer"
                                 >
                                     <Zap size={13} /> Force Server Transcode
                                 </button>
@@ -6208,7 +6376,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                             audioRef.current.play().catch(() => {});
                                         }
                                     }}
-                                    className="px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs border border-zinc-800 flex items-center gap-1.5 transition-all"
+                                    className="px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs border border-zinc-800 flex items-center gap-1.5 transition-all cursor-pointer"
                                 >
                                     <RotateCcw size={13} /> Retry
                                 </button>
@@ -6216,24 +6384,29 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
                             <button
                                 onClick={() => {
+                                    const srcInfo = getAudioSourceInfo(playingAudio, audioRef.current?.currentSrc);
                                     const report = [
                                         `# Schedulearr Audio Diagnostics Report`,
                                         `Time: ${new Date().toISOString()}`,
                                         `Track: ${playingAudio?.title || 'None'}`,
                                         `Artist: ${playingAudio?.artist || 'Unknown'}`,
                                         `Format: ${playingAudio?.extension || 'Unknown'}`,
+                                        `Source Type: ${srcInfo.label}`,
+                                        `Source Detail: ${srcInfo.sublabel}`,
+                                        `Disk Path: ${playingAudio?.path || 'None (Remote / Stream)'}`,
                                         `Stream URL: ${audioRef.current?.currentSrc || playingAudio?.streamUrl || 'None'}`,
                                         `Status: ${audioPlaybackStatus}`,
                                         `Ready State: ${audioRef.current?.readyState}`,
                                         `Network State: ${audioRef.current?.networkState}`,
                                         `Duration: ${audioDuration}s, Current: ${audioCurrentTime}s`,
                                         `Active Error: ${JSON.stringify(audioPlaybackError)}`,
-                                        `\n## Event Logs:\n` + audioNerdLogs.map(l => `[${l.timestamp}] [${l.level.toUpperCase()}] ${l.message}`).join('\n')
+                                        `\n## Event Logs (${audioLogOrder === 'newest' ? 'Newest First' : 'Oldest First'}):\n` + 
+                                        (audioLogOrder === 'newest' ? [...audioNerdLogs].reverse() : audioNerdLogs)
+                                            .map(l => `[${l.timestamp}] [${l.level.toUpperCase()}] ${l.message}`).join('\n')
                                     ].join('\n');
-                                    navigator.clipboard.writeText(report);
-                                    toast.success('Nerd Diagnostics Report copied to clipboard!');
+                                    copyReportToClipboard(report);
                                 }}
-                                className="px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-bold text-xs border border-zinc-800 flex items-center gap-1.5 transition-all"
+                                className="px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-bold text-xs border border-zinc-800 flex items-center gap-1.5 transition-all cursor-pointer"
                             >
                                 <Copy size={13} /> Copy Report
                             </button>

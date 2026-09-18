@@ -6,10 +6,8 @@ import { spawn } from 'child_process';
 import { Readable } from 'stream';
 import axios from 'axios';
 import ffmpegStatic from 'ffmpeg-static';
-import { ensureYtDlpBinary } from '@/lib/ytdlp';
+import { ensureYtDlpBinary, ensureFfmpegBinaries } from '@/lib/ytdlp';
 import { downloadAudioFile, extractDirectAudioStreamUrl } from '@/lib/musicDownloader';
-
-const ffmpegPath: string = ffmpegStatic || 'ffmpeg';
 
 export const dynamic = 'force-dynamic';
 
@@ -82,51 +80,104 @@ export async function GET(req: Request) {
             return new NextResponse('Failed to process and download audio file.', { status: 502 });
         }
 
-        // ── MODE B: Transcoded Live Audio Stream (For In-Browser Web Player) ──
+        // ── MODE B: In-Browser Stream Playback (Universal MP3 Transcoded Stream) ──
         const ytDlpBin = await ensureYtDlpBinary();
+        const { ffmpegPath } = ensureFfmpegBinaries();
 
-        if (saveFormat === 'mp3' || saveFormat === 'flac' || saveFormat === 'wav' || isTranscode || !isDownload) {
-            const outFormat = saveFormat === 'flac' ? 'flac' : saveFormat === 'wav' ? 'wav' : 'mp3';
-            const mimeType = outFormat === 'flac' ? 'audio/flac' : outFormat === 'wav' ? 'audio/wav' : 'audio/mpeg';
+        let directAudioUrl: string | null = null;
 
-            // 1. Try spawning yt-dlp first with modern iOS/Android/web client rotation
+        // 1. If we have a clean YouTube ID, try Invidious / Piped mirror extraction first (fastest, < 500ms)
+        if (cleanId) {
             try {
-                const ytdlArgs = [
-                    '-f', formatFilter,
+                directAudioUrl = await extractDirectAudioStreamUrl(cleanId);
+            } catch {}
+        }
+
+        // 2. Extract direct audio stream URL via yt-dlp -g
+        if (!directAudioUrl) {
+            try {
+                const targetSpec = cleanId ? `https://www.youtube.com/watch?v=${cleanId}` : targetUrl;
+                const ytDlpProc = spawn(ytDlpBin, [
+                    '-f', 'ba/b',
                     '--no-playlist',
                     '--no-check-certificates',
                     '--no-warnings',
-                    '--extractor-args', 'youtube:player_client=android,web,tv,ios',
-                    '--ffmpeg-location', ffmpegPath,
-                    '-o', '-',
-                    targetUrl
-                ];
+                    '-g',
+                    targetSpec
+                ]);
 
+                let stdoutBuf = '';
+                await new Promise<void>((resolve, reject) => {
+                    ytDlpProc.stdout.on('data', (d) => { stdoutBuf += d.toString(); });
+                    ytDlpProc.once('close', (code) => {
+                        const firstLine = stdoutBuf.trim().split('\n')[0].trim();
+                        if (code === 0 && firstLine.startsWith('http')) {
+                            directAudioUrl = firstLine;
+                            resolve();
+                        } else {
+                            reject(new Error(`yt-dlp -g exit code ${code}`));
+                        }
+                    });
+                    ytDlpProc.once('error', reject);
+                    setTimeout(() => {
+                        try { ytDlpProc.kill(); } catch {}
+                        reject(new Error('yt-dlp -g extraction timeout'));
+                    }, 8000);
+                });
+            } catch (err: any) {
+                console.warn('[AUDIO STREAM] yt-dlp -g URL extraction failed:', err.message);
+            }
+        }
+
+        // 3. Transcode direct stream URL to universal MP3 via FFmpeg with pre-flight check
+        if (directAudioUrl) {
+            try {
                 const ffmpegArgs = [
-                    '-i', 'pipe:0',
+                    '-reconnect', '1',
+                    '-reconnect_at_eof', '1',
+                    '-reconnect_streamed', '1',
+                    '-reconnect_delay_max', '5',
+                    '-i', directAudioUrl,
                     '-vn',
-                    '-f', outFormat,
-                    ...(outFormat === 'mp3' ? ['-b:a', '320k', '-ar', '44100'] : []),
+                    '-f', 'mp3',
+                    '-b:a', '192k',
+                    '-ar', '44100',
                     'pipe:1'
                 ];
 
-                const ytdlProc = spawn(ytDlpBin, ytdlArgs);
                 const ffmpegProc = spawn(ffmpegPath, ffmpegArgs);
-
-                ytdlProc.stdout.pipe(ffmpegProc.stdin);
-                ytdlProc.stderr.on('data', () => {});
                 ffmpegProc.stderr.on('data', () => {});
+
+                // Pre-flight check: ensure audio frames are being generated before sending 200 OK
+                let firstChunk: Buffer | null = null;
+                await new Promise<void>((resolve, reject) => {
+                    const onData = (chunk: Buffer) => {
+                        firstChunk = chunk;
+                        ffmpegProc.stdout.off('data', onData);
+                        resolve();
+                    };
+                    ffmpegProc.stdout.on('data', onData);
+                    ffmpegProc.once('error', reject);
+                    ffmpegProc.once('close', (code) => {
+                        if (!firstChunk) reject(new Error(`FFmpeg exited with code ${code} without output`));
+                    });
+                    setTimeout(() => {
+                        if (!firstChunk) {
+                            try { ffmpegProc.kill(); } catch {}
+                            reject(new Error('FFmpeg stream timeout'));
+                        }
+                    }, 6000);
+                });
 
                 const webStream = new ReadableStream({
                     start(controller) {
-                        ffmpegProc.stdout.on('data', chunk => controller.enqueue(chunk));
+                        if (firstChunk) controller.enqueue(new Uint8Array(firstChunk));
+                        ffmpegProc.stdout.on('data', (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)));
                         ffmpegProc.stdout.on('end', () => controller.close());
-                        ffmpegProc.stdout.on('error', err => controller.error(err));
-                        ffmpegProc.on('error', err => controller.error(err));
-                        ytdlProc.on('error', err => controller.error(err));
+                        ffmpegProc.stdout.on('error', (err) => controller.error(err));
+                        ffmpegProc.on('error', (err) => controller.error(err));
                     },
                     cancel() {
-                        try { ytdlProc.kill(); } catch {}
                         try { ffmpegProc.kill(); } catch {}
                     }
                 });
@@ -134,120 +185,95 @@ export async function GET(req: Request) {
                 return new Response(webStream, {
                     status: 200,
                     headers: {
-                        'Content-Type': mimeType,
-                        'Cache-Control': 'public, max-age=3600'
+                        'Content-Type': 'audio/mpeg',
+                        'Accept-Ranges': 'none',
+                        'Cache-Control': 'no-cache, no-store',
+                        'X-Stream-Source': 'Online Transcode'
                     }
                 });
             } catch (err: any) {
-                console.warn('[AUDIO STREAM] yt-dlp transcode spawn failed, trying fallback API:', err.message);
-            }
-
-            // 2. Fallback: Extract direct audio stream URL from Cobalt/Piped/Invidious and transcode via ffmpeg
-            if (cleanId) {
-                const directAudioUrl = await extractDirectAudioStreamUrl(cleanId);
-                if (directAudioUrl) {
-                    const ffmpegArgs = [
-                        '-i', directAudioUrl,
-                        '-vn',
-                        '-f', outFormat,
-                        ...(outFormat === 'mp3' ? ['-b:a', '320k', '-ar', '44100'] : []),
-                        'pipe:1'
-                    ];
-                    const ffmpegProc = spawn(ffmpegPath, ffmpegArgs);
-                    ffmpegProc.stderr.on('data', () => {});
-
-                    const webStream = new ReadableStream({
-                        start(controller) {
-                            ffmpegProc.stdout.on('data', chunk => controller.enqueue(chunk));
-                            ffmpegProc.stdout.on('end', () => controller.close());
-                            ffmpegProc.stdout.on('error', err => controller.error(err));
-                            ffmpegProc.on('error', err => controller.error(err));
-                        },
-                        cancel() {
-                            try { ffmpegProc.kill(); } catch {}
-                        }
-                    });
-
-                    return new Response(webStream, {
-                        status: 200,
-                        headers: {
-                            'Content-Type': mimeType,
-                            'Cache-Control': 'public, max-age=3600'
-                        }
-                    });
-                }
+                console.warn('[AUDIO STREAM] FFmpeg direct URL transcode failed, attempting pipe fallback:', err.message);
             }
         }
 
-        // ── MODE C: Direct Native Audio Stream (M4A / Opus) ──
-        const contentType = effectiveExt === 'opus' ? 'audio/webm; codecs=opus' : 'audio/mp4';
-
+        // 4. Fallback: yt-dlp stdin piped into FFmpeg with WebM Opus container (handles unseekable stdout)
         try {
             const ytdlArgs = [
-                '-f', formatFilter,
+                '-f', 'ba[ext=webm]/251/250/249/ba/b',
                 '--no-playlist',
                 '--no-check-certificates',
                 '--no-warnings',
-                '--extractor-args', 'youtube:player_client=android,web,tv,ios',
                 '--ffmpeg-location', ffmpegPath,
                 '-o', '-',
                 targetUrl
             ];
 
+            const ffmpegArgs = [
+                '-i', 'pipe:0',
+                '-vn',
+                '-f', 'mp3',
+                '-b:a', '192k',
+                '-ar', '44100',
+                'pipe:1'
+            ];
+
             const ytdlProc = spawn(ytDlpBin, ytdlArgs);
+            const ffmpegProc = spawn(ffmpegPath, ffmpegArgs);
+
+            ytdlProc.stdout.pipe(ffmpegProc.stdin);
             ytdlProc.stderr.on('data', () => {});
+            ffmpegProc.stderr.on('data', () => {});
+
+            let firstChunk: Buffer | null = null;
+            await new Promise<void>((resolve, reject) => {
+                const onData = (chunk: Buffer) => {
+                    firstChunk = chunk;
+                    ffmpegProc.stdout.off('data', onData);
+                    resolve();
+                };
+                ffmpegProc.stdout.on('data', onData);
+                ffmpegProc.once('error', reject);
+                ffmpegProc.once('close', (code) => {
+                    if (!firstChunk) reject(new Error(`FFmpeg pipe closed with code ${code}`));
+                });
+                setTimeout(() => {
+                    if (!firstChunk) {
+                        try { ytdlProc.kill(); } catch {}
+                        try { ffmpegProc.kill(); } catch {}
+                        reject(new Error('Audio stream pipe timeout'));
+                    }
+                }, 8000);
+            });
 
             const webStream = new ReadableStream({
                 start(controller) {
-                    ytdlProc.stdout.on('data', chunk => controller.enqueue(chunk));
-                    ytdlProc.stdout.on('end', () => controller.close());
-                    ytdlProc.stdout.on('error', err => controller.error(err));
-                    ytdlProc.on('error', err => controller.error(err));
+                    if (firstChunk) controller.enqueue(new Uint8Array(firstChunk));
+                    ffmpegProc.stdout.on('data', (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)));
+                    ffmpegProc.stdout.on('end', () => controller.close());
+                    ffmpegProc.stdout.on('error', (err) => controller.error(err));
+                    ffmpegProc.on('error', (err) => controller.error(err));
+                    ytdlProc.on('error', (err) => controller.error(err));
                 },
                 cancel() {
                     try { ytdlProc.kill(); } catch {}
+                    try { ffmpegProc.kill(); } catch {}
                 }
             });
 
             return new Response(webStream, {
                 status: 200,
                 headers: {
-                    'Content-Type': contentType,
-                    'Cache-Control': 'public, max-age=3600'
+                    'Content-Type': 'audio/mpeg',
+                    'Accept-Ranges': 'none',
+                    'Cache-Control': 'no-cache, no-store',
+                    'X-Stream-Source': 'Online Pipe'
                 }
             });
-        } catch (e: any) {
-            console.warn('[AUDIO STREAM] Direct yt-dlp pipe failed:', e.message);
+        } catch (err: any) {
+            console.error('[AUDIO STREAM] All stream pipelines failed:', err.message);
         }
 
-        // Direct stream fallback via Cobalt / Piped / Invidious
-        if (cleanId) {
-            const directAudioUrl = await extractDirectAudioStreamUrl(cleanId);
-            if (directAudioUrl) {
-                const remoteRes = await axios.get(directAudioUrl, { responseType: 'stream', timeout: 10000 });
-                const nodeStream = remoteRes.data;
-                const webStream = new ReadableStream({
-                    start(controller) {
-                        nodeStream.on('data', (chunk: any) => controller.enqueue(chunk));
-                        nodeStream.on('end', () => controller.close());
-                        nodeStream.on('error', (err: any) => controller.error(err));
-                    },
-                    cancel() {
-                        try { nodeStream.destroy(); } catch {}
-                    }
-                });
-
-                return new Response(webStream, {
-                    status: 200,
-                    headers: {
-                        'Content-Type': remoteRes.headers['content-type'] || contentType,
-                        'Cache-Control': 'public, max-age=3600'
-                    }
-                });
-            }
-        }
-
-        return new NextResponse('Failed to stream audio track: source unreachable or restricted.', { status: 502 });
+        return new NextResponse('Audio stream temporarily unavailable from online engines.', { status: 502 });
     } catch (error: any) {
         console.error('Audio Stream API Error:', error.message);
         return new NextResponse(`Streaming error: ${error.message}`, { status: 500 });
