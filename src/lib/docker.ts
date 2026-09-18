@@ -128,7 +128,7 @@ export async function findSelfContainer(docker: any, hostname: string): Promise<
     for (const container of schedulearrContainers) {
       try {
         const res = await docker.get(`/containers/${container.Id}/json`);
-        if (res.data && (res.data.Config?.Hostname === hostname || schedulearrContainers.length === 1)) {
+        if (res.data && (res.data.Config?.Hostname === hostname || res.data.State?.Running || schedulearrContainers.length === 1)) {
           return res.data;
         }
       } catch (e) {}
@@ -180,9 +180,8 @@ export async function cleanupOrphanImages(docker?: any): Promise<{ deletedCount:
 
         const repoTags: string[] = img.RepoTags || [];
         const isUntagged = repoTags.length === 0 || repoTags.every((t: string) => t.includes('<none>'));
-        const isSchedulearrStale = repoTags.some((t: string) => t.toLowerCase().includes('schedulearr')) && !activeImageIds.has(id);
 
-        if (isUntagged || isSchedulearrStale) {
+        if (isUntagged) {
           try {
             await client.delete(`/images/${encodeURIComponent(id)}?force=false`);
             deletedCount++;
@@ -262,7 +261,12 @@ export async function recreateSelfContainer(docker: any, containerInfo: any, tar
     '/mnt/user/appdata/schedulearr/data:/app/data'
   ];
 
-  const newContainerConfig = {
+  const isHostNetwork = containerInfo.HostConfig?.NetworkMode === 'host';
+  const networkingConfig = (!isHostNetwork && containerInfo.NetworkSettings?.Networks)
+    ? { EndpointsConfig: containerInfo.NetworkSettings.Networks }
+    : undefined;
+
+  const newContainerConfig: any = {
     Image: targetImage,
     Cmd: containerInfo.Config?.Cmd,
     Env: containerInfo.Config?.Env,
@@ -277,6 +281,10 @@ export async function recreateSelfContainer(docker: any, containerInfo: any, tar
     }
   };
 
+  if (networkingConfig) {
+    newContainerConfig.NetworkingConfig = networkingConfig;
+  }
+
   const oldImageId = containerInfo.Image || '';
 
   const nodeScript = `
@@ -285,7 +293,7 @@ const oldId = '${containerInfo.Id}';
 const oldImageId = '${oldImageId}';
 const baseName = '${baseName}';
 const helperName = '${helperName}';
-const newConfig = ${JSON.stringify(newContainerConfig)};
+const newConfig = JSON.parse(${JSON.stringify(JSON.stringify(newContainerConfig))});
 
 function request(path, method, body, callback) {
   const req = http.request({
@@ -304,31 +312,28 @@ function request(path, method, body, callback) {
 }
 
 setTimeout(() => {
-  request('/containers/' + oldId + '/stop?t=5', 'POST', null, () => {
-    request('/containers/' + oldId + '?v=true&force=true', 'DELETE', null, () => {
+  request('/containers/' + oldId + '/stop?t=10', 'POST', null, () => {
+    const backupName = baseName + '_old_' + Date.now();
+    request('/containers/' + oldId + '/rename?name=' + backupName, 'POST', null, () => {
       request('/containers/create?name=' + baseName, 'POST', newConfig, (err, resData) => {
-        let createdId = baseName;
-        try { createdId = JSON.parse(resData).Id || baseName; } catch(e) {}
-        request('/containers/' + createdId + '/start', 'POST', null, () => {
-          // After new container starts, prune dangling and orphaned images
-          request('/images/prune?filters=%7B%22dangling%22%3A%5B%22true%22%5D%7D', 'POST', null, () => {
-            // Delete old image if it is unreferenced and different from target
-            if (oldImageId && oldImageId !== newConfig.Image) {
-              request('/images/' + encodeURIComponent(oldImageId), 'DELETE', null, () => {
-                cleanupHelper();
+        let parsed = {};
+        try { parsed = JSON.parse(resData); } catch(e) {}
+        if (parsed && parsed.Id) {
+          request('/containers/' + parsed.Id + '/start', 'POST', null, () => {
+            request('/containers/' + oldId + '?v=true&force=true', 'DELETE', null, () => {
+              request('/images/prune?filters=%7B%22dangling%22%3A%5B%22true%22%5D%7D', 'POST', null, () => {
+                process.exit(0);
               });
-            } else {
-              cleanupHelper();
-            }
-          });
-
-          function cleanupHelper() {
-            // Delete updater helper container itself before exiting
-            request('/containers/' + helperName + '?v=true&force=true', 'DELETE', null, () => {
-              process.exit(0);
             });
-          }
-        });
+          });
+        } else {
+          console.error('Failed to create replacement container:', resData);
+          request('/containers/' + oldId + '/rename?name=' + baseName, 'POST', null, () => {
+            request('/containers/' + oldId + '/start', 'POST', null, () => {
+              process.exit(1);
+            });
+          });
+        }
       });
     });
   });

@@ -2,7 +2,19 @@ import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
 import os from 'os';
-import { findSelfContainer } from './docker';
+import { findSelfContainer, recreateSelfContainer } from './docker';
+
+function semverCompare(v1: string, v2: string): number {
+  const p1 = v1.replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
+  const p2 = v2.replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
+    const num1 = p1[i] || 0;
+    const num2 = p2[i] || 0;
+    if (num1 > num2) return 1;
+    if (num1 < num2) return -1;
+  }
+  return 0;
+}
 
 declare global {
   var _schedulearrAutoUpdater: {
@@ -49,9 +61,25 @@ async function checkAndUpdate() {
     }
 
     // Check current version
-    const packageJsonPath = path.join(process.cwd(), 'package.json');
-    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-    const currentVersion: string = packageJson.version || '0.0.0';
+    let currentVersion = '0.0.0';
+    const possiblePaths = [
+      path.join(process.cwd(), 'package.json'),
+      path.join(process.cwd(), '..', 'package.json'),
+      path.join(process.cwd(), '..', '..', 'package.json'),
+      '/app/package.json',
+      '/app/.next/standalone/package.json'
+    ];
+    for (const p of possiblePaths) {
+      if (fs.existsSync(p)) {
+        try {
+          const packageJson = JSON.parse(fs.readFileSync(p, 'utf8'));
+          if (packageJson.version) {
+            currentVersion = packageJson.version;
+            break;
+          }
+        } catch (e) {}
+      }
+    }
 
     // Check latest release from GitHub
     const ghRes = await axios.get(
@@ -65,7 +93,7 @@ async function checkAndUpdate() {
     }
 
     const latestVersion = (ghRes.data.tag_name as string).replace(/^v/, '');
-    if (latestVersion === currentVersion) {
+    if (semverCompare(latestVersion, currentVersion) <= 0) {
       global._schedulearrAutoUpdater.lastResult = `Up to date (${currentVersion})`;
       return;
     }
@@ -98,53 +126,16 @@ async function checkAndUpdate() {
 
     // Pull latest image
     await docker.post(`/images/create?fromImage=${encodeURIComponent(fromImage)}&tag=${encodeURIComponent(tag)}`);
-    console.log('[AutoUpdater] Image pulled. Scheduling container restart...');
+    console.log('[AutoUpdater] Image pulled. Launching updater helper to recreate Schedulearr...');
 
-    // Recreate/restart container after a short delay
-    setTimeout(async () => {
-      try {
-        if (containerInfo) {
-          const finalImage = `${fromImage}:${tag}`;
-          const oldName = containerInfo.Name.replace(/^\//, '');
-          const oldId = containerInfo.Id;
-          const oldNameTmp = `${oldName}_old`;
-
-          await docker.post(`/containers/${oldId}/stop?t=10`);
-          await docker.post(`/containers/${oldId}/rename?name=${oldNameTmp}`);
-
-          const createBody = {
-            ...containerInfo.Config,
-            Image: finalImage,
-            HostConfig: containerInfo.HostConfig,
-            NetworkingConfig: {
-              EndpointsConfig: containerInfo.NetworkSettings?.Networks || {}
-            }
-          };
-
-          const createRes = await docker.post(`/containers/create?name=${oldName}`, createBody);
-          const newId = createRes.data.Id;
-
-          await docker.post(`/containers/${newId}/start`);
-          await docker.delete(`/containers/${oldId}_old?force=true`);
-
-          // Prune orphaned old images from disk
-          try {
-            await docker.post('/images/prune?filters=%7B%22dangling%22%3A%5B%22true%22%5D%7D');
-            const oldImgId = containerInfo.Image || '';
-            if (oldImgId && oldImgId !== finalImage) {
-              await docker.delete(`/images/${encodeURIComponent(oldImgId)}`).catch(() => {});
-            }
-          } catch (_) {}
-
-          console.log('[AutoUpdater] Container recreated, old container deleted, and orphaned images pruned successfully.');
-        } else {
-          await docker.post(`/containers/${containerId}/restart`);
-          console.log('[AutoUpdater] Container restarted successfully.');
-        }
-      } catch (e: any) {
-        console.error('[AutoUpdater] Failed to restart/recreate container:', e.message);
-      }
-    }, 3000);
+    const finalImage = `${fromImage}:${tag}`;
+    if (containerInfo) {
+      await recreateSelfContainer(docker, containerInfo, finalImage);
+      console.log('[AutoUpdater] Updater helper launched successfully. Handing off to new container.');
+    } else {
+      console.log('[AutoUpdater] Container info not found, issuing container restart...');
+      await docker.post(`/containers/${containerId}/restart?t=5`);
+    }
 
   } catch (e: any) {
     console.error('[AutoUpdater] Error during check:', e.message);

@@ -98,6 +98,10 @@ export async function GET(req: Request) {
             providers: formattedProviders
         });
     } catch (error: any) {
+        if (error.response?.status === 401) {
+            console.warn('API /media/providers: TMDB returned 401 (unauthorized or missing custom API key). Returning empty providers gracefully.');
+            return NextResponse.json({ providers: {}, sortedCountries: [] });
+        }
         console.error('API /media/providers error:', error.message);
         return NextResponse.json({ error: error.message, providers: {}, sortedCountries: [] }, { status: 500 });
     }

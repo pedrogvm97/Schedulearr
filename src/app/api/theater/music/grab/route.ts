@@ -89,6 +89,31 @@ export async function POST(req: Request) {
             } catch {}
         }
 
+        // Try detecting active Plex music library path if no Theater library specified
+        if (!musicRoot || musicRoot.includes('data/music') || musicRoot.includes('data\\music')) {
+            try {
+                const plexInstances = getInstances().filter(i => i.type === 'plex' && i.enabled);
+                for (const plex of plexInstances) {
+                    const cleanUrl = plex.url.replace(/\/$/, '');
+                    const secRes = await axios.get(`${cleanUrl}/library/sections`, {
+                        headers: { 'X-Plex-Token': plex.api_key, 'Accept': 'application/json' },
+                        timeout: 4000
+                    }).catch(() => null);
+                    const sections = secRes?.data?.MediaContainer?.Directory || [];
+                    for (const sec of sections) {
+                        if (sec.type === 'artist') {
+                            const locations = (sec.Location || []).map((l: any) => l.path).filter(Boolean);
+                            if (locations.length > 0) {
+                                musicRoot = locations[0];
+                                break;
+                            }
+                        }
+                    }
+                    if (musicRoot && !musicRoot.includes('data/music') && !musicRoot.includes('data\\music')) break;
+                }
+            } catch {}
+        }
+
         if (!musicRoot) {
             for (const fallback of ['/music', '/media/music', './data/music', './downloads/music', 'C:\\music']) {
                 if (fs.existsSync(fallback)) {

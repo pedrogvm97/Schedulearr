@@ -20,7 +20,7 @@ interface DestinationOption {
     id: string;
     name: string;
     path: string;
-    type: 'theater' | 'device';
+    type: 'theater' | 'device' | 'plex';
     badge: string;
 }
 
@@ -46,7 +46,7 @@ export function MusicDownloadModal({
     const [currentDownloadStatus, setCurrentDownloadStatus] = useState<string>('');
     const [readyFile, setReadyFile] = useState<{ url: string; filename: string; size?: number } | null>(null);
 
-    // Fetch existing server music libraries to populate server save options
+    // Fetch existing server music libraries and Plex music libraries to populate server save options
     useEffect(() => {
         const fetchDestinations = async () => {
             const list: DestinationOption[] = [
@@ -59,10 +59,28 @@ export function MusicDownloadModal({
                 }
             ];
 
+            let firstServerDestId: string | null = null;
+
             try {
                 const res = await fetch('/api/theater/libraries');
                 if (res.ok) {
                     const data = await res.json();
+                    
+                    // 1. Add Plex Music Libraries (highest priority for Plex integration)
+                    const plexLibs = Array.isArray(data.plexMusicLibraries) ? data.plexMusicLibraries : [];
+                    for (const plib of plexLibs) {
+                        const destId = `plex-${plib.id}`;
+                        if (!firstServerDestId) firstServerDestId = destId;
+                        list.push({
+                            id: destId,
+                            name: plib.name,
+                            path: plib.path,
+                            type: 'plex',
+                            badge: 'Plex Library'
+                        });
+                    }
+
+                    // 2. Add Theater Music Libraries
                     const allLibs = Array.isArray(data) ? data : (data.libraries || []);
                     const musicLibs = allLibs.filter((l: any) => l.type === 'music' || l.type === 'audio');
                     for (const lib of musicLibs) {
@@ -72,8 +90,10 @@ export function MusicDownloadModal({
                         } catch {}
                         if (folders.length > 0) {
                             folders.forEach((f, fi) => {
+                                const destId = `theater-${lib.id}-${fi}`;
+                                if (!firstServerDestId) firstServerDestId = destId;
                                 list.push({
-                                    id: `theater-${lib.id}-${fi}`,
+                                    id: destId,
                                     name: `${lib.name} Library`,
                                     path: f,
                                     type: 'theater',
@@ -96,7 +116,8 @@ export function MusicDownloadModal({
                     }
                 }
             } catch {}
-            setSelectedDestIds(['device']);
+            // Default to the first detected Plex or Server library if available, otherwise device
+            setSelectedDestIds(firstServerDestId ? [firstServerDestId] : ['device']);
         };
 
         fetchDestinations();
@@ -356,7 +377,7 @@ export function MusicDownloadModal({
 
     const handleExecute = async () => {
         const wantDevice = selectedDestIds.includes('device');
-        const serverDests = destinations.filter(d => d.type === 'theater' && selectedDestIds.includes(d.id));
+        const serverDests = destinations.filter(d => (d.type === 'theater' || d.type === 'plex') && selectedDestIds.includes(d.id));
 
         if (!wantDevice && serverDests.length === 0) {
             toast.error('Please select at least one download destination');

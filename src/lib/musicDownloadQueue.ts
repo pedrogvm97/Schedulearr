@@ -76,6 +76,15 @@ class MusicQueueManager {
                 } catch {}
             }
             if (!folder) {
+                try {
+                    const anyMusicLib: any = db.prepare("SELECT folders FROM theater_libraries WHERE type = 'music' LIMIT 1").get();
+                    if (anyMusicLib && anyMusicLib.folders) {
+                        const folders = typeof anyMusicLib.folders === 'string' ? JSON.parse(anyMusicLib.folders) : anyMusicLib.folders;
+                        if (Array.isArray(folders) && folders.length > 0) folder = folders[0];
+                    }
+                } catch {}
+            }
+            if (!folder) {
                 folder = path.join(process.cwd(), 'data', 'music');
             }
 

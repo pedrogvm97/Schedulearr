@@ -15,9 +15,10 @@ export async function GET(req: Request) {
             return NextResponse.json({ error: 'Search term is required' }, { status: 400 });
         }
 
-        // 1. Fetch iTunes Discography (up to 50 albums) & Wikipedia Biography concurrently
+        // 1. Fetch iTunes Discography (up to 200 albums), Top Songs, & Wikipedia Biography concurrently
         const cleanTerm = term.replace(/VEVO$/i, '').trim();
-        const itunesPromise = axios.get(`https://itunes.apple.com/search?term=${encodeURIComponent(cleanTerm)}&entity=album&limit=50`, { timeout: 6000 }).catch(() => null);
+        const itunesPromise = axios.get(`https://itunes.apple.com/search?term=${encodeURIComponent(cleanTerm)}&entity=album&limit=200`, { timeout: 7000 }).catch(() => null);
+        const itunesSongsPromise = axios.get(`https://itunes.apple.com/search?term=${encodeURIComponent(cleanTerm)}&entity=song&limit=50`, { timeout: 7000 }).catch(() => null);
         const wikiPromise = axios.get(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(cleanTerm)}`, {
             headers: { 'User-Agent': 'Schedulearr/0.3.100 (https://github.com/pedrogvm97/Schedulearr)' },
             timeout: 5000
@@ -47,7 +48,7 @@ export async function GET(req: Request) {
             }).catch(() => null);
         }
 
-        const [itunesRes, wikiRes, lidarrRes] = await Promise.all([itunesPromise, wikiPromise, lidarrPromise]);
+        const [itunesRes, itunesSongsRes, wikiRes, lidarrRes] = await Promise.all([itunesPromise, itunesSongsPromise, wikiPromise, lidarrPromise]);
 
         // Parse Wikipedia
         let overview = '';
@@ -63,7 +64,8 @@ export async function GET(req: Request) {
         const genresSet = new Set<string>();
         const isUserVarious = cleanTerm.toLowerCase().includes('various');
 
-        for (const item of rawAlbums) {
+        for (let itemIdx = 0; itemIdx < rawAlbums.length; itemIdx++) {
+            const item = rawAlbums[itemIdx];
             // Ignore generic Various Artists compilation releases unless user searched for Various Artists
             if (!isUserVarious && (item.artistName?.toLowerCase() === 'various artists' || item.artistName?.toLowerCase() === 'various')) {
                 continue;
@@ -75,6 +77,11 @@ export async function GET(req: Request) {
                 const rawArt = item.artworkUrl100 || item.artworkUrl60 || item.artworkUrl30 || '';
                 const artwork = rawArt ? rawArt.replace(/\d+x\d+(bb)?/, '600x600bb') : null;
                 const year = item.releaseDate ? new Date(item.releaseDate).getFullYear() : undefined;
+                const normTitle = (item.collectionName || '').toLowerCase();
+                const isSingle = normTitle.includes('- single') || normTitle.includes(' single') || (item.trackCount === 1);
+                const isEp = normTitle.includes('- ep') || normTitle.includes(' ep') || (item.trackCount && item.trackCount >= 2 && item.trackCount <= 4);
+                const isFullAlbum = !isSingle && !isEp && (item.trackCount ? item.trackCount >= 5 : true);
+
                 albumMap.set(albumKey, {
                     id: String(item.collectionId),
                     title: item.collectionName,
@@ -91,7 +98,10 @@ export async function GET(req: Request) {
                     recordLabel: item.copyright || item.artistName,
                     copyright: item.copyright,
                     foreignArtistId: item.artistId,
-                    genres: [item.primaryGenreName].filter(Boolean)
+                    genres: [item.primaryGenreName].filter(Boolean),
+                    popularityRank: albumMap.size + 1,
+                    isFullAlbum,
+                    releaseType: isSingle ? 'single' : isEp ? 'ep' : 'album'
                 });
             }
         }
@@ -287,21 +297,75 @@ export async function GET(req: Request) {
                 downloadPercent,
                 hasLocalTracks: hasLocalTracksOnDisk,
                 localTrackCount: localAlbumTracks.length,
-                isMonitored: isMonitoredInLidarr
+                isMonitored: isMonitoredInLidarr,
+                isFullAlbum: alb.isFullAlbum !== undefined ? alb.isFullAlbum : ((alb.trackCount || 0) >= 5 && !alb.title.toLowerCase().includes('- single')),
+                popularityRank: alb.popularityRank || 999
             };
         }).sort((a, b) => (b.year || 0) - (a.year || 0));
 
+        // Process Top / Iconic Songs from iTunes search results
+        const rawSongs = itunesSongsRes?.data?.results || [];
+        const topSongs: any[] = [];
+        const seenSongTitles = new Set<string>();
+
+        for (let sIdx = 0; sIdx < rawSongs.length; sIdx++) {
+            const s = rawSongs[sIdx];
+            if (!s.trackName) continue;
+            if (!isUserVarious && (s.artistName?.toLowerCase() === 'various artists' || s.artistName?.toLowerCase() === 'various')) continue;
+            const normSongTitle = norm(s.trackName);
+            if (seenSongTitles.has(normSongTitle)) continue;
+            seenSongTitles.add(normSongTitle);
+
+            const rawSongArt = s.artworkUrl100 || s.artworkUrl60 || s.artworkUrl30 || '';
+            const songArtwork = rawSongArt ? rawSongArt.replace(/\d+x\d+(bb)?/, '600x600bb') : null;
+            const durationMs = s.trackTimeMillis || 0;
+            const mins = Math.floor(durationMs / 60000);
+            const secs = Math.floor((durationMs % 60000) / 1000);
+            const durationStr = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+
+            // Match against local library tracks
+            const localMatch = artistLocalTracks.find(lt => {
+                const ltNorm = norm(lt.name || lt.title || '');
+                return ltNorm && (ltNorm === normSongTitle || ltNorm.includes(normSongTitle) || normSongTitle.includes(ltNorm));
+            });
+
+            topSongs.push({
+                id: String(s.trackId || `song_${sIdx}`),
+                trackId: s.trackId,
+                name: s.trackName,
+                title: s.trackName,
+                artist: s.artistName || canonicalArtist,
+                album: s.collectionName || 'Single',
+                albumId: s.collectionId ? String(s.collectionId) : undefined,
+                popularityRank: sIdx + 1,
+                durationMs,
+                duration: durationStr,
+                previewUrl: s.previewUrl,
+                streamUrl: localMatch?.streamUrl || s.previewUrl || `/api/theater/music/stream?q=${encodeURIComponent((s.artistName || canonicalArtist) + ' ' + s.trackName)}`,
+                posterUrl: songArtwork || topArtwork,
+                coverUrl: songArtwork || topArtwork,
+                releaseDate: s.releaseDate,
+                year: s.releaseDate ? new Date(s.releaseDate).getFullYear() : undefined,
+                trackNumber: s.trackNumber || 1,
+                isLocal: Boolean(localMatch?.path),
+                path: localMatch?.path || '',
+                downloadStatus: localMatch ? 'downloaded' : 'catalog'
+            });
+        }
+
         if (lidarrArtist) {
             lidarrArtist.albums = finalAlbums;
+            lidarrArtist.topSongs = topSongs;
             return NextResponse.json({
                 results: [lidarrArtist],
                 source: 'lidarr_enriched',
-                totalAlbums: finalAlbums.length
+                totalAlbums: finalAlbums.length,
+                totalSongs: topSongs.length
             });
         }
 
         // Return aggregated online artist & discography
-        if (finalAlbums.length > 0 || overview) {
+        if (finalAlbums.length > 0 || overview || topSongs.length > 0) {
             const aggregatedArtist = {
                 id: String(rawAlbums[0]?.artistId || cleanTerm.toLowerCase()),
                 artistName: canonicalArtist,
@@ -313,7 +377,9 @@ export async function GET(req: Request) {
                 bannerUrl: topArtwork,
                 foreignArtistId: rawAlbums[0]?.artistId,
                 albums: finalAlbums,
+                topSongs,
                 totalAlbums: finalAlbums.length,
+                totalSongs: topSongs.length,
                 recordLabel: sortedAlbums[0]?.recordLabel || 'Universal / Independent',
                 raw: rawAlbums
             };
@@ -321,7 +387,8 @@ export async function GET(req: Request) {
             return NextResponse.json({
                 results: [aggregatedArtist],
                 source: 'aggregated_online',
-                totalAlbums: finalAlbums.length
+                totalAlbums: finalAlbums.length,
+                totalSongs: topSongs.length
             });
         }
 

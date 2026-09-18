@@ -89,7 +89,7 @@ interface MusicPlayerContextType {
     isAudioMuted: boolean;
     isExpandedPlayerOpen: boolean;
     playTrack: (track: MediaItem, queue?: MediaItem[], index?: number) => void;
-    playAlbum: (tracks: MediaItem[]) => void;
+    playAlbum: (tracks: MediaItem[], startIndex?: number) => void;
     togglePlayPause: () => void;
     nextTrack: () => void;
     prevTrack: () => void;
@@ -567,6 +567,13 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     const [selectedArtistName, setSelectedArtistName] = useState<string | null>(null);
     const [artistData, setArtistData] = useState<any | null>(null);
     const [artistLoading, setArtistLoading] = useState(false);
+    const [artistViewMode, setArtistViewMode] = useState<'albums' | 'songs'>('albums');
+    const [artistAlbumFilter, setArtistAlbumFilter] = useState<'all' | 'full_albums'>('all');
+    const [artistAlbumSort, setArtistAlbumSort] = useState<'popularity' | 'newest' | 'oldest' | 'alphabetical'>('popularity');
+    const [artistSongSort, setArtistSongSort] = useState<'popularity' | 'newest' | 'oldest' | 'alphabetical'>('popularity');
+    const [artistSongFilter, setArtistSongFilter] = useState<'all' | 'local_only'>('all');
+    const [artistSearchQuery, setArtistSearchQuery] = useState('');
+    const [downloadingAlbumKey, setDownloadingAlbumKey] = useState<string | null>(null);
 
     // Album Page & Tracklist States
     const [showAlbumModal, setShowAlbumModal] = useState(false);
@@ -1474,9 +1481,10 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         }
     };
 
-    const playAlbum = (tracks: MediaItem[]) => {
+    const playAlbum = (tracks: MediaItem[], startIndex: number = 0) => {
         if (!tracks || !tracks.length) return;
-        playTrack(tracks[0], tracks, 0);
+        const idx = Math.max(0, Math.min(startIndex, tracks.length - 1));
+        playTrack(tracks[idx], tracks, idx);
     };
 
     const handlePlayAlbumCard = async (album: any) => {
@@ -2117,6 +2125,8 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         const target = (artistName || playingAudio?.artist || '').trim();
         if (!target) return;
         setSelectedArtistName(target);
+        setArtistSearchQuery('');
+        setArtistViewMode('albums');
         fetchArtistInfo(target);
         if (isExpandedPlayerOpen) {
             setShowExpandedSidePanel(true);
@@ -2125,6 +2135,117 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             setShowArtistModal(true);
         }
     };
+
+    const handleDownloadFullAlbum = async (album: any) => {
+        if (!album) return;
+        const albumTitle = album.title || album.name;
+        const artName = artistData?.artistName || album.artistName || selectedArtistName || '';
+        const albKey = String(album.id || album.lidarrId || albumTitle);
+
+        setDownloadingAlbumKey(albKey);
+        try {
+            const params = new URLSearchParams();
+            if (album.id) params.set('id', String(album.id));
+            if (artName) params.set('artist', artName);
+            if (albumTitle) params.set('album', albumTitle);
+
+            const res = await fetch(`/api/theater/music/album?${params.toString()}`);
+            let tracks: MediaItem[] = [];
+            if (res.ok) {
+                const data = await res.json();
+                if (Array.isArray(data.tracks) && data.tracks.length > 0) {
+                    tracks = data.tracks;
+                }
+            }
+
+            if (tracks.length === 0) {
+                tracks = [{
+                    id: `album-${album.id || Date.now()}`,
+                    title: albumTitle,
+                    name: albumTitle,
+                    artist: artName,
+                    album: albumTitle,
+                    posterUrl: album.coverUrl || album.posterUrl,
+                    streamUrl: `/api/theater/music/stream?q=${encodeURIComponent(artName + ' ' + albumTitle)}`,
+                    category: 'audio',
+                    extension: 'mp3',
+                    sizeBytes: 0,
+                    modifiedAt: new Date().toISOString()
+                } as MediaItem];
+            }
+
+            handleDownloadAlbum(tracks, albumTitle);
+        } catch (err: any) {
+            console.error('Error fetching album tracks for download:', err);
+            toast.error(`Could not load tracks for "${albumTitle}"`);
+        } finally {
+            setDownloadingAlbumKey(null);
+        }
+    };
+
+    const processedArtistAlbums = useMemo(() => {
+        if (!artistData?.albums || !Array.isArray(artistData.albums)) return [];
+        let list = [...artistData.albums];
+
+        if (artistAlbumFilter === 'full_albums') {
+            list = list.filter((a: any) => a.isFullAlbum);
+        }
+
+        if (artistSearchQuery.trim()) {
+            const q = artistSearchQuery.toLowerCase().trim();
+            list = list.filter((a: any) => (a.title || a.name || '').toLowerCase().includes(q));
+        }
+
+        list.sort((a: any, b: any) => {
+            if (artistAlbumSort === 'popularity') {
+                return (a.popularityRank || 999) - (b.popularityRank || 999);
+            }
+            if (artistAlbumSort === 'newest') {
+                return (b.year || 0) - (a.year || 0);
+            }
+            if (artistAlbumSort === 'oldest') {
+                return (a.year || 0) - (b.year || 0);
+            }
+            if (artistAlbumSort === 'alphabetical') {
+                return (a.title || '').localeCompare(b.title || '');
+            }
+            return 0;
+        });
+
+        return list;
+    }, [artistData?.albums, artistAlbumFilter, artistAlbumSort, artistSearchQuery]);
+
+    const processedArtistSongs = useMemo(() => {
+        if (!artistData?.topSongs || !Array.isArray(artistData.topSongs)) return [];
+        let list = [...artistData.topSongs];
+
+        if (artistSongFilter === 'local_only') {
+            list = list.filter((s: any) => s.isLocal || s.downloadStatus === 'downloaded');
+        }
+
+        if (artistSearchQuery.trim()) {
+            const q = artistSearchQuery.toLowerCase().trim();
+            list = list.filter((s: any) => (s.title || s.name || '').toLowerCase().includes(q) || (s.album || '').toLowerCase().includes(q));
+        }
+
+        list.sort((a: any, b: any) => {
+            if (artistSongSort === 'popularity') {
+                return (a.popularityRank || 999) - (b.popularityRank || 999);
+            }
+            if (artistSongSort === 'newest') {
+                return (b.year || 0) - (a.year || 0);
+            }
+            if (artistSongSort === 'oldest') {
+                return (a.year || 0) - (b.year || 0);
+            }
+            if (artistSongSort === 'alphabetical') {
+                return (a.title || '').localeCompare(b.title || '');
+            }
+            return 0;
+        });
+
+        return list;
+    }, [artistData?.topSongs, artistSongFilter, artistSongSort, artistSearchQuery]);
 
     const fetchAlbumInfo = async (albumName?: string, artistName?: string, albumId?: string | number) => {
         const aName = (albumName || playingAudio?.album || '').trim();
@@ -3732,10 +3853,13 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                         </span>
                                                     </div>
 
-                                                    {artistData.albums && artistData.albums.length > 0 ? (
+                                                    {processedArtistAlbums && processedArtistAlbums.length > 0 ? (
                                                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                                                            {artistData.albums.map((album: any, ai: number) => {
+                                                            {processedArtistAlbums.map((album: any, ai: number) => {
                                                                 const coverImg = album.coverUrl || album.posterUrl || album.coverArt || album.remoteCover || album.remotePoster || album.images?.find((img: any) => img.coverType === 'cover' || img.coverType === 'poster')?.remoteUrl;
+                                                                const albKey = String(album.id || album.lidarrId || album.title);
+                                                                const isDownloadingThis = downloadingAlbumKey === albKey;
+
                                                                 return (
                                                                     <div
                                                                         key={ai}
@@ -3779,12 +3903,12 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                                 className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"
                                                                                 title="Play Album"
                                                                             >
-                                                                                <div className="w-9 h-9 rounded-full bg-amber-500 text-black flex items-center justify-center shadow-lg transform group-hover:scale-110 transition-transform">
-                                                                                    <Play size={16} className="ml-0.5 fill-black" />
+                                                                                <div className="w-10 h-10 rounded-full bg-amber-500 text-black flex items-center justify-center shadow-lg transform group-hover:scale-110 transition-transform">
+                                                                                    <Play size={18} className="ml-0.5 fill-black" />
                                                                                 </div>
                                                                             </div>
                                                                             {album.releaseDate && (
-                                                                                <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-black/80 backdrop-blur-sm text-[9px] font-mono font-bold text-amber-300">
+                                                                                <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded bg-black/80 backdrop-blur-sm text-[9px] font-mono font-bold text-amber-300">
                                                                                     {String(album.releaseDate).slice(0, 4)}
                                                                                 </span>
                                                                             )}
@@ -3828,18 +3952,13 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                                     <button
                                                                                         onClick={(e) => {
                                                                                             e.stopPropagation();
-                                                                                            handleDownloadTrack({
-                                                                                                id: `album-${album.id || ai}`,
-                                                                                                title: album.title,
-                                                                                                artist: artistData.artistName,
-                                                                                                album: album.title,
-                                                                                                posterUrl: coverImg
-                                                                                            } as any);
+                                                                                            handleDownloadFullAlbum(album);
                                                                                         }}
-                                                                                        className="px-2 py-0.5 rounded-md bg-zinc-800 hover:bg-amber-500 text-zinc-400 hover:text-black text-[9px] font-bold uppercase transition-all flex items-center gap-1"
-                                                                                        title="Download Album"
+                                                                                        disabled={isDownloadingThis}
+                                                                                        className="px-2 py-0.5 rounded-md bg-zinc-800 hover:bg-amber-500 text-zinc-400 hover:text-black text-[9px] font-bold uppercase transition-all flex items-center gap-1 disabled:opacity-50"
+                                                                                        title="Download Full Album"
                                                                                     >
-                                                                                        <Download size={10} /> Download
+                                                                                        <Download size={10} /> {isDownloadingThis ? '...' : 'Download'}
                                                                                     </button>
                                                                                 )}
                                                                             </div>
@@ -3850,7 +3969,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                         </div>
                                                     ) : (
                                                         <div className="p-6 text-center bg-zinc-900/30 rounded-2xl border border-zinc-800/60 text-xs text-zinc-500">
-                                                            No albums listed for this artist.
+                                                            No albums found.
                                                         </div>
                                                     )}
                                                 </div>
@@ -4932,136 +5051,379 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         </div>
                                     )}
 
-                                    {/* Discography / Albums Grid */}
-                                    <div className="space-y-3">
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-sm font-black uppercase tracking-wider text-white flex items-center gap-2">
-                                                <Disc size={16} className="text-amber-400" /> Albums &amp; Discography ({artistData.albums?.length || 0})
-                                            </span>
+                                    {/* ── View Mode Switcher: Discography Albums vs Top Songs ── */}
+                                    <div className="flex items-center justify-between flex-wrap gap-3 pb-2 border-b border-zinc-900">
+                                        <div className="flex items-center gap-1.5 p-1 bg-zinc-900/80 rounded-2xl border border-zinc-800">
+                                            <button
+                                                onClick={() => setArtistViewMode('albums')}
+                                                className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all ${
+                                                    artistViewMode === 'albums'
+                                                        ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
+                                                        : 'text-zinc-400 hover:text-white'
+                                                }`}
+                                            >
+                                                <Disc size={15} /> Albums ({artistData.albums?.length || 0})
+                                            </button>
+                                            <button
+                                                onClick={() => setArtistViewMode('songs')}
+                                                className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all ${
+                                                    artistViewMode === 'songs'
+                                                        ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
+                                                        : 'text-zinc-400 hover:text-white'
+                                                }`}
+                                            >
+                                                <Music size={15} /> Top Songs ({artistData.topSongs?.length || 0})
+                                            </button>
                                         </div>
 
-                                        {artistData.albums && artistData.albums.length > 0 ? (
-                                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                                                {artistData.albums.map((album: any, ai: number) => {
-                                                    const coverImg = album.coverUrl || album.posterUrl || album.coverArt || album.remoteCover || album.remotePoster || album.images?.find((img: any) => img.coverType === 'cover' || img.coverType === 'poster')?.remoteUrl;
-                                                    return (
-                                                        <div
-                                                            key={ai}
-                                                            onClick={() => openAlbumDetails(album.title, artistData.artistName, album.id)}
-                                                            className="p-3 bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-800/80 hover:border-amber-500/60 rounded-2xl transition-all space-y-2 group flex flex-col justify-between cursor-pointer hover:scale-[1.02] shadow-xl"
-                                                            title={`Click to view album "${album.title}" tracklist & details`}
-                                                        >
-                                                            <div className="aspect-square w-full rounded-xl overflow-hidden bg-zinc-950 flex items-center justify-center relative shadow-md">
-                                                                {/* Status pill on cover */}
-                                                                <div className="absolute top-1.5 left-1.5 z-10 pointer-events-none">
-                                                                    {album.downloadStatus === 'downloaded' ? (
-                                                                        <span className="px-1.5 py-0.5 rounded-md bg-emerald-950/90 backdrop-blur-md border border-emerald-500/50 text-emerald-300 text-[8px] font-black uppercase tracking-wider flex items-center gap-1 shadow-lg">
-                                                                            <CheckCircle2 size={9} /> On Disk
-                                                                        </span>
-                                                                    ) : album.downloadStatus === 'downloading' ? (
-                                                                        <span className="px-1.5 py-0.5 rounded-md bg-blue-950/90 backdrop-blur-md border border-blue-500/50 text-blue-300 text-[8px] font-black uppercase tracking-wider flex items-center gap-1 animate-pulse shadow-lg">
-                                                                            <ArrowDownToLine size={9} className="animate-bounce" /> Downloading
-                                                                        </span>
-                                                                    ) : album.downloadStatus === 'missing' ? (
-                                                                        <span className="px-1.5 py-0.5 rounded-md bg-amber-950/90 backdrop-blur-md border border-amber-500/50 text-amber-300 text-[8px] font-black uppercase tracking-wider flex items-center gap-1 shadow-lg">
-                                                                            <AlertCircle size={9} /> Missing
+                                        {/* Search Filter input */}
+                                        <div className="relative min-w-[200px] flex-1 sm:max-w-xs">
+                                            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
+                                            <input
+                                                type="text"
+                                                value={artistSearchQuery}
+                                                onChange={(e) => setArtistSearchQuery(e.target.value)}
+                                                placeholder={artistViewMode === 'albums' ? 'Search discography...' : 'Search top songs...'}
+                                                className="w-full bg-zinc-900/80 border border-zinc-800 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500/60"
+                                            />
+                                            {artistSearchQuery && (
+                                                <button
+                                                    onClick={() => setArtistSearchQuery('')}
+                                                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                                                >
+                                                    <X size={12} />
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* ── Mode 1: Discography Albums Grid ── */}
+                                    {artistViewMode === 'albums' && (
+                                        <div className="space-y-4">
+                                            <div className="flex items-center justify-between flex-wrap gap-2 text-xs">
+                                                {/* Full Albums vs All Releases Toggle */}
+                                                <div className="flex items-center gap-1 bg-zinc-900/40 p-1 rounded-xl border border-zinc-800/80">
+                                                    <button
+                                                        onClick={() => setArtistAlbumFilter('all')}
+                                                        className={`px-3 py-1 rounded-lg font-bold transition-all ${
+                                                            artistAlbumFilter === 'all'
+                                                                ? 'bg-zinc-800 text-amber-400 border border-amber-500/30'
+                                                                : 'text-zinc-500 hover:text-zinc-300'
+                                                        }`}
+                                                    >
+                                                        All Releases ({artistData.albums?.length || 0})
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setArtistAlbumFilter('full_albums')}
+                                                        className={`px-3 py-1 rounded-lg font-bold transition-all ${
+                                                            artistAlbumFilter === 'full_albums'
+                                                                ? 'bg-zinc-800 text-amber-400 border border-amber-500/30'
+                                                                : 'text-zinc-500 hover:text-zinc-300'
+                                                        }`}
+                                                    >
+                                                        Full Albums Only ({artistData.albums?.filter((a: any) => a.isFullAlbum).length || 0})
+                                                    </button>
+                                                </div>
+
+                                                {/* Sort selector for Albums */}
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="text-zinc-500 font-bold text-[11px] uppercase tracking-wider">Sort:</span>
+                                                    <select
+                                                        value={artistAlbumSort}
+                                                        onChange={(e) => setArtistAlbumSort(e.target.value as any)}
+                                                        className="bg-zinc-900 border border-zinc-800 text-zinc-300 rounded-lg px-2.5 py-1 text-xs font-bold focus:outline-none focus:border-amber-500/60"
+                                                    >
+                                                        <option value="popularity">Most Popular</option>
+                                                        <option value="newest">Newest First</option>
+                                                        <option value="oldest">Oldest First</option>
+                                                        <option value="alphabetical">Alphabetical (A-Z)</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+
+                                            {processedArtistAlbums.length > 0 ? (
+                                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                                                    {processedArtistAlbums.map((album: any, ai: number) => {
+                                                        const coverImg = album.coverUrl || album.posterUrl || album.coverArt || album.remoteCover || album.remotePoster || album.images?.find((img: any) => img.coverType === 'cover' || img.coverType === 'poster')?.remoteUrl;
+                                                        const albKey = String(album.id || album.lidarrId || album.title);
+                                                        const isDownloadingThis = downloadingAlbumKey === albKey;
+
+                                                        return (
+                                                            <div
+                                                                key={ai}
+                                                                onClick={() => openAlbumDetails(album.title, artistData.artistName, album.id)}
+                                                                className="p-3 bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-800/80 hover:border-amber-500/60 rounded-2xl transition-all space-y-2 group flex flex-col justify-between cursor-pointer hover:scale-[1.02] shadow-xl"
+                                                                title={`Click to view album "${album.title}" tracklist & details`}
+                                                            >
+                                                                <div className="aspect-square w-full rounded-xl overflow-hidden bg-zinc-950 flex items-center justify-center relative shadow-md">
+                                                                    {/* Status pill on cover */}
+                                                                    <div className="absolute top-1.5 left-1.5 z-10 pointer-events-none">
+                                                                        {album.downloadStatus === 'downloaded' ? (
+                                                                            <span className="px-1.5 py-0.5 rounded-md bg-emerald-950/90 backdrop-blur-md border border-emerald-500/50 text-emerald-300 text-[8px] font-black uppercase tracking-wider flex items-center gap-1 shadow-lg">
+                                                                                <CheckCircle2 size={9} /> On Disk
+                                                                            </span>
+                                                                        ) : album.downloadStatus === 'downloading' ? (
+                                                                            <span className="px-1.5 py-0.5 rounded-md bg-blue-950/90 backdrop-blur-md border border-blue-500/50 text-blue-300 text-[8px] font-black uppercase tracking-wider flex items-center gap-1 animate-pulse shadow-lg">
+                                                                                <ArrowDownToLine size={9} className="animate-bounce" /> Downloading
+                                                                            </span>
+                                                                        ) : album.downloadStatus === 'missing' ? (
+                                                                            <span className="px-1.5 py-0.5 rounded-md bg-amber-950/90 backdrop-blur-md border border-amber-500/50 text-amber-300 text-[8px] font-black uppercase tracking-wider flex items-center gap-1 shadow-lg">
+                                                                                <AlertCircle size={9} /> Missing
+                                                                            </span>
+                                                                        ) : (
+                                                                            <span className="px-1.5 py-0.5 rounded-md bg-zinc-950/90 backdrop-blur-md border border-zinc-700/50 text-zinc-400 text-[8px] font-black uppercase tracking-wider flex items-center gap-1 shadow-lg">
+                                                                                <Disc size={9} /> Catalog
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+
+                                                                    {/* Full Album vs Single Pill */}
+                                                                    {album.isFullAlbum ? (
+                                                                        <span className="absolute top-1.5 right-1.5 z-10 px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[8px] font-black uppercase">
+                                                                            Album
                                                                         </span>
                                                                     ) : (
-                                                                        <span className="px-1.5 py-0.5 rounded-md bg-zinc-950/90 backdrop-blur-md border border-zinc-700/50 text-zinc-400 text-[8px] font-black uppercase tracking-wider flex items-center gap-1 shadow-lg">
-                                                                            <Disc size={9} /> Catalog
+                                                                        <span className="absolute top-1.5 right-1.5 z-10 px-1.5 py-0.5 rounded bg-zinc-900/90 text-zinc-400 border border-zinc-800 text-[8px] font-bold uppercase">
+                                                                            Single/EP
+                                                                        </span>
+                                                                    )}
+
+                                                                    {coverImg ? (
+                                                                        <img src={coverImg} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                                                                    ) : (
+                                                                        <Disc size={32} className="text-zinc-700" />
+                                                                    )}
+                                                                    {/* Play Overlay */}
+                                                                    <div 
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            handlePlayAlbumCard(album);
+                                                                        }}
+                                                                        className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"
+                                                                        title="Play Album"
+                                                                    >
+                                                                        <div className="w-11 h-11 rounded-full bg-amber-500 text-black flex items-center justify-center shadow-lg transform group-hover:scale-110 transition-transform">
+                                                                            <Play size={20} className="ml-0.5 fill-black" />
+                                                                        </div>
+                                                                    </div>
+                                                                    {album.releaseDate && (
+                                                                        <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded bg-black/80 backdrop-blur-sm text-[10px] font-mono font-bold text-amber-300">
+                                                                            {String(album.releaseDate).slice(0, 4)}
                                                                         </span>
                                                                     )}
                                                                 </div>
-
-                                                                {coverImg ? (
-                                                                    <img src={coverImg} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-                                                                ) : (
-                                                                    <Disc size={32} className="text-zinc-700" />
-                                                                )}
-                                                                {/* Play Overlay */}
-                                                                <div 
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        handlePlayAlbumCard(album);
-                                                                    }}
-                                                                    className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"
-                                                                    title="Play Album"
-                                                                >
-                                                                    <div className="w-11 h-11 rounded-full bg-amber-500 text-black flex items-center justify-center shadow-lg transform group-hover:scale-110 transition-transform">
-                                                                        <Play size={20} className="ml-0.5 fill-black" />
+                                                                <div className="space-y-1">
+                                                                    <h4 className="font-bold text-white text-xs truncate group-hover:text-amber-400 transition-colors" title={album.title}>
+                                                                        {album.title}
+                                                                    </h4>
+                                                                    <div className="flex items-center justify-between pt-1">
+                                                                        <span className="text-[10px] text-zinc-500 font-medium">
+                                                                            {album.trackCount ? `${album.trackCount} Tracks` : 'Album'}
+                                                                        </span>
+                                                                        {album.downloadStatus === 'downloaded' ? (
+                                                                            <span className="px-2 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold uppercase flex items-center gap-1">
+                                                                                <CheckCircle2 size={10} /> Saved
+                                                                            </span>
+                                                                        ) : album.downloadStatus === 'downloading' ? (
+                                                                            <span className="px-2 py-1 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px] font-bold uppercase flex items-center gap-1 animate-pulse">
+                                                                                <ArrowDownToLine size={10} /> Queue
+                                                                            </span>
+                                                                        ) : (
+                                                                            <button
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    handleDownloadFullAlbum(album);
+                                                                                }}
+                                                                                disabled={isDownloadingThis}
+                                                                                className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-amber-500 text-zinc-400 hover:text-black text-[10px] font-bold uppercase transition-all flex items-center gap-1 disabled:opacity-50"
+                                                                                title="Download Full Album"
+                                                                            >
+                                                                                {isDownloadingThis ? (
+                                                                                    <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                                                                                ) : (
+                                                                                    <Download size={11} />
+                                                                                )}
+                                                                                {isDownloadingThis ? 'Loading...' : 'Download'}
+                                                                            </button>
+                                                                        )}
                                                                     </div>
                                                                 </div>
-                                                                {album.releaseDate && (
-                                                                    <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded bg-black/80 backdrop-blur-sm text-[10px] font-mono font-bold text-amber-300">
-                                                                        {String(album.releaseDate).slice(0, 4)}
-                                                                    </span>
-                                                                )}
                                                             </div>
-                                                            <div className="space-y-1">
-                                                                <h4 className="font-bold text-white text-xs truncate group-hover:text-amber-400 transition-colors" title={album.title}>
-                                                                    {album.title}
-                                                                </h4>
-                                                                <div className="flex items-center gap-1 flex-wrap">
-                                                                    {album.downloadStatus === 'downloaded' ? (
-                                                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[8px] font-black uppercase tracking-wider">
-                                                                            <CheckCircle2 size={8} /> Downloaded
-                                                                        </span>
-                                                                    ) : album.downloadStatus === 'downloading' ? (
-                                                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-300 border border-blue-500/30 text-[8px] font-black uppercase tracking-wider animate-pulse">
-                                                                            <ArrowDownToLine size={8} /> In Queue{album.downloadPercent ? ` (${album.downloadPercent}%)` : ''}
-                                                                        </span>
-                                                                    ) : album.downloadStatus === 'missing' ? (
-                                                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30 text-[8px] font-black uppercase tracking-wider">
-                                                                            <AlertCircle size={8} /> Added • Missing
-                                                                        </span>
-                                                                    ) : (
-                                                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700/60 text-[8px] font-black uppercase tracking-wider">
-                                                                            <Disc size={8} /> Catalog
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                                <div className="flex items-center justify-between pt-1">
-                                                                    <span className="text-[10px] text-zinc-500 font-medium">
-                                                                        {album.trackCount ? `${album.trackCount} Tracks` : 'Album'}
-                                                                    </span>
-                                                                    {album.downloadStatus === 'downloaded' ? (
-                                                                        <span className="px-2 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold uppercase flex items-center gap-1">
-                                                                            <CheckCircle2 size={10} /> Saved
-                                                                        </span>
-                                                                    ) : album.downloadStatus === 'downloading' ? (
-                                                                        <span className="px-2 py-1 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px] font-bold uppercase flex items-center gap-1 animate-pulse">
-                                                                            <ArrowDownToLine size={10} /> Queue
-                                                                        </span>
-                                                                    ) : (
-                                                                        <button
-                                                                            onClick={(e) => {
-                                                                                e.stopPropagation();
-                                                                                handleDownloadTrack({
-                                                                                    id: `album-${album.id || ai}`,
-                                                                                    title: album.title,
-                                                                                    artist: artistData.artistName,
-                                                                                    album: album.title,
-                                                                                    posterUrl: coverImg
-                                                                                } as any);
-                                                                            }}
-                                                                            className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-amber-500 text-zinc-400 hover:text-black text-[10px] font-bold uppercase transition-all flex items-center gap-1"
-                                                                            title="Download Album"
-                                                                        >
-                                                                            <Download size={11} /> Download
-                                                                        </button>
-                                                                    )}
-                                                                </div>
-                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            ) : (
+                                                <div className="p-8 text-center bg-zinc-900/30 rounded-2xl border border-zinc-800/60 text-xs text-zinc-500">
+                                                    No albums match the current filter.
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* ── Mode 2: Iconic & Most Listened Top Songs ── */}
+                                    {artistViewMode === 'songs' && (
+                                        <div className="space-y-4">
+                                            <div className="flex items-center justify-between flex-wrap gap-2 text-xs">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="flex items-center gap-1 bg-zinc-900/40 p-1 rounded-xl border border-zinc-800/80">
+                                                        <button
+                                                            onClick={() => setArtistSongFilter('all')}
+                                                            className={`px-3 py-1 rounded-lg font-bold transition-all ${
+                                                                artistSongFilter === 'all'
+                                                                    ? 'bg-zinc-800 text-amber-400 border border-amber-500/30'
+                                                                    : 'text-zinc-500 hover:text-zinc-300'
+                                                            }`}
+                                                        >
+                                                            All Top Songs ({artistData.topSongs?.length || 0})
+                                                        </button>
+                                                        <button
+                                                            onClick={() => setArtistSongFilter('local_only')}
+                                                            className={`px-3 py-1 rounded-lg font-bold transition-all ${
+                                                                artistSongFilter === 'local_only'
+                                                                    ? 'bg-zinc-800 text-amber-400 border border-amber-500/30'
+                                                                    : 'text-zinc-500 hover:text-zinc-300'
+                                                            }`}
+                                                        >
+                                                            On Disk Only ({artistData.topSongs?.filter((s: any) => s.isLocal || s.downloadStatus === 'downloaded').length || 0})
+                                                        </button>
+                                                    </div>
+
+                                                    {processedArtistSongs.length > 0 && (
+                                                        <div className="flex items-center gap-1.5 pl-2 border-l border-zinc-800">
+                                                            <button
+                                                                onClick={() => playAlbum(processedArtistSongs, 0)}
+                                                                className="px-3 py-1 rounded-lg bg-amber-500 text-black text-xs font-black uppercase flex items-center gap-1.5 shadow-sm hover:bg-amber-400 transition-all"
+                                                            >
+                                                                <Play size={11} className="fill-black" /> Play All
+                                                            </button>
+                                                            <button
+                                                                onClick={() => {
+                                                                    const shuffled = [...processedArtistSongs].sort(() => Math.random() - 0.5);
+                                                                    playAlbum(shuffled, 0);
+                                                                }}
+                                                                className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-all"
+                                                                title="Shuffle All Top Songs"
+                                                            >
+                                                                <Shuffle size={13} />
+                                                            </button>
                                                         </div>
-                                                    );
-                                                })}
+                                                    )}
+                                                </div>
+
+                                                {/* Sort selector for Songs */}
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="text-zinc-500 font-bold text-[11px] uppercase tracking-wider">Sort:</span>
+                                                    <select
+                                                        value={artistSongSort}
+                                                        onChange={(e) => setArtistSongSort(e.target.value as any)}
+                                                        className="bg-zinc-900 border border-zinc-800 text-zinc-300 rounded-lg px-2.5 py-1 text-xs font-bold focus:outline-none focus:border-amber-500/60"
+                                                    >
+                                                        <option value="popularity">Most Popular / Iconic</option>
+                                                        <option value="newest">Newest First</option>
+                                                        <option value="oldest">Oldest First</option>
+                                                        <option value="alphabetical">Alphabetical (A-Z)</option>
+                                                    </select>
+                                                </div>
                                             </div>
-                                        ) : (
-                                            <div className="p-8 text-center bg-zinc-900/30 rounded-2xl border border-zinc-800/60 text-xs text-zinc-500">
-                                                No albums found for this artist.
-                                            </div>
-                                        )}
-                                    </div>
+
+                                            {processedArtistSongs.length > 0 ? (
+                                                <div className="space-y-1.5 bg-zinc-900/30 p-2 sm:p-3 rounded-3xl border border-zinc-800/60">
+                                                    {processedArtistSongs.map((song: any, sIdx: number) => {
+                                                        const isCurrent = playingAudio?.id === song.id || (playingAudio?.title === song.title && playingAudio?.artist === song.artist);
+                                                        return (
+                                                            <div
+                                                                key={song.id || sIdx}
+                                                                onClick={() => playAlbum(processedArtistSongs, sIdx)}
+                                                                className={`p-2.5 rounded-2xl flex items-center justify-between gap-3 group cursor-pointer transition-all ${
+                                                                    isCurrent
+                                                                        ? 'bg-amber-500/15 border border-amber-500/40 text-amber-300'
+                                                                        : 'hover:bg-zinc-800/60 text-zinc-300'
+                                                                }`}
+                                                            >
+                                                                <div className="flex items-center gap-3 min-w-0 flex-1">
+                                                                    <span className="w-6 text-center text-xs font-mono font-bold text-zinc-500 group-hover:text-amber-400">
+                                                                        {isCurrent ? '▶' : `#${song.popularityRank || sIdx + 1}`}
+                                                                    </span>
+
+                                                                    <div className="w-10 h-10 rounded-xl overflow-hidden bg-zinc-950 shrink-0 border border-zinc-800 relative">
+                                                                        {song.posterUrl || song.coverUrl ? (
+                                                                            <img src={song.posterUrl || song.coverUrl} alt="" className="w-full h-full object-cover" />
+                                                                        ) : (
+                                                                            <div className="w-full h-full flex items-center justify-center text-zinc-700">
+                                                                                <Music size={16} />
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+
+                                                                    <div className="min-w-0 flex-1">
+                                                                        <h4 className={`text-xs sm:text-sm font-bold truncate ${isCurrent ? 'text-amber-400' : 'text-white group-hover:text-amber-400'}`}>
+                                                                            {song.title}
+                                                                        </h4>
+                                                                        <div className="flex items-center gap-2 text-[11px] text-zinc-400 truncate">
+                                                                            <span
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    if (song.album) openAlbumDetails(song.album, song.artist, song.albumId);
+                                                                                }}
+                                                                                className="hover:underline hover:text-zinc-200 cursor-pointer truncate"
+                                                                            >
+                                                                                {song.album || 'Single'}
+                                                                            </span>
+                                                                            {song.year && <span>• {song.year}</span>}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+
+                                                                <div className="flex items-center gap-2.5 shrink-0">
+                                                                    {song.isLocal || song.downloadStatus === 'downloaded' ? (
+                                                                        <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[9px] font-black uppercase flex items-center gap-1">
+                                                                            <CheckCircle2 size={10} /> On Disk
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="px-2 py-0.5 rounded-md bg-zinc-800 text-zinc-500 text-[9px] font-black uppercase">
+                                                                            Online
+                                                                        </span>
+                                                                    )}
+
+                                                                    {song.duration && (
+                                                                        <span className="text-xs font-mono text-zinc-500">
+                                                                            {song.duration}
+                                                                        </span>
+                                                                    )}
+
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            addToQueue(song);
+                                                                        }}
+                                                                        className="p-1.5 rounded-lg bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-all"
+                                                                        title="Add to Playback Queue"
+                                                                    >
+                                                                        <ListPlus size={14} />
+                                                                    </button>
+
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            handleDownloadTrack(song);
+                                                                        }}
+                                                                        className="p-1.5 rounded-lg bg-zinc-800/80 hover:bg-amber-500 text-zinc-400 hover:text-black transition-all"
+                                                                        title="Download Song"
+                                                                    >
+                                                                        <Download size={14} />
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            ) : (
+                                                <div className="p-8 text-center bg-zinc-900/30 rounded-2xl border border-zinc-800/60 text-xs text-zinc-500">
+                                                    No top songs found for this artist.
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             ) : (
                                 <div className="p-12 text-center text-zinc-500 text-xs">

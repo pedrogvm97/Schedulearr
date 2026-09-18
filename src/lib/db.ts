@@ -769,10 +769,18 @@ export const getCombinedMediaCache = (mediaType: string): any[] | null => {
 export const getTheaterLibraries = (): any[] => {
     try {
         const rows = db.prepare('SELECT * FROM theater_libraries ORDER BY created_at ASC').all() as any[];
-        return (rows || []).map(r => ({
-            ...r,
-            folders: JSON.parse(r.folders || '[]')
-        }));
+        return (rows || []).map(r => {
+            let folders: string[] = [];
+            try {
+                folders = typeof r.folders === 'string' ? JSON.parse(r.folders) : (Array.isArray(r.folders) ? r.folders : []);
+            } catch {
+                folders = r.folders ? [r.folders] : [];
+            }
+            return {
+                ...r,
+                folders
+            };
+        });
     } catch (e) {
         console.error('Error fetching theater libraries:', e);
         return [];
@@ -1100,6 +1108,38 @@ export const batchMergeIptvChannels = (
     } catch (e) {
         console.error('Error in batchMergeIptvChannels:', e);
         return { success: false, mergedGroupsCount: 0, mergedChannelsCount: 0 };
+    }
+};
+
+export const updateIptvChannelLogo = (libraryId: string, channelId: string, logoUrl: string): boolean => {
+    try {
+        const stmt = db.prepare('UPDATE iptv_channels SET logo = ? WHERE library_id = ? AND id = ?');
+        const res = stmt.run(logoUrl, libraryId, channelId);
+        return res.changes > 0;
+    } catch (e) {
+        console.error('Error updating IPTV channel logo:', e);
+        return false;
+    }
+};
+
+export const batchUpdateIptvChannelLogos = (libraryId: string, updates: Array<{ id: string; logo: string }>): number => {
+    try {
+        if (!libraryId || !Array.isArray(updates) || updates.length === 0) return 0;
+        const stmt = db.prepare('UPDATE iptv_channels SET logo = ? WHERE library_id = ? AND id = ?');
+        let count = 0;
+        const transaction = db.transaction(() => {
+            for (const u of updates) {
+                if (u && u.id && u.logo) {
+                    const res = stmt.run(u.logo, libraryId, u.id);
+                    count += res.changes;
+                }
+            }
+        });
+        transaction();
+        return count;
+    } catch (e) {
+        console.error('Error batch updating IPTV channel logos:', e);
+        return 0;
     }
 };
 

@@ -8,6 +8,7 @@ import { MediaDetailsPanel } from "@/components/MediaDetailsPanel";
 import { ProfilesPanel } from "@/components/ProfilesPanel";
 import { IndexersPanel } from "@/components/IndexersPanel";
 import { PlexUserManagerPanel } from "@/components/PlexUserManagerPanel";
+import { LocalDownloadsPanel } from "@/components/LocalDownloadsPanel";
 import { toast } from "sonner";
 
 // --- Interfaces ---
@@ -302,11 +303,11 @@ function DownloadsContent() {
     const searchParams = useSearchParams();
     const router = useRouter();
 
-    const initialTab = (['downloads', 'profiles', 'indexers', 'users'].includes(searchParams.get('tab') || '')
+    const initialTab = (['downloads', 'local', 'profiles', 'indexers', 'users'].includes(searchParams.get('tab') || '')
         ? searchParams.get('tab')
-        : 'downloads') as 'downloads' | 'profiles' | 'indexers' | 'users';
+        : 'downloads') as 'downloads' | 'local' | 'profiles' | 'indexers' | 'users';
 
-    const [activeTab, setActiveTab] = useState<'downloads' | 'profiles' | 'indexers' | 'users'>(initialTab);
+    const [activeTab, setActiveTab] = useState<'downloads' | 'local' | 'profiles' | 'indexers' | 'users'>(initialTab);
     const [torrents, setTorrents] = useState<Torrent[]>([]);
     const [musicJobs, setMusicJobs] = useState<MusicJob[]>([]);
     const [downloadMediaFilter, setDownloadMediaFilter] = useState<'all' | 'torrents' | 'music'>('all');
@@ -341,12 +342,12 @@ function DownloadsContent() {
         if (tab === 'music') {
             setActiveTab('downloads');
             setDownloadMediaFilter('music');
-        } else if (tab && ['downloads', 'profiles', 'indexers', 'users'].includes(tab)) {
+        } else if (tab && ['downloads', 'local', 'profiles', 'indexers', 'users'].includes(tab)) {
             setActiveTab(tab as any);
         }
     }, [searchParams]);
 
-    const handleTabChange = (tab: 'downloads' | 'profiles' | 'indexers' | 'users') => {
+    const handleTabChange = (tab: 'downloads' | 'local' | 'profiles' | 'indexers' | 'users') => {
         setActiveTab(tab);
         const url = tab === 'downloads' ? '/downloads' : `/downloads?tab=${tab}`;
         router.replace(url, { scroll: false });
@@ -608,7 +609,7 @@ function DownloadsContent() {
                 {/* Segmented Switcher */}
                 <div className="flex flex-wrap bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner self-start sm:self-auto gap-1">
                     <button
-                        onClick={() => setActiveTab('downloads')}
+                        onClick={() => handleTabChange('downloads')}
                         className={`flex items-center gap-2 px-4 sm:px-5 py-2.5 text-xs font-black rounded-xl transition-all cursor-pointer ${
                             activeTab === 'downloads'
                                 ? 'bg-sky-600/20 text-sky-400 border border-sky-500/30 shadow-md'
@@ -618,7 +619,17 @@ function DownloadsContent() {
                         <DownloadIcon size={16} /> Transfers ({torrents.length + musicJobs.length})
                     </button>
                     <button
-                        onClick={() => setActiveTab('profiles')}
+                        onClick={() => handleTabChange('local')}
+                        className={`flex items-center gap-2 px-4 sm:px-5 py-2.5 text-xs font-black rounded-xl transition-all cursor-pointer ${
+                            activeTab === 'local'
+                                ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 shadow-md'
+                                : 'text-zinc-500 hover:text-zinc-300'
+                        }`}
+                    >
+                        <HardDrive size={16} /> Local Downloads
+                    </button>
+                    <button
+                        onClick={() => handleTabChange('profiles')}
                         className={`flex items-center gap-2 px-4 sm:px-5 py-2.5 text-xs font-black rounded-xl transition-all cursor-pointer ${
                             activeTab === 'profiles'
                                 ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 shadow-md'
@@ -628,7 +639,7 @@ function DownloadsContent() {
                         <ShieldCheck size={16} /> Quality Profiles
                     </button>
                     <button
-                        onClick={() => setActiveTab('indexers')}
+                        onClick={() => handleTabChange('indexers')}
                         className={`flex items-center gap-2 px-4 sm:px-5 py-2.5 text-xs font-black rounded-xl transition-all cursor-pointer ${
                             activeTab === 'indexers'
                                 ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 shadow-md'
@@ -638,7 +649,7 @@ function DownloadsContent() {
                         <Radio size={16} /> Indexers
                     </button>
                     <button
-                        onClick={() => setActiveTab('users')}
+                        onClick={() => handleTabChange('users')}
                         className={`flex items-center gap-2 px-4 sm:px-5 py-2.5 text-xs font-black rounded-xl transition-all cursor-pointer ${
                             activeTab === 'users'
                                 ? 'bg-amber-600/20 text-amber-400 border border-amber-500/30 shadow-md'
@@ -649,6 +660,11 @@ function DownloadsContent() {
                     </button>
                 </div>
             </div>
+
+            {/* Local Downloads Tab */}
+            {activeTab === 'local' && (
+                <LocalDownloadsPanel />
+            )}
 
             {/* Profiles Tab */}
             {activeTab === 'profiles' && (
