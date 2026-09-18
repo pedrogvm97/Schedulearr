@@ -292,7 +292,8 @@ export async function recreateSelfContainer(docker: any, containerInfo: any, tar
     HostConfig: cleanHostConfig,
     Labels: {
       ...(containerInfo.Config?.Labels || {}),
-      'schedulearr.original_name': baseName
+      'schedulearr.original_name': baseName,
+      'net.unraid.docker.icon': 'https://raw.githubusercontent.com/pedrogvm97/Schedulearr/main/public/icon.png'
     }
   };
 
