@@ -12,7 +12,7 @@ export async function evaluateIndexerRules() {
     for (const prowlarr of prowlarrs) {
         try {
             // Fetch Prowlarr History targeting Grabbed events
-            const historyRes = await axios.get(`${prowlarr.url}/api/v1/history?page=1&pageSize=200&sortKey=date&sortDir=descending&eventType=grabbed`, {
+            const historyRes = await axios.get(`${prowlarr.url}/api/v1/history?page=1&pageSize=200&sortKey=date&sortDir=descending`, {
                 headers: { 'X-Api-Key': prowlarr.api_key }
             });
 
@@ -60,6 +60,7 @@ export async function evaluateIndexerRules() {
                 // We only count records that occurred AFTER the last_reset date
                 const relevantRecords = records.filter((r: any) =>
                     r.indexerId === rule.indexer_id &&
+                    (!r.eventType || r.eventType === 1 || r.eventType === 'grabbed') &&
                     new Date(r.date) > new Date(rule.last_reset)
                 );
 

@@ -42,11 +42,11 @@ export async function cleanupOrphanContainers(docker?: any): Promise<number> {
  * Uses cgroups, mountinfo, hostname, standard fallbacks, and listing all containers.
  */
 export async function findSelfContainer(docker: any, hostname: string): Promise<any> {
-  // 1. Try to read from /proc/self/cgroup
+  // 1. Try to read from /proc/self/cgroup (supports cgroups v1 and v2)
   try {
     if (fs.existsSync('/proc/self/cgroup')) {
       const cgroup = fs.readFileSync('/proc/self/cgroup', 'utf8');
-      const matches = cgroup.match(/\/docker\/([a-f0-9]{64})/i);
+      const matches = cgroup.match(/docker[/-]([a-f0-9]{64})/i);
       if (matches && matches[1]) {
         const res = await docker.get(`/containers/${matches[1]}/json`);
         if (res.data) return res.data;
@@ -55,7 +55,7 @@ export async function findSelfContainer(docker: any, hostname: string): Promise<
       const lines = cgroup.split('\n');
       for (const line of lines) {
         const parts = line.split('/');
-        const last = parts[parts.length - 1];
+        const last = parts[parts.length - 1].replace(/\.scope$/, '').replace(/^docker-/, '');
         if (last && last.length === 64 && /^[a-f0-9]+$/i.test(last)) {
           const res = await docker.get(`/containers/${last}/json`);
           if (res.data) return res.data;
@@ -70,7 +70,7 @@ export async function findSelfContainer(docker: any, hostname: string): Promise<
   try {
     if (fs.existsSync('/proc/self/mountinfo')) {
       const mountinfo = fs.readFileSync('/proc/self/mountinfo', 'utf8');
-      const matches = mountinfo.match(/\/docker\/containers\/([a-f0-9]{64})/i);
+      const matches = mountinfo.match(/\/docker\/(?:containers|overlay2)\/([a-f0-9]{64})/i);
       if (matches && matches[1]) {
         const res = await docker.get(`/containers/${matches[1]}/json`);
         if (res.data) return res.data;
@@ -89,7 +89,7 @@ export async function findSelfContainer(docker: any, hostname: string): Promise<
   }
 
   // 4. Try standard default names (e.g. casing discrepancies)
-  const fallbackNames = ['Schedulearr', 'schedulearr'];
+  const fallbackNames = ['Schedulearr', 'schedulearr', 'schedule-arr'];
   for (const name of fallbackNames) {
     try {
       const res = await docker.get(`/containers/${name}/json`);
@@ -119,18 +119,19 @@ export async function findSelfContainer(docker: any, hostname: string): Promise<
       }
     }
 
-    // Check containers running the schedulearr image
+    // Check containers running the schedulearr image or named schedulearr
     const schedulearrContainers = containers.filter((c: any) => {
       const image = (c.Image || '').toLowerCase();
-      return image.includes('schedulearr') && !c.Names?.some((n: string) => n.includes('updater'));
+      const names = (c.Names || []).map((n: string) => n.toLowerCase());
+      return (image.includes('schedulearr') || names.some((n: string) => n.includes('schedulearr'))) && !names.some((n: string) => n.includes('updater'));
     });
 
-    for (const container of schedulearrContainers) {
+    const runningSchedulearr = schedulearrContainers.find((c: any) => c.State === 'running');
+    const target = runningSchedulearr || schedulearrContainers[0];
+    if (target) {
       try {
-        const res = await docker.get(`/containers/${container.Id}/json`);
-        if (res.data && (res.data.Config?.Hostname === hostname || res.data.State?.Running || schedulearrContainers.length === 1)) {
-          return res.data;
-        }
+        const res = await docker.get(`/containers/${target.Id}/json`);
+        if (res.data) return res.data;
       } catch (e) {}
     }
   } catch (e) {
