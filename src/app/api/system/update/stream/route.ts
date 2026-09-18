@@ -96,18 +96,8 @@ export async function GET(request: Request) {
 
         sendEvent("log", { type: "success", message: "[OK] All image layers are up to date." });
 
-        // Step 3.5: Clean up orphaned / dangling images from prior builds
-        sendEvent("log", { type: "info", message: "[INFO] Pruning orphaned and dangling Docker images..." });
-        try {
-          const { deletedCount, spaceReclaimed } = await cleanupOrphanImages(docker);
-          if (deletedCount > 0) {
-            const mb = (spaceReclaimed / (1024 * 1024)).toFixed(1);
-            sendEvent("log", { type: "success", message: `[OK] Cleaned up ${deletedCount} orphaned image(s) (${mb} MB reclaimed).` });
-          } else {
-            sendEvent("log", { type: "info", message: "[INFO] No dangling images to prune." });
-          }
-        } catch (e: any) {
-          sendEvent("log", { type: "warn", message: `[WARN] Image pruning skipped: ${e.message}` });
+        if (tag !== 'latest') {
+          await docker.post(`/images/create?fromImage=${encodeURIComponent(fromImage)}&tag=latest`).catch(() => {});
         }
 
         // Step 4: Recreate the container

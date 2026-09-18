@@ -126,6 +126,9 @@ async function checkAndUpdate() {
 
     // Pull latest image
     await docker.post(`/images/create?fromImage=${encodeURIComponent(fromImage)}&tag=${encodeURIComponent(tag)}`);
+    if (tag !== 'latest') {
+      await docker.post(`/images/create?fromImage=${encodeURIComponent(fromImage)}&tag=latest`).catch(() => {});
+    }
     console.log('[AutoUpdater] Image pulled. Launching updater helper to recreate Schedulearr...');
 
     const finalImage = `${fromImage}:${tag}`;

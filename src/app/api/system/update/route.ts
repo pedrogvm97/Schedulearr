@@ -40,14 +40,12 @@ export async function POST() {
 
     try {
       await docker.post(`/images/create?fromImage=${encodeURIComponent(fromImage)}&tag=${encodeURIComponent(tag)}`);
+      if (tag !== 'latest') {
+        await docker.post(`/images/create?fromImage=${encodeURIComponent(fromImage)}&tag=latest`).catch(() => {});
+      }
     } catch (pullError: any) {
       return NextResponse.json({ error: "Failed to pull latest image: " + pullError.message }, { status: 500 });
     }
-
-    // Clean up orphaned / dangling images from previous updates
-    try {
-      await cleanupOrphanImages(docker);
-    } catch (e) {}
 
     const finalImage = `${fromImage}:${tag}`;
 

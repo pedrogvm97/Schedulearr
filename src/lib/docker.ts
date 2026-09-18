@@ -262,20 +262,34 @@ export async function recreateSelfContainer(docker: any, containerInfo: any, tar
     '/mnt/user/appdata/schedulearr/data:/app/data'
   ];
 
-  const isHostNetwork = containerInfo.HostConfig?.NetworkMode === 'host';
+  const rawHostConfig = containerInfo.HostConfig || {};
+  const isHostNetwork = rawHostConfig.NetworkMode === 'host';
+
+  const cleanHostConfig: any = {
+    RestartPolicy: rawHostConfig.RestartPolicy || { Name: 'unless-stopped' },
+    Binds: rawHostConfig.Binds || binds,
+    NetworkMode: rawHostConfig.NetworkMode || (isHostNetwork ? 'host' : 'bridge'),
+    Privileged: !!rawHostConfig.Privileged
+  };
+
+  if (!isHostNetwork && rawHostConfig.PortBindings) {
+    cleanHostConfig.PortBindings = rawHostConfig.PortBindings;
+  }
+  if (rawHostConfig.Devices && Array.isArray(rawHostConfig.Devices) && rawHostConfig.Devices.length > 0) {
+    cleanHostConfig.Devices = rawHostConfig.Devices;
+  }
+  if (rawHostConfig.ExtraHosts && Array.isArray(rawHostConfig.ExtraHosts) && rawHostConfig.ExtraHosts.length > 0) {
+    cleanHostConfig.ExtraHosts = rawHostConfig.ExtraHosts;
+  }
+
   const networkingConfig = (!isHostNetwork && containerInfo.NetworkSettings?.Networks)
     ? { EndpointsConfig: containerInfo.NetworkSettings.Networks }
     : undefined;
 
   const newContainerConfig: any = {
     Image: targetImage,
-    Cmd: containerInfo.Config?.Cmd,
-    Env: containerInfo.Config?.Env,
-    HostConfig: containerInfo.HostConfig || {
-      NetworkMode: 'host',
-      Binds: binds,
-      RestartPolicy: { Name: 'unless-stopped' }
-    },
+    Env: containerInfo.Config?.Env || [],
+    HostConfig: cleanHostConfig,
     Labels: {
       ...(containerInfo.Config?.Labels || {}),
       'schedulearr.original_name': baseName
@@ -316,26 +330,53 @@ setTimeout(() => {
   request('/containers/' + oldId + '/stop?t=10', 'POST', null, () => {
     const backupName = baseName + '_old_' + Date.now();
     request('/containers/' + oldId + '/rename?name=' + backupName, 'POST', null, () => {
-      request('/containers/create?name=' + baseName, 'POST', newConfig, (err, resData) => {
-        let parsed = {};
-        try { parsed = JSON.parse(resData); } catch(e) {}
-        if (parsed && parsed.Id) {
-          request('/containers/' + parsed.Id + '/start', 'POST', null, () => {
-            request('/containers/' + oldId + '?v=true&force=true', 'DELETE', null, () => {
-              request('/images/prune?filters=%7B%22dangling%22%3A%5B%22true%22%5D%7D', 'POST', null, () => {
-                process.exit(0);
+      // 500ms breather for Docker daemon to free up baseName
+      setTimeout(() => {
+        request('/containers/create?name=' + baseName, 'POST', newConfig, (err, resData) => {
+          let parsed = {};
+          try { parsed = JSON.parse(resData); } catch(e) {}
+          if (parsed && parsed.Id) {
+            request('/containers/' + parsed.Id + '/start', 'POST', null, () => {
+              request('/containers/' + oldId + '?v=true&force=true', 'DELETE', null, () => {
+                request('/images/prune?filters=%7B%22dangling%22%3A%5B%22true%22%5D%7D', 'POST', null, () => {
+                  process.exit(0);
+                });
               });
             });
-          });
-        } else {
-          console.error('Failed to create replacement container:', resData);
-          request('/containers/' + oldId + '/rename?name=' + baseName, 'POST', null, () => {
-            request('/containers/' + oldId + '/start', 'POST', null, () => {
-              process.exit(1);
+          } else {
+            console.error('Failed to create replacement container with full config:', resData);
+            // Fallback attempt: minimal config
+            const minimalConfig = {
+              Image: newConfig.Image,
+              Env: newConfig.Env,
+              HostConfig: {
+                Binds: newConfig.HostConfig?.Binds || ['/var/run/docker.sock:/var/run/docker.sock', '/mnt/user/appdata/schedulearr/data:/app/data'],
+                NetworkMode: newConfig.HostConfig?.NetworkMode || 'bridge',
+                PortBindings: newConfig.HostConfig?.PortBindings,
+                RestartPolicy: { Name: 'unless-stopped' }
+              }
+            };
+            request('/containers/create?name=' + baseName, 'POST', minimalConfig, (err2, resData2) => {
+              let parsed2 = {};
+              try { parsed2 = JSON.parse(resData2); } catch(e) {}
+              if (parsed2 && parsed2.Id) {
+                request('/containers/' + parsed2.Id + '/start', 'POST', null, () => {
+                  request('/containers/' + oldId + '?v=true&force=true', 'DELETE', null, () => {
+                    process.exit(0);
+                  });
+                });
+              } else {
+                console.error('Minimal fallback container creation failed:', resData2);
+                request('/containers/' + oldId + '/rename?name=' + baseName, 'POST', null, () => {
+                  request('/containers/' + oldId + '/start', 'POST', null, () => {
+                    process.exit(1);
+                  });
+                });
+              }
             });
-          });
-        }
-      });
+          }
+        });
+      }, 500);
     });
   });
 }, 2000);
