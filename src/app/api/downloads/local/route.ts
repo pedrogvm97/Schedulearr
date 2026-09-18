@@ -170,14 +170,14 @@ export async function GET() {
 
         // 4. Query Active qBittorrent Instances for Completed Torrents
         try {
-            const instances = getInstances().filter(i => (i.type === 'qbittorrent' || i.type === 'deluge' || i.type === 'transmission') && i.enabled);
+            const instances = getInstances().filter(i => ((i.type as string) === 'qbittorrent' || (i.type as string) === 'deluge' || (i.type as string) === 'transmission') && i.enabled);
             for (const inst of instances) {
-                if (inst.type === 'qbittorrent') {
+                if ((inst.type as string) === 'qbittorrent') {
                     try {
                         const cleanUrl = inst.url.replace(/\/$/, '');
                         const res = await axios.get(`${cleanUrl}/api/v2/torrents/info?filter=completed`, {
                             timeout: 3000,
-                            headers: { 'Cookie': inst.auth_token || '' }
+                            headers: { 'Cookie': (inst as any).auth_token || '' }
                         }).catch(() => null);
 
                         if (Array.isArray(res?.data)) {

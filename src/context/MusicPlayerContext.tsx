@@ -10,7 +10,7 @@ import {
     Image as ImageIcon, Guitar, Activity, Zap, Layers, Music2,
     Terminal, AlertTriangle, RotateCcw, Copy, User, ExternalLink, Calendar, Radio,
     Star, ListPlus, Heart, Youtube, Wrench,
-    Globe, HardDrive, Server, CheckCircle2, AlertCircle
+    Globe, HardDrive, Server, CheckCircle2, AlertCircle, Folder
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { sanitizeSongMetadata } from '@/lib/songSanitizer';
@@ -1826,10 +1826,6 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         } catch {}
         setPlayingAudio(null);
         setIsAudioPlaying(false);
-        setIsExpandedPlayerOpen(false);
-        setShowLyricsModal(false);
-        setShowQueueDrawer(false);
-    };
         setIsExpandedPlayerOpen(false);
         setShowLyricsModal(false);
         setShowQueueDrawer(false);

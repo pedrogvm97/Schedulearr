@@ -1489,7 +1489,7 @@ function TheaterPageContent() {
                     const data = await res.json();
                     const fetched = Array.isArray(data.items) ? data.items : [];
                     setItems(prev => [
-                        ...prev.filter(it => it.libraryId !== lib.id),
+                        ...prev.filter(it => (it as any).libraryId !== lib.id),
                         ...fetched.map((it: any) => ({ ...it, libraryId: lib.id, libraryName: lib.name }))
                     ]);
                     toast.success(`Rescanned "${lib.name}" (${fetched.length} items)`);
@@ -6879,7 +6879,7 @@ function TheaterPageContent() {
                         activeTabClass: 'bg-amber-600/20 text-amber-300 border border-amber-500/30 shadow-md',
                         actionBtnClass: 'bg-amber-500 hover:bg-amber-400 text-black shadow-amber-500/25',
                         mediaBadge: 'Music Audio Library',
-                        plexFilter: (p: PlexSourceLibrary) => p.mediaType === 'artist' || p.mediaType === 'music',
+                        plexFilter: (p: PlexSourceLibrary) => (p.mediaType as string) === 'artist' || p.mediaType === 'music',
                         showRadarr: false,
                         showSonarr: false,
                         namePlaceholder: 'e.g. Lossless FLAC, Main Music, Soundtracks',

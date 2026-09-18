@@ -170,7 +170,7 @@ export function LocalDownloadsPanel() {
                 streamUrl: item.streamUrl,
                 isLocal: true
             };
-            playTrack(track, musicQueue.length > 0 ? musicQueue : undefined, curIdx >= 0 ? curIdx : 0);
+            playTrack(track as any, musicQueue.length > 0 ? (musicQueue as any) : undefined, curIdx >= 0 ? curIdx : 0);
             toast.success(`Playing "${item.title}"`);
         } else {
             setPreviewVideo(item);
