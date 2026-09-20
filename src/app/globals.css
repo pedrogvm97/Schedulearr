@@ -62,3 +62,13 @@ body {
 .animate-vinyl-spin {
   animation: vinyl-spin 8s linear infinite;
 }
+
+@keyframes progress-bar {
+  0% { transform: translateX(-100%); }
+  50% { transform: translateX(50%); }
+  100% { transform: translateX(200%); }
+}
+
+.animate-progress-bar {
+  animation: progress-bar 1.5s ease-in-out infinite;
+}

@@ -37,22 +37,31 @@ function handleCorruptDatabase() {
 }
 
 function initDbConnection(isRetry: boolean = false): any {
+    const startTime = Date.now();
     try {
-        console.log('[DEBUG] INITIALIZING DB AT PATH:', dbPath, 'WITH NODE_ENV:', process.env.NODE_ENV);
+        console.log(`[Startup 1/4] 📦 Connecting to SQLite database at: ${dbPath}...`);
         const d = new Database(dbPath, { timeout: 10000 });
         d.pragma('journal_mode = WAL');
         d.pragma('busy_timeout = 10000');
         d.pragma('synchronous = NORMAL');
         d.pragma('wal_autocheckpoint = 1000');
+        d.pragma('mmap_size = 268435456'); // 256MB memory-mapped I/O for instant reads
+        d.pragma('temp_store = MEMORY');
+        d.pragma('cache_size = -64000'); // 64MB cache
         
-        // Integrity check to catch malformed disk images before queries run
-        const integrity = d.pragma('integrity_check');
-        const isOk = Array.isArray(integrity) && integrity.length > 0 && integrity[0].integrity_check === 'ok';
+        console.log(`[Startup 2/4] 🔍 Verifying database integrity (quick_check)...`);
+        // Fast integrity check: verifies b-trees and page headers in ~2ms instead of scanning entire disk image
+        const integrity = d.pragma('quick_check(1)');
+        const isOk = Array.isArray(integrity) && integrity.length > 0 && integrity[0].quick_check === 'ok';
         if (!isOk) {
-            throw new Error(`Integrity check failed: ${JSON.stringify(integrity)}`);
+            throw new Error(`Integrity quick_check failed: ${JSON.stringify(integrity)}`);
         }
 
+        console.log(`[Startup 3/4] 🛠️ Applying database schema and migrations...`);
         initializeSchema(d);
+
+        const elapsed = Date.now() - startTime;
+        console.log(`[Startup 4/4] 🚀 Database initialized successfully in ${elapsed}ms! Ready to serve traffic.`);
         return d;
     } catch (err: any) {
         console.error('[DB ERROR] Database initialization failed or malformed:', err.message);
@@ -127,6 +136,14 @@ const db = {
 };
 
 function initializeSchema(d: any) {
+    const CURRENT_SCHEMA_VER = 6;
+    try {
+        const v = d.pragma('user_version', { simple: true });
+        if (typeof v === 'number' && v >= CURRENT_SCHEMA_VER) {
+            return; // Schema & migrations already applied
+        }
+    } catch {}
+
     d.exec(`
       CREATE TABLE IF NOT EXISTS settings (
         key TEXT PRIMARY KEY,
@@ -374,6 +391,7 @@ function initializeSchema(d: any) {
     try { d.exec("ALTER TABLE search_history ADD COLUMN category TEXT DEFAULT 'search';"); } catch (e) { }
     try { d.exec("ALTER TABLE theater_libraries ADD COLUMN plex_section_id TEXT;"); } catch (e) { }
     try { d.exec("ALTER TABLE theater_libraries ADD COLUMN instance_id TEXT;"); } catch (e) { }
+    try { d.pragma(`user_version = ${CURRENT_SCHEMA_VER}`); } catch (e) { }
 }
 
 export interface Setting {

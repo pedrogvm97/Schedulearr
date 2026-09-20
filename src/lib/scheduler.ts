@@ -19,11 +19,13 @@ import { checkAndRunScheduledEpgSyncs } from '@/lib/iptvEpgSync';
 if (!global.globalSchedulerRunning && process.env.NEXT_PHASE !== 'phase-production-build') {
     global.globalSchedulerRunning = true;
 
-    // Run container cleanup handoff on boot
-    performStartupContainerCleanup().catch(() => {});
+    // Defer heavy container/image cleanup to 30 seconds after startup so boot is instantaneous
+    setTimeout(() => {
+        performStartupContainerCleanup().catch(() => {});
+    }, 30000);
 
     const startScheduler = () => {
-        console.log('🏁 Schedulearr background orchestrator started.');
+        console.log('🏁 Schedulearr background orchestrator active and running.');
         
         // Start network speed monitor with dynamic interval
         const { networkInterval } = getSchedulerConfig();
