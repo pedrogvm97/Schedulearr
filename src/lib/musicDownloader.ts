@@ -50,46 +50,52 @@ export interface DownloadOptions {
 }
 
 /**
- * Extract direct HTTPS audio stream URL from Invidious / Piped
+ * Extract direct HTTPS audio stream URL from Invidious / Piped with fast parallel race (< 1.8s)
  */
 export async function extractDirectAudioStreamUrl(cleanYtId: string): Promise<string | null> {
     if (!cleanYtId) return null;
     const cleanId = cleanYtId.replace(/^yt-/, '').trim();
 
-    // 1. Try Invidious Mirrors
-    for (const instance of INVIDIOUS_INSTANCES) {
-        try {
-            const res = await axios.get(`${instance}/api/v1/videos/${cleanId}`, {
-                headers: { 'User-Agent': 'Schedulearr/0.5.33' },
-                timeout: 3500
-            });
-            if (res.data && Array.isArray(res.data.adaptiveFormats)) {
-                const audioFormats = res.data.adaptiveFormats.filter((f: any) => f.type && f.type.startsWith('audio/'));
-                if (audioFormats.length > 0) {
-                    audioFormats.sort((a: any, b: any) => (parseInt(b.bitrate) || 0) - (parseInt(a.bitrate) || 0));
-                    const best = audioFormats[0].url;
-                    if (best && best.startsWith('http')) return best;
-                }
-            }
-        } catch {}
-    }
-
-    // 2. Try Piped Mirrors
-    for (const instance of PIPED_INSTANCES) {
-        try {
-            const res = await axios.get(`${instance}/streams/${cleanId}`, {
-                headers: { 'User-Agent': 'Schedulearr/0.5.33' },
-                timeout: 3500
-            });
-            if (res.data && Array.isArray(res.data.audioStreams) && res.data.audioStreams.length > 0) {
-                res.data.audioStreams.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0));
-                const best = res.data.audioStreams[0].url;
+    const fetchInvidious = async (instance: string): Promise<string> => {
+        const res = await axios.get(`${instance}/api/v1/videos/${cleanId}`, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+            timeout: 1800
+        });
+        if (res.data && Array.isArray(res.data.adaptiveFormats)) {
+            const audioFormats = res.data.adaptiveFormats.filter((f: any) => f.type && f.type.startsWith('audio/'));
+            if (audioFormats.length > 0) {
+                audioFormats.sort((a: any, b: any) => (parseInt(b.bitrate) || 0) - (parseInt(a.bitrate) || 0));
+                const best = audioFormats[0].url;
                 if (best && best.startsWith('http')) return best;
             }
-        } catch {}
-    }
+        }
+        throw new Error('No audio in Invidious format');
+    };
 
-    return null;
+    const fetchPiped = async (instance: string): Promise<string> => {
+        const res = await axios.get(`${instance}/streams/${cleanId}`, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+            timeout: 1800
+        });
+        if (res.data && Array.isArray(res.data.audioStreams) && res.data.audioStreams.length > 0) {
+            res.data.audioStreams.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0));
+            const best = res.data.audioStreams[0].url;
+            if (best && best.startsWith('http')) return best;
+        }
+        throw new Error('No audio in Piped stream');
+    };
+
+    try {
+        // Race top responsive mirrors in parallel; aborts after 1.8s so yt-dlp starts almost immediately if mirrors fail
+        return await Promise.any([
+            fetchInvidious('https://inv.nadeko.net'),
+            fetchInvidious('https://invidious.nerdvpn.de'),
+            fetchPiped('https://pipedapi.kavin.rocks'),
+            fetchPiped('https://api.piped.privacydev.net')
+        ]);
+    } catch {
+        return null;
+    }
 }
 
 /**

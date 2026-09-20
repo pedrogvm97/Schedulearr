@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import db, { getInstances } from '@/lib/db';
+import db, { getInstances, getTheaterLibraries, getCachedTheaterItems } from '@/lib/db';
 import axios from 'axios';
 import { sanitizeSongMetadata } from '@/lib/songSanitizer';
 
@@ -18,29 +18,41 @@ export async function GET(req: Request) {
         const inLibraries: any[] = [];
         const externalAvailable: any[] = [];
 
-        // 1. Search Local Theater Libraries in SQLite
+        // 1. Search Local Theater Libraries in SQLite Cache
         try {
-            const localItems: any[] = db.prepare(`
-                SELECT * FROM theater_media_items 
-                WHERE title LIKE ? OR artist LIKE ? OR album LIKE ? 
-                LIMIT 20
-            `).all(`%${q}%`, `%${q}%`, `%${q}%`);
-
-            for (const item of localItems) {
-                inLibraries.push({
-                    id: item.id,
-                    name: item.title || item.name,
-                    title: item.title || item.name,
-                    artist: item.artist,
-                    album: item.album,
-                    category: item.category,
-                    extension: item.extension,
-                    posterUrl: item.poster_url,
-                    streamUrl: item.stream_url,
-                    source: 'Local Server Library',
-                    location: item.folder || item.path,
-                    isLocal: true
-                });
+            const libs = getTheaterLibraries();
+            const qLower = q.toLowerCase();
+            let count = 0;
+            for (const lib of libs) {
+                if (count >= 20) break;
+                const cached = getCachedTheaterItems(lib.id);
+                if (cached?.items && Array.isArray(cached.items)) {
+                    for (const item of cached.items) {
+                        const title = (item.title || item.name || '').toLowerCase();
+                        const artist = (item.artist || '').toLowerCase();
+                        const album = (item.album || '').toLowerCase();
+                        if (title.includes(qLower) || artist.includes(qLower) || album.includes(qLower)) {
+                            inLibraries.push({
+                                id: item.id,
+                                name: item.title || item.name,
+                                title: item.title || item.name,
+                                artist: item.artist,
+                                album: item.album,
+                                category: item.category || lib.type || 'audio',
+                                extension: item.extension,
+                                posterUrl: item.posterUrl || item.poster_url,
+                                streamUrl: item.streamUrl || item.stream_url || (item.path ? `/api/theater/stream?path=${encodeURIComponent(item.path)}` : undefined),
+                                source: `Local (${lib.name || 'Server Library'})`,
+                                location: item.folder || item.path,
+                                isLocal: true,
+                                path: item.path,
+                                ratingKey: item.ratingKey
+                            });
+                            count++;
+                            if (count >= 20) break;
+                        }
+                    }
+                }
             }
         } catch (e: any) {
             console.warn('Theater local search error:', e.message);

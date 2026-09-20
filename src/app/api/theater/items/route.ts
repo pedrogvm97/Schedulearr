@@ -481,19 +481,36 @@ export async function DELETE(req: Request) {
         let targetPathResult: string | null = null;
         let targetFolderResult: string | null = null;
 
-        // 1. Delete Plex metadata & item if ratingKey provided
-        if (ratingKey) {
+        // 1. Delete Plex metadata & item if ratingKey provided (or discover ratingKey from cached items)
+        let effectiveRatingKey = ratingKey;
+        if (!effectiveRatingKey && filePath) {
+            try {
+                const libs = getTheaterLibraries();
+                for (const lib of libs) {
+                    const cached = getCachedTheaterItems(lib.id);
+                    if (cached?.items) {
+                        const found = cached.items.find(i => i.path === filePath || (i.path && path.basename(i.path) === path.basename(filePath)));
+                        if (found?.ratingKey) {
+                            effectiveRatingKey = found.ratingKey;
+                            break;
+                        }
+                    }
+                }
+            } catch {}
+        }
+
+        if (effectiveRatingKey) {
             const plexInstances = getInstances().filter(i => i.type === 'plex' && i.enabled);
             for (const plex of plexInstances) {
                 try {
                     const plexUrl = plex.url.replace(/\/$/, '');
-                    await axios.delete(`${plexUrl}/library/metadata/${ratingKey}`, {
+                    await axios.delete(`${plexUrl}/library/metadata/${effectiveRatingKey}`, {
                         headers: { 'X-Plex-Token': plex.api_key },
                         timeout: 5000
                     });
                     plexDeleted = true;
                 } catch (e: any) {
-                    console.warn(`[DELETE] Plex metadata delete error (${plex.name}, ratingKey: ${ratingKey}):`, e.message);
+                    console.warn(`[DELETE] Plex metadata delete error (${plex.name}, ratingKey: ${effectiveRatingKey}):`, e.message);
                 }
             }
         }
@@ -550,12 +567,12 @@ export async function DELETE(req: Request) {
             }
         }
 
-        // If any deletion succeeded (or even if file was already gone on disk but tracked in Plex/cache)
-        if (fileDeleted || folderDeleted || plexDeleted) {
-            // ALWAYS clear theater cache across ALL libraries so other libraries (e.g. Music vs Music - Pedro) don't retain stale items
+        // 4. Clean up cache and synchronize Plex
+        if (fileDeleted || folderDeleted || plexDeleted || filePath || folderPath || ratingKey) {
+            // ALWAYS clear theater cache across ALL libraries so other libraries don't retain stale items
             clearCachedTheaterItems();
 
-            // Trigger background Plex section refresh to ensure Plex library stays synchronized
+            // Trigger background Plex section refresh & empty trash to ensure Plex library stays synchronized
             const plexInstances = getInstances().filter(i => i.type === 'plex' && i.enabled);
             for (const plex of plexInstances) {
                 try {
@@ -563,6 +580,10 @@ export async function DELETE(req: Request) {
                     const lib = libraryId ? getTheaterLibraries().find(l => l.id === libraryId) : null;
                     if (lib?.plex_section_id) {
                         axios.get(`${plexUrl}/library/sections/${lib.plex_section_id}/refresh`, {
+                            headers: { 'X-Plex-Token': plex.api_key },
+                            timeout: 5000
+                        }).catch(() => null);
+                        axios.put(`${plexUrl}/library/sections/${lib.plex_section_id}/emptyTrash`, {}, {
                             headers: { 'X-Plex-Token': plex.api_key },
                             timeout: 5000
                         }).catch(() => null);
@@ -578,6 +599,10 @@ export async function DELETE(req: Request) {
                                         headers: { 'X-Plex-Token': plex.api_key },
                                         timeout: 5000
                                     }).catch(() => null);
+                                    axios.put(`${plexUrl}/library/sections/${d.key}/emptyTrash`, {}, {
+                                        headers: { 'X-Plex-Token': plex.api_key },
+                                        timeout: 5000
+                                    }).catch(() => null);
                                 }
                             }
                         }).catch(() => null);
@@ -590,20 +615,13 @@ export async function DELETE(req: Request) {
                 fileDeleted,
                 folderDeleted,
                 plexDeleted,
+                orphanedCleaned: !fileDeleted && !folderDeleted && !plexDeleted,
+                message: (fileDeleted || folderDeleted || plexDeleted)
+                    ? 'Item deleted successfully.'
+                    : 'Item was already removed from disk; purged library cache and synchronized Plex.',
                 deletedPath: targetPathResult,
                 deletedFolder: targetFolderResult
             });
-        }
-
-        // If neither file existed on disk and not deleted in Plex
-        if (filePath || folderPath || ratingKey) {
-            // Still clear cache to purge ghost/stale records from SQLite
-            clearCachedTheaterItems();
-            return NextResponse.json({
-                error: 'File or folder not found on disk, but library cache has been cleared.',
-                targetPath: targetPathResult,
-                targetFolder: targetFolderResult
-            }, { status: 404 });
         }
 
         return NextResponse.json({ error: 'Missing path, folder, or ratingKey parameter' }, { status: 400 });

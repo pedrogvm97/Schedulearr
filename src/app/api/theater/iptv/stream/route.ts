@@ -79,25 +79,38 @@ export async function GET(req: NextRequest) {
 
                 const ffmpeg = spawn(ffmpegBin, ffmpegArgs);
 
-                const webStream = new ReadableStream({
-                    start(controller) {
-                        ffmpeg.stdout.on('data', (chunk) => {
-                            try { controller.enqueue(chunk); } catch {}
-                        });
-                        ffmpeg.stdout.on('end', () => {
-                            try { controller.close(); } catch {}
-                        });
-                        ffmpeg.stdout.on('error', (err) => {
-                            try { controller.error(err); } catch {}
-                        });
-                    },
-                    cancel() {
-                        try { ffmpeg.kill('SIGKILL'); } catch {}
-                    }
-                });
+                let isClosed = false;
+                const safeEnqueue = (chunk: any, controller: any) => {
+                    if (isClosed) return;
+                    try { controller.enqueue(chunk); } catch { isClosed = true; }
+                };
+                const safeClose = (controller: any) => {
+                    if (isClosed) return;
+                    isClosed = true;
+                    try { controller.close(); } catch {}
+                };
+                const safeError = (err: any, controller: any) => {
+                    if (isClosed) return;
+                    isClosed = true;
+                    try { controller.error(err); } catch {}
+                };
 
                 req.signal.addEventListener('abort', () => {
+                    isClosed = true;
                     try { ffmpeg.kill('SIGKILL'); } catch {}
+                });
+
+                const webStream = new ReadableStream({
+                    start(controller) {
+                        ffmpeg.stdout.on('data', (chunk) => safeEnqueue(chunk, controller));
+                        ffmpeg.stdout.on('end', () => safeClose(controller));
+                        ffmpeg.stdout.on('error', (err) => safeError(err, controller));
+                        ffmpeg.on('error', (err) => safeError(err, controller));
+                    },
+                    cancel() {
+                        isClosed = true;
+                        try { ffmpeg.kill('SIGKILL'); } catch {}
+                    }
                 });
 
                 return new Response(webStream as any, {

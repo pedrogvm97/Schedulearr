@@ -11,6 +11,9 @@ import { downloadAudioFile, extractDirectAudioStreamUrl, searchYouTubeVideoId } 
 
 export const dynamic = 'force-dynamic';
 
+// In-memory cache for resolved direct audio stream URLs (4-hour TTL)
+const directAudioCache = new Map<string, { url: string; expiresAt: number }>();
+
 export async function GET(req: Request) {
     try {
         const { searchParams } = new URL(req.url);
@@ -91,9 +94,16 @@ export async function GET(req: Request) {
         const { ffmpegPath } = ensureFfmpegBinaries();
 
         let directAudioUrl: string | null = null;
+        const cacheKey = cleanId || targetUrl;
 
-        // 1. If we have a clean YouTube ID, try Invidious / Piped mirror extraction first (fastest, < 500ms)
-        if (cleanId) {
+        // Check in-memory URL cache first (0ms instantaneous start on replay or scrubbing)
+        const cachedEntry = directAudioCache.get(cacheKey);
+        if (cachedEntry && Date.now() < cachedEntry.expiresAt) {
+            directAudioUrl = cachedEntry.url;
+        }
+
+        // 1. If not cached and we have a clean YouTube ID, try fast parallel mirror probe
+        if (!directAudioUrl && cleanId) {
             try {
                 directAudioUrl = await extractDirectAudioStreamUrl(cleanId);
             } catch {}
@@ -133,6 +143,14 @@ export async function GET(req: Request) {
             } catch (err: any) {
                 console.warn('[AUDIO STREAM] yt-dlp -g URL extraction failed:', err.message);
             }
+        }
+
+        // Cache the resolved direct stream URL for 4 hours
+        if (directAudioUrl && cacheKey) {
+            directAudioCache.set(cacheKey, {
+                url: directAudioUrl,
+                expiresAt: Date.now() + 4 * 60 * 60 * 1000
+            });
         }
 
         // 3. Transcode direct stream URL to universal MP3 via FFmpeg with pre-flight check
@@ -175,16 +193,42 @@ export async function GET(req: Request) {
                     }, 6000);
                 });
 
-                const webStream = new ReadableStream({
+                let isClosed = false;
+                const safeEnqueue = (chunk: Uint8Array | Buffer, controller: ReadableStreamDefaultController<Uint8Array>) => {
+                    if (isClosed) return;
+                    try {
+                        controller.enqueue(chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk));
+                    } catch {
+                        isClosed = true;
+                    }
+                };
+                const safeClose = (controller: ReadableStreamDefaultController<Uint8Array>) => {
+                    if (isClosed) return;
+                    isClosed = true;
+                    try { controller.close(); } catch {}
+                };
+                const safeError = (err: any, controller: ReadableStreamDefaultController<Uint8Array>) => {
+                    if (isClosed) return;
+                    isClosed = true;
+                    try { controller.error(err); } catch {}
+                };
+
+                req.signal.addEventListener('abort', () => {
+                    isClosed = true;
+                    try { ffmpegProc.kill('SIGKILL'); } catch {}
+                });
+
+                const webStream = new ReadableStream<Uint8Array>({
                     start(controller) {
-                        if (firstChunk) controller.enqueue(new Uint8Array(firstChunk));
-                        ffmpegProc.stdout.on('data', (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)));
-                        ffmpegProc.stdout.on('end', () => controller.close());
-                        ffmpegProc.stdout.on('error', (err) => controller.error(err));
-                        ffmpegProc.on('error', (err) => controller.error(err));
+                        if (firstChunk) safeEnqueue(firstChunk, controller);
+                        ffmpegProc.stdout.on('data', (chunk: Buffer) => safeEnqueue(chunk, controller));
+                        ffmpegProc.stdout.on('end', () => safeClose(controller));
+                        ffmpegProc.stdout.on('error', (err) => safeError(err, controller));
+                        ffmpegProc.on('error', (err) => safeError(err, controller));
                     },
                     cancel() {
-                        try { ffmpegProc.kill(); } catch {}
+                        isClosed = true;
+                        try { ffmpegProc.kill('SIGKILL'); } catch {}
                     }
                 });
 
@@ -251,18 +295,45 @@ export async function GET(req: Request) {
                 }, 8000);
             });
 
-            const webStream = new ReadableStream({
+            let isClosed = false;
+            const safeEnqueue = (chunk: Uint8Array | Buffer, controller: ReadableStreamDefaultController<Uint8Array>) => {
+                if (isClosed) return;
+                try {
+                    controller.enqueue(chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk));
+                } catch {
+                    isClosed = true;
+                }
+            };
+            const safeClose = (controller: ReadableStreamDefaultController<Uint8Array>) => {
+                if (isClosed) return;
+                isClosed = true;
+                try { controller.close(); } catch {}
+            };
+            const safeError = (err: any, controller: ReadableStreamDefaultController<Uint8Array>) => {
+                if (isClosed) return;
+                isClosed = true;
+                try { controller.error(err); } catch {}
+            };
+
+            req.signal.addEventListener('abort', () => {
+                isClosed = true;
+                try { ytdlProc.kill('SIGKILL'); } catch {}
+                try { ffmpegProc.kill('SIGKILL'); } catch {}
+            });
+
+            const webStream = new ReadableStream<Uint8Array>({
                 start(controller) {
-                    if (firstChunk) controller.enqueue(new Uint8Array(firstChunk));
-                    ffmpegProc.stdout.on('data', (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)));
-                    ffmpegProc.stdout.on('end', () => controller.close());
-                    ffmpegProc.stdout.on('error', (err) => controller.error(err));
-                    ffmpegProc.on('error', (err) => controller.error(err));
-                    ytdlProc.on('error', (err) => controller.error(err));
+                    if (firstChunk) safeEnqueue(firstChunk, controller);
+                    ffmpegProc.stdout.on('data', (chunk: Buffer) => safeEnqueue(chunk, controller));
+                    ffmpegProc.stdout.on('end', () => safeClose(controller));
+                    ffmpegProc.stdout.on('error', (err) => safeError(err, controller));
+                    ffmpegProc.on('error', (err) => safeError(err, controller));
+                    ytdlProc.on('error', (err) => safeError(err, controller));
                 },
                 cancel() {
-                    try { ytdlProc.kill(); } catch {}
-                    try { ffmpegProc.kill(); } catch {}
+                    isClosed = true;
+                    try { ytdlProc.kill('SIGKILL'); } catch {}
+                    try { ffmpegProc.kill('SIGKILL'); } catch {}
                 }
             });
 

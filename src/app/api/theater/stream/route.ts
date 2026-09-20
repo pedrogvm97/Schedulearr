@@ -317,23 +317,36 @@ export async function GET(req: NextRequest) {
                         }
                     });
 
+                    let isClosed = false;
+                    const safeEnqueue = (chunk: any, controller: any) => {
+                        if (isClosed) return;
+                        try { controller.enqueue(chunk); } catch { isClosed = true; }
+                    };
+                    const safeClose = (controller: any) => {
+                        if (isClosed) return;
+                        isClosed = true;
+                        try { controller.close(); } catch {}
+                    };
+                    const safeError = (err: any, controller: any) => {
+                        if (isClosed) return;
+                        isClosed = true;
+                        try { controller.error(err); } catch {}
+                    };
+
                     req.signal.addEventListener('abort', () => {
+                        isClosed = true;
                         try { ffmpeg.kill('SIGKILL'); } catch {}
                     });
 
                     const webStream = new ReadableStream({
                         start(controller) {
-                            ffmpeg.stdout.on('data', (chunk) => {
-                                controller.enqueue(chunk);
-                            });
-                            ffmpeg.stdout.on('end', () => {
-                                controller.close();
-                            });
-                            ffmpeg.stdout.on('error', (err) => {
-                                controller.error(err);
-                            });
+                            ffmpeg.stdout.on('data', (chunk) => safeEnqueue(chunk, controller));
+                            ffmpeg.stdout.on('end', () => safeClose(controller));
+                            ffmpeg.stdout.on('error', (err) => safeError(err, controller));
+                            ffmpeg.on('error', (err) => safeError(err, controller));
                         },
                         cancel() {
+                            isClosed = true;
                             try { ffmpeg.kill('SIGKILL'); } catch {}
                         }
                     });
@@ -529,23 +542,36 @@ export async function GET(req: NextRequest) {
                     }
                 });
 
+                let isClosed = false;
+                const safeEnqueue = (chunk: any, controller: any) => {
+                    if (isClosed) return;
+                    try { controller.enqueue(chunk); } catch { isClosed = true; }
+                };
+                const safeClose = (controller: any) => {
+                    if (isClosed) return;
+                    isClosed = true;
+                    try { controller.close(); } catch {}
+                };
+                const safeError = (err: any, controller: any) => {
+                    if (isClosed) return;
+                    isClosed = true;
+                    try { controller.error(err); } catch {}
+                };
+
                 req.signal.addEventListener('abort', () => {
+                    isClosed = true;
                     try { ffmpeg.kill('SIGKILL'); } catch {}
                 });
 
                 const webStream = new ReadableStream({
                     start(controller) {
-                        ffmpeg.stdout.on('data', (chunk) => {
-                            controller.enqueue(chunk);
-                        });
-                        ffmpeg.stdout.on('end', () => {
-                            controller.close();
-                        });
-                        ffmpeg.stdout.on('error', (err) => {
-                            controller.error(err);
-                        });
+                        ffmpeg.stdout.on('data', (chunk) => safeEnqueue(chunk, controller));
+                        ffmpeg.stdout.on('end', () => safeClose(controller));
+                        ffmpeg.stdout.on('error', (err) => safeError(err, controller));
+                        ffmpeg.on('error', (err) => safeError(err, controller));
                     },
                     cancel() {
+                        isClosed = true;
                         try { ffmpeg.kill('SIGKILL'); } catch {}
                     }
                 });
@@ -595,7 +621,28 @@ export async function GET(req: NextRequest) {
                     }
                 });
 
+                let isClosed = false;
+                const safeEnqueue = (chunk: Uint8Array | Buffer, controller: any) => {
+                    if (isClosed) return;
+                    try {
+                        controller.enqueue(chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk));
+                    } catch {
+                        isClosed = true;
+                    }
+                };
+                const safeClose = (controller: any) => {
+                    if (isClosed) return;
+                    isClosed = true;
+                    try { controller.close(); } catch {}
+                };
+                const safeError = (err: any, controller: any) => {
+                    if (isClosed) return;
+                    isClosed = true;
+                    try { controller.error(err); } catch {}
+                };
+
                 req.signal.addEventListener('abort', () => {
+                    isClosed = true;
                     try { ffmpeg.kill('SIGKILL'); } catch {}
                 });
 
@@ -619,18 +666,14 @@ export async function GET(req: NextRequest) {
 
                 const webStream = new ReadableStream({
                     start(controller) {
-                        if (firstChunk) controller.enqueue(new Uint8Array(firstChunk));
-                        ffmpeg.stdout.on('data', (chunk: Buffer) => {
-                            controller.enqueue(new Uint8Array(chunk));
-                        });
-                        ffmpeg.stdout.on('end', () => {
-                            controller.close();
-                        });
-                        ffmpeg.stdout.on('error', (err) => {
-                            controller.error(err);
-                        });
+                        if (firstChunk) safeEnqueue(firstChunk, controller);
+                        ffmpeg.stdout.on('data', (chunk: Buffer) => safeEnqueue(chunk, controller));
+                        ffmpeg.stdout.on('end', () => safeClose(controller));
+                        ffmpeg.stdout.on('error', (err) => safeError(err, controller));
+                        ffmpeg.on('error', (err) => safeError(err, controller));
                     },
                     cancel() {
+                        isClosed = true;
                         try { ffmpeg.kill('SIGKILL'); } catch {}
                     }
                 });
