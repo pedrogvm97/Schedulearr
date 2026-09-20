@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
-import { getInstances } from '@/lib/db';
+import { getInstances, getTheaterLibraries, getCachedTheaterItems } from '@/lib/db';
 import axios from 'axios';
 import { spawn } from 'child_process';
 import { Readable } from 'stream';
@@ -10,7 +10,7 @@ import { ensureFfmpegBinaries } from '@/lib/ytdlp';
 
 export const dynamic = 'force-dynamic';
 
-function resolveLocalPath(filePath: string): string | null {
+export function resolveLocalPath(filePath: string): string | null {
     if (!filePath) return null;
     const norm = (s: string) => s.normalize('NFC').replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"').trim().toLowerCase();
 
@@ -23,12 +23,37 @@ function resolveLocalPath(filePath: string): string | null {
         decodeURIComponent(filePath).replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"'),
         filePath.replace(/^\/data\//, '/app/data/'),
         filePath.replace(/^\/app\/data\//, '/data/'),
+        filePath.replace(/^\/music\//, '/app/data/music/'),
+        filePath.replace(/^\/media\/music\//, '/app/data/music/'),
+        filePath.replace(/^\/media\//, '/app/data/'),
+        filePath.replace(/^\/mnt\/user\/music\//, '/app/data/music/'),
+        filePath.replace(/^\/mnt\/user\/media\/music\//, '/app/data/music/'),
+        filePath.replace(/^\/mnt\/user\/data\/music\//, '/app/data/music/'),
+        path.join('/app/data/music', filePath.replace(/^\/(app\/)?(data\/)?(music\/)?/, '')),
+        path.join('/music', filePath.replace(/^\/music\/?/, '')),
+        path.join('/media/music', filePath.replace(/^\/(media\/)?(music\/)?/, '')),
         path.join(process.cwd(), filePath),
         path.join('/app', filePath),
         path.join('/app/data', filePath.replace(/^\/(app\/)?data\/?/, '')),
         path.join('/mnt/user/data', filePath.replace(/^\/data\/?/, '')),
+        path.join('/mnt/user/appdata/schedulearr/data', filePath.replace(/^\/(app\/)?data\/?/, '')),
         path.join('/mnt/user', filePath.replace(/^\//, ''))
     ];
+
+    try {
+        const libs = getTheaterLibraries();
+        for (const l of libs) {
+            for (const f of (l.folders || [])) {
+                if (f && typeof f === 'string') {
+                    if (fs.existsSync(f)) {
+                        candidates.push(path.join(f, path.basename(filePath)));
+                        const rel = filePath.replace(/^\/(mnt\/user\/|data\/|media\/|app\/data\/)?(media\/|music\/)?/, '');
+                        candidates.push(path.join(f, rel));
+                    }
+                }
+            }
+        }
+    } catch {}
 
     for (const c of candidates) {
         if (c && fs.existsSync(c)) {
@@ -38,7 +63,36 @@ function resolveLocalPath(filePath: string): string | null {
 
     // Segment-by-segment case & quote-insensitive directory walker
     try {
-        const bases = ['/data', '/app/data', '/mnt/user/data', '/mnt/user', '/app', process.cwd()];
+        const bases = [
+            '/data',
+            '/data/music',
+            '/music',
+            '/media',
+            '/media/music',
+            '/app/data',
+            '/app/data/music',
+            '/mnt/user/data',
+            '/mnt/user/data/music',
+            '/mnt/user/media',
+            '/mnt/user/media/music',
+            '/mnt/user/music',
+            '/mnt/user/appdata/schedulearr/data',
+            '/mnt/user/appdata/schedulearr/data/music',
+            '/mnt/user',
+            '/app',
+            process.cwd()
+        ];
+        try {
+            const libs = getTheaterLibraries();
+            for (const l of libs) {
+                for (const f of (l.folders || [])) {
+                    if (f && typeof f === 'string' && fs.existsSync(f) && !bases.includes(f)) {
+                        bases.push(f);
+                    }
+                }
+            }
+        } catch {}
+
         const rawSegments = decodeURIComponent(filePath).split(/[\/\\]/).filter(Boolean);
 
         for (const base of bases) {
@@ -46,7 +100,6 @@ function resolveLocalPath(filePath: string): string | null {
             let current = base;
             let matched = true;
 
-            // Strip leading segments already matched in base
             const remainingSegments = rawSegments.filter(seg => {
                 const sNorm = norm(seg);
                 return !base.toLowerCase().split(/[\/\\]/).filter(Boolean).includes(sNorm);
@@ -339,6 +392,95 @@ export async function GET(req: NextRequest) {
         // 2. Local File System Stream (Direct or Transcoded)
         const targetLocalFile = effectiveLocalPath || (filePath && resolveLocalPath(filePath));
         if (!targetLocalFile || !fs.existsSync(targetLocalFile)) {
+            // 2A. Check if this item is in Plex before redirecting to external streams!
+            const plexInstances = getInstances().filter(i => i.type === 'plex' && i.enabled);
+            if (plexInstances.length > 0 && filePath) {
+                let matchedPlexPart: string | null = null;
+                let matchedInstanceId: string | null = null;
+
+                try {
+                    const libs = getTheaterLibraries();
+                    for (const lib of libs) {
+                        const cached = getCachedTheaterItems(lib.id);
+                        if (cached && Array.isArray(cached)) {
+                            const found = cached.find((item: any) => {
+                                if (!item.streamUrl) return false;
+                                if (item.path && (item.path === filePath || item.path.toLowerCase() === filePath.toLowerCase())) return true;
+                                if (path.basename(item.path || '') === path.basename(filePath)) return true;
+                                return false;
+                            });
+                            if (found && found.streamUrl) {
+                                const u = new URL(found.streamUrl, 'http://localhost');
+                                matchedPlexPart = u.searchParams.get('plexPart');
+                                matchedInstanceId = u.searchParams.get('instanceId');
+                                if (matchedPlexPart) break;
+                            }
+                        }
+                    }
+                } catch {}
+
+                if (!matchedPlexPart) {
+                    const fileNameWithoutExt = path.basename(filePath, path.extname(filePath));
+                    for (const p of plexInstances) {
+                        try {
+                            const pBase = p.url.replace(/\/$/, '');
+                            const searchUrl = `${pBase}/search?query=${encodeURIComponent(fileNameWithoutExt)}&type=10&X-Plex-Token=${p.api_key}`;
+                            const pRes = await axios.get(searchUrl, { timeout: 3500, headers: { Accept: 'application/json' } });
+                            const metadata = pRes.data?.MediaContainer?.Metadata || [];
+                            for (const m of metadata) {
+                                const mediaParts = (m.Media || []).flatMap((med: any) => med.Part || []);
+                                const partMatch = mediaParts.find((pt: any) => {
+                                    if (!pt.key) return false;
+                                    if (pt.file && (pt.file === filePath || pt.file.toLowerCase() === filePath.toLowerCase())) return true;
+                                    if (pt.file && path.basename(pt.file) === path.basename(filePath)) return true;
+                                    return true;
+                                });
+                                if (partMatch && partMatch.key) {
+                                    matchedPlexPart = partMatch.key;
+                                    matchedInstanceId = p.id;
+                                    break;
+                                }
+                            }
+                            if (matchedPlexPart) break;
+                        } catch {}
+                    }
+                }
+
+                if (matchedPlexPart) {
+                    const plex = matchedInstanceId ? plexInstances.find(i => i.id === matchedInstanceId) : plexInstances[0];
+                    if (plex) {
+                        const plexUrlBase = plex.url.replace(/\/$/, '');
+                        const normalizedPlexPart = matchedPlexPart.startsWith('/') ? matchedPlexPart : `/${matchedPlexPart}`;
+                        const sep = normalizedPlexPart.includes('?') ? '&' : '?';
+                        const directPlexUrl = `${plexUrlBase}${normalizedPlexPart}${sep}X-Plex-Token=${plex.api_key}`;
+
+                        const reqHeaders: Record<string, string> = { 'X-Plex-Token': plex.api_key };
+                        const clientRange = req.headers.get('range');
+                        if (clientRange) reqHeaders['Range'] = clientRange;
+
+                        const plexRes = await axios.get(directPlexUrl, {
+                            headers: reqHeaders,
+                            responseType: 'stream',
+                            validateStatus: () => true
+                        });
+
+                        const resHeaders = new Headers();
+                        if (plexRes.headers['content-range']) resHeaders.set('Content-Range', String(plexRes.headers['content-range']));
+                        if (plexRes.headers['content-length']) resHeaders.set('Content-Length', String(plexRes.headers['content-length']));
+                        resHeaders.set('Content-Type', plexRes.headers['content-type'] || getMimeType(filePath));
+                        resHeaders.set('Accept-Ranges', 'bytes');
+                        resHeaders.set('X-Stream-Engine', 'Plex Audio Proxy');
+                        resHeaders.set('X-Stream-Source', 'Plex');
+
+                        // @ts-ignore
+                        return new Response(plexRes.data as any, {
+                            status: plexRes.status,
+                            headers: resHeaders
+                        });
+                    }
+                }
+            }
+
             const rawExt = path.extname(filePath || '').toLowerCase();
             const isAudioRequest = ['.mp3', '.flac', '.wav', '.m4a', '.aac', '.ogg', '.opus', '.wma', '.alac'].includes(rawExt);
 
@@ -429,7 +571,7 @@ export async function GET(req: NextRequest) {
 
         // 2B. Audio Transcoding for Music Files (FLAC / WAV / ALAC / DSF -> High-Res MP3 320k)
         const isAudio = ['.flac', '.wav', '.m4a', '.aac', '.ogg', '.opus', '.ape', '.dsf', '.wma', '.mp3', '.aiff'].includes(ext);
-        if (isAudio && (transcode === 'audio' || transcode === 'aac' || transcode === 'mp3' || transcode === 'true')) {
+        if (isAudio && ext !== '.mp3' && (transcode === 'audio' || transcode === 'aac' || transcode === 'mp3' || transcode === 'true')) {
             try {
                 const { ffmpegPath } = ensureFfmpegBinaries();
                 const ffmpegArgs = [

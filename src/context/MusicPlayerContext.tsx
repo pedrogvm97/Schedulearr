@@ -52,6 +52,10 @@ export interface MediaItem {
     source?: string;
     youtubeId?: string;
     isLocal?: boolean;
+    instanceId?: string;
+    instanceName?: string;
+    libraryId?: string;
+    libraryName?: string;
 }
 
 interface LyricsData {
@@ -114,13 +118,13 @@ const MusicPlayerContext = createContext<MusicPlayerContextType | null>(null);
 function formatBytes(bytes: number): string {
     if (!bytes || bytes === 0) return '0 B';
     const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
 
 function formatTime(seconds: number): string {
-    if (isNaN(seconds) || seconds < 0) return '0:00';
+    if (!Number.isFinite(seconds) || isNaN(seconds) || seconds <= 0) return '0:00';
     const m = Math.floor(seconds / 60);
     const s = Math.floor(seconds % 60);
     return `${m}:${s < 10 ? '0' : ''}${s}`;
@@ -658,7 +662,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         if (!item) return { label: 'Audio', shortLabel: 'Audio', sublabel: 'Idle', type: 'unknown', isLocal: false, isPlex: false, isYt: false, isOnline: false, colorClass: 'bg-zinc-800 text-zinc-300 border-zinc-700' };
 
         const stream = currentStreamUrl || item.streamUrl || '';
-        const isPlex = stream.includes('plexPart=') || stream.includes('/api/plex') || item.id?.startsWith('plex-') || Boolean((item as any).plexPart);
+        const isPlex = stream.includes('plexPart=') || stream.includes('/api/plex') || item.id?.startsWith('plex-') || Boolean((item as any).plexPart) || Boolean(item.instanceId && !item.id?.startsWith('yt-'));
         const isYt = Boolean(
             item.youtubeId || 
             item.id?.startsWith('yt-') || 
@@ -672,35 +676,15 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             stream.includes('ytId=')
         );
 
-        // 1. Local Disk File / Downloaded
-        const hasLocalPath = Boolean(item.path && !isPlex && (item.path.startsWith('/') || item.path.includes('\\') || item.path.includes(':')));
-        const isLocalFlag = Boolean(item.isLocal || (item as any).isDownloaded || (item as any).downloaded);
-        const isLocalStream = stream.includes('/api/theater/stream?path=') || stream.includes('/api/theater/music/download?path=');
-
-        if ((hasLocalPath || isLocalFlag || isLocalStream) && !isPlex) {
-            const isTranscoding = stream.includes('transcode=audio') || stream.includes('transcode=mp3');
-            const ext = (item.extension || (item.path ? item.path.split('.').pop() : '') || 'MP3').toUpperCase();
-            return {
-                label: isTranscoding ? `Local File (Transcode ${ext})` : `Local File / Download (${ext})`,
-                shortLabel: isTranscoding ? `Local Transcode` : `Local File (${ext})`,
-                sublabel: item.path || 'Local Storage',
-                type: 'local',
-                isLocal: true,
-                isPlex: false,
-                isYt: false,
-                isOnline: false,
-                colorClass: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-sm'
-            };
-        }
-
-        // 2. Plex Server Stream
+        // 1. Plex Server Stream (Instance & Library)
         if (isPlex) {
-            const isTranscoding = stream.includes('transcode=audio') || stream.includes('transcode=mp3');
-            const ext = (item.extension || 'AUDIO').toUpperCase();
+            const inst = item.instanceName || 'Server';
+            const lib = item.libraryName ? `${item.libraryName}` : 'Music';
+            const ext = (item.extension || 'MP3').toUpperCase();
             return {
-                label: isTranscoding ? `Plex Server (Transcode ${ext})` : `Plex Server Stream (${ext})`,
-                shortLabel: isTranscoding ? `Plex Transcode` : `Plex Stream`,
-                sublabel: 'Plex Media Server',
+                label: `Plex: ${inst}`,
+                shortLabel: `Plex (${inst})`,
+                sublabel: `${lib} • ${ext}`,
                 type: 'plex',
                 isLocal: false,
                 isPlex: true,
@@ -710,13 +694,35 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             };
         }
 
+        // 2. Local Disk File / Server Library
+        const hasLocalPath = Boolean(item.path && (item.path.startsWith('/') || item.path.includes('\\') || item.path.includes(':')));
+        const isLocalFlag = Boolean(item.isLocal || (item as any).isDownloaded || (item as any).downloaded);
+        const isLocalStream = stream.includes('/api/theater/stream?path=') || stream.includes('/api/theater/music/download?path=');
+
+        if (hasLocalPath || isLocalFlag || isLocalStream) {
+            const lib = item.libraryName || 'Server Library';
+            const ext = (item.extension || (item.path ? item.path.split('.').pop() : '') || 'MP3').toUpperCase();
+            const folder = item.path ? item.path.split(/[/\\]/).slice(-2, -1)[0] : '';
+            return {
+                label: `Server: ${lib}`,
+                shortLabel: `Server (${lib})`,
+                sublabel: folder ? `${folder} • ${ext}` : (item.path || 'Server Storage'),
+                type: 'local',
+                isLocal: true,
+                isPlex: false,
+                isYt: false,
+                isOnline: false,
+                colorClass: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-sm'
+            };
+        }
+
         // 3. YouTube Music Stream
         if (isYt) {
             const cleanYt = item.youtubeId || (item.id?.startsWith('yt-') ? item.id.replace('yt-', '') : '');
             return {
-                label: 'YouTube Music Stream',
-                shortLabel: 'YouTube Stream',
-                sublabel: cleanYt ? `YouTube ID: ${cleanYt}` : 'YouTube Audio Stream',
+                label: 'Online: YouTube',
+                shortLabel: 'YouTube',
+                sublabel: cleanYt ? `ID: ${cleanYt}` : 'Audio Stream',
                 type: 'youtube',
                 isLocal: false,
                 isPlex: false,
@@ -726,15 +732,15 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             };
         }
 
-        // 4. Online Music Search / Spotify / Deezer / iTunes Stream
+        // 4. Online Music Search (Deezer / iTunes / Spotify)
         const isOnlineSearch = stream.includes('/api/theater/music/stream') || item.id?.startsWith('online-') || item.id?.startsWith('deezer-') || item.id?.startsWith('itunes-') || item.id?.startsWith('spotify-');
-        const providerName = item.source || (item.id?.startsWith('deezer-') ? 'Deezer' : item.id?.startsWith('itunes-') ? 'Apple/iTunes' : item.id?.startsWith('spotify-') ? 'Spotify' : 'Online Engine');
+        const providerName = item.source || (item.id?.startsWith('deezer-') ? 'Deezer' : item.id?.startsWith('itunes-') ? 'Apple' : item.id?.startsWith('spotify-') ? 'Spotify' : 'Online');
 
         if (isOnlineSearch) {
             return {
-                label: `${providerName} Stream`,
-                shortLabel: `${providerName} Stream`,
-                sublabel: 'Online Web Audio Engine',
+                label: `Online: ${providerName}`,
+                shortLabel: providerName,
+                sublabel: 'Web Audio Engine',
                 type: 'online',
                 isLocal: false,
                 isPlex: false,
@@ -745,9 +751,9 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         }
 
         return {
-            label: 'Web Audio Stream',
+            label: 'Web Stream',
             shortLabel: 'Web Stream',
-            sublabel: stream || 'Network Audio',
+            sublabel: stream ? 'Network Stream' : 'Audio Stream',
             type: 'stream',
             isLocal: false,
             isPlex: false,
@@ -841,8 +847,12 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     const [audioSpecsData, setAudioSpecsData] = useState<any>(null);
     const [audioSpecsLoading, setAudioSpecsLoading] = useState(false);
 
-    // Native Casting States
+    // Native Casting & Audio Output States
     const [isCastPickerModalOpen, setIsCastPickerModalOpen] = useState(false);
+    const [availableAudioOutputs, setAvailableAudioOutputs] = useState<MediaDeviceInfo[]>([]);
+    const [selectedAudioOutputId, setSelectedAudioOutputId] = useState<string>('default');
+    const [isCastingToGoogle, setIsCastingToGoogle] = useState(false);
+    const [activeCastDeviceName, setActiveCastDeviceName] = useState<string | null>(null);
     const [isGrabbingTrack, setIsGrabbingTrack] = useState(false);
 
     // Synchronize Audio Current Line
@@ -1328,10 +1338,28 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         }
     };
 
-    const openCastPicker = async (target?: MediaItem) => {
-        const itemToCast = target || playingAudio;
+    const refreshAudioOutputs = async () => {
+        try {
+            if (typeof navigator !== 'undefined' && navigator.mediaDevices?.enumerateDevices) {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const outputs = devices.filter(d => d.kind === 'audiooutput');
+                setAvailableAudioOutputs(outputs);
+            }
+        } catch (e) {
+            console.warn('Could not enumerate audio outputs:', e);
+        }
+    };
 
-        // 1. Google Cast Web Framework (Standard Cast device picker for Smart TVs / Chromecasts)
+    const openCastPicker = async (target?: MediaItem) => {
+        await refreshAudioOutputs();
+        setIsCastPickerModalOpen(true);
+    };
+
+    const triggerGoogleCast = async (target?: MediaItem) => {
+        const itemToCast = target || playingAudio;
+        if (!itemToCast) return;
+
+        // 1. Google Cast Web Framework
         try {
             if (typeof window !== 'undefined' && (window as any).cast?.framework) {
                 const castContext = (window as any).cast.framework.CastContext.getInstance();
@@ -1343,58 +1371,96 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                 } catch {}
                 await castContext.requestSession();
                 const session = castContext.getCurrentSession();
-                if (session && itemToCast) {
-                    const stream = itemToCast.streamUrl || `${window.location.origin}/api/theater/music/stream?ytId=${itemToCast.youtubeId || itemToCast.id}`;
-                    const mediaInfo = new (window as any).chrome.cast.media.MediaInfo(stream, 'audio/mp4');
+                if (session) {
+                    const rawStream = itemToCast.streamUrl || `/api/theater/music/stream?ytId=${itemToCast.youtubeId || itemToCast.id}`;
+                    // Absolute URL required for Google Cast receiver on Smart TV
+                    const fullStream = rawStream.startsWith('http') ? rawStream : `${window.location.origin}${rawStream}`;
+                    const mediaInfo = new (window as any).chrome.cast.media.MediaInfo(fullStream, 'audio/mpeg');
                     mediaInfo.metadata = new (window as any).chrome.cast.media.MusicTrackMediaMetadata();
                     mediaInfo.metadata.title = itemToCast.title;
                     mediaInfo.metadata.artist = itemToCast.artist;
+                    if (itemToCast.album) mediaInfo.metadata.albumName = itemToCast.album;
                     if (itemToCast.posterUrl) {
-                        mediaInfo.metadata.images = [{ url: itemToCast.posterUrl }];
+                        const poster = itemToCast.posterUrl.startsWith('http') ? itemToCast.posterUrl : `${window.location.origin}${itemToCast.posterUrl}`;
+                        mediaInfo.metadata.images = [{ url: poster }];
                     }
                     const request = new (window as any).chrome.cast.media.LoadRequest(mediaInfo);
-                    session.loadMedia(request);
-                    toast.success(`Casting "${itemToCast.title}"!`);
+                    await session.loadMedia(request);
+
+                    // Crucial: Pause local audio on laptop so only TV plays!
+                    if (audioRef.current) {
+                        audioRef.current.pause();
+                    }
+                    setIsAudioPlaying(false);
+                    setAudioPlaybackStatus('paused');
+                    setIsCastingToGoogle(true);
+                    const devName = session.getCastDevice()?.friendlyName || 'Smart TV';
+                    setActiveCastDeviceName(devName);
+                    toast.success(`Casting "${itemToCast.title}" to ${devName}!`);
+                    setIsCastPickerModalOpen(false);
                     return;
                 }
             }
         } catch (err: any) {
-            console.log('Google Cast request:', err);
+            console.warn('Google Cast framework error:', err);
         }
 
-        // 2. Native HTMLMediaElement Remote Playback API (Chrome, Edge, Android Cast prompt)
+        // 2. Native Remote Playback API (Edge / Chrome / Android)
         if (audioRef.current && 'remote' in audioRef.current && typeof (audioRef.current as any).remote?.prompt === 'function') {
             try {
                 await (audioRef.current as any).remote.prompt();
                 toast.success('Connected to Cast device!');
+                setIsCastPickerModalOpen(false);
                 return;
             } catch (e: any) {
-                if (e.name === 'NotAllowedError' || e.name === 'NotFoundError') {
-                    return;
+                if (e.name !== 'NotAllowedError' && e.name !== 'NotFoundError') {
+                    toast.error(`Remote playback error: ${e.message}`);
                 }
             }
         }
 
-        // 3. Apple WebKit AirPlay Picker (iOS Safari, macOS Safari)
+        // 3. Apple WebKit AirPlay Picker
         if (audioRef.current && typeof (audioRef.current as any).webkitShowPlaybackTargetPicker === 'function') {
             try {
                 (audioRef.current as any).webkitShowPlaybackTargetPicker();
+                setIsCastPickerModalOpen(false);
                 return;
             } catch {}
         }
 
-        // 4. W3C Presentation API (Wireless display / Cast Receiver)
-        if (typeof window !== 'undefined' && 'PresentationRequest' in window) {
-            try {
-                const request = new (window as any).PresentationRequest([window.location.origin + '/tv']);
-                request.start().then(() => {
-                    toast.success('Connected to Display / Cast!');
-                }).catch(() => {});
-                return;
-            } catch {}
-        }
+        toast.error('Could not initiate Google Cast session. Please verify your TV is powered on and on the same network.');
+    };
 
-        toast.info('Searching for Chromecast and Cast devices on your network...');
+    const stopGoogleCast = () => {
+        try {
+            if (typeof window !== 'undefined' && (window as any).cast?.framework) {
+                const castContext = (window as any).cast.framework.CastContext.getInstance();
+                castContext.endCurrentSession(true);
+            }
+        } catch {}
+        setIsCastingToGoogle(false);
+        setActiveCastDeviceName(null);
+        toast.success('Cast disconnected. Playback resumed locally.');
+        if (audioRef.current) {
+            audioRef.current.play().catch(() => {});
+            setIsAudioPlaying(true);
+        }
+    };
+
+    const selectAudioOutputDevice = async (deviceId: string, deviceLabel?: string) => {
+        try {
+            if (audioRef.current && typeof (audioRef.current as any).setSinkId === 'function') {
+                await (audioRef.current as any).setSinkId(deviceId);
+                setSelectedAudioOutputId(deviceId);
+                toast.success(`Audio output switched to: ${deviceLabel || 'Selected Device'}`);
+                setIsCastPickerModalOpen(false);
+            } else {
+                toast.info('Browser audio output switching is not supported by your browser. Please select this device in your OS Sound Settings.');
+            }
+        } catch (err: any) {
+            console.error('Failed to set audio sink:', err);
+            toast.error(`Audio device error: ${err.message}`);
+        }
     };
 
     const getYtId = (track: MediaItem | null): string | null => {
@@ -1630,11 +1696,16 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         }
     };
 
+    // ── Safe Effective Duration Fallback (Handles chunked stream Infinity/NaN) ──
+    const effectiveDuration = Number.isFinite(audioDuration) && audioDuration > 0
+        ? audioDuration
+        : (playingAudio?.durationMs ? playingAudio.durationMs / 1000 : 0);
+
     // ── Vinyl DJ Scratch & Tonearm Interaction Handlers (Fixed & Solid) ──
     const effectiveTonearmAngle = tonearmCustomAngle !== null
         ? tonearmCustomAngle
         : isAudioPlaying
-            ? 18 + (audioDuration > 0 ? Math.min(16, (audioCurrentTime / audioDuration) * 16) : 6)
+            ? 18 + (effectiveDuration > 0 ? Math.min(16, (audioCurrentTime / effectiveDuration) * 16) : 6)
             : 0;
 
     const tonearmPointerStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -2343,8 +2414,11 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                 }}
                 onLoadedMetadata={() => {
                     if (audioRef.current) {
-                        setAudioDuration(audioRef.current.duration);
-                        addAudioNerdLog('info', `Loaded audio metadata: duration ${audioRef.current.duration?.toFixed(1)}s`);
+                        const raw = audioRef.current.duration;
+                        const fallbackDur = playingAudio?.durationMs ? playingAudio.durationMs / 1000 : 0;
+                        const finalDur = Number.isFinite(raw) && raw > 0 ? raw : fallbackDur;
+                        setAudioDuration(finalDur);
+                        addAudioNerdLog('info', `Loaded audio metadata: duration ${finalDur > 0 ? finalDur.toFixed(1) + 's' : 'live'}`);
                     }
                 }}
                 onEnded={() => {
@@ -2424,7 +2498,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                     <div className="absolute top-0 left-0 right-0 h-1 bg-zinc-800/60">
                         <div
                             className="h-full bg-gradient-to-r from-amber-500 to-amber-400 transition-all duration-150"
-                            style={{ width: `${audioDuration > 0 ? (audioCurrentTime / audioDuration) * 100 : 0}%` }}
+                            style={{ width: `${effectiveDuration > 0 ? Math.min(100, Math.max(0, (audioCurrentTime / effectiveDuration) * 100)) : 0}%` }}
                         />
                     </div>
 
@@ -2570,12 +2644,12 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 <input
                                     type="range"
                                     min={0}
-                                    max={audioDuration || 100}
+                                    max={effectiveDuration || 100}
                                     value={audioCurrentTime}
                                     onChange={e => seekTo(Number(e.target.value))}
                                     className="flex-1 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500 min-w-0"
                                 />
-                                <span className="w-8 shrink-0">{formatTime(audioDuration)}</span>
+                                <span className="w-8 shrink-0">{formatTime(effectiveDuration)}</span>
                             </div>
                         </div>
 
@@ -2912,14 +2986,14 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                     <input
                                         type="range"
                                         min={0}
-                                        max={audioDuration || 100}
+                                        max={effectiveDuration || 100}
                                         value={audioCurrentTime}
                                         onChange={e => seekTo(Number(e.target.value))}
                                         className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
                                     />
                                     <div className="flex justify-between text-xs font-mono text-zinc-500 font-bold">
                                         <span>{formatTime(audioCurrentTime)}</span>
-                                        <span>{formatTime(audioDuration)}</span>
+                                        <span>{formatTime(effectiveDuration)}</span>
                                     </div>
                                 </div>
 
@@ -3216,14 +3290,14 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 <input
                                     type="range"
                                     min={0}
-                                    max={audioDuration || 100}
+                                    max={effectiveDuration || 100}
                                     value={audioCurrentTime}
                                     onChange={e => seekTo(Number(e.target.value))}
                                     className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
                                 />
                                 <div className="flex justify-between text-[11px] font-mono text-zinc-500 font-bold">
                                     <span>{formatTime(audioCurrentTime)}</span>
-                                    <span>{formatTime(audioDuration)}</span>
+                                    <span>{formatTime(effectiveDuration)}</span>
                                 </div>
                             </div>
 
@@ -4143,8 +4217,8 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                 <div className="flex items-center gap-1 text-[11px] font-mono text-zinc-400">
                                                     <span className="text-amber-400 font-bold">{formatTime(audioCurrentTime)}</span>
                                                     <span>/</span>
-                                                    <span>{formatTime(audioDuration)}</span>
-                                                    <span className="text-zinc-600">({audioDuration > 0 ? Math.round((audioCurrentTime / audioDuration) * 100) : 0}%)</span>
+                                                    <span>{formatTime(effectiveDuration)}</span>
+                                                    <span className="text-zinc-600">({effectiveDuration > 0 ? Math.round((audioCurrentTime / effectiveDuration) * 100) : 0}%)</span>
                                                 </div>
                                             </div>
 
@@ -4152,7 +4226,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                             <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
                                                 <div
                                                     className="h-full bg-gradient-to-r from-amber-500 to-amber-300 transition-all duration-150"
-                                                    style={{ width: `${audioDuration > 0 ? (audioCurrentTime / audioDuration) * 100 : 0}%` }}
+                                                    style={{ width: `${effectiveDuration > 0 ? Math.min(100, Math.max(0, (audioCurrentTime / effectiveDuration) * 100)) : 0}%` }}
                                                 />
                                             </div>
                                         </div>
@@ -4404,14 +4478,16 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                             `Artist: ${playingAudio?.artist || 'Unknown'}`,
                                                             `Album: ${playingAudio?.album || 'Unknown'}`,
                                                             `Format: ${playingAudio?.extension || 'Unknown'}`,
-                                                            `Source Type: ${srcInfo.label}`,
-                                                            `Source Detail: ${srcInfo.sublabel}`,
+                                                            `Instance: ${playingAudio?.instanceName || 'Server'}`,
+                                                            `Library: ${playingAudio?.libraryName || 'None'}`,
+                                                            `Source: ${srcInfo.label}`,
+                                                            `Detail: ${srcInfo.sublabel}`,
                                                             `Disk Path: ${playingAudio?.path || 'None (Remote / Stream)'}`,
                                                             `Stream URL: ${audioRef.current?.currentSrc || playingAudio?.streamUrl || 'None'}`,
                                                             `Status: ${audioPlaybackStatus}`,
                                                             `Ready State: ${audioRef.current?.readyState}`,
                                                             `Network State: ${audioRef.current?.networkState}`,
-                                                            `Duration: ${audioDuration}s, Current: ${audioCurrentTime}s`,
+                                                            `Duration: ${formatTime(audioCurrentTime)} / ${formatTime(effectiveDuration)}`,
                                                             `Active Error: ${JSON.stringify(audioPlaybackError)}`,
                                                             `\n## Event Logs (${audioLogOrder === 'newest' ? 'Newest First' : 'Oldest First'}):\n` + 
                                                             (audioLogOrder === 'newest' ? [...audioNerdLogs].reverse() : audioNerdLogs)
@@ -5777,7 +5853,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                             {isAudioPlaying ? <Pause size={18} /> : <Play size={18} className="ml-0.5" />}
                                         </button>
                                         <div className="text-xs font-mono text-zinc-400">
-                                            <span>{formatTime(audioCurrentTime)}</span> / <span>{formatTime(audioDuration)}</span>
+                                            <span>{formatTime(audioCurrentTime)}</span> / <span>{formatTime(effectiveDuration)}</span>
                                         </div>
                                     </div>
 
@@ -5976,9 +6052,9 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                ══════════════════════════════════════════════════════════════ */}
             {showAudioNerdModal && (
                 <div className="fixed inset-0 z-[300] bg-black/85 backdrop-blur-xl flex items-center justify-center p-4 animate-in fade-in duration-200">
-                    <div className="bg-zinc-950 border border-zinc-800 w-full max-w-2xl max-h-[85vh] rounded-3xl p-6 shadow-2xl flex flex-col space-y-4">
-                        {/* Modal Header */}
-                        <div className="flex items-center justify-between border-b border-zinc-900 pb-3">
+                    <div className="bg-zinc-950 border border-zinc-800 w-full max-w-2xl max-h-[88vh] rounded-3xl p-6 shadow-2xl flex flex-col overflow-hidden">
+                        {/* Modal Header (Pinned) */}
+                        <div className="flex items-center justify-between border-b border-zinc-900 pb-3 shrink-0">
                             <div className="flex items-center gap-2.5">
                                 <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
                                     <Terminal size={18} />
@@ -5994,13 +6070,15 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             </div>
                             <button
                                 onClick={() => setShowAudioNerdModal(false)}
-                                className="p-2 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-900 transition-all"
+                                className="p-2 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-900 transition-all cursor-pointer"
                             >
                                 <X size={18} />
                             </button>
                         </div>
 
-                        {/* Playback Source & Origin Banner */}
+                        {/* Scrollable Body Container */}
+                        <div className="flex-1 min-h-0 overflow-y-auto py-3 space-y-4 custom-scrollbar pr-1">
+                            {/* Playback Source & Origin Banner */}
                         {playingAudio && (() => {
                             const srcInfo = getAudioSourceInfo(playingAudio, audioRef.current?.src);
                             return (
@@ -6213,14 +6291,16 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             </div>
                         </div>
 
-                        {/* Modal Footer Controls */}
-                        <div className="pt-2 border-t border-zinc-900 flex items-center justify-between gap-3">
+                        </div>
+
+                        {/* Modal Footer Controls (Pinned) */}
+                        <div className="shrink-0 pt-3 border-t border-zinc-900 flex items-center justify-between gap-3 bg-zinc-950">
                             <div className="flex items-center gap-2">
                                 <button
                                     onClick={handleForceAudioTranscode}
-                                    className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md shadow-amber-500/20 cursor-pointer"
+                                    className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md shadow-amber-500/20 cursor-pointer"
                                 >
-                                    <Zap size={13} /> Force Server Transcode
+                                    <Zap size={14} /> Force Server Transcode
                                 </button>
                                 <button
                                     onClick={() => {
@@ -6231,9 +6311,9 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                             audioRef.current.play().catch(() => {});
                                         }
                                     }}
-                                    className="px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs border border-zinc-800 flex items-center gap-1.5 transition-all cursor-pointer"
+                                    className="px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs border border-zinc-800 flex items-center gap-1.5 transition-all cursor-pointer"
                                 >
-                                    <RotateCcw size={13} /> Retry
+                                    <RotateCcw size={14} /> Retry
                                 </button>
                             </div>
 
@@ -6245,15 +6325,18 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         `Time: ${new Date().toISOString()}`,
                                         `Track: ${playingAudio?.title || 'None'}`,
                                         `Artist: ${playingAudio?.artist || 'Unknown'}`,
+                                        `Album: ${playingAudio?.album || 'Unknown'}`,
                                         `Format: ${playingAudio?.extension || 'Unknown'}`,
-                                        `Source Type: ${srcInfo.label}`,
-                                        `Source Detail: ${srcInfo.sublabel}`,
+                                        `Instance: ${playingAudio?.instanceName || 'Server'}`,
+                                        `Library: ${playingAudio?.libraryName || 'None'}`,
+                                        `Source: ${srcInfo.label}`,
+                                        `Detail: ${srcInfo.sublabel}`,
                                         `Disk Path: ${playingAudio?.path || 'None (Remote / Stream)'}`,
                                         `Stream URL: ${audioRef.current?.currentSrc || playingAudio?.streamUrl || 'None'}`,
                                         `Status: ${audioPlaybackStatus}`,
                                         `Ready State: ${audioRef.current?.readyState}`,
                                         `Network State: ${audioRef.current?.networkState}`,
-                                        `Duration: ${audioDuration}s, Current: ${audioCurrentTime}s`,
+                                        `Duration: ${formatTime(audioCurrentTime)} / ${formatTime(effectiveDuration)}`,
                                         `Active Error: ${JSON.stringify(audioPlaybackError)}`,
                                         `\n## Event Logs (${audioLogOrder === 'newest' ? 'Newest First' : 'Oldest First'}):\n` + 
                                         (audioLogOrder === 'newest' ? [...audioNerdLogs].reverse() : audioNerdLogs)
@@ -6261,9 +6344,189 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                     ].join('\n');
                                     copyReportToClipboard(report);
                                 }}
-                                className="px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-bold text-xs border border-zinc-800 flex items-center gap-1.5 transition-all cursor-pointer"
+                                className="px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white font-bold text-xs border border-zinc-800 flex items-center gap-1.5 transition-all cursor-pointer"
                             >
-                                <Copy size={13} /> Copy Report
+                                <Copy size={14} /> Copy Report
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ══════════════════════════════════════════════════════════════
+               CAST & AUDIO OUTPUT DEVICE PICKER MODAL (TV & SOUNDBAR)
+               ══════════════════════════════════════════════════════════════ */}
+            {isCastPickerModalOpen && (
+                <div
+                    onClick={(e) => { if (e.target === e.currentTarget) setIsCastPickerModalOpen(false); }}
+                    className="fixed inset-0 z-[320] bg-black/85 backdrop-blur-xl flex items-center justify-center p-4 animate-in fade-in duration-200 select-none"
+                >
+                    <div className="bg-zinc-950 border border-zinc-800 w-full max-w-xl max-h-[90vh] rounded-3xl p-6 shadow-2xl flex flex-col space-y-5 overflow-hidden">
+                        {/* Header */}
+                        <div className="flex items-center justify-between border-b border-zinc-900 pb-3.5 shrink-0">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2.5 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                                    <Cast size={22} />
+                                </div>
+                                <div>
+                                    <h3 className="text-base sm:text-lg font-black text-white flex items-center gap-2">
+                                        Cast & Audio Output
+                                    </h3>
+                                    <p className="text-xs text-zinc-400">
+                                        Stream to Smart TVs, Chromecasts, and Sony soundbars (HT-8000)
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setIsCastPickerModalOpen(false)}
+                                className="p-2 rounded-xl text-zinc-500 hover:text-white hover:bg-zinc-900 transition-all cursor-pointer"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        {/* Scrollable Body */}
+                        <div className="flex-1 min-h-0 overflow-y-auto space-y-4 custom-scrollbar pr-1">
+                            {/* Section 1: Google Cast / Smart TV */}
+                            <div className="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800 space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2.5">
+                                        <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                            <Tv size={18} />
+                                        </div>
+                                        <div>
+                                            <h4 className="text-sm font-bold text-white">Google Cast / Smart TV</h4>
+                                            <p className="text-[11px] text-zinc-400">Chromecast, Google TV, Android TV & Smart Displays</p>
+                                        </div>
+                                    </div>
+                                    {isCastingToGoogle && (
+                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 animate-pulse">
+                                            Connected
+                                        </span>
+                                    )}
+                                </div>
+
+                                {isCastingToGoogle ? (
+                                    <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-950 border border-zinc-800">
+                                        <span className="text-xs text-zinc-300 font-mono">
+                                            Casting to: <b className="text-amber-400 font-bold">{activeCastDeviceName || 'Smart TV'}</b>
+                                        </span>
+                                        <button
+                                            onClick={stopGoogleCast}
+                                            className="px-3 py-1.5 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 text-xs font-bold transition-all cursor-pointer"
+                                        >
+                                            Disconnect Cast
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <button
+                                        onClick={() => triggerGoogleCast(playingAudio || undefined)}
+                                        className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all shadow-md shadow-amber-500/20 cursor-pointer"
+                                    >
+                                        <Cast size={15} /> Cast to Smart TV
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Section 2: Audio Output Devices (Sony Soundbar / Bluetooth / HDMI) */}
+                            <div className="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800 space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2.5">
+                                        <div className="p-2 rounded-xl bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                                            <Radio size={18} />
+                                        </div>
+                                        <div>
+                                            <h4 className="text-sm font-bold text-white">Audio Outputs & Soundbars</h4>
+                                            <p className="text-[11px] text-zinc-400">Sony HT-8000, Bluetooth Speakers & HDMI</p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={refreshAudioOutputs}
+                                        className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all text-xs flex items-center gap-1 cursor-pointer"
+                                        title="Scan for connected audio devices"
+                                    >
+                                        <RotateCcw size={13} />
+                                        <span className="text-[11px]">Refresh</span>
+                                    </button>
+                                </div>
+
+                                {availableAudioOutputs.length > 0 ? (
+                                    <div className="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar">
+                                        {availableAudioOutputs.map(dev => {
+                                            const isSelected = selectedAudioOutputId === dev.deviceId;
+                                            const label = dev.label || `Audio Output (${dev.deviceId.slice(0, 8)})`;
+                                            const isSony = label.toLowerCase().includes('sony') || label.toLowerCase().includes('ht-');
+                                            return (
+                                                <div
+                                                    key={dev.deviceId}
+                                                    onClick={() => selectAudioOutputDevice(dev.deviceId, dev.label)}
+                                                    className={`p-3 rounded-xl border transition-all flex items-center justify-between cursor-pointer ${
+                                                        isSelected
+                                                            ? 'bg-amber-500/15 border-amber-500 text-white font-bold'
+                                                            : 'bg-zinc-950/80 border-zinc-800/80 text-zinc-300 hover:border-zinc-700 hover:bg-zinc-900'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center gap-2.5 min-w-0">
+                                                        <span className="text-amber-400 text-xs">🔊</span>
+                                                        <div className="min-w-0">
+                                                            <div className="text-xs font-bold truncate flex items-center gap-1.5">
+                                                                <span>{label}</span>
+                                                                {isSony && (
+                                                                    <span className="px-1.5 py-0.2 rounded text-[9px] bg-purple-500/20 text-purple-300 border border-purple-500/40 uppercase font-mono">
+                                                                        Soundbar
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    {isSelected ? (
+                                                        <span className="text-[10px] font-black uppercase text-amber-400 flex items-center gap-1">
+                                                            <Check size={13} /> Active
+                                                        </span>
+                                                    ) : (
+                                                        <button
+                                                            className="px-2.5 py-1 rounded-lg bg-zinc-900 text-zinc-300 hover:text-white border border-zinc-800 text-[11px] font-bold"
+                                                        >
+                                                            Select
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                ) : (
+                                    <div className="p-3 rounded-xl bg-zinc-950 border border-zinc-800 text-center space-y-1">
+                                        <p className="text-xs text-zinc-400">
+                                            No additional audio outputs reported by browser.
+                                        </p>
+                                    </div>
+                                )}
+
+                                {/* Sony HT-8000 Soundbar Workaround Card */}
+                                <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs space-y-1.5">
+                                    <div className="flex items-center gap-1.5 font-bold text-amber-400">
+                                        <AlertCircle size={14} className="shrink-0" />
+                                        <span>Sony HT-8000 Soundbar Guide</span>
+                                    </div>
+                                    <p className="text-[11px] text-zinc-300 leading-relaxed">
+                                        Sony HT series soundbars (HT-8000 / HT-A8000) connect via <b>Spotify Connect, Bluetooth, or HDMI eARC</b> rather than native Google Cast.
+                                    </p>
+                                    <ol className="text-[11px] text-zinc-400 list-decimal list-inside space-y-0.5 leading-normal">
+                                        <li>Pair the Sony Soundbar to this device via <b>Bluetooth</b> (or connect via HDMI eARC).</li>
+                                        <li>Select it above from the detected Audio Outputs list (or set it in your system sound settings).</li>
+                                        <li>Music from Schedulearr will stream directly to your Sony Soundbar with lossless quality and zero lag.</li>
+                                    </ol>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Pinned Footer */}
+                        <div className="pt-2 border-t border-zinc-900 flex items-center justify-end shrink-0">
+                            <button
+                                onClick={() => setIsCastPickerModalOpen(false)}
+                                className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs border border-zinc-800 transition-all cursor-pointer"
+                            >
+                                Close
                             </button>
                         </div>
                     </div>

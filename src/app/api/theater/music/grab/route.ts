@@ -7,6 +7,7 @@ import util from 'util';
 import db, { getTheaterLibraries, clearCachedTheaterItems, getInstances } from '@/lib/db';
 import { ensureFfmpegBinaries } from '@/lib/ytdlp';
 import { downloadAudioFile } from '@/lib/musicDownloader';
+import { resolveLocalPath } from '@/app/api/theater/stream/route';
 
 const execPromise = util.promisify(exec);
 
@@ -56,7 +57,10 @@ export async function POST(req: Request) {
             coverUrl,
             targetFolder,
             sourceFormat = 'm4a',
-            saveFormat = (body.audioFormat || 'original')
+            saveFormat = (body.audioFormat || 'original'),
+            plexSectionId,
+            instanceId,
+            instanceName
         } = body;
 
         if (!title) {
@@ -65,6 +69,12 @@ export async function POST(req: Request) {
 
         // 1. Determine Music Library Root Folder
         let musicRoot = targetFolder;
+        if (musicRoot) {
+            const resolved = resolveLocalPath(musicRoot);
+            if (resolved) {
+                musicRoot = resolved;
+            }
+        }
         if (!musicRoot && libraryId) {
             try {
                 const libRow: any = db.prepare('SELECT folders FROM theater_libraries WHERE id = ?').get(libraryId);
@@ -228,32 +238,32 @@ export async function POST(req: Request) {
             // Invalidate local SQLite Theater cache & trigger background Plex scan
             try {
                 const allLibs = getTheaterLibraries();
-                const matched = allLibs.filter(l => {
-                    if (libraryId && l.id === libraryId) return true;
-                    let folders: string[] = [];
-                    try { folders = typeof l.folders === 'string' ? JSON.parse(l.folders) : (l.folders || []); } catch {}
-                    return folders.some(f => f === musicRoot || musicRoot.startsWith(f) || f.startsWith(musicRoot));
-                });
-                for (const m of matched) clearCachedTheaterItems(m.id);
+                for (const m of allLibs) clearCachedTheaterItems(m.id);
 
                 setTimeout(async () => {
                     try {
                         const plexInstances = getInstances().filter(i => i.type === 'plex' && i.enabled);
-                        for (const plex of plexInstances) {
+                        const targetPlexes = instanceId ? plexInstances.filter(i => i.id === instanceId) : plexInstances;
+                        for (const plex of targetPlexes) {
                             const cleanUrl = plex.url.replace(/\/$/, '');
-                            const secRes = await axios.get(`${cleanUrl}/library/sections`, {
-                                headers: { 'X-Plex-Token': plex.api_key, 'Accept': 'application/json' },
-                                timeout: 5000
-                            }).catch(() => null);
-                            if (secRes?.data?.MediaContainer?.Directory) {
-                                for (const d of secRes.data.MediaContainer.Directory) {
-                                    const locs = (d.Location || []).map((l: any) => l.path);
-                                    const isMatch = locs.some((loc: string) => musicRoot === loc || musicRoot.startsWith(loc) || loc.startsWith(musicRoot));
-                                    if (isMatch || d.type === 'artist') {
-                                        await axios.get(`${cleanUrl}/library/sections/${d.key}/refresh`, {
-                                            headers: { 'X-Plex-Token': plex.api_key },
-                                            timeout: 8000
-                                        }).catch(() => null);
+                            if (plexSectionId) {
+                                await axios.get(`${cleanUrl}/library/sections/${plexSectionId}/refresh`, {
+                                    headers: { 'X-Plex-Token': plex.api_key },
+                                    timeout: 8000
+                                }).catch(() => null);
+                            } else {
+                                const secRes = await axios.get(`${cleanUrl}/library/sections`, {
+                                    headers: { 'X-Plex-Token': plex.api_key, 'Accept': 'application/json' },
+                                    timeout: 5000
+                                }).catch(() => null);
+                                if (secRes?.data?.MediaContainer?.Directory) {
+                                    for (const d of secRes.data.MediaContainer.Directory) {
+                                        if (d.type === 'artist') {
+                                            await axios.get(`${cleanUrl}/library/sections/${d.key}/refresh`, {
+                                                headers: { 'X-Plex-Token': plex.api_key },
+                                                timeout: 8000
+                                            }).catch(() => null);
+                                        }
                                     }
                                 }
                             }

@@ -10,7 +10,7 @@ import { getInstances } from '@/lib/db';
 export async function GET() {
     try {
         const libraries = getTheaterLibraries();
-        const plexMusicLibraries: Array<{ id: string; name: string; path: string; instanceName: string; sectionId: string }> = [];
+        const plexMusicLibraries: Array<{ id: string; name: string; path: string; instanceName: string; instanceId?: string; sectionId: string }> = [];
 
         try {
             const plexInstances = getInstances().filter(i => i.type === 'plex' && i.enabled);
@@ -31,6 +31,7 @@ export async function GET() {
                                 name: `${sec.title || 'Music'} (${plex.name || 'Plex'})`,
                                 path: loc,
                                 instanceName: plex.name || 'Plex',
+                                instanceId: plex.id,
                                 sectionId: String(sec.key)
                             });
                         });

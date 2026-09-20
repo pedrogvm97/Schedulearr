@@ -10,7 +10,7 @@ const VIDEO_EXTS = new Set(['.mp4', '.mkv', '.avi', '.mov', '.webm', '.m4v', '.t
 const AUDIO_EXTS = new Set(['.mp3', '.flac', '.wav', '.m4a', '.aac', '.ogg', '.opus', '.wma']);
 const PHOTO_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.svg']);
 
-function scanDirectory(dirPath: string, maxDepth = 8, currentDepth = 0): any[] {
+function scanDirectory(dirPath: string, maxDepth = 8, currentDepth = 0, lib?: any): any[] {
     if (currentDepth > maxDepth || !fs.existsSync(dirPath)) return [];
 
     let items: any[] = [];
@@ -21,7 +21,7 @@ function scanDirectory(dirPath: string, maxDepth = 8, currentDepth = 0): any[] {
 
             if (entry.isDirectory()) {
                 if (!entry.name.startsWith('.') && entry.name !== '$RECYCLE.BIN' && entry.name !== 'node_modules') {
-                    items.push(...scanDirectory(fullPath, maxDepth, currentDepth + 1));
+                    items.push(...scanDirectory(fullPath, maxDepth, currentDepth + 1, lib));
                 }
             } else if (entry.isFile()) {
                 const ext = path.extname(entry.name).toLowerCase();
@@ -72,7 +72,10 @@ function scanDirectory(dirPath: string, maxDepth = 8, currentDepth = 0): any[] {
                             modifiedAt: stat.mtime.toISOString(),
                             addedAt: (stat.birthtime && stat.birthtime.getTime() > 0 ? stat.birthtime : (stat.ctime || stat.mtime)).toISOString(),
                             posterUrl,
-                            streamUrl: `/api/theater/stream?path=${encodeURIComponent(fullPath)}`
+                            streamUrl: `/api/theater/stream?path=${encodeURIComponent(fullPath)}`,
+                            libraryId: lib?.id,
+                            libraryName: lib?.name || 'Local Storage',
+                            source: `Local (${lib?.name || 'Server Storage'})`
                         });
                     } catch {
                         // ignore unreadable file
@@ -223,7 +226,7 @@ export async function GET(req: Request) {
         // A. Attempt local filesystem scan
         for (const folder of folderList) {
             if (fs.existsSync(folder)) {
-                allItems.push(...scanDirectory(folder, 8));
+                allItems.push(...scanDirectory(folder, 8, 0, lib));
             }
         }
 
@@ -260,33 +263,16 @@ export async function GET(req: Request) {
                             ? `${plexUrl}/library/sections/${targetSectionId}/all?type=10`
                             : `${plexUrl}/library/sections/${targetSectionId}/all`;
 
-                        let itemsRes;
-                        try {
-                            itemsRes = await axios.get(endpoint, {
-                                headers: { 'X-Plex-Token': plex.api_key, 'Accept': 'application/json' },
-                                timeout: 10000
-                            });
-                        } catch (err: any) {
-                            itemsRes = await axios.get(`${plexUrl}/library/sections/${targetSectionId}/all`, {
-                                headers: { 'X-Plex-Token': plex.api_key, 'Accept': 'application/json' },
-                                timeout: 10000
-                            });
-                        }
+                        const res = await axios.get(endpoint, {
+                            headers: { 'X-Plex-Token': plex.api_key, 'Accept': 'application/json' },
+                            timeout: 10000
+                        });
 
-                        let metadata = itemsRes.data?.MediaContainer?.Metadata || [];
-                        if (isMusic && metadata.length === 0) {
-                            try {
-                                const fallbackRes = await axios.get(`${plexUrl}/library/sections/${targetSectionId}/all`, {
-                                    headers: { 'X-Plex-Token': plex.api_key, 'Accept': 'application/json' },
-                                    timeout: 10000
-                                });
-                                metadata = fallbackRes.data?.MediaContainer?.Metadata || [];
-                            } catch {}
-                        }
-
+                        const metadata = res.data?.MediaContainer?.Metadata || [];
                         for (const item of metadata) {
-                            const part = item.Media?.[0]?.Part?.[0];
-                            const partKey = part?.key || '';
+                            const media = item.Media?.[0];
+                            const part = media?.Part?.[0];
+                            const partKey = part?.key;
                             const rawThumb = item.thumb || item.parentThumb || item.grandparentThumb || '';
                             const thumb = rawThumb && !rawThumb.endsWith('/-1') && rawThumb !== '-1' ? rawThumb : '';
                             const posterUrl = thumb ? `/api/proxy?url=${encodeURIComponent(`${plexUrl}${thumb}?X-Plex-Token=${plex.api_key}`)}` : undefined;
@@ -326,7 +312,12 @@ export async function GET(req: Request) {
                                 modifiedAt: item.updatedAt ? new Date(item.updatedAt * 1000).toISOString() : new Date().toISOString(),
                                 addedAt: item.addedAt ? new Date(item.addedAt * 1000).toISOString() : (item.updatedAt ? new Date(item.updatedAt * 1000).toISOString() : new Date().toISOString()),
                                 posterUrl,
-                                streamUrl: partKey ? `/api/theater/stream?plexPart=${encodeURIComponent(partKey)}&instanceId=${plex.id}&ratingKey=${encodeURIComponent(ratingKey)}&localPath=${encodeURIComponent(localFilePath)}` : ''
+                                streamUrl: partKey ? `/api/theater/stream?plexPart=${encodeURIComponent(partKey)}&instanceId=${plex.id}&ratingKey=${encodeURIComponent(ratingKey)}&localPath=${encodeURIComponent(localFilePath)}` : '',
+                                instanceId: plex.id,
+                                instanceName: plex.name || 'Plex',
+                                libraryId: lib.id,
+                                libraryName: lib.name || 'Music',
+                                source: `Plex (${plex.name || 'Plex'})`
                             });
                         }
                     }

@@ -22,6 +22,9 @@ interface DestinationOption {
     path: string;
     type: 'theater' | 'device' | 'plex';
     badge: string;
+    sectionId?: string;
+    instanceName?: string;
+    instanceId?: string;
 }
 
 export function MusicDownloadModal({
@@ -76,7 +79,10 @@ export function MusicDownloadModal({
                             name: plib.name,
                             path: plib.path,
                             type: 'plex',
-                            badge: 'Plex Library'
+                            badge: `Plex: ${plib.instanceName || 'Server'}`,
+                            sectionId: plib.sectionId,
+                            instanceName: plib.instanceName,
+                            instanceId: plib.instanceId
                         });
                     }
 
@@ -350,7 +356,10 @@ export function MusicDownloadModal({
                         album: tAlbum,
                         targetFolder: targetDirectory,
                         saveFormat,
-                        coverUrl: currentTrack.posterUrl || initialPosterUrl
+                        coverUrl: currentTrack.posterUrl || initialPosterUrl,
+                        plexSectionId: targetDest.sectionId,
+                        instanceId: targetDest.instanceId,
+                        instanceName: targetDest.instanceName
                     })
                 });
                 clearInterval(progressTimer);
