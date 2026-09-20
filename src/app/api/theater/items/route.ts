@@ -367,6 +367,15 @@ function resolveLocalPath(filePath: string): string | null {
         decodeURIComponent(filePath).replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"'),
         filePath.replace(/^\/data\//, '/app/data/'),
         filePath.replace(/^\/app\/data\//, '/data/'),
+        filePath.replace(/^\/music\//, '/app/data/music/'),
+        filePath.replace(/^\/media\/music\//, '/app/data/music/'),
+        filePath.replace(/^\/media\//, '/app/data/'),
+        filePath.replace(/^\/mnt\/user\/music\//, '/app/data/music/'),
+        filePath.replace(/^\/mnt\/user\/media\/music\//, '/app/data/music/'),
+        filePath.replace(/^\/mnt\/user\/data\/music\//, '/app/data/music/'),
+        path.join('/app/data/music', filePath.replace(/^\/(app\/)?(data\/)?(music\/)?/, '')),
+        path.join('/music', filePath.replace(/^\/music\/?/, '')),
+        path.join('/media/music', filePath.replace(/^\/(media\/)?(music\/)?/, '')),
         path.join(process.cwd(), filePath),
         path.join('/app', filePath),
         path.join('/app/data', filePath.replace(/^\/(app\/)?data\/?/, '')),
@@ -374,6 +383,21 @@ function resolveLocalPath(filePath: string): string | null {
         path.join('/mnt/user/appdata/schedulearr/data', filePath.replace(/^\/(app\/)?data\/?/, '')),
         path.join('/mnt/user', filePath.replace(/^\//, ''))
     ];
+
+    try {
+        const libs = getTheaterLibraries();
+        for (const l of libs) {
+            for (const f of (l.folders || [])) {
+                if (f && typeof f === 'string') {
+                    if (fs.existsSync(f)) {
+                        candidates.push(path.join(f, path.basename(filePath)));
+                        const rel = filePath.replace(/^\/(mnt\/user\/|data\/|media\/|app\/data\/)?(media\/|music\/)?/, '');
+                        candidates.push(path.join(f, rel));
+                    }
+                }
+            }
+        }
+    } catch {}
 
     for (const c of candidates) {
         if (c && fs.existsSync(c)) {
@@ -383,7 +407,36 @@ function resolveLocalPath(filePath: string): string | null {
 
     // Segment-by-segment case & quote-insensitive directory walker
     try {
-        const bases = ['/data', '/app/data', '/mnt/user/data', '/mnt/user/appdata/schedulearr/data', '/mnt/user', '/app', process.cwd()];
+        const bases = [
+            '/data',
+            '/data/music',
+            '/music',
+            '/media',
+            '/media/music',
+            '/app/data',
+            '/app/data/music',
+            '/mnt/user/data',
+            '/mnt/user/data/music',
+            '/mnt/user/media',
+            '/mnt/user/media/music',
+            '/mnt/user/music',
+            '/mnt/user/appdata/schedulearr/data',
+            '/mnt/user/appdata/schedulearr/data/music',
+            '/mnt/user',
+            '/app',
+            process.cwd()
+        ];
+        try {
+            const libs = getTheaterLibraries();
+            for (const l of libs) {
+                for (const f of (l.folders || [])) {
+                    if (f && typeof f === 'string' && fs.existsSync(f) && !bases.includes(f)) {
+                        bases.unshift(f);
+                    }
+                }
+            }
+        } catch {}
+
         const rawSegments = decodeURIComponent(filePath).split(/[\/\\]/).filter(Boolean);
 
         for (const base of bases) {
@@ -427,64 +480,142 @@ export async function DELETE(req: Request) {
     try {
         const { searchParams } = new URL(req.url);
         const filePath = searchParams.get('path');
-        const folderPath = searchParams.get('folder');
+        const folderPath = searchParams.get('folder') || searchParams.get('folderPath');
         const libraryId = searchParams.get('libraryId');
+        const ratingKey = searchParams.get('ratingKey');
 
-        // 1. Delete single file from disk
+        let fileDeleted = false;
+        let folderDeleted = false;
+        let plexDeleted = false;
+        let targetPathResult: string | null = null;
+        let targetFolderResult: string | null = null;
+
+        // 1. Delete Plex metadata & item if ratingKey provided
+        if (ratingKey) {
+            const plexInstances = getInstances().filter(i => i.type === 'plex' && i.enabled);
+            for (const plex of plexInstances) {
+                try {
+                    const plexUrl = plex.url.replace(/\/$/, '');
+                    await axios.delete(`${plexUrl}/library/metadata/${ratingKey}`, {
+                        headers: { 'X-Plex-Token': plex.api_key },
+                        timeout: 5000
+                    });
+                    plexDeleted = true;
+                } catch (e: any) {
+                    console.warn(`[DELETE] Plex metadata delete error (${plex.name}, ratingKey: ${ratingKey}):`, e.message);
+                }
+            }
+        }
+
+        // 2. Delete single file from disk
         if (filePath) {
             const targetPath = resolveLocalPath(filePath) || filePath;
+            targetPathResult = targetPath;
             if (fs.existsSync(targetPath)) {
                 try {
                     fs.unlinkSync(targetPath);
+                    fileDeleted = true;
                 } catch (delErr: any) {
-                    return NextResponse.json({ error: `Cannot delete file: ${delErr.message}` }, { status: 500 });
+                    console.error(`[DELETE] Cannot delete file: ${delErr.message}`);
+                    if (!plexDeleted) {
+                        return NextResponse.json({ error: `Cannot delete file: ${delErr.message}` }, { status: 500 });
+                    }
                 }
 
                 // If parent directory is now empty (or only contains orphaned cover/folder images), clean it up
                 try {
                     const dir = path.dirname(targetPath);
-                    const remaining = fs.readdirSync(dir);
-                    const isOnlyArtwork = remaining.every(f => {
-                        const low = f.toLowerCase();
-                        return low.includes('cover') || low.includes('folder') || low.includes('albumart') || low.includes('.nfo') || low.includes('.jpg') || low.includes('.png');
-                    });
-                    if (remaining.length === 0 || isOnlyArtwork) {
-                        for (const f of remaining) {
-                            try { fs.unlinkSync(path.join(dir, f)); } catch {}
+                    if (fs.existsSync(dir)) {
+                        const remaining = fs.readdirSync(dir);
+                        const isOnlyArtwork = remaining.every(f => {
+                            const low = f.toLowerCase();
+                            return low.includes('cover') || low.includes('folder') || low.includes('albumart') || low.includes('.nfo') || low.includes('.jpg') || low.includes('.png');
+                        });
+                        if (remaining.length === 0 || isOnlyArtwork) {
+                            for (const f of remaining) {
+                                try { fs.unlinkSync(path.join(dir, f)); } catch {}
+                            }
+                            try { fs.rmdirSync(dir); } catch {}
                         }
-                        try { fs.rmdirSync(dir); } catch {}
                     }
                 } catch {}
-
-                if (libraryId) clearCachedTheaterItems(libraryId);
-                else clearCachedTheaterItems();
-
-                return NextResponse.json({ success: true, deletedPath: targetPath });
-            } else {
-                return NextResponse.json({ error: 'File not found on disk' }, { status: 404 });
             }
         }
 
-        // 2. Delete entire album or media folder from disk
+        // 3. Delete entire album or media folder from disk
         if (folderPath) {
             const targetFolder = resolveLocalPath(folderPath) || folderPath;
+            targetFolderResult = targetFolder;
             if (fs.existsSync(targetFolder)) {
                 try {
                     fs.rmSync(targetFolder, { recursive: true, force: true });
+                    folderDeleted = true;
                 } catch (delErr: any) {
-                    return NextResponse.json({ error: `Cannot delete folder: ${delErr.message}` }, { status: 500 });
+                    console.error(`[DELETE] Cannot delete folder: ${delErr.message}`);
+                    if (!fileDeleted && !plexDeleted) {
+                        return NextResponse.json({ error: `Cannot delete folder: ${delErr.message}` }, { status: 500 });
+                    }
                 }
-
-                if (libraryId) clearCachedTheaterItems(libraryId);
-                else clearCachedTheaterItems();
-
-                return NextResponse.json({ success: true, deletedFolder: targetFolder });
-            } else {
-                return NextResponse.json({ error: 'Folder not found on disk' }, { status: 404 });
             }
         }
 
-        return NextResponse.json({ error: 'Missing path or folder parameter' }, { status: 400 });
+        // If any deletion succeeded (or even if file was already gone on disk but tracked in Plex/cache)
+        if (fileDeleted || folderDeleted || plexDeleted) {
+            // ALWAYS clear theater cache across ALL libraries so other libraries (e.g. Music vs Music - Pedro) don't retain stale items
+            clearCachedTheaterItems();
+
+            // Trigger background Plex section refresh to ensure Plex library stays synchronized
+            const plexInstances = getInstances().filter(i => i.type === 'plex' && i.enabled);
+            for (const plex of plexInstances) {
+                try {
+                    const plexUrl = plex.url.replace(/\/$/, '');
+                    const lib = libraryId ? getTheaterLibraries().find(l => l.id === libraryId) : null;
+                    if (lib?.plex_section_id) {
+                        axios.get(`${plexUrl}/library/sections/${lib.plex_section_id}/refresh`, {
+                            headers: { 'X-Plex-Token': plex.api_key },
+                            timeout: 5000
+                        }).catch(() => null);
+                    } else {
+                        axios.get(`${plexUrl}/library/sections`, {
+                            headers: { 'X-Plex-Token': plex.api_key, 'Accept': 'application/json' },
+                            timeout: 4000
+                        }).then(res => {
+                            const dirs = res.data?.MediaContainer?.Directory || [];
+                            for (const d of dirs) {
+                                if (d.type === 'artist' || d.type === 'music') {
+                                    axios.get(`${plexUrl}/library/sections/${d.key}/refresh`, {
+                                        headers: { 'X-Plex-Token': plex.api_key },
+                                        timeout: 5000
+                                    }).catch(() => null);
+                                }
+                            }
+                        }).catch(() => null);
+                    }
+                } catch {}
+            }
+
+            return NextResponse.json({
+                success: true,
+                fileDeleted,
+                folderDeleted,
+                plexDeleted,
+                deletedPath: targetPathResult,
+                deletedFolder: targetFolderResult
+            });
+        }
+
+        // If neither file existed on disk and not deleted in Plex
+        if (filePath || folderPath || ratingKey) {
+            // Still clear cache to purge ghost/stale records from SQLite
+            clearCachedTheaterItems();
+            return NextResponse.json({
+                error: 'File or folder not found on disk, but library cache has been cleared.',
+                targetPath: targetPathResult,
+                targetFolder: targetFolderResult
+            }, { status: 404 });
+        }
+
+        return NextResponse.json({ error: 'Missing path, folder, or ratingKey parameter' }, { status: 400 });
     } catch (e: any) {
         return NextResponse.json({ error: e.message }, { status: 500 });
     }

@@ -63,6 +63,9 @@ interface MediaItem {
     seriesTitle?: string;
     showTitle?: string;
     isLocal?: boolean;
+    libraryId?: string;
+    libraryName?: string;
+    ratingKey?: string;
 }
 
 interface MusicPlaylist {
@@ -997,7 +1000,7 @@ function TheaterPageContent() {
     }, [activeContentTab, libraries]);
 
     // 2. Fetch Items for Enabled Libraries in Tab (Files, Music, or IPTV)
-    const fetchLibrariesContent = async (libs: TheaterLibrary[]) => {
+    const fetchLibrariesContent = async (libs: TheaterLibrary[], forceRefresh: boolean = false) => {
         if (!libs || libs.length === 0) {
             setItems([]);
             setIptvChannels([]);
@@ -1011,7 +1014,7 @@ function TheaterPageContent() {
 
         if (isLive) {
             // Instant cache check: If all libs cached, load immediately in 0ms!
-            const allCached = libs.every(l => liveTvCacheRef.current[l.id]);
+            const allCached = !forceRefresh && libs.every(l => liveTvCacheRef.current[l.id]);
             if (allCached) {
                 const cachedChannels = libs.flatMap(l => liveTvCacheRef.current[l.id]?.channels || []);
                 const cachedGroups = libs.flatMap(l => liveTvCacheRef.current[l.id]?.groups || []);
@@ -1031,12 +1034,12 @@ function TheaterPageContent() {
             if (isLive) {
                 const results = await Promise.all(
                     libs.map(async (lib) => {
-                        if (liveTvCacheRef.current[lib.id]) {
+                        if (!forceRefresh && liveTvCacheRef.current[lib.id]) {
                             return liveTvCacheRef.current[lib.id];
                         }
                         try {
                             const [iptvRes, shortRes] = await Promise.all([
-                                fetch(`/api/theater/iptv?libraryId=${lib.id}`),
+                                fetch(`/api/theater/iptv?libraryId=${lib.id}${forceRefresh ? '&refresh=true' : ''}`),
                                 fetch(`/api/theater/iptv/shortlists?libraryId=${lib.id}`).catch(() => null)
                             ]);
 
@@ -1082,7 +1085,7 @@ function TheaterPageContent() {
                 const results = await Promise.all(
                     libs.map(async (lib) => {
                         try {
-                            const res = await fetch(`/api/theater/items?libraryId=${lib.id}`);
+                            const res = await fetch(`/api/theater/items?libraryId=${lib.id}${forceRefresh ? '&refresh=true' : ''}`);
                             if (res.ok) {
                                 const data = await res.json();
                                 const fetchedItems = Array.isArray(data.items) ? data.items : [];
@@ -1591,7 +1594,7 @@ function TheaterPageContent() {
     }, [selectedAlbum?.name, selectedAlbum?.artist]);
 
     // Delete single track audio file from server disk
-    const handleDeleteTrackFile = (filePath: string, trackTitle: string) => {
+    const handleDeleteTrackFile = (filePath: string, trackTitle: string, ratingKey?: string, libraryId?: string) => {
         setFileDeleteConfirm({
             isOpen: true,
             title: 'Delete Audio File',
@@ -1603,18 +1606,20 @@ function TheaterPageContent() {
             confirmText: 'Delete Track File',
             onConfirm: async () => {
                 try {
-                    const res = await fetch(`/api/theater/items?path=${encodeURIComponent(filePath)}&libraryId=${activeLibraryId || ''}`, {
+                    const res = await fetch(`/api/theater/items?path=${encodeURIComponent(filePath || '')}&ratingKey=${encodeURIComponent(ratingKey || '')}&libraryId=${encodeURIComponent(libraryId || activeLibraryId || '')}`, {
                         method: 'DELETE'
                     });
                     if (res.ok) {
                         toast.success(`Deleted "${trackTitle}"`);
                         setFileDeleteConfirm(null);
-                        setItems(prev => prev.filter(t => t.path !== filePath));
+                        setItems(prev => prev.filter(t => t.path !== filePath && !(t.title === trackTitle && (!ratingKey || (t as any).ratingKey === ratingKey))));
                         if (selectedAlbum) {
-                            const rem = selectedAlbum.tracks.filter(t => t.path !== filePath);
+                            const rem = selectedAlbum.tracks.filter(t => t.path !== filePath && !(t.title === trackTitle && (!ratingKey || (t as any).ratingKey === ratingKey)));
                             if (rem.length === 0) setSelectedAlbum(null);
                             else setSelectedAlbum({ ...selectedAlbum, tracks: rem });
                         }
+                        // Refresh all active libraries to ensure fresh cache
+                        await fetchLibrariesContent(enabledTabLibraries, true);
                     } else {
                         const d = await res.json().catch(() => ({}));
                         toast.error(d.error || 'Failed to delete track file');
@@ -1640,33 +1645,42 @@ function TheaterPageContent() {
             onConfirm: async () => {
                 try {
                     const pathsToDelete = new Set(alb.tracks.map(t => t.path).filter(Boolean));
+                    const idsToDelete = new Set(alb.tracks.map(t => t.id).filter(Boolean));
                     let deletedCount = 0;
 
-                    // Delete each track file
+                    // 1. Delete each track file and Plex item
                     for (const t of alb.tracks) {
-                        if (t.path) {
-                            const res = await fetch(`/api/theater/items?path=${encodeURIComponent(t.path)}&libraryId=${activeLibraryId || ''}`, {
-                                method: 'DELETE'
-                            });
-                            if (res.ok) deletedCount++;
-                        }
+                        const rKey = (t as any).ratingKey || '';
+                        const tLibId = t.libraryId || activeLibraryId || '';
+                        const res = await fetch(`/api/theater/items?path=${encodeURIComponent(t.path || '')}&ratingKey=${encodeURIComponent(rKey)}&libraryId=${encodeURIComponent(tLibId)}`, {
+                            method: 'DELETE'
+                        });
+                        if (res.ok) deletedCount++;
                     }
 
-                    // Attempt folder cleanup if applicable
+                    // 2. Attempt folder cleanup if applicable
                     const sampleTrack = alb.tracks.find(t => t.path);
                     if (sampleTrack?.path) {
                         const parts = sampleTrack.path.replace(/\\/g, '/').split('/');
                         parts.pop();
                         const folderPath = parts.join('/');
-                        await fetch(`/api/theater/items?folderPath=${encodeURIComponent(folderPath)}&libraryId=${activeLibraryId || ''}`, {
+                        await fetch(`/api/theater/items?folder=${encodeURIComponent(folderPath)}&folderPath=${encodeURIComponent(folderPath)}&libraryId=${encodeURIComponent(activeLibraryId || '')}`, {
                             method: 'DELETE'
                         }).catch(() => {});
                     }
 
-                    toast.success(`Album "${alb.name}" deleted (${deletedCount} files removed)`);
+                    if (deletedCount > 0) {
+                        toast.success(`Album "${alb.name}" deleted (${deletedCount} items removed)`);
+                    } else {
+                        toast.error(`Could not delete files for "${alb.name}". Check disk permissions or path mappings.`);
+                    }
+
                     setFileDeleteConfirm(null);
                     setSelectedAlbum(null);
-                    setItems(prev => prev.filter(t => !pathsToDelete.has(t.path)));
+                    setItems(prev => prev.filter(t => !pathsToDelete.has(t.path) && !idsToDelete.has(t.id) && !(t.artist === alb.artist && t.album === alb.name)));
+
+                    // Refresh all active libraries to eliminate stale cached records across multiple instances
+                    await fetchLibrariesContent(enabledTabLibraries, true);
                 } catch {
                     toast.error('Error deleting album');
                 }
@@ -4731,7 +4745,7 @@ function TheaterPageContent() {
                                                     <button
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            handleDeleteTrackFile(localTrack.path, localTrack.title);
+                                                            handleDeleteTrackFile(localTrack.path, localTrack.title, (localTrack as any).ratingKey, localTrack.libraryId);
                                                         }}
                                                         className="w-8 h-8 rounded-lg bg-zinc-900 hover:bg-red-500/20 text-zinc-500 hover:text-red-400 flex items-center justify-center transition-all cursor-pointer"
                                                         title="Delete Track File from Server"
@@ -4844,7 +4858,7 @@ function TheaterPageContent() {
                                                     <button
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            handleDeleteTrackFile(lt.path, lt.title);
+                                                            handleDeleteTrackFile(lt.path, lt.title, (lt as any).ratingKey, lt.libraryId);
                                                         }}
                                                         className="w-8 h-8 rounded-lg bg-zinc-900 hover:bg-red-500/20 text-zinc-500 hover:text-red-400 flex items-center justify-center transition-all cursor-pointer"
                                                         title="Delete Track File from Server"
