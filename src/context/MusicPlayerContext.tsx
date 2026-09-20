@@ -443,6 +443,24 @@ function ChromagramVisualizer({ chroma }: { chroma: number[] }) {
     );
 }
 
+// ── Duration String Parser (Handles "3:45", "1:12:05", milliseconds, and seconds) ──
+function parseDurationString(dur: any): number {
+    if (!dur) return 0;
+    if (typeof dur === 'number' && Number.isFinite(dur) && dur > 0) return dur;
+    if (typeof dur === 'string') {
+        const parts = dur.trim().split(':').map((p: string) => parseInt(p, 10));
+        if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+            return parts[0] * 60 + parts[1];
+        }
+        if (parts.length === 3 && !isNaN(parts[0]) && !isNaN(parts[1]) && !isNaN(parts[2])) {
+            return parts[0] * 3600 + parts[1] * 60 + parts[2];
+        }
+        const num = parseFloat(dur);
+        if (!isNaN(num) && num > 0) return num;
+    }
+    return 0;
+}
+
 export function MusicPlayerProvider({ children }: { children: React.ReactNode }) {
     const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -1572,6 +1590,20 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         setBottomCoverError(false);
         setVinylCoverError(false);
         setNormalCoverError(false);
+
+        // Pre-initialize track duration from metadata so player doesn't display 0:00 while loading
+        let initDur = 0;
+        if (cleanTrack.durationMs && cleanTrack.durationMs > 0) {
+            initDur = cleanTrack.durationMs / 1000;
+        } else if (cleanTrack.duration) {
+            initDur = parseDurationString(cleanTrack.duration);
+            if (initDur > 0 && !cleanTrack.durationMs) {
+                cleanTrack.durationMs = initDur * 1000;
+            }
+        }
+        setAudioDuration(initDur);
+        setAudioCurrentTime(0);
+
         setPlayingAudio(cleanTrack);
         setIsAudioPlaying(true);
         if (queue && queue.length > 0) {
@@ -1760,12 +1792,14 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     // ── Safe Effective Duration Fallback (Handles chunked stream Infinity/NaN) ──
     const effectiveDuration = Number.isFinite(audioDuration) && audioDuration > 0
         ? audioDuration
-        : (playingAudio?.durationMs ? playingAudio.durationMs / 1000 : 0);
+        : (playingAudio?.durationMs ? playingAudio.durationMs / 1000 : parseDurationString(playingAudio?.duration));
+
+    const isActivelyPlaying = isAudioPlaying && audioPlaybackStatus === 'playing';
 
     // ── Vinyl DJ Scratch & Tonearm Interaction Handlers (Fixed & Solid) ──
     const effectiveTonearmAngle = tonearmCustomAngle !== null
         ? tonearmCustomAngle
-        : isAudioPlaying
+        : isActivelyPlaying
             ? 18 + (effectiveDuration > 0 ? Math.min(16, (audioCurrentTime / effectiveDuration) * 16) : 6)
             : 0;
 
@@ -2478,7 +2512,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                 onLoadedMetadata={() => {
                     if (audioRef.current) {
                         const raw = audioRef.current.duration;
-                        const fallbackDur = playingAudio?.durationMs ? playingAudio.durationMs / 1000 : 0;
+                        const fallbackDur = playingAudio?.durationMs ? playingAudio.durationMs / 1000 : parseDurationString(playingAudio?.duration);
                         const finalDur = Number.isFinite(raw) && raw > 0 ? raw : fallbackDur;
                         setAudioDuration(finalDur);
                         addAudioNerdLog('info', `Loaded audio metadata: duration ${finalDur > 0 ? finalDur.toFixed(1) + 's' : 'live'}`);
@@ -2743,39 +2777,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 />
                             </div>
 
-                            {/* Audio Diagnostics & Stats for Nerds / Logging */}
-                            <button
-                                onClick={() => setShowAudioNerdModal(true)}
-                                className={`p-2 sm:p-2.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-1 ${
-                                    showAudioNerdModal || audioPlaybackError
-                                        ? 'bg-amber-500/25 text-amber-300 border-amber-500/50'
-                                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-amber-400 hover:border-amber-500/40'
-                                }`}
-                                title="Open Audio Diagnostics, Live Stream Telemetry & Logs"
-                            >
-                                <Terminal size={15} />
-                                {audioPlaybackError && (
-                                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" />
-                                )}
-                            </button>
 
-                            {/* Download Track */}
-                            <button
-                                onClick={() => handleDownloadTrack(playingAudio)}
-                                className="p-2 sm:p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-emerald-400 hover:border-emerald-500/40 text-xs font-bold transition-all"
-                                title="Download Track"
-                            >
-                                <Download size={15} />
-                            </button>
-
-                            {/* Cast Music to Smart TV / Speaker */}
-                            <button
-                                onClick={() => openCastPicker(playingAudio)}
-                                className="p-2 sm:p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-purple-400 hover:border-purple-500/40 text-xs font-bold transition-all"
-                                title="Cast Music to Smart TV / Smart Speaker"
-                            >
-                                <Cast size={15} />
-                            </button>
 
                             {/* Playback Queue */}
                             <button
@@ -2929,14 +2931,14 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                             className="relative w-[96%] h-[96%] rounded-full bg-black shadow-2xl flex items-center justify-center overflow-hidden"
                                             style={{
                                                 animation: 'vinyl-spin 8s linear infinite',
-                                                animationPlayState: isAudioPlaying ? 'running' : 'paused'
+                                                animationPlayState: isActivelyPlaying ? 'running' : 'paused'
                                             }}
                                         >
                                             <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,_#000000_30%,_#18181b_31%,_#09090b_45%,_#1f1f23_46%,_#000000_65%,_#18181b_66%,_#000000_100%)] opacity-90 pointer-events-none" />
                                             <div className="absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,transparent_0deg,rgba(255,255,255,0.08)_45deg,transparent_90deg,transparent_180deg,rgba(255,255,255,0.08)_225deg,transparent_270deg)] pointer-events-none" />
 
-                                            {/* Center Label (Enlarged Artwork) */}
-                                            <div className="relative w-[64%] h-[64%] rounded-full overflow-hidden border-2 border-amber-500/60 shadow-2xl flex items-center justify-center z-10 pointer-events-none">
+                                            {/* Center Label (Enlarged Artwork - 78% of Disc) */}
+                                            <div className="relative w-[78%] h-[78%] rounded-full overflow-hidden border-2 border-amber-500/60 shadow-2xl flex items-center justify-center z-10 pointer-events-none">
                                                 {playingAudio.posterUrl ? (
                                                     <img
                                                         src={playingAudio.posterUrl}
@@ -2948,8 +2950,8 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                         {playingAudio.title}
                                                     </div>
                                                 )}
-                                                <div className="absolute w-8 h-8 rounded-full bg-zinc-950 border-2 border-zinc-400 flex items-center justify-center shadow-inner z-20">
-                                                    <div className="w-2.5 h-2.5 rounded-full bg-gradient-to-tr from-amber-400 to-amber-200 shadow-md" />
+                                                <div className="absolute w-5 h-5 rounded-full bg-zinc-950 border border-zinc-400 flex items-center justify-center shadow-inner z-20">
+                                                    <div className="w-1.5 h-1.5 rounded-full bg-gradient-to-tr from-amber-400 to-amber-200 shadow-md" />
                                                 </div>
                                             </div>
                                         </div>
@@ -3042,9 +3044,9 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         <div className="absolute inset-2 rounded-[1.5rem] bg-gradient-to-b from-[#18181b] to-[#0c0c0e] border border-white/5 pointer-events-none shadow-inner" />
 
                                         {/* Top-Left: Vintage Green Jewel Pilot Lamp */}
-                                        <div className="absolute top-3.5 left-4 z-20 flex items-center pointer-events-none" title={isAudioPlaying ? "Amplifier & Drive Active" : "Standby"}>
+                                        <div className="absolute top-3.5 left-4 z-20 flex items-center pointer-events-none" title={isActivelyPlaying ? "Amplifier & Drive Active" : "Standby"}>
                                             <div className={`relative w-4 h-4 rounded-full border border-zinc-700 bg-zinc-950 flex items-center justify-center p-0.5 shadow-inner transition-all duration-700 ${
-                                                isAudioPlaying
+                                                isActivelyPlaying
                                                     ? 'border-emerald-500/50 shadow-[0_0_12px_rgba(52,211,153,0.8)] ring-1 ring-emerald-500/30'
                                                     : 'border-zinc-800 opacity-50'
                                             }`}>
@@ -3053,7 +3055,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                 
                                                 {/* Faceted Jewel Glass Lens */}
                                                 <div className={`w-full h-full rounded-full transition-all duration-500 relative overflow-hidden flex items-center justify-center ${
-                                                    isAudioPlaying
+                                                    isActivelyPlaying
                                                         ? 'bg-gradient-to-tr from-emerald-600 via-emerald-400 to-green-300 shadow-[inset_0_0_4px_rgba(255,255,255,0.7),0_0_10px_#34d399] animate-pulse'
                                                         : 'bg-emerald-950/60 border border-emerald-900/30'
                                                 }`}>
@@ -3069,8 +3071,8 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                 e.stopPropagation();
                                                 togglePlayPause();
                                             }}
-                                            className="relative w-48 h-48 sm:w-56 sm:h-56 -translate-x-2.5 flex items-center justify-center cursor-pointer select-none group/disc"
-                                            title={isAudioPlaying ? "Click Vinyl Record to Pause" : "Click Vinyl Record to Play"}
+                                            className="relative w-52 h-52 sm:w-60 sm:h-60 -translate-x-2 flex items-center justify-center cursor-pointer select-none group/disc"
+                                            title={isActivelyPlaying ? "Click Vinyl Record to Pause" : "Click Vinyl Record to Play"}
                                         >
                                             <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-zinc-700 via-zinc-800 to-zinc-600 p-1 shadow-2xl flex items-center justify-center border border-zinc-600/50 pointer-events-none group-hover/disc:border-amber-500/40 transition-colors">
                                                 <div className="w-full h-full rounded-full bg-zinc-950 flex items-center justify-center shadow-inner">
@@ -3078,14 +3080,14 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                         className="relative w-[96%] h-[96%] rounded-full bg-black shadow-2xl flex items-center justify-center overflow-hidden"
                                                         style={{
                                                             animation: 'vinyl-spin 8s linear infinite',
-                                                            animationPlayState: isAudioPlaying ? 'running' : 'paused'
+                                                            animationPlayState: isActivelyPlaying ? 'running' : 'paused'
                                                         }}
                                                     >
                                                         <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,_#000000_30%,_#18181b_31%,_#09090b_45%,_#1f1f23_46%,_#000000_65%,_#18181b_66%,_#000000_100%)] opacity-90 pointer-events-none" />
                                                         <div className="absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,transparent_0deg,rgba(255,255,255,0.08)_45deg,transparent_90deg,transparent_180deg,rgba(255,255,255,0.08)_225deg,transparent_270deg)] pointer-events-none" />
 
-                                                        {/* Center Label (Enlarged Artwork to Encompass Vinyl Record) */}
-                                                        <div className="relative w-32 h-32 sm:w-38 sm:h-38 rounded-full overflow-hidden border-2 border-amber-500/60 shadow-2xl flex items-center justify-center z-10 pointer-events-none">
+                                                        {/* Center Label (Enlarged Artwork - 78% of Vinyl Record) */}
+                                                        <div className="relative w-[78%] h-[78%] rounded-full overflow-hidden border-2 border-amber-500/60 shadow-2xl flex items-center justify-center z-10 pointer-events-none">
                                                             {playingAudio.posterUrl && !vinylCoverError ? (
                                                                 <img
                                                                     src={playingAudio.posterUrl}
@@ -3105,8 +3107,8 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                     {playingAudio.title}
                                                                 </div>
                                                             )}
-                                                            <div className="absolute w-6 h-6 rounded-full bg-zinc-950 border-2 border-zinc-400 flex items-center justify-center shadow-inner z-20">
-                                                                <div className="w-2 h-2 rounded-full bg-gradient-to-tr from-amber-400 to-amber-200 shadow-md" />
+                                                            <div className="absolute w-5 h-5 rounded-full bg-zinc-950 border border-zinc-400 flex items-center justify-center shadow-inner z-20">
+                                                                <div className="w-1.5 h-1.5 rounded-full bg-gradient-to-tr from-amber-400 to-amber-200 shadow-md" />
                                                             </div>
                                                         </div>
                                                     </div>
@@ -3121,7 +3123,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                 togglePlayPause();
                                             }}
                                             className="absolute top-1 right-2 w-28 h-48 z-30 select-none cursor-pointer group/tonearm"
-                                            title={isAudioPlaying ? "Click Needle to Lift & Pause" : "Click Needle to Drop on Record & Play"}
+                                            title={isActivelyPlaying ? "Click Needle to Lift & Pause" : "Click Needle to Drop on Record & Play"}
                                         >
                                             {/* Pivot Gimbal Base */}
                                             <div className="absolute top-2 right-2 w-11 h-11 rounded-full bg-gradient-to-b from-zinc-700 via-zinc-800 to-zinc-950 border-2 border-zinc-500 shadow-2xl flex items-center justify-center group-hover/tonearm:border-amber-400 transition-colors">
@@ -3132,13 +3134,13 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                 <div
                                                     className="absolute top-4 left-4 w-6 origin-top transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
                                                     style={{
-                                                        transform: `rotate(${isAudioPlaying ? 24 : 0}deg)`
+                                                        transform: `rotate(${isActivelyPlaying ? 24 : 0}deg)`
                                                     }}
                                                 >
                                                     <div className="w-1.5 h-30 sm:h-34 bg-gradient-to-r from-zinc-400 via-zinc-200 to-zinc-500 rounded-full shadow-lg relative">
                                                         {/* Cartridge & Stylus Light */}
                                                         <div className="absolute -bottom-1 -left-1.5 w-4 h-6 bg-gradient-to-b from-amber-400 to-amber-600 rounded-sm shadow-md flex items-center justify-center border border-amber-300">
-                                                            <div className={`w-1.5 h-2.5 rounded-full shadow-sm ${isAudioPlaying ? 'bg-amber-300 animate-pulse' : 'bg-zinc-500'}`} />
+                                                            <div className={`w-1.5 h-2.5 rounded-full shadow-sm ${isActivelyPlaying ? 'bg-amber-300 animate-pulse' : 'bg-zinc-500'}`} />
                                                         </div>
                                                     </div>
                                                 </div>
@@ -3441,23 +3443,17 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                             <Search size={14} /> Search
                                         </button>
 
-                                        {/* 2. Information (Subtabs: Song, Album, Artist) */}
+                                        {/* 2. Nerd Logs (Replaced incomplete Information tab) */}
                                         <button
-                                            onClick={() => {
-                                                setExpandedSidePanel('info' as any);
-                                                if (infoSubTab === 'album' && playingAudio.album) {
-                                                    fetchAlbumInfo(playingAudio.album, playingAudio.artist, (playingAudio as any).albumId);
-                                                } else if (infoSubTab === 'artist' && playingAudio.artist) {
-                                                    fetchArtistInfo(playingAudio.artist);
-                                                }
-                                            }}
+                                            onClick={() => setShowAudioNerdModal(true)}
                                             className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-black uppercase tracking-wider transition-all shrink-0 cursor-pointer ${
-                                                (expandedSidePanel as any) === 'info' || expandedSidePanel === 'album' || expandedSidePanel === 'artist'
+                                                showAudioNerdModal
                                                     ? 'bg-amber-500 text-black shadow-sm'
                                                     : 'text-zinc-400 hover:text-zinc-200'
                                             }`}
+                                            title="Open Nerd Logs, Diagnostics & Live Audio Telemetry"
                                         >
-                                            <Info size={14} /> Information
+                                            <Info size={14} /> Nerd Logs
                                         </button>
 
                                         {/* 3. Queue (Subtabs: Queue, Playlists) */}

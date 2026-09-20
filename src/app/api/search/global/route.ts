@@ -198,11 +198,12 @@ export async function GET(req: Request) {
                                     artist,
                                     album: item.album?.title || 'Single',
                                     duration: `${Math.floor((item.duration || 180) / 60)}:${Math.floor((item.duration || 180) % 60).toString().padStart(2, '0')}`,
+                                    durationMs: (parseInt(item.duration, 10) || 180) * 1000,
                                     category: 'audio',
                                     type: 'music',
                                     extension: 'MP3',
                                     posterUrl: item.album?.cover_xl || item.album?.cover_medium || item.artist?.picture_medium || '',
-                                    source: 'Deezer / Studio',
+                                    source: 'Deezer',
                                     previewUrl: item.preview || '',
                                     streamUrl: `/api/theater/music/stream?q=${encodeURIComponent(`${artist} ${title}`)}`,
                                     isLocal: false
@@ -235,6 +236,7 @@ export async function GET(req: Request) {
                                     artist,
                                     album: track.collectionName || 'Single',
                                     duration: `${Math.floor((track.trackTimeMillis || 180000) / 60000)}:${Math.floor(((track.trackTimeMillis || 180000) % 60000) / 1000).toString().padStart(2, '0')}`,
+                                    durationMs: track.trackTimeMillis || 180000,
                                     category: 'audio',
                                     type: 'music',
                                     extension: 'AAC',
@@ -277,6 +279,9 @@ export async function GET(req: Request) {
                                 if (!addedMusicKeys.has(dedupeKey)) {
                                     addedMusicKeys.add(dedupeKey);
                                     const duration = video.lengthText?.simpleText || '3:30';
+                                    const dParts = duration.split(':').map(Number);
+                                    const durationSec = dParts.length === 2 ? dParts[0] * 60 + dParts[1] : (dParts.length === 3 ? dParts[0] * 3600 + dParts[1] * 60 + dParts[2] : 210);
+                                    const durationMs = durationSec * 1000;
                                     const thumbnail = video.thumbnail?.thumbnails?.[video.thumbnail.thumbnails.length - 1]?.url || '';
 
                                     externalAvailable.push({
@@ -286,6 +291,7 @@ export async function GET(req: Request) {
                                         artist,
                                         album: 'YouTube Music',
                                         duration,
+                                        durationMs,
                                         category: 'audio',
                                         type: 'music',
                                         extension: 'STREAM',

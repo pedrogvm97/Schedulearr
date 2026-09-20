@@ -89,7 +89,9 @@ export async function GET(req: Request) {
                 const artist = item.artist?.name || 'Artist';
                 const album = item.album?.title || 'Single';
                 const posterUrl = item.album?.cover_xl || item.album?.cover_big || item.album?.cover_medium || item.artist?.picture_xl || '';
-                const duration = `${Math.floor((item.duration || 180) / 60)}:${Math.floor((item.duration || 180) % 60).toString().padStart(2, '0')}`;
+                const durationSec = parseInt(item.duration, 10) || 180;
+                const durationMs = durationSec * 1000;
+                const duration = `${Math.floor(durationSec / 60)}:${Math.floor(durationSec % 60).toString().padStart(2, '0')}`;
                 const dedupeKey = `${artist.toLowerCase()} - ${title.toLowerCase()}`;
 
                 if (!resultsMap.has(dedupeKey)) {
@@ -100,10 +102,11 @@ export async function GET(req: Request) {
                         artist,
                         album,
                         duration,
+                        durationMs,
                         category: 'audio',
                         extension: 'MP3',
                         posterUrl,
-                        source: 'Deezer / Studio',
+                        source: 'Deezer',
                         previewUrl: item.preview || '',
                         streamUrl: `/api/theater/music/stream?q=${encodeURIComponent(`${artist} ${title}`)}`
                     });
@@ -130,6 +133,7 @@ export async function GET(req: Request) {
                         artist,
                         album,
                         duration,
+                        durationMs,
                         category: 'audio',
                         extension: 'AAC',
                         posterUrl,
@@ -157,6 +161,9 @@ export async function GET(req: Request) {
                             const rawUploader = video.ownerText?.runs?.[0]?.text || video.channelTitle || 'Artist';
                             const { cleanArtist, cleanTitle } = sanitizeSongMetadata(rawTitle, rawUploader);
                             const duration = video.lengthText?.simpleText || '3:30';
+                            const dParts = duration.split(':').map(Number);
+                            const durationSec = dParts.length === 2 ? dParts[0] * 60 + dParts[1] : (dParts.length === 3 ? dParts[0] * 3600 + dParts[1] * 60 + dParts[2] : 210);
+                            const durationMs = durationSec * 1000;
                             const thumbnail = video.thumbnail?.thumbnails?.[video.thumbnail.thumbnails.length - 1]?.url || '';
                             const dedupeKey = `${(cleanArtist || rawUploader).toLowerCase()} - ${(cleanTitle || rawTitle).toLowerCase()}`;
 
@@ -169,6 +176,7 @@ export async function GET(req: Request) {
                                     uploader: rawUploader,
                                     album: 'YouTube Music',
                                     duration,
+                                    durationMs,
                                     category: 'audio',
                                     extension: 'STREAM',
                                     posterUrl: thumbnail,

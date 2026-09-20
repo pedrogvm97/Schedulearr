@@ -102,14 +102,18 @@ export async function extractDirectAudioStreamUrl(cleanYtId: string): Promise<st
  * Search YouTube for video ID by text query
  */
 export async function searchYouTubeVideoId(query: string): Promise<string | null> {
+    const cleanTerm = query.replace(/\s+/g, ' ').trim();
+    if (!cleanTerm) return null;
+
     try {
-        const searchQ = encodeURIComponent(`${query} audio`.trim());
+        const searchQ = encodeURIComponent(`${cleanTerm} audio`.trim());
         const searchRes = await axios.get(`https://www.youtube.com/results?search_query=${searchQ}`, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Cookie': 'SOCS=CAESEwgDEgk0ODE3Nzk3MjQaAmVuIAEaBgiA_LyaBg',
                 'Accept-Language': 'en-US,en;q=0.9'
             },
-            timeout: 6000
+            timeout: 5000
         });
         const match = searchRes.data.match(/videoId":"([a-zA-Z0-9_-]{11})"/);
         if (match && match[1]) {
@@ -118,6 +122,18 @@ export async function searchYouTubeVideoId(query: string): Promise<string | null
     } catch (e: any) {
         console.warn('[MusicDownloader] HTML search scraper error:', e.message);
     }
+
+    // Fast fallback: Invidious search probe (2.5s)
+    try {
+        const invRes = await axios.get(`https://inv.nadeko.net/api/v1/search?q=${encodeURIComponent(cleanTerm)}&type=video`, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+            timeout: 2500
+        });
+        if (Array.isArray(invRes.data) && invRes.data.length > 0 && invRes.data[0].videoId) {
+            return invRes.data[0].videoId;
+        }
+    } catch {}
+
     return null;
 }
 

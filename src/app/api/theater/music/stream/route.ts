@@ -114,7 +114,7 @@ export async function GET(req: Request) {
             try {
                 const targetSpec = cleanId ? `https://www.youtube.com/watch?v=${cleanId}` : targetUrl;
                 const ytDlpProc = spawn(ytDlpBin, [
-                    '-f', 'ba/b',
+                    '-f', 'ba/bestaudio',
                     '--no-playlist',
                     '--no-check-certificates',
                     '--no-warnings',
@@ -126,9 +126,10 @@ export async function GET(req: Request) {
                 await new Promise<void>((resolve, reject) => {
                     ytDlpProc.stdout.on('data', (d) => { stdoutBuf += d.toString(); });
                     ytDlpProc.once('close', (code) => {
-                        const firstLine = stdoutBuf.trim().split('\n')[0].trim();
-                        if (code === 0 && firstLine.startsWith('http')) {
-                            directAudioUrl = firstLine;
+                        const lines = stdoutBuf.split('\n').map(l => l.trim()).filter(l => l.startsWith('http'));
+                        const audioLine = lines.find(l => l.includes('mime=audio') || l.includes('audio')) || lines[lines.length - 1];
+                        if (code === 0 && audioLine) {
+                            directAudioUrl = audioLine;
                             resolve();
                         } else {
                             reject(new Error(`yt-dlp -g exit code ${code}`));
@@ -160,7 +161,8 @@ export async function GET(req: Request) {
                     '-reconnect', '1',
                     '-reconnect_at_eof', '1',
                     '-reconnect_streamed', '1',
-                    '-reconnect_delay_max', '5',
+                    '-reconnect_delay_max', '4',
+                    '-user_agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                     '-i', directAudioUrl,
                     '-vn',
                     '-f', 'mp3',
