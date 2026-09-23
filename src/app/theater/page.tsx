@@ -401,6 +401,8 @@ function TheaterPageContent() {
     const [playlists, setPlaylists] = useState<MusicPlaylist[]>([]);
     const [suggestedPlaylists, setSuggestedPlaylists] = useState<any[]>([]);
     const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+    const [selectedPlaylist, setSelectedPlaylist] = useState<MusicPlaylist | null>(null);
+    const [playlistSearchQuery, setPlaylistSearchQuery] = useState('');
 
     // Audiobooks Media Tab Specific States
     const [selectedAudiobook, setSelectedAudiobook] = useState<{
@@ -1158,19 +1160,31 @@ function TheaterPageContent() {
         }
     };
 
-    const fetchGlobalPlaylists = async (libraryId?: string) => {
+    const fetchGlobalPlaylists = async () => {
         try {
-            const url = libraryId ? `/api/theater/music/playlists?libraryId=${libraryId}` : '/api/theater/music/playlists';
+            const url = '/api/theater/music/playlists';
             const playRes = await fetch(url);
             if (playRes.ok) {
                 const pData = await playRes.json();
-                setPlaylists(Array.isArray(pData.playlists) ? pData.playlists : []);
+                const loadedPlaylists = Array.isArray(pData.playlists) ? pData.playlists : [];
+                setPlaylists(loadedPlaylists);
+                // If a playlist is open, keep its tracklist in sync
+                setSelectedPlaylist(prev => {
+                    if (!prev) return null;
+                    const match = loadedPlaylists.find((p: any) => p.id === prev.id);
+                    return match || prev;
+                });
             }
         } catch {}
     };
 
     useEffect(() => {
         fetchGlobalPlaylists();
+        const onPlaylistsUpdated = () => {
+            fetchGlobalPlaylists();
+        };
+        window.addEventListener('schedulearr:playlists-updated', onPlaylistsUpdated);
+        return () => window.removeEventListener('schedulearr:playlists-updated', onPlaylistsUpdated);
     }, []);
 
     useEffect(() => {
@@ -1943,15 +1957,24 @@ function TheaterPageContent() {
     };
 
     // Music Playlists Management
+    const openPlaylistModal = (pl: MusicPlaylist) => {
+        setSelectedPlaylist(pl);
+        setPlaylistSearchQuery('');
+    };
+
+    const closePlaylistModal = () => {
+        setSelectedPlaylist(null);
+        setPlaylistSearchQuery('');
+    };
+
     const handleCreatePlaylist = async () => {
         if (!newPlaylistName.trim()) return;
         try {
-            const libId = activeLibrary?.id || 'global';
             const res = await fetch('/api/theater/music/playlists', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    libraryId: libId,
+                    libraryId: 'global',
                     name: newPlaylistName.trim(),
                     items: addToPlaylistTrack ? [addToPlaylistTrack] : []
                 })
@@ -1961,11 +1984,8 @@ function TheaterPageContent() {
                 setIsCreatePlaylistModalOpen(false);
                 setNewPlaylistName('');
                 setAddToPlaylistTrack(null);
-                const playRes = await fetch(`/api/theater/music/playlists${activeLibrary ? `?libraryId=${activeLibrary.id}` : ''}`);
-                if (playRes.ok) {
-                    const pData = await playRes.json();
-                    setPlaylists(Array.isArray(pData.playlists) ? pData.playlists : []);
-                }
+                await fetchGlobalPlaylists();
+                window.dispatchEvent(new CustomEvent('schedulearr:playlists-updated'));
             } else {
                 toast.error('Failed to create playlist');
             }
@@ -1982,7 +2002,7 @@ function TheaterPageContent() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     id: playlist.id,
-                    libraryId: playlist.library_id || 'global',
+                    libraryId: 'global',
                     name: playlist.name,
                     items: updatedItems,
                     coverUrl: playlist.cover_url || track.posterUrl
@@ -1991,11 +2011,8 @@ function TheaterPageContent() {
             if (res.ok) {
                 toast.success(`Added "${track.title}" to ${playlist.name}!`);
                 setAddToPlaylistTrack(null);
-                const playRes = await fetch(`/api/theater/music/playlists${activeLibrary ? `?libraryId=${activeLibrary.id}` : ''}`);
-                if (playRes.ok) {
-                    const pData = await playRes.json();
-                    setPlaylists(Array.isArray(pData.playlists) ? pData.playlists : []);
-                }
+                await fetchGlobalPlaylists();
+                window.dispatchEvent(new CustomEvent('schedulearr:playlists-updated'));
             }
         } catch {
             toast.error('Failed to add track to playlist');
@@ -2007,14 +2024,56 @@ function TheaterPageContent() {
             const res = await fetch(`/api/theater/music/playlists?id=${playlistId}`, { method: 'DELETE' });
             if (res.ok) {
                 toast.success('Playlist deleted');
-                const playRes = await fetch(`/api/theater/music/playlists${activeLibrary ? `?libraryId=${activeLibrary.id}` : ''}`);
-                if (playRes.ok) {
-                    const pData = await playRes.json();
-                    setPlaylists(Array.isArray(pData.playlists) ? pData.playlists : []);
+                if (selectedPlaylist?.id === playlistId) {
+                    closePlaylistModal();
                 }
+                await fetchGlobalPlaylists();
+                window.dispatchEvent(new CustomEvent('schedulearr:playlists-updated'));
             }
         } catch {
             toast.error('Failed to delete playlist');
+        }
+    };
+
+    const handleMoveTrackInPlaylist = async (playlistId: string, fromIndex: number, toIndex: number) => {
+        if (!selectedPlaylist || fromIndex < 0 || toIndex < 0 || fromIndex >= selectedPlaylist.items.length || toIndex >= selectedPlaylist.items.length) return;
+        const newItems = [...selectedPlaylist.items];
+        const [moved] = newItems.splice(fromIndex, 1);
+        newItems.splice(toIndex, 0, moved);
+
+        const updatedPlaylist = { ...selectedPlaylist, items: newItems };
+        setSelectedPlaylist(updatedPlaylist);
+        setPlaylists(prev => prev.map(p => p.id === playlistId ? updatedPlaylist : p));
+
+        try {
+            await fetch('/api/theater/music/playlists', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: playlistId, items: newItems })
+            });
+            window.dispatchEvent(new CustomEvent('schedulearr:playlists-updated'));
+        } catch {
+            toast.error('Failed to save playlist order');
+        }
+    };
+
+    const handleRemoveTrackFromPlaylist = async (playlistId: string, trackIndex: number) => {
+        if (!selectedPlaylist) return;
+        const newItems = selectedPlaylist.items.filter((_, idx) => idx !== trackIndex);
+        const updatedPlaylist = { ...selectedPlaylist, items: newItems };
+        setSelectedPlaylist(updatedPlaylist);
+        setPlaylists(prev => prev.map(p => p.id === playlistId ? updatedPlaylist : p));
+        toast.success('Track removed from playlist');
+
+        try {
+            await fetch('/api/theater/music/playlists', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: playlistId, items: newItems })
+            });
+            window.dispatchEvent(new CustomEvent('schedulearr:playlists-updated'));
+        } catch {
+            toast.error('Failed to update playlist on server');
         }
     };
 
@@ -2047,16 +2106,13 @@ function TheaterPageContent() {
                     name: suggestion.title,
                     items: suggestion.items || [],
                     coverUrl: suggestion.coverUrl,
-                    libraryId: activeLibrary?.id || 'global'
+                    libraryId: 'global'
                 })
             });
             if (res.ok) {
                 toast.success(`Playlist "${suggestion.title}" created with ${suggestion.items?.length || 0} tracks!`);
-                const playRes = await fetch(`/api/theater/music/playlists${activeLibrary ? `?libraryId=${activeLibrary.id}` : ''}`);
-                if (playRes.ok) {
-                    const pData = await playRes.json();
-                    setPlaylists(Array.isArray(pData.playlists) ? pData.playlists : []);
-                }
+                await fetchGlobalPlaylists();
+                window.dispatchEvent(new CustomEvent('schedulearr:playlists-updated'));
             } else {
                 toast.error('Failed to create playlist');
             }
@@ -2869,6 +2925,17 @@ function TheaterPageContent() {
         }
         return bookList.sort((a, b) => a.title.localeCompare(b.title));
     }, [filteredItems, libraries, activeContentTab, searchQuery]);
+
+    const filteredPlaylistTracks = useMemo(() => {
+        if (!selectedPlaylist) return [];
+        const q = playlistSearchQuery.trim().toLowerCase();
+        if (!q) return selectedPlaylist.items;
+        return selectedPlaylist.items.filter(item =>
+            (item.title || '').toLowerCase().includes(q) ||
+            (item.artist || '').toLowerCase().includes(q) ||
+            (item.album || '').toLowerCase().includes(q)
+        );
+    }, [selectedPlaylist, playlistSearchQuery]);
 
     // Accurate Show / Anime name extractor from item metadata, folder hierarchy, and path
     const extractShowName = useCallback((item: MediaItem): string => {
@@ -4099,33 +4166,55 @@ function TheaterPageContent() {
                                             {playlists.map(pl => (
                                                 <div
                                                     key={pl.id}
-                                                    className="p-5 rounded-3xl bg-[#09090b] border border-zinc-900 hover:border-amber-500/50 transition-all flex flex-col justify-between space-y-4 group shadow-xl"
+                                                    onClick={() => openPlaylistModal(pl)}
+                                                    className="p-5 rounded-3xl bg-[#09090b] border border-zinc-900 hover:border-amber-500/50 transition-all flex flex-col justify-between space-y-4 group shadow-xl cursor-pointer hover:-translate-y-1"
                                                 >
                                                     <div className="flex items-center justify-between">
-                                                        <div className="w-14 h-14 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 overflow-hidden shadow-inner">
+                                                        <div className="w-14 h-14 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 overflow-hidden shadow-inner group-hover:scale-105 transition-transform">
                                                             {pl.cover_url ? (
                                                                 <img src={pl.cover_url} alt="" className="w-full h-full object-cover" />
                                                             ) : (
                                                                 <ListMusic size={26} />
                                                             )}
                                                         </div>
-                                                        <button
-                                                            onClick={() => handleDeletePlaylist(pl.id)}
-                                                            className="p-2 text-zinc-600 hover:text-red-400 rounded-xl transition-colors cursor-pointer"
-                                                            title="Delete Playlist"
-                                                        >
-                                                            <Trash2 size={15} />
-                                                        </button>
+                                                        <div className="flex items-center gap-1">
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    openPlaylistModal(pl);
+                                                                }}
+                                                                className="p-2 text-zinc-500 hover:text-amber-400 rounded-xl transition-colors cursor-pointer"
+                                                                title="View & Edit Playlist Tracks"
+                                                            >
+                                                                <FolderTree size={15} />
+                                                            </button>
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleDeletePlaylist(pl.id);
+                                                                }}
+                                                                className="p-2 text-zinc-600 hover:text-red-400 rounded-xl transition-colors cursor-pointer"
+                                                                title="Delete Playlist"
+                                                            >
+                                                                <Trash2 size={15} />
+                                                            </button>
+                                                        </div>
                                                     </div>
 
                                                     <div>
                                                         <h3 className="text-base font-black text-white group-hover:text-amber-400 transition-colors truncate">{pl.name}</h3>
-                                                        <span className="text-xs text-zinc-500 font-semibold">{pl.items.length} tracks</span>
+                                                        <div className="flex items-center justify-between pt-0.5 text-xs text-zinc-500 font-semibold">
+                                                            <span>{pl.items.length} {pl.items.length === 1 ? 'track' : 'tracks'}</span>
+                                                            <span className="text-[10px] text-zinc-600 font-mono">Open Playlist</span>
+                                                        </div>
                                                     </div>
 
                                                     <button
                                                         disabled={pl.items.length === 0}
-                                                        onClick={() => handlePlayAlbum(pl.items)}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handlePlayAlbum(pl.items);
+                                                        }}
                                                         className="w-full py-3 bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/30 font-black text-xs uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2 disabled:opacity-40 cursor-pointer"
                                                     >
                                                         <Play size={15} /> Play Playlist
@@ -5861,6 +5950,228 @@ function TheaterPageContent() {
                                     </div>
                                 ))}
                             </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Playlist Detail & Track Management Modal (Inspect, Reorder, Search, Play, Remove) ── */}
+            {selectedPlaylist && (
+                <div
+                    onClick={(e) => { if (e.target === e.currentTarget) closePlaylistModal(); }}
+                    className="fixed inset-0 z-[230] flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-md animate-in fade-in duration-200"
+                >
+                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-4xl p-6 sm:p-8 space-y-6 shadow-2xl relative max-h-[88vh] overflow-y-auto custom-scrollbar flex flex-col">
+                        <button
+                            onClick={closePlaylistModal}
+                            className="absolute top-6 right-6 p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all cursor-pointer"
+                        >
+                            <X size={20} />
+                        </button>
+
+                        {/* Top Playlist Header Banner */}
+                        <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 pb-6 border-b border-zinc-900">
+                            <div className="w-36 h-36 rounded-3xl bg-amber-500/15 border border-amber-500/30 overflow-hidden flex items-center justify-center text-amber-400 shrink-0 shadow-2xl relative">
+                                {selectedPlaylist.cover_url ? (
+                                    <img
+                                        src={selectedPlaylist.cover_url}
+                                        alt={selectedPlaylist.name}
+                                        className="w-full h-full object-cover"
+                                    />
+                                ) : (
+                                    <ListMusic size={56} className="text-amber-400" />
+                                )}
+                            </div>
+
+                            <div className="space-y-3 text-center sm:text-left flex-1 min-w-0">
+                                <div className="flex items-center justify-center sm:justify-start gap-2 flex-wrap">
+                                    <span className="px-2.5 py-0.5 rounded-lg bg-amber-500/15 text-amber-400 border border-amber-500/30 text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
+                                        <ListMusic size={11} /> Playlist
+                                    </span>
+                                    <span className="px-2 py-0.5 rounded-lg bg-zinc-800 text-zinc-300 text-[10px] font-bold">
+                                        {selectedPlaylist.items.length} {selectedPlaylist.items.length === 1 ? 'Track' : 'Tracks'}
+                                    </span>
+                                    {selectedPlaylist.items.length > 0 && (
+                                        <span className="px-2 py-0.5 rounded-lg bg-zinc-800 text-zinc-400 text-[10px] font-mono">
+                                            {formatTime(selectedPlaylist.items.reduce((acc, it) => acc + ((it.durationMs || 0) / 1000), 0))} Total
+                                        </span>
+                                    )}
+                                </div>
+
+                                <h2 className="text-2xl sm:text-3xl font-black text-white leading-snug">
+                                    {selectedPlaylist.name}
+                                </h2>
+
+                                <p className="text-xs text-zinc-400">
+                                    Reorder songs, remove tracks, or search through this playlist.
+                                </p>
+
+                                <div className="pt-1 flex items-center justify-center sm:justify-start gap-3 flex-wrap">
+                                    <button
+                                        disabled={selectedPlaylist.items.length === 0}
+                                        onClick={() => handlePlayAlbum(selectedPlaylist.items)}
+                                        className="px-5 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider transition-all flex items-center gap-2 shadow-lg cursor-pointer disabled:opacity-40"
+                                    >
+                                        <Play size={16} className="fill-black" /> Play Playlist
+                                    </button>
+                                    <button
+                                        disabled={selectedPlaylist.items.length === 0}
+                                        onClick={() => {
+                                            const shuffled = [...selectedPlaylist.items].sort(() => Math.random() - 0.5);
+                                            handlePlayAlbum(shuffled);
+                                        }}
+                                        className="px-4 py-2.5 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 font-bold text-xs uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer disabled:opacity-40"
+                                    >
+                                        <Shuffle size={14} /> Shuffle
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            handleDeletePlaylist(selectedPlaylist.id);
+                                            closePlaylistModal();
+                                        }}
+                                        className="px-4 py-2.5 rounded-2xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 font-bold text-xs uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer ml-auto"
+                                    >
+                                        <Trash2 size={13} /> Delete Playlist
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Search Songs Inside Playlist */}
+                        <div className="relative">
+                            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
+                            <input
+                                type="text"
+                                value={playlistSearchQuery}
+                                onChange={e => setPlaylistSearchQuery(e.target.value)}
+                                placeholder="Search songs, artists, or albums inside this playlist..."
+                                className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl pl-10 pr-8 py-2.5 text-xs sm:text-sm text-white placeholder-zinc-500 outline-none focus:border-amber-400 transition-colors"
+                            />
+                            {playlistSearchQuery && (
+                                <button
+                                    onClick={() => setPlaylistSearchQuery('')}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                                >
+                                    <X size={14} />
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Tracklist with Reorder (Move Up/Down), Play, and Remove */}
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between text-xs text-zinc-500 font-bold uppercase tracking-wider px-2">
+                                <span>Tracklist ({filteredPlaylistTracks.length} of {selectedPlaylist.items.length})</span>
+                                <span>Actions & Reorder</span>
+                            </div>
+
+                            {filteredPlaylistTracks.length === 0 ? (
+                                <div className="p-12 bg-zinc-950/40 rounded-3xl border border-zinc-900 text-center space-y-2">
+                                    <Music size={32} className="mx-auto text-zinc-700" />
+                                    <p className="text-sm font-bold text-white">
+                                        {playlistSearchQuery ? `No tracks matching "${playlistSearchQuery}"` : 'This playlist is empty'}
+                                    </p>
+                                    <p className="text-xs text-zinc-500">
+                                        {playlistSearchQuery ? 'Try another search term.' : 'Add tracks to this playlist from any song menu or player drawer.'}
+                                    </p>
+                                </div>
+                            ) : (
+                                <div className="divide-y divide-zinc-900/80 bg-zinc-950/60 rounded-3xl border border-zinc-900 overflow-hidden">
+                                    {filteredPlaylistTracks.map((item, displayIdx) => {
+                                        const actualIndex = selectedPlaylist.items.findIndex(it => it.id === item.id);
+                                        const isFirst = actualIndex === 0;
+                                        const isLast = actualIndex === selectedPlaylist.items.length - 1;
+                                        return (
+                                            <div
+                                                key={`${item.id}-${displayIdx}`}
+                                                className="p-3 sm:p-3.5 flex items-center justify-between gap-3 hover:bg-zinc-900/50 transition-colors group"
+                                            >
+                                                <div className="flex items-center gap-3 min-w-0 flex-1">
+                                                    <span className="w-6 text-center font-mono text-xs text-zinc-500 font-bold group-hover:text-amber-400">
+                                                        {actualIndex !== -1 ? actualIndex + 1 : displayIdx + 1}
+                                                    </span>
+                                                    <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-800 overflow-hidden shrink-0 flex items-center justify-center relative">
+                                                        {item.posterUrl ? (
+                                                            <img src={item.posterUrl} alt="" className="w-full h-full object-cover" />
+                                                        ) : (
+                                                            <Music size={16} className="text-zinc-600" />
+                                                        )}
+                                                    </div>
+                                                    <div className="min-w-0 space-y-0.5 flex-1">
+                                                        <h4 className="font-bold text-white text-xs sm:text-sm truncate group-hover:text-amber-400 transition-colors">
+                                                            {item.title}
+                                                        </h4>
+                                                        <p className="text-xs text-zinc-400 truncate">
+                                                            {item.artist || 'Unknown Artist'} • <span className="text-zinc-500">{item.album || 'Single'}</span>
+                                                        </p>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center gap-1.5 shrink-0">
+                                                    {item.durationMs ? (
+                                                        <span className="font-mono text-xs text-zinc-500 mr-1 hidden sm:inline">
+                                                            {formatTime(item.durationMs / 1000)}
+                                                        </span>
+                                                    ) : item.duration ? (
+                                                        <span className="font-mono text-xs text-zinc-500 mr-1 hidden sm:inline">
+                                                            {item.duration}
+                                                        </span>
+                                                    ) : null}
+
+                                                    {/* Move Up */}
+                                                    <button
+                                                        disabled={isFirst || Boolean(playlistSearchQuery)}
+                                                        onClick={() => handleMoveTrackInPlaylist(selectedPlaylist.id, actualIndex, actualIndex - 1)}
+                                                        className="w-8 h-8 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white disabled:opacity-20 flex items-center justify-center transition-all cursor-pointer"
+                                                        title="Move Track Up"
+                                                    >
+                                                        <ArrowUp size={14} />
+                                                    </button>
+
+                                                    {/* Move Down */}
+                                                    <button
+                                                        disabled={isLast || Boolean(playlistSearchQuery)}
+                                                        onClick={() => handleMoveTrackInPlaylist(selectedPlaylist.id, actualIndex, actualIndex + 1)}
+                                                        className="w-8 h-8 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white disabled:opacity-20 flex items-center justify-center transition-all cursor-pointer"
+                                                        title="Move Track Down"
+                                                    >
+                                                        <ArrowDown size={14} />
+                                                    </button>
+
+                                                    {/* Play Track */}
+                                                    <button
+                                                        onClick={() => {
+                                                            const idxToPlay = actualIndex !== -1 ? actualIndex : 0;
+                                                            playAlbum(selectedPlaylist.items, idxToPlay);
+                                                        }}
+                                                        className="w-8 h-8 rounded-xl bg-zinc-900 hover:bg-amber-500 text-zinc-400 hover:text-black flex items-center justify-center transition-all cursor-pointer"
+                                                        title="Play This Song"
+                                                    >
+                                                        <Play size={14} className="ml-0.5 fill-current" />
+                                                    </button>
+
+                                                    {/* Download Track */}
+                                                    <button
+                                                        onClick={() => handleDownloadTrack(item)}
+                                                        className="w-8 h-8 rounded-xl bg-zinc-900 hover:bg-emerald-500 text-zinc-400 hover:text-black flex items-center justify-center transition-all cursor-pointer"
+                                                        title="Download Track"
+                                                    >
+                                                        <Download size={13} />
+                                                    </button>
+
+                                                    {/* Remove from Playlist */}
+                                                    <button
+                                                        onClick={() => handleRemoveTrackFromPlaylist(selectedPlaylist.id, actualIndex)}
+                                                        className="w-8 h-8 rounded-xl bg-zinc-900 hover:bg-red-500 text-zinc-500 hover:text-white flex items-center justify-center transition-all cursor-pointer ml-1"
+                                                        title="Remove from Playlist"
+                                                    >
+                                                        <Trash2 size={13} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>

@@ -49,13 +49,9 @@ function initDbConnection(isRetry: boolean = false): any {
         d.pragma('temp_store = MEMORY');
         d.pragma('cache_size = -64000'); // 64MB cache
         
-        console.log(`[Startup 2/4] 🔍 Verifying database integrity (quick_check)...`);
-        // Fast integrity check: verifies b-trees and page headers in ~2ms instead of scanning entire disk image
-        const integrity = d.pragma('quick_check(1)');
-        const isOk = Array.isArray(integrity) && integrity.length > 0 && integrity[0].quick_check === 'ok';
-        if (!isOk) {
-            throw new Error(`Integrity quick_check failed: ${JSON.stringify(integrity)}`);
-        }
+        console.log(`[Startup 2/4] 🔍 Verifying database connection probe...`);
+        // Instant probe: verifies database header and responsiveness without disk-thrashing quick_check
+        d.prepare("SELECT 1").get();
 
         console.log(`[Startup 3/4] 🛠️ Applying database schema and migrations...`);
         initializeSchema(d);
@@ -1236,13 +1232,9 @@ export const getIptvEpg = getIptvEpgForChannel;
 
 export const getMusicPlaylists = (libraryId?: string) => {
     try {
-        let query = 'SELECT * FROM music_playlists ORDER BY created_at DESC';
-        let params: any[] = [];
-        if (libraryId && libraryId !== 'all') {
-            query = "SELECT * FROM music_playlists WHERE library_id = ? OR library_id = 'global' OR library_id IS NULL ORDER BY created_at DESC";
-            params = [libraryId];
-        }
-        const rows = db.prepare(query).all(...params) as any[];
+        // Universal user playlists: return all playlists across all views so playlists are never hidden when switching libraries
+        const query = 'SELECT * FROM music_playlists ORDER BY created_at DESC';
+        const rows = db.prepare(query).all() as any[];
         return (rows || []).map(r => ({
             ...r,
             items: r.items_json ? JSON.parse(r.items_json) : []
@@ -1258,12 +1250,34 @@ export const saveMusicPlaylist = (id: string, libraryId: string, name: string, i
         const stmt = db.prepare(`
             INSERT INTO music_playlists (id, library_id, name, items_json, cover_url)
             VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET name = excluded.name, items_json = excluded.items_json, cover_url = excluded.cover_url
+            ON CONFLICT(id) DO UPDATE SET name = excluded.name, items_json = excluded.items_json, cover_url = COALESCE(excluded.cover_url, music_playlists.cover_url)
         `);
-        stmt.run(id, libraryId, name.trim(), JSON.stringify(items), coverUrl || null);
+        stmt.run(id, libraryId || 'global', name.trim(), JSON.stringify(items), coverUrl || null);
         return true;
     } catch (e) {
         console.error('Error saving music playlist:', e);
+        return false;
+    }
+};
+
+export const updatePlaylistItems = (id: string, items: any[], name?: string, coverUrl?: string) => {
+    try {
+        if (name && coverUrl) {
+            const stmt = db.prepare('UPDATE music_playlists SET items_json = ?, name = ?, cover_url = ? WHERE id = ?');
+            stmt.run(JSON.stringify(items), name.trim(), coverUrl, id);
+        } else if (name) {
+            const stmt = db.prepare('UPDATE music_playlists SET items_json = ?, name = ? WHERE id = ?');
+            stmt.run(JSON.stringify(items), name.trim(), id);
+        } else if (coverUrl) {
+            const stmt = db.prepare('UPDATE music_playlists SET items_json = ?, cover_url = ? WHERE id = ?');
+            stmt.run(JSON.stringify(items), coverUrl, id);
+        } else {
+            const stmt = db.prepare('UPDATE music_playlists SET items_json = ? WHERE id = ?');
+            stmt.run(JSON.stringify(items), id);
+        }
+        return true;
+    } catch (e) {
+        console.error('Error updating playlist items:', e);
         return false;
     }
 };

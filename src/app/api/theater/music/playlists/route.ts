@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getMusicPlaylists, saveMusicPlaylist, deleteMusicPlaylist } from '@/lib/db';
+import { getMusicPlaylists, saveMusicPlaylist, updatePlaylistItems, deleteMusicPlaylist } from '@/lib/db';
 import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
@@ -37,6 +37,27 @@ export async function POST(req: Request) {
         }
     } catch (error: any) {
         console.error('API /theater/music/playlists POST error:', error);
+        return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+}
+
+export async function PATCH(req: Request) {
+    try {
+        const body = await req.json();
+        const { id, items, name, coverUrl } = body || {};
+
+        if (!id || !Array.isArray(items)) {
+            return NextResponse.json({ error: 'id and items array are required' }, { status: 400 });
+        }
+
+        const success = updatePlaylistItems(id, items, name, coverUrl);
+        if (success) {
+            return NextResponse.json({ success: true, id });
+        } else {
+            return NextResponse.json({ error: 'Failed to update playlist' }, { status: 500 });
+        }
+    } catch (error: any) {
+        console.error('API /theater/music/playlists PATCH error:', error);
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }
