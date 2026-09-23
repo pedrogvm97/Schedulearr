@@ -4,14 +4,14 @@ import React, { useState, useEffect } from 'react';
 import {
     Folder, Plus, Trash2, Edit3, RefreshCw, X, Film, Tv, Disc,
     Tv2, Check, AlertCircle, HardDrive, Layers, Globe, Radio,
-    FolderPlus, ExternalLink, ChevronRight, Server
+    FolderPlus, ExternalLink, ChevronRight, Server, BookOpen
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export interface TheaterLibrary {
     id: string;
     name: string;
-    type: 'movie' | 'tv' | 'music' | 'live';
+    type: 'movie' | 'tv' | 'music' | 'live' | 'audiobooks';
     folders: string[];
     plexSectionId?: string;
     instanceId?: string;
@@ -26,12 +26,12 @@ interface ManageLibrariesModalProps {
 export function ManageLibrariesModal({ isOpen, onClose, onLibrariesChanged }: ManageLibrariesModalProps) {
     const [libraries, setLibraries] = useState<TheaterLibrary[]>([]);
     const [loading, setLoading] = useState(true);
-    const [activeTypeFilter, setActiveTypeFilter] = useState<'all' | 'movie' | 'tv' | 'music' | 'live'>('all');
+    const [activeTypeFilter, setActiveTypeFilter] = useState<'all' | 'movie' | 'tv' | 'music' | 'live' | 'audiobooks'>('all');
 
     // Create Library Form State
     const [isCreating, setIsCreating] = useState(false);
     const [newLibName, setNewLibName] = useState('');
-    const [newLibType, setNewLibType] = useState<'movie' | 'tv' | 'music' | 'live'>('movie');
+    const [newLibType, setNewLibType] = useState<'movie' | 'tv' | 'music' | 'live' | 'audiobooks'>('movie');
     const [newLibFolders, setNewLibFolders] = useState<string[]>([]);
     const [folderInput, setFolderInput] = useState('');
     const [iptvUrlInput, setIptvUrlInput] = useState('');
@@ -203,15 +203,16 @@ export function ManageLibrariesModal({ isOpen, onClose, onLibrariesChanged }: Ma
     };
 
     // ── Plex 1-Click Import ──
-    const handleImportPlex = async (plexLib: any) => {
+    const handleImportPlex = async (plexLib: any, overrideType?: string) => {
         setIsImportingPlex(true);
         try {
+            const finalType = overrideType || plexLib.mediaType || 'other';
             const res = await fetch('/api/theater/libraries', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     name: plexLib.title,
-                    type: plexLib.mediaType,
+                    type: finalType,
                     folders: plexLib.locations || [],
                     plexSectionId: plexLib.sectionKey,
                     instanceId: plexLib.instanceId
@@ -219,7 +220,7 @@ export function ManageLibrariesModal({ isOpen, onClose, onLibrariesChanged }: Ma
             });
 
             if (res.ok) {
-                toast.success(`Imported "${plexLib.title}" from Plex!`);
+                toast.success(`Imported "${plexLib.title}" as ${finalType === 'audiobooks' ? 'Audiobook' : finalType} library!`);
                 await fetchLibraries();
                 notifyChange();
             } else {
@@ -318,6 +319,7 @@ export function ManageLibrariesModal({ isOpen, onClose, onLibrariesChanged }: Ma
             case 'movie': return <Film size={15} className="text-indigo-400" />;
             case 'tv': return <Tv size={15} className="text-emerald-400" />;
             case 'music': return <Disc size={15} className="text-amber-400" />;
+            case 'audiobooks': return <BookOpen size={15} className="text-orange-400" />;
             case 'live': return <Tv2 size={15} className="text-red-400" />;
             default: return <Folder size={15} className="text-zinc-400" />;
         }
@@ -328,6 +330,7 @@ export function ManageLibrariesModal({ isOpen, onClose, onLibrariesChanged }: Ma
             case 'movie': return 'bg-indigo-500/15 text-indigo-400 border-indigo-500/30';
             case 'tv': return 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30';
             case 'music': return 'bg-amber-500/15 text-amber-400 border-amber-500/30';
+            case 'audiobooks': return 'bg-orange-500/15 text-orange-400 border-orange-500/30';
             case 'live': return 'bg-red-500/15 text-red-400 border-red-500/30';
             default: return 'bg-zinc-800 text-zinc-300 border-zinc-700';
         }
@@ -366,7 +369,7 @@ export function ManageLibrariesModal({ isOpen, onClose, onLibrariesChanged }: Ma
                 <div className="px-6 sm:px-7 py-3.5 bg-zinc-950/40 border-b border-zinc-900 flex flex-wrap items-center justify-between gap-3 shrink-0">
                     {/* Category Filter Pills */}
                     <div className="flex bg-zinc-900/90 p-1 rounded-2xl border border-zinc-800/80 shadow-inner shrink-0 flex-wrap">
-                        {(['all', 'movie', 'tv', 'music', 'live'] as const).map(tab => (
+                        {(['all', 'movie', 'tv', 'music', 'audiobooks', 'live'] as const).map(tab => (
                             <button
                                 key={tab}
                                 onClick={() => setActiveTypeFilter(tab)}
@@ -376,7 +379,7 @@ export function ManageLibrariesModal({ isOpen, onClose, onLibrariesChanged }: Ma
                                         : 'text-zinc-500 hover:text-zinc-300'
                                 }`}
                             >
-                                {tab === 'all' ? 'All' : tab === 'movie' ? 'Movies' : tab === 'tv' ? 'TV Shows' : tab === 'music' ? 'Music' : 'Live TV'}
+                                {tab === 'all' ? 'All' : tab === 'movie' ? 'Movies' : tab === 'tv' ? 'TV Shows' : tab === 'music' ? 'Music' : tab === 'audiobooks' ? 'Audiobooks' : 'Live TV'}
                                 <span className="text-[10px] opacity-60">
                                     ({tab === 'all' ? libraries.length : libraries.filter(l => l.type === tab).length})
                                 </span>
@@ -456,13 +459,25 @@ export function ManageLibrariesModal({ isOpen, onClose, onLibrariesChanged }: Ma
                                                     <Check size={11} /> Connected
                                                 </span>
                                             ) : (
-                                                <button
-                                                    disabled={isImportingPlex}
-                                                    onClick={() => handleImportPlex(ps)}
-                                                    className="px-3 py-1 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-[10px] font-black uppercase tracking-wider transition-all shrink-0 cursor-pointer disabled:opacity-50"
-                                                >
-                                                    Import
-                                                </button>
+                                                <div className="flex items-center gap-1.5 shrink-0">
+                                                    {(ps.mediaType === 'music' || ps.plexType === 'artist') && (
+                                                        <button
+                                                            disabled={isImportingPlex}
+                                                            onClick={() => handleImportPlex(ps, 'audiobooks')}
+                                                            className="px-2.5 py-1 rounded-xl bg-orange-500/20 hover:bg-orange-500 text-orange-300 hover:text-black text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer disabled:opacity-50 flex items-center gap-1 border border-orange-500/30"
+                                                            title="Import as Audiobook Library"
+                                                        >
+                                                            <BookOpen size={10} /> As Audiobook
+                                                        </button>
+                                                    )}
+                                                    <button
+                                                        disabled={isImportingPlex}
+                                                        onClick={() => handleImportPlex(ps)}
+                                                        className="px-3 py-1 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-[10px] font-black uppercase tracking-wider transition-all shrink-0 cursor-pointer disabled:opacity-50"
+                                                    >
+                                                        Import
+                                                    </button>
+                                                </div>
                                             )}
                                         </div>
                                     );
@@ -501,11 +516,12 @@ export function ManageLibrariesModal({ isOpen, onClose, onLibrariesChanged }: Ma
                                     <label className="text-xs font-black text-zinc-300 uppercase tracking-wider block">
                                         Media Category:
                                     </label>
-                                    <div className="grid grid-cols-4 gap-2">
+                                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                                         {[
                                             { id: 'movie', label: 'Movie', icon: <Film size={13} /> },
                                             { id: 'tv', label: 'Series', icon: <Tv size={13} /> },
                                             { id: 'music', label: 'Music', icon: <Disc size={13} /> },
+                                            { id: 'audiobooks', label: 'Audiobook', icon: <BookOpen size={13} /> },
                                             { id: 'live', label: 'IPTV', icon: <Tv2 size={13} /> }
                                         ].map(t => (
                                             <button

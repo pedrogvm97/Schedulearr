@@ -111,6 +111,12 @@ interface MusicPlayerContextType {
     handleDownloadTrack: (track: MediaItem | null) => void;
     handleDownloadAlbum: (tracks: MediaItem[], albumName?: string) => void;
     addToQueue: (track: MediaItem) => void;
+    playerAnimationMode: 'art' | 'turntable' | 'disc';
+    changePlayerAnimationMode: (mode: 'art' | 'turntable' | 'disc') => void;
+    playbackSpeed: number;
+    handlePlaybackSpeedChange: (speed: number) => void;
+    cyclePlaybackSpeed: () => void;
+    skipSeconds: (seconds: number) => void;
 }
 
 const MusicPlayerContext = createContext<MusicPlayerContextType | null>(null);
@@ -484,6 +490,64 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     const [queueSubTab, setQueueSubTab] = useState<'queue' | 'playlists'>('queue');
     const [showExpandedSidePanel, setShowExpandedSidePanel] = useState(true);
     const [isVinylView, setIsVinylView] = useState(true);
+
+    // 3-Way Player Animation Mode: 'turntable' (Vinyl with Plinth) | 'disc' (Pure Spinning Disk) | 'art' (Simple Album Art)
+    const [playerAnimationMode, setPlayerAnimationMode] = useState<'art' | 'turntable' | 'disc'>(() => {
+        if (typeof window !== 'undefined') {
+            try {
+                const saved = localStorage.getItem('schedulearr_player_animation_mode');
+                if (saved === 'art' || saved === 'turntable' || saved === 'disc') {
+                    return saved;
+                }
+            } catch {}
+        }
+        return 'turntable';
+    });
+
+    const changePlayerAnimationMode = (mode: 'art' | 'turntable' | 'disc') => {
+        setPlayerAnimationMode(mode);
+        setIsVinylView(mode !== 'art');
+        try {
+            localStorage.setItem('schedulearr_player_animation_mode', mode);
+        } catch {}
+    };
+
+    // Audiobook & Spoken Word Speed Control & Jump Handlers
+    const [playbackSpeed, setPlaybackSpeed] = useState<number>(() => {
+        if (typeof window !== 'undefined') {
+            try {
+                const s = localStorage.getItem('schedulearr_audio_playback_speed');
+                if (s) return parseFloat(s);
+            } catch {}
+        }
+        return 1.0;
+    });
+
+    const handlePlaybackSpeedChange = (speed: number) => {
+        setPlaybackSpeed(speed);
+        if (audioRef.current) {
+            audioRef.current.playbackRate = speed;
+        }
+        try {
+            localStorage.setItem('schedulearr_audio_playback_speed', String(speed));
+        } catch {}
+        toast.info(`Speed: ${speed}x`);
+    };
+
+    const cyclePlaybackSpeed = () => {
+        const speeds = [1.0, 1.25, 1.5, 1.75, 2.0, 0.75];
+        const nextIdx = (speeds.indexOf(playbackSpeed) + 1) % speeds.length;
+        handlePlaybackSpeedChange(speeds[nextIdx]);
+    };
+
+    const skipSeconds = (seconds: number) => {
+        if (audioRef.current) {
+            const nextTime = Math.max(0, Math.min(audioRef.current.duration || 999999, audioRef.current.currentTime + seconds));
+            audioRef.current.currentTime = nextTime;
+            setAudioCurrentTime(nextTime);
+            toast.info(`${seconds > 0 ? `+${seconds}` : seconds}s`);
+        }
+    };
 
     // In-Player Playlist States & Handlers
     const [inPlayerPlaylists, setInPlayerPlaylists] = useState<any[]>([]);
@@ -2448,7 +2512,13 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                 openDiagnostics: () => setShowAudioNerdModal(true),
                 handleDownloadTrack,
                 handleDownloadAlbum,
-                addToQueue
+                addToQueue,
+                playerAnimationMode,
+                changePlayerAnimationMode,
+                playbackSpeed,
+                handlePlaybackSpeedChange,
+                cyclePlaybackSpeed,
+                skipSeconds
             }}
         >
             {/* Global Persistent Audio Element for all Audio Playback (Local, Plex, YouTube, Online) */}
@@ -2496,7 +2566,17 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                     addAudioNerdLog('warn', 'Audio network stream stalled');
                 }}
                 onTimeUpdate={() => {
-                    if (audioRef.current) setAudioCurrentTime(audioRef.current.currentTime);
+                    if (audioRef.current) {
+                        const cur = audioRef.current.currentTime;
+                        setAudioCurrentTime(cur);
+                        // Bookmark position for long-form / audiobook tracks every 4 seconds
+                        if (playingAudio && cur > 5 && Math.floor(cur) % 4 === 0) {
+                            try {
+                                const bookmarkKey = `schedulearr_pos_${playingAudio.id || playingAudio.path || playingAudio.title}`;
+                                localStorage.setItem(bookmarkKey, String(Math.floor(cur)));
+                            } catch {}
+                        }
+                    }
                 }}
                 onLoadedMetadata={() => {
                     if (audioRef.current) {
@@ -2504,6 +2584,23 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                         const fallbackDur = playingAudio?.durationMs ? playingAudio.durationMs / 1000 : parseDurationString(playingAudio?.duration);
                         const finalDur = Number.isFinite(raw) && raw > 0 ? raw : fallbackDur;
                         setAudioDuration(finalDur);
+                        if (playbackSpeed !== 1.0) {
+                            audioRef.current.playbackRate = playbackSpeed;
+                        }
+                        if (playingAudio) {
+                            try {
+                                const bookmarkKey = `schedulearr_pos_${playingAudio.id || playingAudio.path || playingAudio.title}`;
+                                const savedPos = localStorage.getItem(bookmarkKey);
+                                if (savedPos) {
+                                    const posNum = parseFloat(savedPos);
+                                    if (posNum > 10 && posNum < (finalDur - 15)) {
+                                        audioRef.current.currentTime = posNum;
+                                        setAudioCurrentTime(posNum);
+                                        toast.info(`Resumed from ${Math.floor(posNum / 60)}:${String(Math.floor(posNum % 60)).padStart(2, '0')}`);
+                                    }
+                                }
+                            } catch {}
+                        }
                         addAudioNerdLog('info', `Loaded audio metadata: duration ${finalDur > 0 ? finalDur.toFixed(1) + 's' : 'live'}`);
                     }
                 }}
@@ -2586,30 +2683,85 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1 max-w-[150px] sm:max-w-[280px] cursor-pointer group/art shrink"
                             title="Click to open Expanded Player with Big Art & Synced Lyrics"
                         >
-                            <div className="w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl bg-zinc-900 border border-zinc-800 overflow-hidden flex items-center justify-center text-amber-400 shrink-0 relative shadow-md group-hover/art:scale-105 group-hover/art:border-amber-500/50 transition-all">
-                                {playingAudio.posterUrl && !bottomCoverError ? (
-                                    <img
-                                        src={playingAudio.posterUrl}
-                                        alt=""
-                                        className="w-full h-full object-cover"
-                                        onError={() => {
-                                            const fallback = getCoverFallbackUrl(playingAudio.artist, playingAudio.album, playingAudio.title);
-                                            if (playingAudio.posterUrl !== fallback) {
-                                                setPlayingAudio(prev => prev ? { ...prev, posterUrl: fallback } : prev);
-                                            } else {
-                                                setBottomCoverError(true);
-                                            }
-                                        }}
-                                    />
-                                ) : (
-                                    <div className="w-full h-full bg-gradient-to-tr from-amber-600/20 to-zinc-900 flex items-center justify-center text-amber-400">
-                                        <Music size={20} />
+                            {playerAnimationMode === 'art' ? (
+                                /* Simple Art: Standard square album cover art */
+                                <div className="w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl bg-zinc-900 border border-zinc-800 overflow-hidden flex items-center justify-center text-amber-400 shrink-0 relative shadow-md group-hover/art:scale-105 group-hover/art:border-amber-500/50 transition-all">
+                                    {playingAudio.posterUrl && !bottomCoverError ? (
+                                        <img
+                                            src={playingAudio.posterUrl}
+                                            alt=""
+                                            className="w-full h-full object-cover"
+                                            onError={() => {
+                                                const fallback = getCoverFallbackUrl(playingAudio.artist, playingAudio.album, playingAudio.title);
+                                                if (playingAudio.posterUrl !== fallback) {
+                                                    setPlayingAudio(prev => prev ? { ...prev, posterUrl: fallback } : prev);
+                                                } else {
+                                                    setBottomCoverError(true);
+                                                }
+                                            }}
+                                        />
+                                    ) : (
+                                        <div className="w-full h-full bg-gradient-to-tr from-amber-600/20 to-zinc-900 flex items-center justify-center text-amber-400">
+                                            <Music size={20} />
+                                        </div>
+                                    )}
+                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/art:opacity-100 flex items-center justify-center transition-opacity">
+                                        <Maximize size={14} className="text-white" />
                                     </div>
-                                )}
-                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/art:opacity-100 flex items-center justify-center transition-opacity">
-                                    <Maximize size={14} className="text-white" />
                                 </div>
-                            </div>
+                            ) : (
+                                /* Vinyl Record or Spinning Disk: Mini rotating vinyl disc */
+                                <div
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        togglePlayPause();
+                                    }}
+                                    className="w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-gradient-to-tr from-zinc-700 via-zinc-800 to-zinc-600 p-0.5 shadow-md flex items-center justify-center border border-zinc-600/50 shrink-0 relative group-hover/art:scale-105 group-hover/art:border-amber-500/50 transition-all cursor-pointer"
+                                    title={isAudioPlaying ? "Click Mini Vinyl to Pause" : "Click Mini Vinyl to Play"}
+                                >
+                                    <div className="w-full h-full rounded-full bg-zinc-950 flex items-center justify-center shadow-inner overflow-hidden">
+                                        <div
+                                            className="relative w-[96%] h-[96%] rounded-full bg-black flex items-center justify-center overflow-hidden"
+                                            style={{
+                                                animation: 'vinyl-spin 8s linear infinite',
+                                                animationPlayState: isActivelyPlaying ? 'running' : 'paused'
+                                            }}
+                                        >
+                                            <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,_#000000_30%,_#18181b_31%,_#09090b_45%,_#1f1f23_46%,_#000000_65%,_#18181b_66%,_#000000_100%)] opacity-90 pointer-events-none" />
+                                            <div className="absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,transparent_0deg,rgba(255,255,255,0.12)_45deg,transparent_90deg,transparent_180deg,rgba(255,255,255,0.12)_225deg,transparent_270deg)] pointer-events-none" />
+
+                                            {/* Center Label (Artwork) */}
+                                            <div className="relative w-[75%] h-[75%] rounded-full overflow-hidden border border-amber-500/60 shadow flex items-center justify-center z-10 pointer-events-none">
+                                                {playingAudio.posterUrl && !bottomCoverError ? (
+                                                    <img
+                                                        src={playingAudio.posterUrl}
+                                                        alt=""
+                                                        className="w-full h-full object-cover pointer-events-none"
+                                                        onError={() => {
+                                                            const fallback = getCoverFallbackUrl(playingAudio.artist, playingAudio.album, playingAudio.title);
+                                                            if (playingAudio.posterUrl !== fallback) {
+                                                                setPlayingAudio(prev => prev ? { ...prev, posterUrl: fallback } : prev);
+                                                            } else {
+                                                                setBottomCoverError(true);
+                                                            }
+                                                        }}
+                                                    />
+                                                ) : (
+                                                    <div className="w-full h-full bg-gradient-to-tr from-amber-600 to-amber-400 flex items-center justify-center text-[8px] font-black text-black">
+                                                        ♫
+                                                    </div>
+                                                )}
+                                                <div className="absolute w-2 h-2 rounded-full bg-zinc-950 border border-zinc-400 flex items-center justify-center z-20">
+                                                    <div className="w-0.5 h-0.5 rounded-full bg-amber-400" />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover/art:opacity-100 flex items-center justify-center transition-opacity pointer-events-none">
+                                        {isAudioPlaying ? <Pause size={12} className="text-white" /> : <Play size={12} className="text-white ml-0.5" />}
+                                    </div>
+                                </div>
+                            )}
                             <div className="min-w-0 flex-1">
                                 <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
                                     <h4 className="font-bold text-white text-xs sm:text-base truncate leading-snug group-hover/art:text-amber-400 transition-colors">{playingAudio.title}</h4>
@@ -2869,14 +3021,42 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                         />
                     )}
 
-                    {/* Floating Close Button in Top-Right Corner */}
-                    <button
-                        onClick={() => setIsExpandedPlayerOpen(false)}
-                        className="absolute top-4 right-4 z-50 p-2.5 rounded-2xl bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 transition-all backdrop-blur-md cursor-pointer shadow-xl"
-                        title="Close Player"
-                    >
-                        <X size={18} />
-                    </button>
+                    {/* Top-Right Window Controls: Small Player (Minimalist), Minimize Player (Collapse), and Close Player */}
+                    <div className="absolute top-3.5 right-3.5 sm:top-4 sm:right-4 z-50 flex items-center gap-1.5 p-1 rounded-2xl bg-zinc-950/80 border border-zinc-800/90 backdrop-blur-xl shadow-2xl">
+                        {/* 1. Small Player (Minimalist Platter View) */}
+                        <button
+                            onClick={() => setIsMinimalistVinylMode(prev => !prev)}
+                            className={`p-2 sm:p-2.5 rounded-xl border transition-all cursor-pointer shadow-md ${
+                                isMinimalistVinylMode
+                                    ? 'bg-amber-500 text-black border-amber-400 ring-2 ring-amber-400/40'
+                                    : 'bg-zinc-900/90 hover:bg-zinc-800 text-zinc-400 hover:text-white border-zinc-800'
+                            }`}
+                            title={isMinimalistVinylMode ? "Restore Full Studio Dashboard" : "Small Player (Minimalist Platter View)"}
+                        >
+                            {isMinimalistVinylMode ? <Maximize2 size={16} /> : <Minimize2 size={16} />}
+                        </button>
+
+                        {/* 2. Minimize to Bottom Bar */}
+                        <button
+                            onClick={() => setIsExpandedPlayerOpen(false)}
+                            className="p-2 sm:p-2.5 rounded-xl bg-zinc-900/90 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 transition-all cursor-pointer shadow-md"
+                            title="Minimize Player (Collapse to Bottom Bar)"
+                        >
+                            <ChevronDown size={16} />
+                        </button>
+
+                        {/* 3. Close Player */}
+                        <button
+                            onClick={() => {
+                                setIsExpandedPlayerOpen(false);
+                                setIsMinimalistVinylMode(false);
+                            }}
+                            className="p-2 sm:p-2.5 rounded-xl bg-zinc-900/90 hover:bg-rose-500/20 text-zinc-400 hover:text-rose-400 border border-zinc-800 hover:border-rose-500/40 transition-all cursor-pointer shadow-md"
+                            title="Close Player"
+                        >
+                            <X size={16} />
+                        </button>
+                    </div>
 
                     {/* Mobile Segmented Deck vs Studio Switch (< lg only) */}
                     <div className="lg:hidden flex items-center gap-2 pt-2 px-1 shrink-0">
@@ -2989,16 +3169,24 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 </div>
 
                                 {/* Main Controls Row */}
-                                <div className="flex items-center justify-center gap-4 sm:gap-6">
+                                <div className="flex items-center justify-center gap-2 sm:gap-3.5 flex-wrap">
                                     <button
                                         onClick={() => setIsShuffle(!isShuffle)}
                                         className={`p-2 rounded-xl transition-colors cursor-pointer ${isShuffle ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-500 hover:text-white'}`}
                                         title="Shuffle Queue"
                                     >
-                                        <Shuffle size={20} />
+                                        <Shuffle size={18} />
+                                    </button>
+                                    <button
+                                        onClick={() => skipSeconds(-15)}
+                                        className="p-2 rounded-xl text-zinc-400 hover:text-amber-400 hover:bg-zinc-900 transition-all font-mono text-xs font-black cursor-pointer flex items-center gap-0.5"
+                                        title="Skip 15 seconds backward"
+                                    >
+                                        <RotateCcw size={15} />
+                                        <span>15s</span>
                                     </button>
                                     <button onClick={prevTrack} className="p-2 text-zinc-400 hover:text-white transition-colors cursor-pointer" title="Previous Track">
-                                        <SkipBack size={24} />
+                                        <SkipBack size={22} />
                                     </button>
                                     <button
                                         onClick={togglePlayPause}
@@ -3015,21 +3203,40 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         )}
                                     </button>
                                     <button onClick={nextTrack} className="p-2 text-zinc-400 hover:text-white transition-colors cursor-pointer" title="Next Track">
-                                        <SkipForward size={24} />
+                                        <SkipForward size={22} />
+                                    </button>
+                                    <button
+                                        onClick={() => skipSeconds(30)}
+                                        className="p-2 rounded-xl text-zinc-400 hover:text-amber-400 hover:bg-zinc-900 transition-all font-mono text-xs font-black cursor-pointer flex items-center gap-0.5"
+                                        title="Skip 30 seconds forward"
+                                    >
+                                        <RotateCcw size={15} className="scale-x-[-1]" />
+                                        <span>30s</span>
                                     </button>
                                     <button
                                         onClick={() => setIsRepeat(!isRepeat)}
                                         className={`p-2 rounded-xl transition-colors cursor-pointer ${isRepeat ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-500 hover:text-white'}`}
                                         title={isRepeat ? "Repeat: Active" : "Repeat: Off"}
                                     >
-                                        <Repeat size={20} />
+                                        <Repeat size={18} />
+                                    </button>
+                                    <button
+                                        onClick={cyclePlaybackSpeed}
+                                        className={`px-2 py-1 rounded-lg text-xs font-mono font-black border transition-all cursor-pointer ${
+                                            playbackSpeed !== 1.0
+                                                ? 'bg-amber-500 text-black border-amber-400 shadow-sm'
+                                                : 'bg-zinc-900 text-zinc-400 hover:text-white border-zinc-800'
+                                        }`}
+                                        title="Cycle Playback Speed (1x, 1.25x, 1.5x, 1.75x, 2x, 0.75x)"
+                                    >
+                                        {playbackSpeed}x
                                     </button>
                                     <button
                                         onClick={() => openCastPicker(playingAudio)}
                                         className={`p-2 rounded-xl transition-colors cursor-pointer ${isCastingToGoogle ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-400 hover:text-white'}`}
                                         title="Cast to Smart TV / Audio Output Device"
                                     >
-                                        <Cast size={20} />
+                                        <Cast size={18} />
                                     </button>
                                 </div>
 
@@ -3079,36 +3286,47 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                     <div className="relative z-10 flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch pt-2 sm:pt-3 overflow-hidden">
                         {/* Left / Center: Artwork & Full Controls - Scaled to fit viewport without parent scroll */}
                         <div className={`${showExpandedSidePanel ? 'hidden lg:flex lg:col-span-5 xl:col-span-5' : 'flex col-span-1 lg:col-span-8 lg:col-start-3'} flex-col justify-between items-center h-full max-h-full mx-auto w-full max-w-md overflow-hidden py-1`}>
-                            {/* View Mode Toggle: Vinyl Turntable vs Normal Cover Art */}
+                            {/* View Mode Toggle: Vinyl Turntable vs Spinning Disk vs Normal Cover Art */}
                             <div className="flex items-center gap-1 bg-zinc-950/80 p-1 rounded-xl border border-zinc-800/80 shadow-inner backdrop-blur-md shrink-0">
                                 <button
-                                    onClick={() => setIsVinylView(true)}
-                                    className={`flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
-                                        isVinylView
+                                    onClick={() => changePlayerAnimationMode('turntable')}
+                                    className={`flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                        playerAnimationMode === 'turntable'
                                             ? 'bg-amber-500 text-black shadow-md'
                                             : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
                                     }`}
-                                    title="Switch to Vinyl Turntable Player Mode"
+                                    title="Switch to Vinyl Turntable Deck Mode"
                                 >
-                                    <Disc size={13} /> Vinyl
+                                    <Disc size={13} /> Turntable
                                 </button>
                                 <button
-                                    onClick={() => setIsVinylView(false)}
-                                    className={`flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
-                                        !isVinylView
+                                    onClick={() => changePlayerAnimationMode('disc')}
+                                    className={`flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                        playerAnimationMode === 'disc'
+                                            ? 'bg-amber-500 text-black shadow-md'
+                                            : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
+                                    }`}
+                                    title="Switch to Spinning Vinyl Platter Mode"
+                                >
+                                    <Disc size={13} className="animate-spin" style={{ animationDuration: '6s' }} /> Spinning Disk
+                                </button>
+                                <button
+                                    onClick={() => changePlayerAnimationMode('art')}
+                                    className={`flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                        playerAnimationMode === 'art'
                                             ? 'bg-zinc-800 text-white border border-zinc-700 shadow-md'
                                             : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
                                     }`}
                                     title="Switch to Standard Cover Artwork View"
                                 >
-                                    <ImageIcon size={13} /> Normal Art
+                                    <ImageIcon size={13} /> Simple Art
                                 </button>
                             </div>
 
-                            {/* Main Artwork Stage: Vinyl Player vs Normal Cover Art */}
+                            {/* Main Artwork Stage: Vinyl Turntable vs Spinning Disk vs Normal Cover Art */}
                             <div className="flex-1 min-h-0 flex items-center justify-center w-full my-2">
-                                {isVinylView ? (
-                                    /* ── Vinyl Turntable Player Representation ── */
+                                {playerAnimationMode === 'turntable' ? (
+                                    /* ── 1. Vinyl Turntable Player Representation ── */
                                     <div className="relative w-full max-w-[320px] sm:max-w-[360px] md:max-w-[390px] aspect-[1.12/1] rounded-[2rem] bg-gradient-to-b from-zinc-800 via-zinc-900 to-[#09090b] border-2 border-zinc-700/80 p-3 shadow-2xl flex items-center justify-center select-none overflow-hidden group">
                                         {/* Turntable Plinth Inset */}
                                         <div className="absolute inset-2 rounded-[1.5rem] bg-gradient-to-b from-[#18181b] to-[#0c0c0e] border border-white/5 pointer-events-none shadow-inner" />
@@ -3217,8 +3435,59 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                             </div>
                                         </div>
                                     </div>
+                                ) : playerAnimationMode === 'disc' ? (
+                                    /* ── 2. Pure Spinning Disk Platter (No Plinth / Needle) ── */
+                                    <div
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            togglePlayPause();
+                                        }}
+                                        className="relative w-64 h-64 sm:w-72 sm:h-72 md:w-80 md:h-80 flex items-center justify-center cursor-pointer select-none group/disc transition-transform hover:scale-105 active:scale-95"
+                                        title={isActivelyPlaying ? "Click Spinning Disk to Pause" : "Click Spinning Disk to Play"}
+                                    >
+                                        <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-zinc-700 via-zinc-800 to-zinc-600 p-2 shadow-2xl flex items-center justify-center border-2 border-zinc-600/50 pointer-events-none group-hover/disc:border-amber-500/50 transition-colors">
+                                            <div className="w-full h-full rounded-full bg-zinc-950 flex items-center justify-center shadow-inner">
+                                                <div
+                                                    className="relative w-[96%] h-[96%] rounded-full bg-black shadow-2xl flex items-center justify-center overflow-hidden"
+                                                    style={{
+                                                        animation: 'vinyl-spin 8s linear infinite',
+                                                        animationPlayState: isActivelyPlaying ? 'running' : 'paused'
+                                                    }}
+                                                >
+                                                    <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,_#000000_30%,_#18181b_31%,_#09090b_45%,_#1f1f23_46%,_#000000_65%,_#18181b_66%,_#000000_100%)] opacity-90 pointer-events-none" />
+                                                    <div className="absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,transparent_0deg,rgba(255,255,255,0.08)_45deg,transparent_90deg,transparent_180deg,rgba(255,255,255,0.08)_225deg,transparent_270deg)] pointer-events-none" />
+
+                                                    {/* Center Label (Enlarged Artwork - 78% of Disc) */}
+                                                    <div className="relative w-[78%] h-[78%] rounded-full overflow-hidden border-2 border-amber-500/60 shadow-2xl flex items-center justify-center z-10 pointer-events-none">
+                                                        {playingAudio.posterUrl && !vinylCoverError ? (
+                                                            <img
+                                                                src={playingAudio.posterUrl}
+                                                                alt=""
+                                                                className="w-full h-full object-cover pointer-events-none"
+                                                                onError={() => {
+                                                                    const fallback = getCoverFallbackUrl(playingAudio.artist, playingAudio.album, playingAudio.title);
+                                                                    if (playingAudio.posterUrl !== fallback) {
+                                                                        setPlayingAudio(prev => prev ? { ...prev, posterUrl: fallback } : prev);
+                                                                    } else {
+                                                                        setVinylCoverError(true);
+                                                                    }
+                                                                }}
+                                                            />
+                                                        ) : (
+                                                            <div className="w-full h-full bg-gradient-to-tr from-amber-600 to-amber-400 flex items-center justify-center text-black font-black text-xs text-center p-1 pointer-events-none">
+                                                                {playingAudio.title}
+                                                            </div>
+                                                        )}
+                                                        <div className="absolute w-5 h-5 rounded-full bg-zinc-950 border border-zinc-400 flex items-center justify-center shadow-inner z-20">
+                                                            <div className="w-1.5 h-1.5 rounded-full bg-gradient-to-tr from-amber-400 to-amber-200 shadow-md" />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
                                 ) : (
-                                    /* ── Normal High-Res Cover Artwork View ── */
+                                    /* ── 3. Normal High-Res Cover Artwork View ── */
                                     <div className="relative max-h-[30vh] sm:max-h-[34vh] md:max-h-[38vh] aspect-square w-auto h-full rounded-[2rem] bg-zinc-900 border-2 border-zinc-800/80 overflow-hidden shadow-2xl flex items-center justify-center">
                                         {playingAudio.posterUrl && !normalCoverError ? (
                                             <img
@@ -3360,18 +3629,28 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             </div>
 
                             {/* Master Playback Controls */}
-                            <div className="flex items-center justify-center gap-4 sm:gap-6 w-full shrink-0 py-1">
+                            <div className="flex items-center justify-center gap-2 sm:gap-3.5 md:gap-5 w-full shrink-0 py-1">
                                 <button
                                     onClick={() => setIsShuffle(!isShuffle)}
-                                    className={`p-2 rounded-xl transition-all ${isShuffle ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-500 hover:text-white'}`}
+                                    className={`p-1.5 sm:p-2 rounded-xl transition-all ${isShuffle ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-500 hover:text-white'}`}
                                     title="Shuffle"
                                 >
                                     <Shuffle size={16} />
                                 </button>
 
+                                {/* 15s Skip Backward */}
+                                <button
+                                    onClick={() => skipSeconds(-15)}
+                                    className="p-1.5 sm:p-2 rounded-xl text-zinc-400 hover:text-amber-400 hover:bg-zinc-900 transition-all font-mono text-[11px] font-black cursor-pointer flex items-center gap-0.5"
+                                    title="Skip 15 seconds backward"
+                                >
+                                    <RotateCcw size={14} />
+                                    <span>15s</span>
+                                </button>
+
                                 <button
                                     onClick={prevTrack}
-                                    className="p-2 rounded-xl text-zinc-300 hover:text-white hover:bg-zinc-900 transition-all"
+                                    className="p-1.5 sm:p-2 rounded-xl text-zinc-300 hover:text-white hover:bg-zinc-900 transition-all cursor-pointer"
                                     title="Previous Track"
                                 >
                                     <SkipBack size={20} />
@@ -3380,7 +3659,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 <button
                                     onClick={togglePlayPause}
                                     disabled={audioPlaybackStatus === 'loading'}
-                                    className="w-13 h-13 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black flex items-center justify-center shadow-lg shadow-amber-500/30 transition-all scale-100 active:scale-95 disabled:opacity-75"
+                                    className="w-13 h-13 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black flex items-center justify-center shadow-lg shadow-amber-500/30 transition-all scale-100 active:scale-95 disabled:opacity-75 cursor-pointer"
                                     title={audioPlaybackStatus === 'loading' ? 'Loading Track...' : isAudioPlaying ? 'Pause' : 'Play'}
                                 >
                                     {audioPlaybackStatus === 'loading' || audioPlaybackStatus === 'buffering' ? (
@@ -3394,18 +3673,41 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
                                 <button
                                     onClick={nextTrack}
-                                    className="p-2 rounded-xl text-zinc-300 hover:text-white hover:bg-zinc-900 transition-all"
+                                    className="p-1.5 sm:p-2 rounded-xl text-zinc-300 hover:text-white hover:bg-zinc-900 transition-all cursor-pointer"
                                     title="Next Track"
                                 >
                                     <SkipForward size={20} />
                                 </button>
 
+                                {/* 30s Skip Forward */}
+                                <button
+                                    onClick={() => skipSeconds(30)}
+                                    className="p-1.5 sm:p-2 rounded-xl text-zinc-400 hover:text-amber-400 hover:bg-zinc-900 transition-all font-mono text-[11px] font-black cursor-pointer flex items-center gap-0.5"
+                                    title="Skip 30 seconds forward"
+                                >
+                                    <RotateCcw size={14} className="scale-x-[-1]" />
+                                    <span>30s</span>
+                                </button>
+
                                 <button
                                     onClick={() => setIsRepeat(!isRepeat)}
-                                    className={`p-2 rounded-xl transition-all ${isRepeat ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-500 hover:text-white'}`}
+                                    className={`p-1.5 sm:p-2 rounded-xl transition-all ${isRepeat ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-500 hover:text-white'}`}
                                     title="Repeat"
                                 >
                                     <Repeat size={16} />
+                                </button>
+
+                                {/* Audiobook / Spoken Word Speed Cycle */}
+                                <button
+                                    onClick={cyclePlaybackSpeed}
+                                    className={`px-2 py-1 rounded-lg text-xs font-mono font-black border transition-all cursor-pointer ${
+                                        playbackSpeed !== 1.0
+                                            ? 'bg-amber-500 text-black border-amber-400 shadow-sm'
+                                            : 'bg-zinc-900 text-zinc-400 hover:text-white border-zinc-800'
+                                    }`}
+                                    title="Cycle Playback Speed (1x, 1.25x, 1.5x, 1.75x, 2x, 0.75x)"
+                                >
+                                    {playbackSpeed}x
                                 </button>
                             </div>
 
@@ -3470,28 +3772,6 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         title="Fix Match & Edit Song Metadata"
                                     >
                                         <Settings size={15} />
-                                    </button>
-
-                                    {/* 5. Minimalist Platter Mode toggle */}
-                                    <button
-                                        onClick={() => setIsMinimalistVinylMode(prev => !prev)}
-                                        className={`p-2 rounded-xl border transition-all cursor-pointer shadow-sm ${
-                                            isMinimalistVinylMode
-                                                ? 'bg-amber-500 text-black border-amber-400 shadow-md ring-1 ring-amber-400'
-                                                : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800'
-                                        }`}
-                                        title={isMinimalistVinylMode ? "Restore Full Dashboard" : "Minimalist Platter View"}
-                                    >
-                                        {isMinimalistVinylMode ? <Maximize2 size={15} /> : <Minimize2 size={15} />}
-                                    </button>
-
-                                    {/* 6. Minimize to Mini Player */}
-                                    <button
-                                        onClick={() => setIsExpandedPlayerOpen(false)}
-                                        className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 transition-all cursor-pointer shadow-sm"
-                                        title="Minimize to Mini Player"
-                                    >
-                                        <ChevronDown size={15} />
                                     </button>
                                 </div>
                             </div>

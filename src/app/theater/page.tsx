@@ -17,7 +17,8 @@ import {
     Disc, User, ListMusic, Youtube, Globe, Heart, PlaySquare, ArrowDownToLine,
     Headphones, RadioTower, Info, Mic2, FileText, Edit3, ChevronDown,
     Terminal, AlertTriangle, Bug, Code, Cpu, Monitor, RefreshCcw, CheckCheck, Zap,
-    UploadCloud, Clapperboard, AlertCircle, GripVertical
+    UploadCloud, Clapperboard, AlertCircle, GripVertical,
+    BookOpen, BookMarked, BookText
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import Hls from 'hls.js';
@@ -31,7 +32,7 @@ import { sanitizeSongMetadata } from '@/lib/songSanitizer';
 interface TheaterLibrary {
     id: string;
     name: string;
-    type: 'movie' | 'show' | 'music' | 'photo' | 'live' | 'other';
+    type: 'movie' | 'show' | 'music' | 'photo' | 'live' | 'audiobooks' | 'other';
     folders: string[];
     plex_section_id?: string;
     instance_id?: string;
@@ -161,6 +162,17 @@ function formatTime(seconds: number): string {
     return `${m}:${s < 10 ? '0' : ''}${s}`;
 }
 
+function formatBookDuration(ms: number): string {
+    if (!ms || ms <= 0 || isNaN(ms)) return '';
+    const totalMinutes = Math.round(ms / 60000);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours > 0) {
+        return `${hours}h ${minutes > 0 ? `${minutes}m` : ''}`.trim();
+    }
+    return `${minutes}m`;
+}
+
 function parseSeasonEpisode(str: string): { season: number; episode: number } | null {
     if (!str) return null;
     const match = str.match(/s(\d+)e(\d+)/i) || str.match(/(\d+)x(\d+)/i) || str.match(/season\s*(\d+)\s*episode\s*(\d+)/i);
@@ -208,11 +220,11 @@ function TheaterPageContent() {
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
     // Content-type tab system
-    const [activeContentTab, setActiveContentTab] = useState<'movie' | 'show' | 'live' | 'music' | 'photos'>(() => {
+    const [activeContentTab, setActiveContentTab] = useState<'movie' | 'show' | 'live' | 'music' | 'audiobooks' | 'photos'>(() => {
         if (typeof window !== 'undefined') {
             try {
                 const saved = localStorage.getItem('schedulearr_theater_active_tab');
-                if (saved && ['movie', 'show', 'live', 'music', 'photos'].includes(saved)) {
+                if (saved && ['movie', 'show', 'live', 'music', 'audiobooks', 'photos'].includes(saved)) {
                     return saved as any;
                 }
             } catch {}
@@ -309,7 +321,7 @@ function TheaterPageContent() {
     const [commonMounts, setCommonMounts] = useState<string[]>([]);
     const [loadingSources, setLoadingSources] = useState(false);
 
-    const openAddModalForTab = (tab?: 'movie' | 'show' | 'live' | 'music' | 'photos') => {
+    const openAddModalForTab = (tab?: 'movie' | 'show' | 'live' | 'music' | 'audiobooks' | 'photos') => {
         const targetTab = tab || activeContentTab;
         if (targetTab === 'live') {
             setIsAddIptvModalOpen(true);
@@ -326,7 +338,7 @@ function TheaterPageContent() {
 
     // Custom Form State
     const [newLibName, setNewLibName] = useState('');
-    const [newLibType, setNewLibType] = useState<'movie' | 'show' | 'music' | 'photo' | 'live' | 'other'>('movie');
+    const [newLibType, setNewLibType] = useState<'movie' | 'show' | 'music' | 'photo' | 'live' | 'audiobooks' | 'other'>('movie');
     const [newLibFolders, setNewLibFolders] = useState<string[]>([]);
     const [folderInput, setFolderInput] = useState('');
     const [iptvUrlInput, setIptvUrlInput] = useState('');
@@ -387,6 +399,30 @@ function TheaterPageContent() {
     const [musicTab, setMusicTab] = useState<'tracks' | 'albums' | 'artists' | 'playlists'>('albums');
     const [musicCodecFilter, setMusicCodecFilter] = useState<'all' | 'lossless' | 'flac' | 'mp3' | 'm4a' | 'opus'>('all');
     const [playlists, setPlaylists] = useState<MusicPlaylist[]>([]);
+    const [suggestedPlaylists, setSuggestedPlaylists] = useState<any[]>([]);
+    const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+
+    // Audiobooks Media Tab Specific States
+    const [selectedAudiobook, setSelectedAudiobook] = useState<{
+        id: string;
+        title: string;
+        author: string;
+        narrator?: string;
+        folder: string;
+        posterUrl?: string;
+        chapters: MediaItem[];
+        totalDurationMs: number;
+    } | null>(null);
+    const [audiobookDetails, setAudiobookDetails] = useState<{
+        authorBio?: string;
+        description?: string;
+        narrator?: string;
+        releaseYear?: string;
+        genre?: string;
+        coverUrl?: string;
+        loading?: boolean;
+    } | null>(null);
+
     const [selectedAlbum, setSelectedAlbum] = useState<{ name: string; artist: string; posterUrl?: string; tracks: MediaItem[] } | null>(null);
     const [albumOfficialData, setAlbumOfficialData] = useState<{ album?: any; tracks: any[] } | null>(null);
     const [isLoadingAlbumDetails, setIsLoadingAlbumDetails] = useState(false);
@@ -1982,6 +2018,86 @@ function TheaterPageContent() {
         }
     };
 
+    const fetchSuggestedPlaylists = useCallback(async () => {
+        setLoadingSuggestions(true);
+        try {
+            const res = await fetch('/api/theater/music/playlists/suggest');
+            if (res.ok) {
+                const data = await res.json();
+                setSuggestedPlaylists(Array.isArray(data.suggestions) ? data.suggestions : []);
+            }
+        } catch {}
+        finally {
+            setLoadingSuggestions(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (musicTab === 'playlists') {
+            fetchSuggestedPlaylists();
+        }
+    }, [musicTab, fetchSuggestedPlaylists]);
+
+    const handleSaveSuggestedPlaylist = async (suggestion: any) => {
+        try {
+            const res = await fetch('/api/theater/music/playlists', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: suggestion.title,
+                    items: suggestion.items || [],
+                    coverUrl: suggestion.coverUrl,
+                    libraryId: activeLibrary?.id || 'global'
+                })
+            });
+            if (res.ok) {
+                toast.success(`Playlist "${suggestion.title}" created with ${suggestion.items?.length || 0} tracks!`);
+                const playRes = await fetch(`/api/theater/music/playlists${activeLibrary ? `?libraryId=${activeLibrary.id}` : ''}`);
+                if (playRes.ok) {
+                    const pData = await playRes.json();
+                    setPlaylists(Array.isArray(pData.playlists) ? pData.playlists : []);
+                }
+            } else {
+                toast.error('Failed to create playlist');
+            }
+        } catch {
+            toast.error('Network error creating playlist');
+        }
+    };
+
+    const openAudiobookModal = async (book: any) => {
+        setSelectedAudiobook(book);
+        setAudiobookDetails({ loading: true });
+        try {
+            const res = await fetch(`/api/theater/audiobooks?title=${encodeURIComponent(book.title)}&author=${encodeURIComponent(book.author)}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.book) {
+                    setAudiobookDetails({
+                        authorBio: data.book.authorBio,
+                        description: data.book.description,
+                        narrator: data.book.narrator,
+                        releaseYear: data.book.releaseYear,
+                        genre: data.book.genre,
+                        coverUrl: data.book.coverUrl,
+                        loading: false
+                    });
+                } else {
+                    setAudiobookDetails({ loading: false });
+                }
+            } else {
+                setAudiobookDetails({ loading: false });
+            }
+        } catch {
+            setAudiobookDetails({ loading: false });
+        }
+    };
+
+    const closeAudiobookModal = () => {
+        setSelectedAudiobook(null);
+        setAudiobookDetails(null);
+    };
+
     // Helper to search local server items for matching artist and title, prioritizing highest quality (FLAC > WAV > M4A > MP3)
     const findBestLocalTrack = useCallback((queryArtist?: string, queryTitle?: string): MediaItem | null => {
         if (!queryTitle && !queryArtist) return null;
@@ -2694,6 +2810,66 @@ function TheaterPageContent() {
         return artistsList.sort((a, b) => a.name.localeCompare(b.name));
     }, [filteredItems, searchQuery]);
 
+    // Audiobooks: Derived Audiobook Groups (by book title / folder / album)
+    const audiobooks = useMemo(() => {
+        const map = new Map<string, {
+            id: string;
+            title: string;
+            author: string;
+            narrator?: string;
+            folder: string;
+            posterUrl?: string;
+            chapters: MediaItem[];
+            totalDurationMs: number;
+            score: number;
+        }>();
+        const q = searchQuery.trim();
+
+        for (const item of filteredItems) {
+            const isAudiobookLib = libraries.find(l => l.id === item.libraryId)?.type === 'audiobooks';
+            const isM4b = item.extension?.toLowerCase() === 'm4b';
+            if (!isAudiobookLib && !isM4b && activeContentTab !== 'audiobooks') continue;
+
+            const bookTitle = item.album || item.folder || item.title;
+            const author = item.artist || 'Unknown Author';
+            const key = `${author} - ${bookTitle}`.toLowerCase();
+
+            if (!map.has(key)) {
+                const score = q ? smartMatchScore(q, bookTitle, author, `${author} ${bookTitle}`) : 0;
+                map.set(key, {
+                    id: item.id,
+                    title: bookTitle,
+                    author: author,
+                    folder: item.folder,
+                    posterUrl: item.posterUrl,
+                    chapters: [],
+                    totalDurationMs: 0,
+                    score
+                });
+            }
+
+            const book = map.get(key)!;
+            if (!book.posterUrl && item.posterUrl) book.posterUrl = item.posterUrl;
+            book.chapters.push(item);
+            book.totalDurationMs += (item.durationMs || 0);
+            if (q) {
+                const trackScore = smartMatchScore(q, item.title, item.name);
+                if (trackScore > book.score) book.score = trackScore;
+            }
+        }
+
+        // Sort chapters numerically
+        for (const b of map.values()) {
+            b.chapters.sort((a, b) => (a.trackNumber || 0) - (b.trackNumber || 0) || a.title.localeCompare(b.title));
+        }
+
+        const bookList = Array.from(map.values());
+        if (q) {
+            return bookList.filter(b => b.score > 0).sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+        }
+        return bookList.sort((a, b) => a.title.localeCompare(b.title));
+    }, [filteredItems, libraries, activeContentTab, searchQuery]);
+
     // Accurate Show / Anime name extractor from item metadata, folder hierarchy, and path
     const extractShowName = useCallback((item: MediaItem): string => {
         if (!item) return 'Unknown Show';
@@ -3113,6 +3289,7 @@ function TheaterPageContent() {
                                             activeContentTab === 'movie' ? 'Add Movie Library' :
                                             activeContentTab === 'show' ? 'Add Series Library' :
                                             activeContentTab === 'music' ? 'Add Music Library' :
+                                            activeContentTab === 'audiobooks' ? 'Add Audiobook Library' :
                                             activeContentTab === 'photos' ? 'Add Photo Library' : 'Add Library'
                                         }
                                     </button>
@@ -3129,6 +3306,7 @@ function TheaterPageContent() {
                                 { id: 'show', label: 'Series', icon: <Tv size={15} />, color: 'text-emerald-400', activeBg: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' },
                                 { id: 'live', label: 'Live TV', icon: <RadioTower size={15} />, color: 'text-red-400', activeBg: 'bg-red-500/20 text-red-300 border border-red-500/40' },
                                 { id: 'music', label: 'Music', icon: <Music size={15} />, color: 'text-amber-400', activeBg: 'bg-amber-500/20 text-amber-300 border border-amber-500/40' },
+                                { id: 'audiobooks', label: 'Audiobooks', icon: <BookOpen size={15} />, color: 'text-orange-400', activeBg: 'bg-orange-500/20 text-orange-300 border border-orange-500/40' },
                                 { id: 'photos', label: 'Photos', icon: <ImageIcon size={15} />, color: 'text-sky-400', activeBg: 'bg-sky-500/20 text-sky-300 border border-sky-500/40' },
                             ] as const).map(tab => {
                                 const isActive = activeContentTab === tab.id;
@@ -3159,7 +3337,11 @@ function TheaterPageContent() {
                                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
                                 <input
                                     type="text"
-                                    placeholder={activeContentTab === 'music' ? "Search albums, artists, songs, or YouTube..." : "Search in this library..."}
+                                    placeholder={
+                                        activeContentTab === 'music' ? "Search albums, artists, songs, or YouTube..." :
+                                        activeContentTab === 'audiobooks' ? "Search audiobooks, authors, narrators..." :
+                                        "Search in this library..."
+                                    }
                                     value={searchQuery}
                                     onChange={e => setSearchQuery(e.target.value)}
                                     className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl pl-10 pr-8 py-3 text-sm text-white placeholder-zinc-600 outline-none focus:border-emerald-500 transition-colors"
@@ -3321,7 +3503,16 @@ function TheaterPageContent() {
                             </div>
                         </div>
                     </div>
-                ) : activeContentTab === 'live' ? null : (activeContentTab === 'movie' || activeContentTab === 'show' || activeContentTab === 'photos') && activeTabLibraries.length > 0 ? (
+                ) : activeContentTab === 'live' ? null : activeContentTab === 'audiobooks' && activeTabLibraries.length > 0 ? (
+                    <div className="flex flex-wrap items-center justify-between gap-4 px-2">
+                        <div className="flex items-center gap-3">
+                            <span className="text-base font-bold text-white flex items-center gap-2">
+                                <BookOpen size={16} className="text-orange-400" />
+                                {audiobooks.length} {audiobooks.length === 1 ? 'Audiobook' : 'Audiobooks'}
+                            </span>
+                        </div>
+                    </div>
+                ) : (activeContentTab === 'movie' || activeContentTab === 'show' || activeContentTab === 'photos') && activeTabLibraries.length > 0 ? (
                     <div className="flex flex-wrap items-center justify-between gap-4 px-2">
                         <div className="flex items-center gap-3">
                             <span className="text-base font-bold text-white">
@@ -3777,59 +3968,174 @@ function TheaterPageContent() {
 
                         {/* 4. PLAYLISTS TAB */}
                         {musicTab === 'playlists' && (
-                            playlists.length === 0 ? (
-                                <div className="p-16 bg-zinc-950/40 rounded-[2.5rem] border border-zinc-900 text-center space-y-4 max-w-md mx-auto">
-                                    <ListMusic size={40} className="mx-auto text-zinc-700" />
-                                    <div>
-                                        <h3 className="text-lg font-bold text-white">No playlists created yet</h3>
-                                        <p className="text-xs text-zinc-500 mt-1">Create your first custom playlist to group your favorite songs.</p>
-                                    </div>
-                                    <button
-                                        onClick={() => {
-                                            setNewPlaylistName('');
-                                            setIsCreatePlaylistModalOpen(true);
-                                        }}
-                                        className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg"
-                                    >
-                                        <Plus size={14} className="inline mr-1" /> Create Playlist
-                                    </button>
-                                </div>
-                            ) : (
-                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-5">
-                                    {playlists.map(pl => (
-                                        <div
-                                            key={pl.id}
-                                            className="p-5 rounded-3xl bg-[#09090b] border border-zinc-900 hover:border-amber-500/50 transition-all flex flex-col justify-between space-y-4 group shadow-xl"
-                                        >
-                                            <div className="flex items-center justify-between">
-                                                <div className="w-14 h-14 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
-                                                    <ListMusic size={26} />
-                                                </div>
-                                                <button
-                                                    onClick={() => handleDeletePlaylist(pl.id)}
-                                                    className="p-2 text-zinc-600 hover:text-red-400 rounded-xl transition-colors"
-                                                    title="Delete Playlist"
-                                                >
-                                                    <Trash2 size={15} />
-                                                </button>
+                            <div className="space-y-8">
+                                {/* A. SMART PLAYLIST SUGGESTIONS */}
+                                <div className="space-y-4">
+                                    <div className="flex flex-wrap items-center justify-between gap-3 p-4 bg-zinc-950/80 border border-zinc-800/80 rounded-3xl shadow-sm">
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-2.5 rounded-2xl bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                                                <Sparkles size={20} />
                                             </div>
-
                                             <div>
-                                                <h3 className="text-base font-black text-white group-hover:text-amber-400 transition-colors truncate">{pl.name}</h3>
-                                                <span className="text-xs text-zinc-500 font-semibold">{pl.items.length} tracks</span>
+                                                <h3 className="text-base sm:text-lg font-black text-white flex items-center gap-2">
+                                                    Curated Smart Suggestions
+                                                    <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold">
+                                                        Auto-Generated
+                                                    </span>
+                                                </h3>
+                                                <p className="text-xs text-zinc-400">
+                                                    Instant thematic mixes crafted from your server audio files, codecs, and ratings.
+                                                </p>
                                             </div>
-
-                                            <button
-                                                disabled={pl.items.length === 0}
-                                                onClick={() => handlePlayAlbum(pl.items)}
-                                                className="w-full py-3 bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/30 font-black text-xs uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2 disabled:opacity-40"
-                                            >
-                                                <Play size={15} /> Play Playlist
-                                            </button>
                                         </div>
-                                    ))}
+
+                                        <button
+                                            onClick={fetchSuggestedPlaylists}
+                                            disabled={loadingSuggestions}
+                                            className="px-3.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                                            title="Refresh Smart Suggestions"
+                                        >
+                                            <RefreshCw size={13} className={loadingSuggestions ? 'animate-spin text-amber-400' : ''} />
+                                            <span>Refresh Suggestions</span>
+                                        </button>
+                                    </div>
+
+                                    {loadingSuggestions ? (
+                                        <div className="flex items-center justify-center py-12 gap-3 text-zinc-500">
+                                            <RefreshCw size={18} className="animate-spin text-amber-400" />
+                                            <span className="text-xs font-bold uppercase tracking-wider">Analyzing server music &amp; compiling suggestions...</span>
+                                        </div>
+                                    ) : suggestedPlaylists.length > 0 ? (
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                                            {suggestedPlaylists.map(sug => (
+                                                <div
+                                                    key={sug.id}
+                                                    className="p-5 rounded-3xl bg-[#09090b] border border-zinc-800 hover:border-amber-500/50 transition-all flex flex-col justify-between space-y-4 group shadow-xl relative overflow-hidden"
+                                                >
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        <div className="w-16 h-16 rounded-2xl bg-zinc-900 border border-zinc-800 overflow-hidden flex items-center justify-center text-amber-400 shrink-0 shadow-md relative">
+                                                            {sug.coverUrl ? (
+                                                                <img src={sug.coverUrl} alt="" className="w-full h-full object-cover" />
+                                                            ) : (
+                                                                <ListMusic size={28} />
+                                                            )}
+                                                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" />
+                                                        </div>
+                                                        <div className="flex flex-col items-end gap-1">
+                                                            <span className="px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10px] font-black uppercase tracking-wider">
+                                                                {sug.badge}
+                                                            </span>
+                                                            <span className="text-[11px] font-mono font-bold text-zinc-400">
+                                                                {sug.items?.length || 0} tracks
+                                                            </span>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="space-y-1">
+                                                        <h4 className="text-base font-black text-white group-hover:text-amber-400 transition-colors">
+                                                            {sug.title}
+                                                        </h4>
+                                                        <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed">
+                                                            {sug.description}
+                                                        </p>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-2 pt-1">
+                                                        <button
+                                                            onClick={() => handlePlayAlbum(sug.items)}
+                                                            className="flex-1 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 shadow-md cursor-pointer hover:scale-[1.02] active:scale-95"
+                                                            title="Play this smart playlist now"
+                                                        >
+                                                            <Play size={14} className="ml-0.5" /> Play Mix
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleSaveSuggestedPlaylist(sug)}
+                                                            className="px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                                                            title="Save permanently to My Playlists"
+                                                        >
+                                                            <Plus size={14} className="text-amber-400" />
+                                                            <span className="hidden sm:inline">Save</span>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : null}
                                 </div>
-                            )
+
+                                {/* B. USER'S SAVED PLAYLISTS */}
+                                <div className="space-y-4 pt-4 border-t border-zinc-900">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <h3 className="text-lg font-black text-white flex items-center gap-2">
+                                                <ListMusic size={20} className="text-amber-400" />
+                                                My Playlists ({playlists.length})
+                                            </h3>
+                                            <p className="text-xs text-zinc-400 mt-0.5">Your personal curated playlists and mixes.</p>
+                                        </div>
+                                        <button
+                                            onClick={() => {
+                                                setNewPlaylistName('');
+                                                setIsCreatePlaylistModalOpen(true);
+                                            }}
+                                            className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg flex items-center gap-1.5 cursor-pointer"
+                                        >
+                                            <Plus size={15} /> Create Playlist
+                                        </button>
+                                    </div>
+
+                                    {playlists.length === 0 ? (
+                                        <div className="p-12 bg-zinc-950/40 rounded-[2.5rem] border border-zinc-900 text-center space-y-3 max-w-md mx-auto">
+                                            <ListMusic size={36} className="mx-auto text-zinc-700" />
+                                            <div>
+                                                <h4 className="text-base font-bold text-white">No custom playlists saved yet</h4>
+                                                <p className="text-xs text-zinc-500 mt-1">
+                                                    Save one of the smart suggestions above or create a custom playlist.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-5">
+                                            {playlists.map(pl => (
+                                                <div
+                                                    key={pl.id}
+                                                    className="p-5 rounded-3xl bg-[#09090b] border border-zinc-900 hover:border-amber-500/50 transition-all flex flex-col justify-between space-y-4 group shadow-xl"
+                                                >
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="w-14 h-14 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 overflow-hidden shadow-inner">
+                                                            {pl.cover_url ? (
+                                                                <img src={pl.cover_url} alt="" className="w-full h-full object-cover" />
+                                                            ) : (
+                                                                <ListMusic size={26} />
+                                                            )}
+                                                        </div>
+                                                        <button
+                                                            onClick={() => handleDeletePlaylist(pl.id)}
+                                                            className="p-2 text-zinc-600 hover:text-red-400 rounded-xl transition-colors cursor-pointer"
+                                                            title="Delete Playlist"
+                                                        >
+                                                            <Trash2 size={15} />
+                                                        </button>
+                                                    </div>
+
+                                                    <div>
+                                                        <h3 className="text-base font-black text-white group-hover:text-amber-400 transition-colors truncate">{pl.name}</h3>
+                                                        <span className="text-xs text-zinc-500 font-semibold">{pl.items.length} tracks</span>
+                                                    </div>
+
+                                                    <button
+                                                        disabled={pl.items.length === 0}
+                                                        onClick={() => handlePlayAlbum(pl.items)}
+                                                        className="w-full py-3 bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/30 font-black text-xs uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2 disabled:opacity-40 cursor-pointer"
+                                                    >
+                                                        <Play size={15} /> Play Playlist
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
                         )}
 
                         {/* 5. AUTOLOADED YOUTUBE STREAMING RESULTS (Rendered below library results when searching) */}
@@ -3977,14 +4283,111 @@ function TheaterPageContent() {
                     ) : (
                         <div className="p-16 bg-zinc-950/40 rounded-[2.5rem] border border-zinc-900 text-center space-y-4 max-w-xl mx-auto my-12 shadow-2xl">
                             <div className="w-20 h-20 rounded-3xl bg-zinc-800/80 flex items-center justify-center mx-auto">
-                                {activeContentTab === 'movie' ? <Film size={38} className="text-indigo-400" /> : activeContentTab === 'show' ? <Tv size={38} className="text-emerald-400" /> : activeContentTab === 'music' ? <Music size={38} className="text-amber-400" /> : <ImageIcon size={38} className="text-cyan-400" />}
+                                {activeContentTab === 'movie' ? <Film size={38} className="text-indigo-400" /> : activeContentTab === 'show' ? <Tv size={38} className="text-emerald-400" /> : activeContentTab === 'music' ? <Music size={38} className="text-amber-400" /> : activeContentTab === 'audiobooks' ? <BookOpen size={38} className="text-orange-400" /> : <ImageIcon size={38} className="text-cyan-400" />}
                             </div>
                             <div>
-                                <h2 className="text-2xl font-black text-white">No {activeContentTab === 'movie' ? 'Movie' : activeContentTab === 'show' ? 'Series' : activeContentTab === 'music' ? 'Music' : 'Photo'} Libraries Added Yet</h2>
+                                <h2 className="text-2xl font-black text-white">No {activeContentTab === 'movie' ? 'Movie' : activeContentTab === 'show' ? 'Series' : activeContentTab === 'music' ? 'Music' : activeContentTab === 'audiobooks' ? 'Audiobook' : 'Photo'} Libraries Added Yet</h2>
                                 <p className="text-base text-zinc-400 mt-2 leading-relaxed">
-                                    No {activeContentTab === 'movie' ? 'movie' : activeContentTab === 'show' ? 'series' : activeContentTab === 'music' ? 'music' : 'photo'} libraries have been added yet. Use the button in the top corner to add or import one.
+                                    No {activeContentTab === 'movie' ? 'movie' : activeContentTab === 'show' ? 'series' : activeContentTab === 'music' ? 'music' : activeContentTab === 'audiobooks' ? 'audiobook' : 'photo'} libraries have been added yet. Use the button in the top corner to add or import one.
                                 </p>
                             </div>
+                            {activeContentTab === 'audiobooks' && (
+                                <div className="pt-2 flex justify-center">
+                                    <button
+                                        onClick={() => openAddModalForTab('audiobooks')}
+                                        className="px-6 py-3 rounded-2xl bg-orange-500 hover:bg-orange-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-2 transition-all shadow-lg cursor-pointer"
+                                    >
+                                        <Plus size={15} /> Add Audiobook Library
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    )
+                ) : activeContentTab === 'audiobooks' ? (
+                    audiobooks.length === 0 ? (
+                        <div className="p-16 bg-zinc-950/40 rounded-[2.5rem] border border-zinc-900 text-center space-y-3">
+                            <BookOpen size={40} className="mx-auto text-zinc-700" />
+                            <p className="text-lg font-bold text-white">No audiobooks found in this library</p>
+                            <p className="text-xs text-zinc-500">Ensure your audiobook library paths contain .m4b, .mp3, or chaptered audio files.</p>
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5">
+                            {audiobooks.map(book => {
+                                const formattedDur = formatBookDuration(book.totalDurationMs);
+                                return (
+                                    <div
+                                        key={book.id}
+                                        onClick={() => openAudiobookModal(book)}
+                                        className="group flex flex-col bg-[#09090b] border border-zinc-900 hover:border-orange-500/40 rounded-3xl overflow-hidden transition-all duration-300 shadow-xl cursor-pointer hover:-translate-y-1.5"
+                                    >
+                                        <div className="relative aspect-square bg-zinc-900 overflow-hidden flex items-center justify-center border-b border-zinc-900">
+                                            {book.posterUrl ? (
+                                                <img
+                                                    src={book.posterUrl}
+                                                    alt={book.title}
+                                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                                    loading="lazy"
+                                                />
+                                            ) : (
+                                                <div className="text-zinc-700 group-hover:scale-110 transition-transform duration-500 flex flex-col items-center gap-2 p-4 text-center">
+                                                    <BookOpen size={56} className="text-orange-500/30 group-hover:text-orange-500/50 transition-colors" />
+                                                    <span className="text-xs font-bold text-zinc-500 line-clamp-2">{book.title}</span>
+                                                </div>
+                                            )}
+
+                                            <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-transparent opacity-0 group-hover:opacity-100 flex items-center justify-center gap-2 transition-all duration-300">
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        if (book.chapters.length > 0) {
+                                                            handlePlayAlbum(book.chapters);
+                                                        }
+                                                    }}
+                                                    className="w-12 h-12 rounded-2xl bg-orange-500 text-black flex items-center justify-center shadow-2xl scale-90 group-hover:scale-100 hover:bg-orange-400 transition-all cursor-pointer"
+                                                    title="Play Audiobook from Start"
+                                                >
+                                                    <Play size={20} className="ml-0.5 fill-black" />
+                                                </button>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        openAudiobookModal(book);
+                                                    }}
+                                                    className="w-10 h-10 rounded-xl bg-zinc-900/90 text-zinc-200 flex items-center justify-center border border-zinc-700 hover:bg-zinc-800 transition-all cursor-pointer"
+                                                    title="View Book Details & Chapters"
+                                                >
+                                                    <Info size={16} />
+                                                </button>
+                                            </div>
+
+                                            <div className="absolute top-3 right-3 px-2.5 py-1 rounded-xl bg-black/75 backdrop-blur-sm border border-white/10 text-[9px] font-black uppercase text-orange-400 shadow flex items-center gap-1">
+                                                <BookOpen size={10} />
+                                                <span>{book.chapters.length > 1 ? `${book.chapters.length} Ch` : 'Audiobook'}</span>
+                                            </div>
+
+                                            {formattedDur && (
+                                                <div className="absolute bottom-3 left-3 px-2 py-0.5 rounded-lg bg-black/80 backdrop-blur-sm text-[10px] font-mono text-zinc-300">
+                                                    {formattedDur}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div className="p-4 space-y-1">
+                                            <h3 className="font-bold text-white text-base leading-snug line-clamp-1 group-hover:text-orange-400 transition-colors">
+                                                {book.title}
+                                            </h3>
+                                            <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold pt-0.5">
+                                                <span className="truncate max-w-[140px] text-zinc-400 hover:text-zinc-200">
+                                                    {book.author}
+                                                </span>
+                                                <span className="text-[11px] text-zinc-500 font-mono">
+                                                    {book.chapters.length} {book.chapters.length === 1 ? 'part' : 'parts'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
                         </div>
                     )
                 ) : activeContentTab === 'show' ? (
@@ -5242,6 +5645,216 @@ function TheaterPageContent() {
                                                 <ListPlus size={14} />
                                             </button>
                                             <button className="w-8 h-8 rounded-xl bg-zinc-900 group-hover:bg-amber-500 text-zinc-400 group-hover:text-black flex items-center justify-center transition-all">
+                                                <Play size={14} className="ml-0.5 fill-current" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Audiobook Detail Modal (Book Cover, Author Bio, Synopsis, Chapters & Player) ── */}
+            {selectedAudiobook && (
+                <div
+                    onClick={(e) => { if (e.target === e.currentTarget) closeAudiobookModal(); }}
+                    className="fixed inset-0 z-[225] flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-md animate-in fade-in duration-200"
+                >
+                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-4xl p-6 sm:p-8 space-y-6 shadow-2xl relative max-h-[88vh] overflow-y-auto custom-scrollbar flex flex-col">
+                        <button
+                            onClick={closeAudiobookModal}
+                            className="absolute top-6 right-6 p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all cursor-pointer"
+                        >
+                            <X size={20} />
+                        </button>
+
+                        {/* Top Book Overview Banner */}
+                        <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 pb-6 border-b border-zinc-900">
+                            <div className="w-40 sm:w-48 aspect-square rounded-3xl bg-zinc-900 border border-zinc-800 overflow-hidden flex items-center justify-center text-orange-400 shrink-0 shadow-2xl relative">
+                                {audiobookDetails?.coverUrl || selectedAudiobook.posterUrl ? (
+                                    <img
+                                        src={audiobookDetails?.coverUrl || selectedAudiobook.posterUrl}
+                                        alt={selectedAudiobook.title}
+                                        className="w-full h-full object-cover"
+                                    />
+                                ) : (
+                                    <div className="flex flex-col items-center gap-2 text-zinc-600">
+                                        <BookOpen size={64} className="text-orange-500/40" />
+                                        <span className="text-[10px] font-mono text-zinc-500">Audiobook</span>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="space-y-3 text-center sm:text-left flex-1 min-w-0">
+                                <div className="flex items-center justify-center sm:justify-start gap-2 flex-wrap">
+                                    <span className="px-2.5 py-0.5 rounded-lg bg-orange-500/15 text-orange-400 border border-orange-500/30 text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
+                                        <BookOpen size={11} /> Audiobook
+                                    </span>
+                                    {audiobookDetails?.releaseYear && (
+                                        <span className="px-2 py-0.5 rounded-lg bg-zinc-800 text-zinc-300 text-[10px] font-mono font-bold">
+                                            {audiobookDetails.releaseYear}
+                                        </span>
+                                    )}
+                                    {audiobookDetails?.genre && (
+                                        <span className="px-2 py-0.5 rounded-lg bg-zinc-800 text-zinc-300 text-[10px] font-bold">
+                                            {audiobookDetails.genre}
+                                        </span>
+                                    )}
+                                    {audiobookDetails?.loading && (
+                                        <span className="text-[10px] text-orange-400 font-mono animate-pulse flex items-center gap-1">
+                                            <RefreshCw size={10} className="animate-spin" /> Fetching author bio & synopsis...
+                                        </span>
+                                    )}
+                                </div>
+
+                                <h2 className="text-2xl sm:text-3xl font-black text-white leading-snug">
+                                    {selectedAudiobook.title}
+                                </h2>
+
+                                <div className="space-y-1">
+                                    <p className="text-base font-bold text-orange-400">
+                                        by {selectedAudiobook.author}
+                                    </p>
+                                    {(audiobookDetails?.narrator || selectedAudiobook.narrator) && (
+                                        <p className="text-xs text-zinc-400 flex items-center justify-center sm:justify-start gap-1.5 font-medium">
+                                            <Headphones size={13} className="text-zinc-500" />
+                                            Narrated by <span className="text-zinc-200 font-semibold">{audiobookDetails?.narrator || selectedAudiobook.narrator}</span>
+                                        </p>
+                                    )}
+                                </div>
+
+                                <div className="flex items-center justify-center sm:justify-start gap-3 flex-wrap text-xs text-zinc-400 font-semibold pt-1">
+                                    <span className="flex items-center gap-1.5 text-emerald-400 font-bold">
+                                        <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                                        {selectedAudiobook.chapters.length} {selectedAudiobook.chapters.length === 1 ? 'Part' : 'Chapters'}
+                                    </span>
+                                    {selectedAudiobook.totalDurationMs > 0 && (
+                                        <>
+                                            <span className="text-zinc-700">•</span>
+                                            <span className="text-zinc-300 font-mono">{formatBookDuration(selectedAudiobook.totalDurationMs)}</span>
+                                        </>
+                                    )}
+                                </div>
+
+                                <div className="pt-2 flex items-center justify-center sm:justify-start gap-3">
+                                    <button
+                                        disabled={selectedAudiobook.chapters.length === 0}
+                                        onClick={() => {
+                                            if (selectedAudiobook.chapters.length > 0) {
+                                                handlePlayAlbum(selectedAudiobook.chapters);
+                                            }
+                                        }}
+                                        className="px-6 py-2.5 rounded-2xl bg-orange-500 hover:bg-orange-400 text-black font-black text-xs uppercase tracking-wider transition-all flex items-center gap-2 shadow-lg cursor-pointer disabled:opacity-40"
+                                    >
+                                        <Play size={16} className="fill-black" /> Play from Start
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Synopsis & Author Bio Grid */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {/* Book Synopsis */}
+                            <div className="p-5 rounded-3xl bg-zinc-950/70 border border-zinc-900 space-y-2">
+                                <h3 className="text-xs font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                                    <BookText size={14} className="text-orange-400" />
+                                    Book Synopsis
+                                </h3>
+                                {audiobookDetails?.description ? (
+                                    <p className="text-xs text-zinc-300 leading-relaxed max-h-48 overflow-y-auto custom-scrollbar pr-1">
+                                        {audiobookDetails.description}
+                                    </p>
+                                ) : audiobookDetails?.loading ? (
+                                    <p className="text-xs text-zinc-500 italic">Looking up book synopsis from OpenLibrary & iTunes...</p>
+                                ) : (
+                                    <p className="text-xs text-zinc-600 italic">No synopsis available for this title.</p>
+                                )}
+                            </div>
+
+                            {/* Writer / Author Biography */}
+                            <div className="p-5 rounded-3xl bg-zinc-950/70 border border-zinc-900 space-y-2">
+                                <h3 className="text-xs font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                                    <User size={14} className="text-amber-400" />
+                                    About the Author ({selectedAudiobook.author})
+                                </h3>
+                                {audiobookDetails?.authorBio ? (
+                                    <p className="text-xs text-zinc-300 leading-relaxed max-h-48 overflow-y-auto custom-scrollbar pr-1 whitespace-pre-line">
+                                        {audiobookDetails.authorBio}
+                                    </p>
+                                ) : audiobookDetails?.loading ? (
+                                    <p className="text-xs text-zinc-500 italic">Fetching writer biography...</p>
+                                ) : (
+                                    <p className="text-xs text-zinc-600 italic">No author biography found on OpenLibrary.</p>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Chapters Tracklist */}
+                        <div className="space-y-3 pt-2">
+                            <h3 className="text-xs font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                                <BookMarked size={14} className="text-orange-400" />
+                                Chapters & Audio Files ({selectedAudiobook.chapters.length})
+                            </h3>
+
+                            <div className="divide-y divide-zinc-900/80 bg-zinc-950/60 rounded-3xl border border-zinc-900 overflow-hidden">
+                                {selectedAudiobook.chapters.map((ch, idx) => (
+                                    <div
+                                        key={ch.id || idx}
+                                        onClick={() => playAlbum(selectedAudiobook.chapters, idx)}
+                                        className="p-3.5 sm:p-4 flex items-center justify-between gap-3 hover:bg-zinc-900/50 transition-colors cursor-pointer group"
+                                    >
+                                        <div className="flex items-center gap-3.5 min-w-0">
+                                            <span className="w-7 text-center font-mono text-xs text-zinc-500 font-bold group-hover:text-orange-400 transition-colors">
+                                                {ch.trackNumber || idx + 1}
+                                            </span>
+                                            <div className="min-w-0 space-y-0.5">
+                                                <h4 className="font-bold text-white text-sm truncate group-hover:text-orange-400 transition-colors">
+                                                    {ch.title || ch.name}
+                                                </h4>
+                                                <div className="flex items-center gap-2 text-[10px] text-zinc-500 font-medium">
+                                                    <span className="uppercase font-mono font-bold text-zinc-400">{ch.extension}</span>
+                                                    {ch.sizeBytes > 0 && (
+                                                        <>
+                                                            <span>•</span>
+                                                            <span className="font-mono">{formatBytes(ch.sizeBytes)}</span>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-2 shrink-0">
+                                            {ch.durationMs ? (
+                                                <span className="font-mono text-xs text-zinc-500 group-hover:text-zinc-300">
+                                                    {formatTime(ch.durationMs / 1000)}
+                                                </span>
+                                            ) : ch.duration ? (
+                                                <span className="font-mono text-xs text-zinc-500 group-hover:text-zinc-300">
+                                                    {ch.duration}
+                                                </span>
+                                            ) : null}
+
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleDownloadTrack(ch);
+                                                }}
+                                                className="w-8 h-8 rounded-xl bg-zinc-900 hover:bg-emerald-500 text-zinc-400 hover:text-black flex items-center justify-center transition-all cursor-pointer"
+                                                title="Download Chapter"
+                                            >
+                                                <Download size={13} />
+                                            </button>
+
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    playAlbum(selectedAudiobook.chapters, idx);
+                                                }}
+                                                className="w-8 h-8 rounded-xl bg-zinc-900 group-hover:bg-orange-500 text-zinc-400 group-hover:text-black flex items-center justify-center transition-all cursor-pointer"
+                                                title="Play Chapter"
+                                            >
                                                 <Play size={14} className="ml-0.5 fill-current" />
                                             </button>
                                         </div>

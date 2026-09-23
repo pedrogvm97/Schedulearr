@@ -30,9 +30,10 @@ export async function GET() {
                     const locations: string[] = locList.map((l: any) => l.path || l['@_path']).filter(Boolean);
 
                     const sectionType = d.type || 'movie';
+                    const isAudiobook = (d.title || '').toLowerCase().includes('audiobook') || (d.title || '').toLowerCase().includes('book');
                     const mediaType = sectionType === 'movie' ? 'movie' :
                                       sectionType === 'show' ? 'show' :
-                                      (sectionType === 'artist' || sectionType === 'music') ? 'music' :
+                                      (sectionType === 'artist' || sectionType === 'music') ? (isAudiobook ? 'audiobooks' : 'music') :
                                       sectionType === 'photo' ? 'photo' : 'other';
 
                     plexLibraries.push({

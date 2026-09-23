@@ -49,7 +49,7 @@ export function MusicDownloadModal({
     const [currentDownloadStatus, setCurrentDownloadStatus] = useState<string>('');
     const [readyFile, setReadyFile] = useState<{ url: string; filename: string; size?: number } | null>(null);
 
-    // Fetch existing server music libraries and Plex music libraries to populate server save options
+    // Fetch only clean Local Device, Server Local Storage, and deduplicated Plex libraries
     useEffect(() => {
         const fetchDestinations = async () => {
             const list: DestinationOption[] = [
@@ -68,12 +68,40 @@ export function MusicDownloadModal({
                 const res = await fetch('/api/theater/libraries');
                 if (res.ok) {
                     const data = await res.json();
-                    
-                    // 1. Add Plex Music Libraries (highest priority for Plex integration)
+
+                    // 1. Local Server Storage (One clean consolidated destination for the server's music storage)
+                    const allLibs = Array.isArray(data) ? data : (data.libraries || []);
+                    const musicLibs = allLibs.filter((l: any) => l.type === 'music' || l.type === 'audio' || l.type === 'audiobooks');
+                    let primaryServerPath = '/music';
+                    for (const lib of musicLibs) {
+                        let folders: string[] = [];
+                        try {
+                            folders = typeof lib.folders === 'string' ? JSON.parse(lib.folders) : (lib.folders || []);
+                        } catch {}
+                        if (folders.length > 0 && folders[0]) {
+                            primaryServerPath = folders[0];
+                            break;
+                        }
+                    }
+                    const localDestId = 'server-local';
+                    list.push({
+                        id: localDestId,
+                        name: 'Server Local Storage',
+                        path: primaryServerPath,
+                        type: 'theater',
+                        badge: 'Local Server'
+                    });
+                    if (!firstServerDestId) firstServerDestId = localDestId;
+
+                    // 2. Plex Music Libraries (Strictly deduplicated by Section ID)
                     const plexLibs = Array.isArray(data.plexMusicLibraries) ? data.plexMusicLibraries : [];
+                    const seenPlexKeys = new Set<string>();
                     for (const plib of plexLibs) {
-                        const destId = `plex-${plib.id}`;
-                        if (!firstServerDestId) firstServerDestId = destId;
+                        const uniqueKey = plib.sectionId ? `${plib.instanceId || 'default'}-${plib.sectionId}` : plib.name;
+                        if (seenPlexKeys.has(uniqueKey)) continue;
+                        seenPlexKeys.add(uniqueKey);
+
+                        const destId = `plex-${plib.sectionId || plib.id}`;
                         list.push({
                             id: destId,
                             name: plib.name,
@@ -85,29 +113,6 @@ export function MusicDownloadModal({
                             instanceId: plib.instanceId
                         });
                     }
-
-                    // 2. Add Theater Music Libraries
-                    const allLibs = Array.isArray(data) ? data : (data.libraries || []);
-                    const musicLibs = allLibs.filter((l: any) => l.type === 'music' || l.type === 'audio');
-                    for (const lib of musicLibs) {
-                        let folders: string[] = [];
-                        try {
-                            folders = typeof lib.folders === 'string' ? JSON.parse(lib.folders) : (lib.folders || []);
-                        } catch {}
-                        if (folders.length > 0) {
-                            folders.forEach((f, fi) => {
-                                const destId = `theater-${lib.id}-${fi}`;
-                                if (!firstServerDestId) firstServerDestId = destId;
-                                list.push({
-                                    id: destId,
-                                    name: `${lib.name} Library`,
-                                    path: f,
-                                    type: 'theater',
-                                    badge: 'Server Library'
-                                });
-                            });
-                        }
-                    }
                 }
             } catch {}
 
@@ -117,12 +122,16 @@ export function MusicDownloadModal({
                 if (saved) {
                     const parsed = JSON.parse(saved);
                     if (Array.isArray(parsed) && parsed.length > 0) {
-                        setSelectedDestIds(parsed);
-                        return;
+                        // Keep only saved IDs that actually exist in the clean list
+                        const valid = parsed.filter((id: string) => list.some(d => d.id === id));
+                        if (valid.length > 0) {
+                            setSelectedDestIds(valid);
+                            return;
+                        }
                     }
                 }
             } catch {}
-            // Default to the first detected Plex or Server library if available, otherwise device
+            // Default to the first detected Local Server or Plex library if available, otherwise device
             setSelectedDestIds(firstServerDestId ? [firstServerDestId] : ['device']);
         };
 
@@ -349,6 +358,8 @@ export function MusicDownloadModal({
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
+                        path: currentTrack.path,
+                        plexPart: currentTrack.plexPart || (currentTrack as any).key,
                         youtubeId: ytId,
                         streamUrl: currentTrack.streamUrl || currentTrack.previewUrl,
                         title: tTitle,

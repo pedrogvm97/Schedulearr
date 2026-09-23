@@ -6,6 +6,7 @@ import { exec } from 'child_process';
 import util from 'util';
 import db, { getTheaterLibraries, clearCachedTheaterItems, getInstances } from '@/lib/db';
 import { downloadAudioFile, resolveActualWritableFolder } from '@/lib/musicDownloader';
+import { ensureFfmpegBinaries } from '@/lib/ytdlp';
 import { resolveLocalPath } from '@/app/api/theater/stream/route';
 
 const execPromise = util.promisify(exec);
@@ -154,29 +155,92 @@ export async function POST(req: Request) {
             });
         }
 
-        let cleanYtId = (youtubeId || '').replace(/^yt-/, '');
+        let dlSuccess = false;
 
-        if (!cleanYtId && body.streamUrl) {
+        // 2a. Direct Local File Copy / Transcode (If file already exists on server disk)
+        const localSourcePath = body.path;
+        if (localSourcePath && fs.existsSync(localSourcePath)) {
             try {
-                const u = new URL(body.streamUrl, 'http://localhost');
-                const p = u.searchParams.get('ytId');
-                if (p) cleanYtId = p.replace(/^yt-/, '');
-            } catch {}
+                const srcExt = path.extname(localSourcePath).replace(/^\./, '').toLowerCase();
+                if (saveFormat === 'original' || saveFormat === srcExt) {
+                    fs.copyFileSync(localSourcePath, finalAudioPath);
+                } else {
+                    const convertCmd = `"${ffmpegPath}" -y -i "${localSourcePath}" -vn ${saveFormat === 'mp3' ? '-b:a 320k' : ''} "${finalAudioPath}"`;
+                    await execPromise(convertCmd);
+                }
+                if (fs.existsSync(finalAudioPath) && fs.statSync(finalAudioPath).size > 1024) {
+                    dlSuccess = true;
+                }
+            } catch (copyErr: any) {
+                console.warn('[GRAB] Direct local copy error:', copyErr.message);
+            }
         }
 
-        // 2. Download Track Audio using Multi-Tier Downloader Engine
-        const isPreview = body.streamUrl && (body.streamUrl.includes('preview') || body.streamUrl.includes('dzcdn.net') || body.streamUrl.includes('mzstatic.com'));
-        const dlResult = await downloadAudioFile({
-            targetUrl: cleanYtId ? `https://www.youtube.com/watch?v=${cleanYtId}` : (body.streamUrl?.startsWith('http') && !isPreview ? body.streamUrl : undefined),
-            youtubeId: cleanYtId || undefined,
-            query: `${cleanArtist} ${cleanTitle}`,
-            outputPath: finalAudioPath,
-            format: (saveFormat === 'original' ? 'm4a' : saveFormat) as any,
-            title: cleanTitle,
-            artist: cleanArtist,
-            album: cleanAlbum,
-            coverUrl
-        });
+        // 2b. Direct Plex Stream Download (If track is from a connected Plex server)
+        if (!dlSuccess && (body.plexPart || body.streamUrl?.includes('plexPart='))) {
+            try {
+                const effectivePart = body.plexPart || new URL(body.streamUrl, 'http://localhost').searchParams.get('plexPart');
+                const plexInstances = getInstances().filter(i => i.type === 'plex' && i.enabled);
+                const plex = instanceId ? plexInstances.find(i => i.id === instanceId) : plexInstances[0];
+
+                if (plex && effectivePart) {
+                    const plexUrlBase = plex.url.replace(/\/$/, '');
+                    const normalizedPart = effectivePart.startsWith('/') ? effectivePart : `/${effectivePart}`;
+                    const sep = normalizedPart.includes('?') ? '&' : '?';
+                    const targetPlexUrl = `${plexUrlBase}${normalizedPart}${sep}X-Plex-Token=${plex.api_key}`;
+
+                    const streamRes = await axios.get(targetPlexUrl, { responseType: 'arraybuffer', timeout: 45000 });
+                    if (streamRes.status === 200 && streamRes.data && streamRes.data.length > 1024) {
+                        const tempRaw = path.join(albumDir, `temp_plex_${Date.now()}`);
+                        fs.writeFileSync(tempRaw, Buffer.from(streamRes.data));
+                        if (saveFormat === 'original') {
+                            fs.renameSync(tempRaw, finalAudioPath);
+                        } else {
+                            try {
+                                const convertCmd = `"${ffmpegPath}" -y -i "${tempRaw}" -vn ${saveFormat === 'mp3' ? '-b:a 320k' : ''} "${finalAudioPath}"`;
+                                await execPromise(convertCmd);
+                                if (fs.existsSync(tempRaw)) fs.unlinkSync(tempRaw);
+                            } catch {
+                                fs.renameSync(tempRaw, finalAudioPath);
+                            }
+                        }
+                        if (fs.existsSync(finalAudioPath) && fs.statSync(finalAudioPath).size > 1024) {
+                            dlSuccess = true;
+                        }
+                    }
+                }
+            } catch (plexErr: any) {
+                console.warn('[GRAB] Direct Plex stream download error:', plexErr.message);
+            }
+        }
+
+        // 2c. Multi-Tier YouTube / Online Stream Downloader
+        if (!dlSuccess) {
+            let cleanYtId = (youtubeId || '').replace(/^yt-/, '');
+            if (!cleanYtId && body.streamUrl) {
+                try {
+                    const u = new URL(body.streamUrl, 'http://localhost');
+                    const p = u.searchParams.get('ytId');
+                    if (p) cleanYtId = p.replace(/^yt-/, '');
+                } catch {}
+            }
+
+            const isPreview = body.streamUrl && (body.streamUrl.includes('preview') || body.streamUrl.includes('dzcdn.net') || body.streamUrl.includes('mzstatic.com'));
+            const dlResult = await downloadAudioFile({
+                targetUrl: cleanYtId ? `https://www.youtube.com/watch?v=${cleanYtId}` : (body.streamUrl?.startsWith('http') && !isPreview ? body.streamUrl : undefined),
+                youtubeId: cleanYtId || undefined,
+                query: `${cleanArtist} ${cleanTitle}`,
+                outputPath: finalAudioPath,
+                format: (saveFormat === 'original' ? 'm4a' : saveFormat) as any,
+                title: cleanTitle,
+                artist: cleanArtist,
+                album: cleanAlbum,
+                coverUrl
+            });
+            if (dlResult.success && fs.existsSync(finalAudioPath)) {
+                dlSuccess = true;
+            }
+        }
 
         // 3. Save Album Artwork
         if (coverUrl) {
@@ -192,7 +256,7 @@ export async function POST(req: Request) {
             }
         }
 
-        if (dlResult.success && fs.existsSync(finalAudioPath)) {
+        if (dlSuccess && fs.existsSync(finalAudioPath)) {
             // Invalidate local SQLite Theater cache & trigger background Plex scan
             try {
                 const allLibs = getTheaterLibraries();
@@ -239,7 +303,7 @@ export async function POST(req: Request) {
                 title: cleanTitle
             });
         } else {
-            return NextResponse.json({ error: dlResult.error || 'Failed to extract audio stream for this track. Please check network connection.' }, { status: 500 });
+            return NextResponse.json({ error: 'Failed to extract or copy audio for this track. Please check network connection and folder permissions.' }, { status: 500 });
         }
     } catch (error: any) {
         console.error('API /theater/music/grab error:', error);
