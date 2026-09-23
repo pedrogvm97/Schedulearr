@@ -2039,6 +2039,10 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             audioStallWatchdogRef.current = null;
         }
 
+        toast.info(`Local file unavailable, auto-playing online stream for "${track.title}"...`, {
+            id: `audio-fallback-${track.id || track.title}`
+        });
+
         const q = `${track.artist || ''} ${track.title || track.name || ''}`.trim();
         if (!q) {
             setIsAudioPlaying(false);
@@ -2171,26 +2175,11 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                 if (e.name === 'NotAllowedError') {
                     setIsAudioPlaying(false);
                     setAudioPlaybackStatus('paused');
-                } else if (playingAudio.path || playingAudio.isLocal) {
-                    if (!hasRetriedTranscodeRef.current && !audioRef.current?.src.includes('transcode=')) {
-                        hasRetriedTranscodeRef.current = true;
-                        const separator = effectiveStreamUrl.includes('?') ? '&' : '?';
-                        const transcodeUrl = `${effectiveStreamUrl}${separator}transcode=audio&t=${Date.now()}`;
-                        addAudioNerdLog('info', `Direct play failed, auto-retrying with server transcode: ${transcodeUrl}`);
-                        if (audioRef.current) {
-                            audioRef.current.src = transcodeUrl;
-                            audioRef.current.play().catch(() => {
-                                if (!hasAttemptedFallbackRef.current) {
-                                    toast.info(`Local file unavailable, auto-playing online stream for "${playingAudio.title}"...`);
-                                    triggerAudioFallback(playingAudio);
-                                }
-                            });
-                        }
-                    } else if (!hasAttemptedFallbackRef.current) {
-                        toast.info(`Local file unavailable, auto-playing online stream for "${playingAudio.title}"...`);
-                        triggerAudioFallback(playingAudio);
-                    }
                 } else {
+                    if (audioStallWatchdogRef.current) {
+                        clearTimeout(audioStallWatchdogRef.current);
+                        audioStallWatchdogRef.current = null;
+                    }
                     triggerAudioFallback(playingAudio);
                 }
             });
@@ -2543,7 +2532,20 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                         readyState: audioRef.current?.readyState
                     });
 
-                    // Automatic fallback to Server-Side Audio Transcode (attempted ONCE only)
+                    if (audioStallWatchdogRef.current) {
+                        clearTimeout(audioStallWatchdogRef.current);
+                        audioStallWatchdogRef.current = null;
+                    }
+
+                    const isLocalStream = Boolean(playingAudio.path || (audioRef.current?.src && audioRef.current.src.includes('/api/theater/stream?path=')));
+
+                    if (isLocalStream) {
+                        // Instant fallback for local files not on server (0.05s)
+                        triggerAudioFallback(playingAudio);
+                        return;
+                    }
+
+                    // Automatic fallback to Server-Side Audio Transcode for other sources (attempted ONCE only)
                     if (playingAudio.streamUrl && !hasRetriedTranscodeRef.current && !audioRef.current?.src.includes('transcode=')) {
                         hasRetriedTranscodeRef.current = true;
                         const separator = playingAudio.streamUrl.includes('?') ? '&' : '?';
@@ -2553,33 +2555,11 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                         if (audioRef.current) {
                             audioRef.current.src = transcodeUrl;
                             audioRef.current.play().catch(() => {
-                                if (!hasAttemptedFallbackRef.current) {
-                                    toast.info(`Local file unavailable, auto-playing online stream for "${playingAudio.title}"...`);
-                                    triggerAudioFallback(playingAudio);
-                                } else {
-                                    setIsAudioPlaying(false);
-                                    setAudioPlaybackStatus('error');
-                                    setAudioPlaybackError({
-                                        name: 'SERVER_AUDIO_ERROR',
-                                        message: `Could not play track "${playingAudio.title}".`,
-                                        details: 'Direct playback, server transcode, and online streaming all failed.',
-                                        suggestion: 'Check file path, audio server, and internet connection.'
-                                    });
-                                }
+                                triggerAudioFallback(playingAudio);
                             });
                         }
-                    } else if (!hasAttemptedFallbackRef.current) {
-                        toast.info(`Local file unavailable, auto-playing online stream for "${playingAudio.title}"...`);
-                        triggerAudioFallback(playingAudio);
                     } else {
-                        setIsAudioPlaying(false);
-                        setAudioPlaybackStatus('error');
-                        setAudioPlaybackError({
-                            name: 'SERVER_AUDIO_ERROR',
-                            message: `Could not play track "${playingAudio.title}".`,
-                            details: 'Direct playback and fallback both failed.',
-                            suggestion: 'Check file path, audio server, and internet connection.'
-                        });
+                        triggerAudioFallback(playingAudio);
                     }
                 }}
             />
@@ -2728,8 +2708,8 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
                                 <button
                                     onClick={() => setIsRepeat(!isRepeat)}
-                                    className={`p-1.5 sm:p-2 rounded-xl transition-colors hidden sm:flex ${isRepeat ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-500 hover:text-white'}`}
-                                    title="Repeat Queue"
+                                    className={`p-1.5 sm:p-2 rounded-xl transition-colors flex cursor-pointer ${isRepeat ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-500 hover:text-white'}`}
+                                    title={isRepeat ? "Repeat: Active" : "Repeat: Off"}
                                 >
                                     <Repeat size={15} />
                                 </button>
@@ -2776,6 +2756,17 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                     title={`Volume: ${Math.round(audioVolume * 100)}%`}
                                 />
                             </div>
+
+                            {/* Cast Quick Button */}
+                            <button
+                                onClick={() => openCastPicker(playingAudio)}
+                                className={`p-2 sm:px-2.5 sm:py-2 rounded-xl border text-xs font-bold flex items-center transition-all cursor-pointer ${
+                                    isCastingToGoogle ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+                                }`}
+                                title="Cast to Smart TV / Audio Output Device"
+                            >
+                                <Cast size={15} />
+                            </button>
 
 
 
@@ -2915,7 +2906,23 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
                     {/* Main Stage: Minimalist Vinyl Platter Mode vs Full Dashboard Grid */}
                     {isMinimalistVinylMode ? (
-                        <div className="relative z-10 flex-1 min-h-0 flex flex-col items-center justify-between max-w-lg mx-auto w-full py-4 sm:py-8 select-none">
+                        <div className="relative z-10 flex-1 min-h-0 flex flex-col items-center justify-between max-w-lg mx-auto w-full py-2 sm:py-4 select-none">
+                            {/* Minimalist Top Bar: Title + Return to Regular Player Button */}
+                            <div className="w-full flex items-center justify-between px-3 py-1.5 bg-zinc-950/80 backdrop-blur-md rounded-2xl border border-zinc-800/80 shadow-inner shrink-0 mb-2">
+                                <div className="flex items-center gap-2">
+                                    <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
+                                    <span className="text-xs sm:text-sm font-black uppercase text-amber-400 tracking-wider">Minimalist Vinyl Player</span>
+                                </div>
+                                <button
+                                    onClick={() => setIsMinimalistVinylMode(false)}
+                                    className="flex items-center gap-2 px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-black font-black text-xs sm:text-sm rounded-xl shadow-lg shadow-amber-500/20 transition-all cursor-pointer hover:scale-105 active:scale-95"
+                                    title="Return to Regular Player"
+                                >
+                                    <Maximize2 size={15} />
+                                    <span>Return to Regular Player</span>
+                                </button>
+                            </div>
+
                             {/* Minimalist Rotating Vinyl Disc */}
                             <div
                                 onClick={(e) => {
@@ -2960,10 +2967,10 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             </div>
 
                             {/* Track Details & Minimal Controls */}
-                            <div className="w-full space-y-4 text-center shrink-0">
+                            <div className="w-full space-y-3 sm:space-y-4 text-center shrink-0">
                                 <div className="space-y-1">
                                     <h2 className="text-xl sm:text-2xl font-black text-white truncate px-2">{playingAudio.title}</h2>
-                                    <p className="text-sm font-bold text-amber-400 truncate">{playingAudio.artist || 'Artist'}</p>
+                                    <p className="text-sm sm:text-base font-bold text-amber-400 truncate">{playingAudio.artist || 'Artist'}</p>
                                 </div>
 
                                 <div className="w-full space-y-1 px-2">
@@ -2981,14 +2988,22 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                     </div>
                                 </div>
 
-                                <div className="flex items-center justify-center gap-6">
-                                    <button onClick={prevTrack} className="p-2 text-zinc-400 hover:text-white transition-colors" title="Previous Track">
-                                        <SkipBack size={22} />
+                                {/* Main Controls Row */}
+                                <div className="flex items-center justify-center gap-4 sm:gap-6">
+                                    <button
+                                        onClick={() => setIsShuffle(!isShuffle)}
+                                        className={`p-2 rounded-xl transition-colors cursor-pointer ${isShuffle ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-500 hover:text-white'}`}
+                                        title="Shuffle Queue"
+                                    >
+                                        <Shuffle size={20} />
+                                    </button>
+                                    <button onClick={prevTrack} className="p-2 text-zinc-400 hover:text-white transition-colors cursor-pointer" title="Previous Track">
+                                        <SkipBack size={24} />
                                     </button>
                                     <button
                                         onClick={togglePlayPause}
                                         disabled={audioPlaybackStatus === 'loading'}
-                                        className="w-14 h-14 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black flex items-center justify-center shadow-lg shadow-amber-500/30 transition-all scale-100 active:scale-95 disabled:opacity-75"
+                                        className="w-14 h-14 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black flex items-center justify-center shadow-lg shadow-amber-500/30 transition-all scale-100 active:scale-95 disabled:opacity-75 cursor-pointer shrink-0"
                                         title={isAudioPlaying ? 'Pause' : 'Play'}
                                     >
                                         {audioPlaybackStatus === 'loading' || audioPlaybackStatus === 'buffering' ? (
@@ -2999,8 +3014,63 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                             <Play size={24} className="ml-0.5" />
                                         )}
                                     </button>
-                                    <button onClick={nextTrack} className="p-2 text-zinc-400 hover:text-white transition-colors" title="Next Track">
-                                        <SkipForward size={22} />
+                                    <button onClick={nextTrack} className="p-2 text-zinc-400 hover:text-white transition-colors cursor-pointer" title="Next Track">
+                                        <SkipForward size={24} />
+                                    </button>
+                                    <button
+                                        onClick={() => setIsRepeat(!isRepeat)}
+                                        className={`p-2 rounded-xl transition-colors cursor-pointer ${isRepeat ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-500 hover:text-white'}`}
+                                        title={isRepeat ? "Repeat: Active" : "Repeat: Off"}
+                                    >
+                                        <Repeat size={20} />
+                                    </button>
+                                    <button
+                                        onClick={() => openCastPicker(playingAudio)}
+                                        className={`p-2 rounded-xl transition-colors cursor-pointer ${isCastingToGoogle ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-400 hover:text-white'}`}
+                                        title="Cast to Smart TV / Audio Output Device"
+                                    >
+                                        <Cast size={20} />
+                                    </button>
+                                </div>
+
+                                {/* Secondary Controls Row: Volume & Return to Regular Player */}
+                                <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
+                                    {/* Volume Control */}
+                                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-zinc-900/90 border border-zinc-800">
+                                        <button
+                                            onClick={toggleMute}
+                                            className="text-zinc-400 hover:text-white transition-colors cursor-pointer"
+                                            title={isAudioMuted ? "Unmute" : "Mute"}
+                                        >
+                                            {isAudioMuted || audioVolume === 0 ? (
+                                                <VolumeX size={17} className="text-rose-400" />
+                                            ) : (
+                                                <Volume2 size={17} className="text-amber-400" />
+                                            )}
+                                        </button>
+                                        <input
+                                            type="range"
+                                            min={0}
+                                            max={1}
+                                            step={0.01}
+                                            value={isAudioMuted ? 0 : audioVolume}
+                                            onChange={e => handleVolumeChange(Number(e.target.value))}
+                                            className="w-24 sm:w-32 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                                            title={`Volume: ${Math.round(audioVolume * 100)}%`}
+                                        />
+                                        <span className="text-[11px] font-mono text-zinc-400 w-8 text-right">
+                                            {Math.round((isAudioMuted ? 0 : audioVolume) * 100)}%
+                                        </span>
+                                    </div>
+
+                                    {/* Return to Regular Player Button */}
+                                    <button
+                                        onClick={() => setIsMinimalistVinylMode(false)}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs sm:text-sm font-bold transition-all cursor-pointer"
+                                        title="Return to Regular Player"
+                                    >
+                                        <Maximize2 size={14} className="text-amber-400" />
+                                        <span>Regular Player</span>
                                     </button>
                                 </div>
                             </div>

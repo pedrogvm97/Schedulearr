@@ -230,9 +230,13 @@ export async function GET(req: Request) {
             }
         }
 
-        // B. If local scan returned 0 items (e.g. Docker container volume isolation) or linked to Plex:
-        if (allItems.length === 0) {
-            const plexInstances = getInstances().filter(i => i.type === 'plex' && i.enabled);
+        // B. Query Plex if library is linked to Plex OR if local scan returned 0 items
+        const plexInstances = getInstances().filter(i => i.type === 'plex' && i.enabled);
+        const isPlexLinked = Boolean(lib.plex_section_id || lib.instance_id || (lib as any).source?.includes('Plex'));
+        const shouldQueryPlex = plexInstances.length > 0 && (isPlexLinked || allItems.length === 0);
+
+        if (shouldQueryPlex) {
+            const plexItems: any[] = [];
             
             for (const plex of plexInstances) {
                 try {
@@ -290,7 +294,7 @@ export async function GET(req: Request) {
                                 ? part.container.toUpperCase() 
                                 : (part?.file ? path.extname(part.file).replace('.', '').toUpperCase() : defaultExt);
 
-                            allItems.push({
+                            plexItems.push({
                                 id: `plex-${item.ratingKey || item.key}`,
                                 name: item.title,
                                 title: item.title,
@@ -323,6 +327,71 @@ export async function GET(req: Request) {
                     }
                 } catch (e: any) {
                     console.error('Failed to load Plex items:', e.message);
+                }
+            }
+
+            if (plexItems.length > 0) {
+                if (allItems.length > 0) {
+                    // Merge local filesystem items with Plex items
+                    const localItems = [...allItems];
+                    const mergedItems: any[] = [];
+                    const matchedLocalIndices = new Set<number>();
+                    const normStr = (s?: string) => (s || '').toLowerCase().replace(/[\W_]+/g, ' ').trim();
+
+                    for (const pItem of plexItems) {
+                        const pFile = pItem.path ? path.basename(pItem.path) : '';
+                        const pTitle = normStr(pItem.title);
+                        const pArtist = normStr(pItem.artist);
+
+                        let matchIdx = -1;
+                        for (let i = 0; i < localItems.length; i++) {
+                            if (matchedLocalIndices.has(i)) continue;
+                            const lItem = localItems[i];
+                            const lFile = lItem.path ? path.basename(lItem.path) : '';
+                            const lTitle = normStr(lItem.title || lItem.name);
+                            const lArtist = normStr(lItem.artist);
+
+                            if (pFile && lFile && (pFile === lFile || pItem.path === lItem.path)) {
+                                matchIdx = i;
+                                break;
+                            }
+                            if (pTitle && lTitle && pTitle === lTitle) {
+                                if (!pArtist || !lArtist || pArtist === lArtist) {
+                                    matchIdx = i;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (matchIdx >= 0) {
+                            matchedLocalIndices.add(matchIdx);
+                            const lItem = localItems[matchIdx];
+                            mergedItems.push({
+                                ...lItem,
+                                ratingKey: pItem.ratingKey,
+                                posterUrl: lItem.posterUrl || pItem.posterUrl,
+                                instanceId: pItem.instanceId,
+                                instanceName: pItem.instanceName,
+                                isLocal: true
+                            });
+                        } else {
+                            mergedItems.push(pItem);
+                        }
+                    }
+
+                    // Append extra local items (e.g. manually added YouTube albums not yet indexed by Plex)
+                    for (let i = 0; i < localItems.length; i++) {
+                        if (!matchedLocalIndices.has(i)) {
+                            mergedItems.push({
+                                ...localItems[i],
+                                isLocal: true
+                            });
+                        }
+                    }
+
+                    allItems = mergedItems;
+                } else {
+                    allItems = plexItems;
                 }
             }
         }

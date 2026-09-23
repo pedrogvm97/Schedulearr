@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
-import { downloadAudioFile } from '@/lib/musicDownloader';
+import { downloadAudioFile, resolveActualWritableFolder } from '@/lib/musicDownloader';
 import db, { getTheaterLibraries, clearCachedTheaterItems, getInstances } from '@/lib/db';
 
 export interface MusicDownloadJob {
@@ -84,9 +84,9 @@ class MusicQueueManager {
                     }
                 } catch {}
             }
-            if (!folder) {
-                folder = path.join(process.cwd(), 'data', 'music');
-            }
+
+            // Smart host-to-container mount resolution
+            folder = resolveActualWritableFolder(folder);
 
             const albumDir = path.join(folder, cleanArtist, cleanAlbum);
             const outputPath = path.join(albumDir, `${cleanTitle}.${effectiveExt}`);

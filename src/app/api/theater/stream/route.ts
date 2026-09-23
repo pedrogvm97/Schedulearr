@@ -23,12 +23,21 @@ export function resolveLocalPath(filePath: string): string | null {
         decodeURIComponent(filePath).replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"'),
         filePath.replace(/^\/data\//, '/app/data/'),
         filePath.replace(/^\/app\/data\//, '/data/'),
+        filePath.replace(/^\/mnt\/user\/data\/media\/music\//, '/music/'),
+        filePath.replace(/^\/mnt\/user\/media\/music\//, '/music/'),
+        filePath.replace(/^\/mnt\/user\/music\//, '/music/'),
+        filePath.replace(/^\/mnt\/user\/data\/music\//, '/music/'),
+        filePath.replace(/^\/mnt\/user\/data\/media\/music\//, '/media/music/'),
+        filePath.replace(/^\/mnt\/user\/media\/music\//, '/media/music/'),
+        filePath.replace(/^\/mnt\/user\/music\//, '/media/music/'),
         filePath.replace(/^\/music\//, '/app/data/music/'),
         filePath.replace(/^\/media\/music\//, '/app/data/music/'),
         filePath.replace(/^\/media\//, '/app/data/'),
         filePath.replace(/^\/mnt\/user\/music\//, '/app/data/music/'),
         filePath.replace(/^\/mnt\/user\/media\/music\//, '/app/data/music/'),
         filePath.replace(/^\/mnt\/user\/data\/music\//, '/app/data/music/'),
+        path.join('/music', filePath.replace(/^\/(mnt\/user\/)?(data\/)?(media\/)?(music\/)?/, '')),
+        path.join('/media/music', filePath.replace(/^\/(mnt\/user\/)?(data\/)?(media\/)?(music\/)?/, '')),
         path.join('/app/data/music', filePath.replace(/^\/(app\/)?(data\/)?(music\/)?/, '')),
         path.join('/music', filePath.replace(/^\/music\/?/, '')),
         path.join('/media/music', filePath.replace(/^\/(media\/)?(music\/)?/, '')),
@@ -415,8 +424,9 @@ export async function GET(req: NextRequest) {
                     const libs = getTheaterLibraries();
                     for (const lib of libs) {
                         const cached = getCachedTheaterItems(lib.id);
-                        if (cached && Array.isArray(cached)) {
-                            const found = cached.find((item: any) => {
+                        const itemsList: any[] = Array.isArray(cached) ? cached : (cached?.items || []);
+                        if (itemsList.length > 0) {
+                            const found = itemsList.find((item: any) => {
                                 if (!item.streamUrl) return false;
                                 if (item.path && (item.path === filePath || item.path.toLowerCase() === filePath.toLowerCase())) return true;
                                 if (path.basename(item.path || '') === path.basename(filePath)) return true;
@@ -431,33 +441,6 @@ export async function GET(req: NextRequest) {
                         }
                     }
                 } catch {}
-
-                if (!matchedPlexPart) {
-                    const fileNameWithoutExt = path.basename(filePath, path.extname(filePath));
-                    for (const p of plexInstances) {
-                        try {
-                            const pBase = p.url.replace(/\/$/, '');
-                            const searchUrl = `${pBase}/search?query=${encodeURIComponent(fileNameWithoutExt)}&type=10&X-Plex-Token=${p.api_key}`;
-                            const pRes = await axios.get(searchUrl, { timeout: 3500, headers: { Accept: 'application/json' } });
-                            const metadata = pRes.data?.MediaContainer?.Metadata || [];
-                            for (const m of metadata) {
-                                const mediaParts = (m.Media || []).flatMap((med: any) => med.Part || []);
-                                const partMatch = mediaParts.find((pt: any) => {
-                                    if (!pt.key) return false;
-                                    if (pt.file && (pt.file === filePath || pt.file.toLowerCase() === filePath.toLowerCase())) return true;
-                                    if (pt.file && path.basename(pt.file) === path.basename(filePath)) return true;
-                                    return true;
-                                });
-                                if (partMatch && partMatch.key) {
-                                    matchedPlexPart = partMatch.key;
-                                    matchedInstanceId = p.id;
-                                    break;
-                                }
-                            }
-                            if (matchedPlexPart) break;
-                        } catch {}
-                    }
-                }
 
                 if (matchedPlexPart) {
                     const plex = matchedInstanceId ? plexInstances.find(i => i.id === matchedInstanceId) : plexInstances[0];
@@ -494,27 +477,13 @@ export async function GET(req: NextRequest) {
                 }
             }
 
-            const rawExt = path.extname(filePath || '').toLowerCase();
-            const isAudioRequest = ['.mp3', '.flac', '.wav', '.m4a', '.aac', '.ogg', '.opus', '.wma', '.alac'].includes(rawExt);
-
-            // If requested an audio file that isn't accessible on disk, seamlessly redirect to online audio engine!
-            if (isAudioRequest && filePath) {
-                const parts = decodeURIComponent(filePath).split(/[\/\\]/).filter(Boolean);
-                const rawName = path.basename(filePath, rawExt).replace(/[/\\?%*:|"<>]/g, '').trim();
-                const parentFolder = parts.length > 1 ? parts[parts.length - 2] : '';
-                const grandParentFolder = parts.length > 2 ? parts[parts.length - 3] : '';
-
-                const candidateQuery = (grandParentFolder && !grandParentFolder.toLowerCase().includes('music') && !grandParentFolder.toLowerCase().includes('data'))
-                    ? `${grandParentFolder} ${rawName}`
-                    : (parentFolder && !parentFolder.toLowerCase().includes('music') && !parentFolder.toLowerCase().includes('data') ? `${parentFolder} ${rawName}` : rawName);
-
-                console.warn(`[THEATER STREAM] Local audio file not accessible at "${filePath}". Transparently redirecting to online audio stream for "${candidateQuery}"...`);
-
-                const streamUrl = new URL(`/api/theater/music/stream?q=${encodeURIComponent(candidateQuery)}&format=mp3`, req.url).toString();
-                return NextResponse.redirect(streamUrl);
-            }
-
-            return new NextResponse('File not found', { status: 404 });
+            return new NextResponse('Local file not found on server', {
+                status: 404,
+                headers: {
+                    'X-Local-File-Missing': 'true',
+                    'Cache-Control': 'no-cache, no-store, must-revalidate'
+                }
+            });
         }
 
         const ext = path.extname(targetLocalFile).toLowerCase();

@@ -39,11 +39,17 @@
     <Volume>
       <HostDir>/var/run/docker.sock</HostDir>
       <ContainerDir>/var/run/docker.sock</ContainerDir>
-      <Mode>ro</Mode>
+      <Mode>rw</Mode>
+    </Volume>
+    <Volume>
+      <HostDir>/mnt/user/data/media/music</HostDir>
+      <ContainerDir>/music</ContainerDir>
+      <Mode>rw</Mode>
     </Volume>
   </Data>
   <Environment/>
   <Labels/>
   <Config Name="WebUI" Target="3010" Default="3010" Mode="tcp" Description="Web interface port" Type="Port" Display="always" Required="true" Mask="false">3010</Config>
   <Config Name="AppData Config Path" Target="/app/data" Default="/mnt/user/appdata/schedulearr/data" Mode="rw" Description="Path to store SQLite database configuration." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/schedulearr/data</Config>
+  <Config Name="Music Media Path" Target="/music" Default="/mnt/user/data/media/music" Mode="rw" Description="Path where downloaded music is saved for your Plex/Lidarr library." Type="Path" Display="always" Required="false" Mask="false">/mnt/user/data/media/music</Config>
 </Container>

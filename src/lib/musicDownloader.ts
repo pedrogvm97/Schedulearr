@@ -392,6 +392,12 @@ export async function downloadAudioFile(options: DownloadOptions): Promise<{ suc
         return { success: false, error: 'All audio download engines were exhausted. Please try another track or format.' };
     }
 
+    // Ensure destination directory exists and is writable
+    const destDir = path.dirname(outputPath);
+    if (!fs.existsSync(destDir)) {
+        try { fs.mkdirSync(destDir, { recursive: true }); } catch {}
+    }
+
     // Apply Metadata & Cover Art using FFmpeg
     try {
         let coverTemp: string | null = null;
@@ -407,26 +413,113 @@ export async function downloadAudioFile(options: DownloadOptions): Promise<{ suc
         const safeArtist = (artist || 'Unknown Artist').replace(/"/g, '\\"');
         const safeAlbum = (album || 'Singles').replace(/"/g, '\\"');
 
+        // Determine correct audio encoding flag for target file extension
+        const isMp3Target = outputPath.toLowerCase().endsWith('.mp3');
+        const isM4aTarget = outputPath.toLowerCase().endsWith('.m4a');
+        const isFlacTarget = outputPath.toLowerCase().endsWith('.flac');
+        const audioCodecFlag = isMp3Target ? '-c:a libmp3lame -b:a 320k' : isM4aTarget ? '-c:a aac -b:a 256k' : isFlacTarget ? '-c:a flac' : '-c:a copy';
+
         if (coverTemp && fs.existsSync(coverTemp)) {
-            const tagCmd = `"${ffmpegPath}" -y -i "${tempFile}" -i "${coverTemp}" -map 0:a -map 1 -c:a copy -c:v mjpeg -id3v2_version 3 -metadata title="${safeTitle}" -metadata artist="${safeArtist}" -metadata album_artist="${safeArtist}" -metadata album="${safeAlbum}" "${outputPath}"`;
-            await execPromise(tagCmd, { timeout: 15000 });
+            const tagCmd = `"${ffmpegPath}" -y -i "${tempFile}" -i "${coverTemp}" -map 0:a -map 1 -c:v mjpeg -id3v2_version 3 ${audioCodecFlag} -metadata title="${safeTitle}" -metadata artist="${safeArtist}" -metadata album_artist="${safeArtist}" -metadata album="${safeAlbum}" "${outputPath}"`;
+            await execPromise(tagCmd, { timeout: 25000 });
             try { fs.unlinkSync(coverTemp); } catch {}
         } else {
-            const tagCmd = `"${ffmpegPath}" -y -i "${tempFile}" -c copy -metadata title="${safeTitle}" -metadata artist="${safeArtist}" -metadata album_artist="${safeArtist}" -metadata album="${safeAlbum}" "${outputPath}"`;
-            await execPromise(tagCmd, { timeout: 15000 });
+            const tagCmd = `"${ffmpegPath}" -y -i "${tempFile}" ${audioCodecFlag} -metadata title="${safeTitle}" -metadata artist="${safeArtist}" -metadata album_artist="${safeArtist}" -metadata album="${safeAlbum}" "${outputPath}"`;
+            await execPromise(tagCmd, { timeout: 25000 });
         }
 
         try { fs.unlinkSync(tempFile); } catch {}
-    } catch {
+    } catch (tagErr: any) {
+        console.warn('[MusicDownloader] Metadata tagging fallback:', tagErr.message);
         try {
+            if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
             fs.copyFileSync(tempFile, outputPath);
             fs.unlinkSync(tempFile);
         } catch {}
     }
 
     if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1024) {
+        console.log(`[MusicDownloader] File saved successfully (${fs.statSync(outputPath).size} bytes): ${outputPath}`);
         return { success: true, filePath: outputPath };
     }
 
     return { success: false, error: 'Final output audio file creation failed.' };
+}
+
+/**
+ * Resolves a host path or Plex library path to an actual accessible and writable directory
+ * within the Docker container / filesystem.
+ */
+export function resolveActualWritableFolder(inputPath?: string): string {
+    const raw = (inputPath || '').trim();
+
+    // 1. If direct path exists and is writable, use it
+    if (raw && fs.existsSync(raw)) {
+        try {
+            fs.accessSync(raw, fs.constants.W_OK);
+            return raw;
+        } catch {}
+    }
+
+    // 2. Parse /proc/self/mountinfo in Docker/Linux to find host-to-container mount mappings
+    if (process.platform === 'linux' && fs.existsSync('/proc/self/mountinfo')) {
+        try {
+            const mountInfo = fs.readFileSync('/proc/self/mountinfo', 'utf8');
+            const lines = mountInfo.split('\n');
+            for (const line of lines) {
+                const parts = line.split(' - ');
+                if (parts.length >= 2) {
+                    const left = parts[0].trim().split(/\s+/);
+                    const right = parts[1].trim().split(/\s+/);
+                    const containerMount = left[4];
+                    const hostRoot = left[3];
+                    const mountSource = right[1];
+
+                    if (containerMount && (containerMount === '/music' || containerMount === '/media' || containerMount.includes('music') || containerMount === '/app/data')) {
+                        if (raw && (raw === hostRoot || raw.startsWith(hostRoot) || (mountSource && raw.startsWith(mountSource)))) {
+                            const sub = raw.replace(hostRoot, '').replace(mountSource || '', '').replace(/^\//, '');
+                            const resolved = path.join(containerMount, sub);
+                            if (!fs.existsSync(resolved)) {
+                                try { fs.mkdirSync(resolved, { recursive: true }); } catch {}
+                            }
+                            return resolved;
+                        }
+                    }
+                }
+            }
+        } catch {}
+    }
+
+    // 3. Check standard container media mounts
+    // Priority: /music -> /media/music -> /data/music -> /app/data/music
+    const candidateMounts = ['/music', '/media/music', '/media', '/data/music', '/app/data/music'];
+    for (const c of candidateMounts) {
+        if (fs.existsSync(c)) {
+            let sub = '';
+            if (raw) {
+                sub = raw.replace(/^\/(mnt\/user\/)?(data\/)?(media\/)?(music\/)?/, '').replace(/^[A-Za-z]:[\\/]/, '');
+            }
+            const target = sub ? path.join(c, sub) : c;
+            try {
+                if (!fs.existsSync(target)) fs.mkdirSync(target, { recursive: true });
+                return target;
+            } catch {
+                return c;
+            }
+        }
+    }
+
+    // 4. Fallback to /app/data/music (persisted on Unraid host via AppData mount)
+    const appdataFallback = process.env.NODE_ENV === 'production'
+        ? '/app/data/music'
+        : path.join(process.cwd(), 'data', 'music');
+
+    try {
+        if (!fs.existsSync(appdataFallback)) {
+            fs.mkdirSync(appdataFallback, { recursive: true });
+        }
+        return appdataFallback;
+    } catch {
+        return path.join(os.tmpdir(), 'schedulearr_music');
+    }
 }

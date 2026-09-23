@@ -268,12 +268,8 @@ function TheaterPageContent() {
 
     const toggleLibraryInTab = (tab: string, libId: string, allLibIds: string[]) => {
         setEnabledLibsByTab(prev => {
-            const current = new Set(prev[tab] ?? allLibIds);
+            const current = new Set(prev[tab] !== undefined ? prev[tab] : allLibIds);
             if (current.has(libId)) {
-                // If it's the only one selected, clicking it resets to all
-                if (current.size === 1) {
-                    return { ...prev, [tab]: new Set(allLibIds) };
-                }
                 current.delete(libId);
             } else {
                 current.add(libId);
@@ -293,6 +289,13 @@ function TheaterPageContent() {
         setEnabledLibsByTab(prev => ({
             ...prev,
             [tab]: new Set(allLibIds)
+        }));
+    };
+
+    const unselectAllLibrariesInTab = (tab: string) => {
+        setEnabledLibsByTab(prev => ({
+            ...prev,
+            [tab]: new Set<string>()
         }));
     };
 
@@ -983,7 +986,7 @@ function TheaterPageContent() {
     // Enabled libraries for the current tab (respects per-tab toggles)
     const enabledTabLibraries = useMemo(() => {
         const enabledSet = enabledLibsByTab[activeContentTab];
-        if (!enabledSet || enabledSet.size === 0) return activeTabLibraries;
+        if (enabledSet === undefined) return activeTabLibraries;
         return activeTabLibraries.filter(l => enabledSet.has(l.id));
     }, [activeTabLibraries, enabledLibsByTab, activeContentTab]);
 
@@ -3176,18 +3179,39 @@ function TheaterPageContent() {
                     {/* Row 3: Per-tab library toggles */}
                     {activeTabLibraries.length > 1 && (
                         <div className="flex flex-wrap items-center gap-2 pt-1">
-                            <span className="text-xs text-zinc-500 font-bold uppercase tracking-wider">Libraries:</span>
+                            <span className="text-xs sm:text-sm text-zinc-500 font-bold uppercase tracking-wider">Libraries:</span>
                             {/* All Libraries Pill */}
                             <button
-                                onClick={() => selectAllLibrariesInTab(activeContentTab, activeTabLibraries.map(l => l.id))}
-                                className={`flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold transition-all border ${
+                                onClick={() => {
+                                    const isAllSelected = !enabledLibsByTab[activeContentTab] || enabledLibsByTab[activeContentTab].size === activeTabLibraries.length;
+                                    if (isAllSelected) {
+                                        unselectAllLibrariesInTab(activeContentTab);
+                                    } else {
+                                        selectAllLibrariesInTab(activeContentTab, activeTabLibraries.map(l => l.id));
+                                    }
+                                }}
+                                className={`flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs sm:text-sm font-bold transition-all border cursor-pointer ${
                                     (!enabledLibsByTab[activeContentTab] || enabledLibsByTab[activeContentTab].size === activeTabLibraries.length)
                                         ? 'bg-amber-500 text-black border-amber-400 font-black shadow-sm'
                                         : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
                                 }`}
+                                title={(!enabledLibsByTab[activeContentTab] || enabledLibsByTab[activeContentTab].size === activeTabLibraries.length) ? "Click to unselect all libraries" : "Click to select all libraries"}
                             >
-                                <Layers size={12} />
+                                <Layers size={13} />
                                 All ({activeTabLibraries.length})
+                            </button>
+                            {/* None / Clear Pill */}
+                            <button
+                                onClick={() => unselectAllLibrariesInTab(activeContentTab)}
+                                className={`flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs sm:text-sm font-bold transition-all border cursor-pointer ${
+                                    (enabledLibsByTab[activeContentTab] && enabledLibsByTab[activeContentTab].size === 0)
+                                        ? 'bg-rose-500/20 text-rose-300 border-rose-500/50 font-black shadow-sm'
+                                        : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:text-zinc-300'
+                                }`}
+                                title="Unselect all libraries"
+                            >
+                                <X size={13} />
+                                None
                             </button>
                             {activeTabLibraries.map(lib => {
                                 const enabledSet = enabledLibsByTab[activeContentTab];
@@ -3196,13 +3220,13 @@ function TheaterPageContent() {
                                     <button
                                         key={lib.id}
                                         onClick={() => toggleLibraryInTab(activeContentTab, lib.id, activeTabLibraries.map(l => l.id))}
-                                        className={`flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold transition-all border ${
+                                        className={`flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs sm:text-sm font-bold transition-all border cursor-pointer ${
                                             isEnabled
                                                 ? 'bg-zinc-800 text-white border-zinc-600 shadow-sm'
                                                 : 'bg-transparent text-zinc-600 border-zinc-800 hover:text-zinc-400'
                                         }`}
                                     >
-                                        {isEnabled ? <Check size={12} className="text-emerald-400" /> : <span className="w-3 h-3 rounded-full border border-zinc-700 inline-block" />}
+                                        {isEnabled ? <Check size={13} className="text-emerald-400" /> : <span className="w-3.5 h-3.5 rounded-full border border-zinc-700 inline-block" />}
                                         {lib.name}
                                     </button>
                                 );
@@ -4715,12 +4739,6 @@ function TheaterPageContent() {
                                                         </span>
                                                     )}
                                                 </div>
-                                                {localTrack?.path && (
-                                                    <div className="flex items-center gap-1 text-[10px] font-mono text-emerald-400/90 truncate mt-0.5 select-all" title={`Server path: ${localTrack.path}`}>
-                                                        <span className="text-zinc-500 font-bold shrink-0">Path:</span>
-                                                        <span className="truncate">{localTrack.path}</span>
-                                                    </div>
-                                                )}
                                             </div>
                                         </div>
 
