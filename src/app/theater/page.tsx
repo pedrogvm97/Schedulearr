@@ -201,8 +201,6 @@ function TheaterPageContent() {
     const [loadingLibraries, setLoadingLibraries] = useState(true);
     const [loadingItems, setLoadingItems] = useState(false);
     const [scanningPlex, setScanningPlex] = useState(false);
-    const [deleteLibConfirm, setDeleteLibConfirm] = useState<{ id: string; name: string } | null>(null);
-    const [isDeletingLibrary, setIsDeletingLibrary] = useState(false);
     const [fileDeleteConfirm, setFileDeleteConfirm] = useState<{
         isOpen: boolean;
         title: string;
@@ -312,48 +310,7 @@ function TheaterPageContent() {
     };
 
 
-    // Add Library Modal States
-    const [isAddLibModalOpen, setIsAddLibModalOpen] = useState(false);
-    const [modalTab, setModalTab] = useState<'import' | 'custom' | 'iptv'>('import');
-    const [plexSources, setPlexSources] = useState<PlexSourceLibrary[]>([]);
-    const [radarrSources, setRadarrSources] = useState<ArrSourceFolder[]>([]);
-    const [sonarrSources, setSonarrSources] = useState<ArrSourceFolder[]>([]);
-    const [commonMounts, setCommonMounts] = useState<string[]>([]);
-    const [loadingSources, setLoadingSources] = useState(false);
-
-    const openAddModalForTab = (tab?: 'movie' | 'show' | 'live' | 'music' | 'audiobooks' | 'photos') => {
-        const targetTab = tab || activeContentTab;
-        if (targetTab === 'live') {
-            setIsAddIptvModalOpen(true);
-            return;
-        }
-        const mappedType = targetTab === 'photos' ? 'photo' : targetTab;
-        setNewLibType(mappedType as any);
-        setNewLibName('');
-        setNewLibFolders([]);
-        setFolderInput('');
-        setModalTab('import');
-        setIsAddLibModalOpen(true);
-    };
-
-    // Custom Form State
-    const [newLibName, setNewLibName] = useState('');
-    const [newLibType, setNewLibType] = useState<'movie' | 'show' | 'music' | 'photo' | 'live' | 'audiobooks' | 'other'>('movie');
-    const [newLibFolders, setNewLibFolders] = useState<string[]>([]);
-    const [folderInput, setFolderInput] = useState('');
-    const [iptvUrlInput, setIptvUrlInput] = useState('');
-    const [browserCurrentPath, setBrowserCurrentPath] = useState('');
-    const [browserParentPath, setBrowserParentPath] = useState<string | null>(null);
-    const [browserFolders, setBrowserFolders] = useState<any[]>([]);
-    const [isCreatingLib, setIsCreatingLib] = useState(false);
-
-    // Edit Library Modal States
-    const [isEditLibModalOpen, setIsEditLibModalOpen] = useState(false);
-    const [editLibId, setEditLibId] = useState('');
-    const [editLibName, setEditLibName] = useState('');
-    const [editLibFolders, setEditLibFolders] = useState<string[]>([]);
-    const [editLibFolderInput, setEditLibFolderInput] = useState('');
-    const [isSavingEditLib, setIsSavingEditLib] = useState(false);
+    // Library management is handled centrally in Media tab (/discover?manage=libraries)
 
     // IPTV / Live TV States
     const liveTvCacheRef = useRef<Record<string, { channels: any[]; groups: any[]; shortlists: any[] }>>({});
@@ -403,6 +360,8 @@ function TheaterPageContent() {
     const [loadingSuggestions, setLoadingSuggestions] = useState(false);
     const [selectedPlaylist, setSelectedPlaylist] = useState<MusicPlaylist | null>(null);
     const [playlistSearchQuery, setPlaylistSearchQuery] = useState('');
+    const [playlistRecommendations, setPlaylistRecommendations] = useState<any[]>([]);
+    const [loadingRecommendations, setLoadingRecommendations] = useState(false);
 
     // Audiobooks Media Tab Specific States
     const [selectedAudiobook, setSelectedAudiobook] = useState<{
@@ -985,17 +944,41 @@ function TheaterPageContent() {
                 try {
                     localStorage.setItem('schedulearr_theater_libraries_cache', JSON.stringify(libs));
                 } catch {}
-                if (libs.length > 0 && (!activeLibraryId || !libs.some(l => l.id === activeLibraryId))) {
-                    setActiveLibraryId(libs[0].id);
-                    // Auto-select content tab matching first library type ONLY on first initial load if no URL tab is present
-                    const urlTab = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('tab') : null;
-                    if (!urlTab) {
-                        const firstType = libs[0].type;
-                        if (firstType === 'movie' || firstType === 'show' || firstType === 'live' || firstType === 'music') {
-                            // Only set if user hasn't switched away from movie or if not music
-                            setActiveContentTab(prev => (prev === 'movie' ? firstType : prev));
+
+                // Prune any deleted libraries from per-tab selections
+                const validIds = new Set(libs.map(l => l.id));
+                setEnabledLibsByTab(prev => {
+                    let changed = false;
+                    const updated: Record<string, Set<string>> = {};
+                    for (const [tab, set] of Object.entries(prev)) {
+                        const pruned = new Set([...set].filter(id => validIds.has(id)));
+                        if (pruned.size !== set.size) changed = true;
+                        updated[tab] = pruned;
+                    }
+                    if (changed) {
+                        try {
+                            const serialized: Record<string, string[]> = {};
+                            for (const [tab, set] of Object.entries(updated)) {
+                                serialized[tab] = Array.from(set);
+                            }
+                            localStorage.setItem('schedulearr_theater_enabled_libraries_by_tab', JSON.stringify(serialized));
+                        } catch {}
+                        return updated;
+                    }
+                    return prev;
+                });
+
+                if (libs.length > 0) {
+                    if (!activeLibraryId || !libs.some(l => l.id === activeLibraryId)) {
+                        const tabLibs = libs.filter(l => l.type === activeContentTab);
+                        if (tabLibs.length > 0) {
+                            setActiveLibraryId(tabLibs[0].id);
+                        } else {
+                            setActiveLibraryId(libs[0].id);
                         }
                     }
+                } else {
+                    setActiveLibraryId(null);
                 }
             } else {
                 console.warn('Theater libraries fetch returned non-ok status:', res.status);
@@ -1010,6 +993,13 @@ function TheaterPageContent() {
 
     useEffect(() => {
         fetchLibraries();
+        const handleLibsUpdated = () => {
+            fetchLibraries();
+        };
+        window.addEventListener('theater-libraries-updated', handleLibsUpdated);
+        return () => {
+            window.removeEventListener('theater-libraries-updated', handleLibsUpdated);
+        };
     }, []);
 
     const activeLibrary = useMemo(() => {
@@ -1192,194 +1182,7 @@ function TheaterPageContent() {
     }, [enabledTabLibraries]);
 
 
-    // 3. Fetch External Sources (Plex Libraries, Sonarr/Radarr Folders)
-    const fetchSources = async () => {
-        setLoadingSources(true);
-        try {
-            const res = await fetch('/api/theater/sources');
-            if (res.ok) {
-                const data = await res.json();
-                setPlexSources(Array.isArray(data.plex) ? data.plex : []);
-                setRadarrSources(Array.isArray(data.radarr) ? data.radarr : []);
-                setSonarrSources(Array.isArray(data.sonarr) ? data.sonarr : []);
-                setCommonMounts(Array.isArray(data.commonMounts) ? data.commonMounts : []);
-                if ((!data.plex || data.plex.length === 0) && (!data.radarr || data.radarr.length === 0) && (!data.sonarr || data.sonarr.length === 0)) {
-                    setModalTab('custom');
-                }
-            }
-        } catch (e) {
-            console.error('Failed to fetch sources:', e);
-        } finally {
-            setLoadingSources(false);
-        }
-    };
 
-    // 4. Directory Browser Navigation
-    const loadBrowserPath = async (targetPath = '') => {
-        try {
-            const res = await fetch(`/api/theater/items?browsePath=${encodeURIComponent(targetPath)}`);
-            if (res.ok) {
-                const data = await res.json();
-                setBrowserFolders(Array.isArray(data.folders) ? data.folders : []);
-                setBrowserCurrentPath(data.currentPath || targetPath);
-                setBrowserParentPath(data.parentPath || null);
-            }
-        } catch (e) {
-            console.error('Folder browser error:', e);
-        }
-    };
-
-    useEffect(() => {
-        if (isAddLibModalOpen) {
-            fetchSources();
-            loadBrowserPath();
-        }
-    }, [isAddLibModalOpen]);
-
-    // 5. 1-Click Import from Plex or Arr
-    const handleImportPlexLibrary = async (plexLib: PlexSourceLibrary) => {
-        setIsCreatingLib(true);
-        try {
-            const res = await fetch('/api/theater/libraries', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name: plexLib.title,
-                    type: plexLib.mediaType,
-                    folders: plexLib.locations,
-                    plexSectionId: plexLib.sectionKey,
-                    instanceId: plexLib.instanceId
-                })
-            });
-
-            if (res.ok) {
-                const data = await res.json();
-                toast.success(`Imported "${plexLib.title}" from ${plexLib.instanceName}!`);
-                setIsAddLibModalOpen(false);
-                await fetchLibraries();
-                if (data.id) setActiveLibraryId(data.id);
-            } else {
-                toast.error('Failed to import library');
-            }
-        } catch {
-            toast.error('Error importing library');
-        } finally {
-            setIsCreatingLib(false);
-        }
-    };
-
-    const handleImportArrFolder = async (arrFolder: ArrSourceFolder) => {
-        setIsCreatingLib(true);
-        try {
-            const res = await fetch('/api/theater/libraries', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name: arrFolder.instanceName,
-                    type: arrFolder.mediaType,
-                    folders: [arrFolder.path]
-                })
-            });
-
-            if (res.ok) {
-                const data = await res.json();
-                toast.success(`Imported "${arrFolder.instanceName}"!`);
-                setIsAddLibModalOpen(false);
-                await fetchLibraries();
-                if (data.id) setActiveLibraryId(data.id);
-            } else {
-                toast.error('Failed to create library');
-            }
-        } catch {
-            toast.error('Error creating library');
-        } finally {
-            setIsCreatingLib(false);
-        }
-    };
-
-    // 6. Create Custom Library (Folder, IPTV, or Music)
-    const handleCreateCustomLibrary = async () => {
-        if (!newLibName.trim()) {
-            toast.error('Please enter a library name');
-            return;
-        }
-
-        let allFolders: string[] = [];
-
-        if (newLibType === 'live') {
-            if (!iptvUrlInput.trim() && !iptvUploadFile) {
-                toast.error('Please upload an M3U file or enter an M3U Live TV URL');
-                return;
-            }
-            allFolders = [iptvUrlInput.trim() || 'local_file_upload'];
-        } else {
-            allFolders = [...newLibFolders];
-            if (folderInput.trim() && !allFolders.includes(folderInput.trim())) {
-                allFolders.push(folderInput.trim());
-            }
-            if (allFolders.length === 0) {
-                toast.error('Please specify at least one folder path');
-                return;
-            }
-        }
-
-        setIsCreatingLib(true);
-        try {
-            const res = await fetch('/api/theater/libraries', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name: newLibName.trim(),
-                    type: newLibType,
-                    folders: allFolders
-                })
-            });
-
-            if (res.ok) {
-                const data = await res.json();
-                const newLibId = data.id || data.library?.id;
-
-                // If IPTV Live TV, parse and persist channels into database
-                if (newLibType === 'live' && newLibId) {
-                    try {
-                        const formData = new FormData();
-                        formData.append('libraryId', newLibId);
-                        if (iptvUploadFile) {
-                            formData.append('file', iptvUploadFile);
-                        } else if (iptvUrlInput.trim()) {
-                            formData.append('url', iptvUrlInput.trim());
-                        }
-                        if (iptvEpgInput.trim()) {
-                            formData.append('epgUrl', iptvEpgInput.trim());
-                        }
-                        await fetch('/api/theater/iptv', {
-                            method: 'POST',
-                            body: formData
-                        });
-                    } catch (e: any) {
-                        console.warn('IPTV channel initial parse error:', e.message);
-                    }
-                }
-
-                toast.success(`Library "${newLibName}" created!`);
-                setIsAddLibModalOpen(false);
-                setNewLibName('');
-                setNewLibFolders([]);
-                setFolderInput('');
-                setIptvUrlInput('');
-                setIptvUploadFile(null);
-                setIptvEpgInput('');
-                await fetchLibraries();
-                if (newLibId) setActiveLibraryId(newLibId);
-            } else {
-                toast.error('Failed to create library');
-            }
-        } catch {
-            toast.error('Error creating library');
-        } finally {
-            setIsCreatingLib(false);
-        }
-    };
 
     // 6.1 Merge IPTV channels with stream redundancy hierarchy
     const handleMergeChannels = async () => {
@@ -1441,94 +1244,7 @@ function TheaterPageContent() {
         }
     };
 
-    const handleDeleteLibrary = (libId: string, libName: string) => {
-        setDeleteLibConfirm({ id: libId, name: libName });
-    };
 
-    const handleConfirmDeleteLibrary = async () => {
-        if (!deleteLibConfirm) return;
-        const { id: libId, name: libName } = deleteLibConfirm;
-        setIsDeletingLibrary(true);
-        try {
-            const res = await fetch(`/api/theater/libraries?id=${libId}`, { method: 'DELETE' });
-            if (res.ok) {
-                toast.success(`"${libName}" deleted`);
-                setDeleteLibConfirm(null);
-                const remaining = libraries.filter(l => l.id !== libId);
-                setLibraries(remaining);
-                if (remaining.length > 0) {
-                    if (activeContentTab === 'live') {
-                        const nextLive = remaining.find(l => l.type === 'live');
-                        setActiveLibraryId(nextLive ? nextLive.id : null);
-                        if (!nextLive) {
-                            setIptvChannels([]);
-                            setIptvGroups([]);
-                        }
-                    } else {
-                        setActiveLibraryId(remaining[0].id);
-                    }
-                } else {
-                    setActiveLibraryId(null);
-                    setIptvChannels([]);
-                    setIptvGroups([]);
-                }
-            } else {
-                toast.error('Failed to delete library');
-            }
-        } catch {
-            toast.error('Error deleting library');
-        } finally {
-            setIsDeletingLibrary(false);
-        }
-    };
-
-    const handleOpenEditLibrary = (lib: TheaterLibrary) => {
-        setEditLibId(lib.id);
-        setEditLibName(lib.name);
-        setEditLibFolders([...(lib.folders || [])]);
-        setEditLibFolderInput('');
-        setIsEditLibModalOpen(true);
-    };
-
-    const handleSaveEditLibrary = async () => {
-        if (!editLibId || editLibFolders.length === 0) {
-            toast.error('At least one folder path is required.');
-            return;
-        }
-        setIsSavingEditLib(true);
-        try {
-            const res = await fetch('/api/theater/libraries', {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    id: editLibId,
-                    name: editLibName.trim(),
-                    folders: editLibFolders
-                })
-            });
-            if (res.ok) {
-                toast.success(`Library "${editLibName}" updated`);
-                setIsEditLibModalOpen(false);
-                const libRes = await fetch('/api/theater/libraries');
-                if (libRes.ok) {
-                    const data = await libRes.json();
-                    const updatedLibs = data.libraries || [];
-                    setLibraries(updatedLibs);
-                    const current = updatedLibs.find((l: any) => l.id === editLibId);
-                    if (current) {
-                        handleRescanLibrary(current);
-                    }
-                }
-            } else {
-                const err = await res.json().catch(() => ({}));
-                toast.error(err.error || 'Failed to update library');
-            }
-        } catch {
-            toast.error('Error updating library');
-        } finally {
-            setIsSavingEditLib(false);
-        }
-    };
 
     // Rescan Library (Theater Local & Plex)
     const handleRescanLibrary = async (lib: TheaterLibrary) => {
@@ -1957,14 +1673,79 @@ function TheaterPageContent() {
     };
 
     // Music Playlists Management
+    const fetchPlaylistRecommendations = async (pl: MusicPlaylist) => {
+        if (!pl || !pl.items) return;
+        setLoadingRecommendations(true);
+        try {
+            const res = await fetch('/api/theater/music/playlists/recommendations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    playlistId: pl.id,
+                    items: pl.items
+                })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setPlaylistRecommendations(Array.isArray(data.recommendations) ? data.recommendations : []);
+            } else {
+                setPlaylistRecommendations([]);
+            }
+        } catch {
+            setPlaylistRecommendations([]);
+        } finally {
+            setLoadingRecommendations(false);
+        }
+    };
+
+    const handleAddRecommendationToPlaylist = async (rec: any) => {
+        if (!selectedPlaylist) return;
+        const newTrack = {
+            id: rec.id || `rec-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            title: rec.title,
+            artist: rec.artist,
+            album: rec.album || 'Single',
+            duration: rec.duration || '3:30',
+            durationMs: rec.durationMs || (rec.duration ? undefined : 210000),
+            posterUrl: rec.posterUrl,
+            streamUrl: rec.streamUrl,
+            audioUrl: rec.streamUrl || rec.audioUrl,
+            source: rec.source || 'online'
+        };
+        const updatedItems = [...selectedPlaylist.items, newTrack];
+        const updatedPlaylist = { ...selectedPlaylist, items: updatedItems };
+        setSelectedPlaylist(updatedPlaylist);
+        setPlaylistRecommendations(prev => prev.filter(r => (r.streamUrl && r.streamUrl === rec.streamUrl) ? false : r.id !== rec.id));
+
+        try {
+            const res = await fetch('/api/theater/music/playlists', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id: selectedPlaylist.id,
+                    items: updatedItems
+                })
+            });
+            if (res.ok) {
+                toast.success(`Added "${rec.title}" to ${selectedPlaylist.name}`);
+                await fetchGlobalPlaylists();
+                window.dispatchEvent(new CustomEvent('schedulearr:playlists-updated'));
+            }
+        } catch {
+            toast.error('Failed to update playlist');
+        }
+    };
+
     const openPlaylistModal = (pl: MusicPlaylist) => {
         setSelectedPlaylist(pl);
         setPlaylistSearchQuery('');
+        fetchPlaylistRecommendations(pl);
     };
 
     const closePlaylistModal = () => {
         setSelectedPlaylist(null);
         setPlaylistSearchQuery('');
+        setPlaylistRecommendations([]);
     };
 
     const handleCreatePlaylist = async () => {
@@ -3317,51 +3098,25 @@ function TheaterPageContent() {
                                 </button>
                             )}
 
-                            {/* Delete Active IPTV Provider */}
-                            {activeLibrary && activeContentTab === 'live' && (
-                                <button
-                                    onClick={() => handleDeleteLibrary(activeLibrary.id, activeLibrary.name)}
-                                    title="Delete IPTV Provider"
-                                    className="p-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors shrink-0"
-                                >
-                                    <Trash2 size={17} />
-                                </button>
-                            )}
-
-                            {/* Add Button - IPTV Provider vs Theater Library */}
-                            {activeContentTab === 'live' ? (
+                            {/* Live TV Add Provider (IPTV streams) */}
+                            {activeContentTab === 'live' && (
                                 <button
                                     onClick={() => setIsAddIptvModalOpen(true)}
                                     className="flex items-center gap-2 px-4 py-2.5 text-sm font-black rounded-2xl text-red-400 hover:text-red-300 hover:bg-red-500/10 border border-dashed border-red-500/30 transition-all shadow-sm active:scale-95"
                                 >
                                     <Plus size={16} /> Add Provider
                                 </button>
-                            ) : (
-                                <div className="flex items-center gap-2.5">
-                                    {activeLibrary && (
-                                        <button
-                                            onClick={() => handleOpenEditLibrary(activeLibrary)}
-                                            className="flex items-center gap-2 px-4 py-2.5 text-sm font-black rounded-2xl text-zinc-300 hover:text-white bg-zinc-950 hover:bg-zinc-900 border border-zinc-800 transition-all shadow-sm active:scale-95 shrink-0"
-                                            title={`Edit folders & settings for "${activeLibrary.name}"`}
-                                        >
-                                            <Settings2 size={16} className="text-emerald-400" />
-                                            <span className="hidden sm:inline">Edit Library</span>
-                                        </button>
-                                    )}
-                                    <button
-                                        onClick={() => openAddModalForTab(activeContentTab)}
-                                        className="flex items-center gap-2 px-4 py-2.5 text-sm font-black rounded-2xl text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 border border-dashed border-emerald-500/30 transition-all shadow-sm active:scale-95"
-                                    >
-                                        <Plus size={16} /> {
-                                            activeContentTab === 'movie' ? 'Add Movie Library' :
-                                            activeContentTab === 'show' ? 'Add Series Library' :
-                                            activeContentTab === 'music' ? 'Add Music Library' :
-                                            activeContentTab === 'audiobooks' ? 'Add Audiobook Library' :
-                                            activeContentTab === 'photos' ? 'Add Photo Library' : 'Add Library'
-                                        }
-                                    </button>
-                                </div>
                             )}
+
+                            {/* Centralized Library Management in Media Tab */}
+                            <Link
+                                href="/discover?manage=libraries"
+                                className="flex items-center gap-2 px-4 py-2.5 text-sm font-black rounded-2xl text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 border border-dashed border-emerald-500/30 transition-all shadow-sm active:scale-95 shrink-0"
+                                title="Manage all media libraries and folders in Media tab"
+                            >
+                                <FolderPlus size={16} />
+                                <span>Manage Libraries</span>
+                            </Link>
                         </div>
                     </div>
 
@@ -3558,15 +3313,7 @@ function TheaterPageContent() {
                                     </button>
                                 )}
 
-                                {activeLibrary && (
-                                    <button
-                                        onClick={() => handleDeleteLibrary(activeLibrary.id, activeLibrary.name)}
-                                        className="p-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition-all text-xs font-bold"
-                                        title="Delete Music Library"
-                                    >
-                                        <Trash2 size={14} />
-                                    </button>
-                                )}
+
                             </div>
                         </div>
                     </div>
@@ -3655,25 +3402,6 @@ function TheaterPageContent() {
                                 </button>
                             </div>
 
-                            {activeLibrary && (
-                                <button
-                                    onClick={() => handleOpenEditLibrary(activeLibrary)}
-                                    className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 transition-all text-xs font-bold"
-                                    title={`Edit Library Folders & Settings ("${activeLibrary.name}")`}
-                                >
-                                    <Settings2 size={14} />
-                                </button>
-                            )}
-
-                            {activeLibrary && (
-                                <button
-                                    onClick={() => handleDeleteLibrary(activeLibrary.id, activeLibrary.name)}
-                                    className="p-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition-all text-xs font-bold"
-                                    title="Delete Library"
-                                >
-                                    <Trash2 size={14} />
-                                </button>
-                            )}
                         </div>
                     </div>
                 ) : null}
@@ -3693,8 +3421,16 @@ function TheaterPageContent() {
                         <div>
                             <h2 className="text-2xl font-black text-white">No Theater Libraries Added Yet</h2>
                             <p className="text-base text-zinc-400 mt-2 leading-relaxed">
-                                No media libraries have been added yet. Use the Add Library button in the top corner to get started.
+                                No media libraries have been added yet. Manage and add all media libraries and folders in the Media tab.
                             </p>
+                        </div>
+                        <div className="pt-2">
+                            <Link
+                                href="/discover?manage=libraries"
+                                className="inline-flex items-center gap-2 px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-sm uppercase tracking-wider rounded-2xl transition-all shadow-lg shadow-emerald-500/20 cursor-pointer"
+                            >
+                                <FolderPlus size={16} /> Manage Libraries in Media Tab
+                            </Link>
                         </div>
                     </div>
                 ) : loadingItems ? (
@@ -4036,8 +3772,103 @@ function TheaterPageContent() {
                         {/* 4. PLAYLISTS TAB */}
                         {musicTab === 'playlists' && (
                             <div className="space-y-8">
-                                {/* A. SMART PLAYLIST SUGGESTIONS */}
+                                {/* A. USER'S SAVED PLAYLISTS */}
                                 <div className="space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <h3 className="text-lg font-black text-white flex items-center gap-2">
+                                                <ListMusic size={20} className="text-amber-400" />
+                                                My Playlists ({playlists.length})
+                                            </h3>
+                                            <p className="text-xs text-zinc-400 mt-0.5">Your personal curated playlists and mixes.</p>
+                                        </div>
+                                        <button
+                                            onClick={() => {
+                                                setNewPlaylistName('');
+                                                setIsCreatePlaylistModalOpen(true);
+                                            }}
+                                            className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg flex items-center gap-1.5 cursor-pointer"
+                                        >
+                                            <Plus size={15} /> Create Playlist
+                                        </button>
+                                    </div>
+
+                                    {playlists.length === 0 ? (
+                                        <div className="p-12 bg-zinc-950/40 rounded-[2.5rem] border border-zinc-900 text-center space-y-3 max-w-md mx-auto">
+                                            <ListMusic size={36} className="mx-auto text-zinc-700" />
+                                            <div>
+                                                <h4 className="text-base font-bold text-white">No custom playlists saved yet</h4>
+                                                <p className="text-xs text-zinc-500 mt-1">
+                                                    Save one of the smart suggestions below or create a custom playlist.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-5">
+                                            {playlists.map(pl => (
+                                                <div
+                                                    key={pl.id}
+                                                    onClick={() => openPlaylistModal(pl)}
+                                                    className="p-5 rounded-3xl bg-[#09090b] border border-zinc-900 hover:border-amber-500/50 transition-all flex flex-col justify-between space-y-4 group shadow-xl cursor-pointer hover:-translate-y-1"
+                                                >
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="w-14 h-14 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 overflow-hidden shadow-inner group-hover:scale-105 transition-transform">
+                                                            {pl.cover_url ? (
+                                                                <img src={pl.cover_url} alt="" className="w-full h-full object-cover" />
+                                                            ) : (
+                                                                <ListMusic size={26} />
+                                                            )}
+                                                        </div>
+                                                        <div className="flex items-center gap-1">
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    openPlaylistModal(pl);
+                                                                }}
+                                                                className="p-2 text-zinc-500 hover:text-amber-400 rounded-xl transition-colors cursor-pointer"
+                                                                title="View & Edit Playlist Tracks"
+                                                            >
+                                                                <FolderTree size={15} />
+                                                            </button>
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleDeletePlaylist(pl.id);
+                                                                }}
+                                                                className="p-2 text-zinc-600 hover:text-red-400 rounded-xl transition-colors cursor-pointer"
+                                                                title="Delete Playlist"
+                                                            >
+                                                                <Trash2 size={15} />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+
+                                                    <div>
+                                                        <h3 className="text-base font-black text-white group-hover:text-amber-400 transition-colors truncate">{pl.name}</h3>
+                                                        <div className="flex items-center justify-between pt-0.5 text-xs text-zinc-500 font-semibold">
+                                                            <span>{pl.items.length} {pl.items.length === 1 ? 'track' : 'tracks'}</span>
+                                                            <span className="text-[10px] text-zinc-600 font-mono">Open Playlist</span>
+                                                        </div>
+                                                    </div>
+
+                                                    <button
+                                                        disabled={pl.items.length === 0}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handlePlayAlbum(pl.items);
+                                                        }}
+                                                        className="w-full py-3 bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/30 font-black text-xs uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2 disabled:opacity-40 cursor-pointer"
+                                                    >
+                                                        <Play size={15} /> Play Playlist
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* B. SMART PLAYLIST SUGGESTIONS */}
+                                <div className="space-y-4 pt-6 border-t border-zinc-900">
                                     <div className="flex flex-wrap items-center justify-between gap-3 p-4 bg-zinc-950/80 border border-zinc-800/80 rounded-3xl shadow-sm">
                                         <div className="flex items-center gap-3">
                                             <div className="p-2.5 rounded-2xl bg-amber-500/15 text-amber-400 border border-amber-500/30">
@@ -4128,101 +3959,6 @@ function TheaterPageContent() {
                                             ))}
                                         </div>
                                     ) : null}
-                                </div>
-
-                                {/* B. USER'S SAVED PLAYLISTS */}
-                                <div className="space-y-4 pt-4 border-t border-zinc-900">
-                                    <div className="flex items-center justify-between">
-                                        <div>
-                                            <h3 className="text-lg font-black text-white flex items-center gap-2">
-                                                <ListMusic size={20} className="text-amber-400" />
-                                                My Playlists ({playlists.length})
-                                            </h3>
-                                            <p className="text-xs text-zinc-400 mt-0.5">Your personal curated playlists and mixes.</p>
-                                        </div>
-                                        <button
-                                            onClick={() => {
-                                                setNewPlaylistName('');
-                                                setIsCreatePlaylistModalOpen(true);
-                                            }}
-                                            className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-lg flex items-center gap-1.5 cursor-pointer"
-                                        >
-                                            <Plus size={15} /> Create Playlist
-                                        </button>
-                                    </div>
-
-                                    {playlists.length === 0 ? (
-                                        <div className="p-12 bg-zinc-950/40 rounded-[2.5rem] border border-zinc-900 text-center space-y-3 max-w-md mx-auto">
-                                            <ListMusic size={36} className="mx-auto text-zinc-700" />
-                                            <div>
-                                                <h4 className="text-base font-bold text-white">No custom playlists saved yet</h4>
-                                                <p className="text-xs text-zinc-500 mt-1">
-                                                    Save one of the smart suggestions above or create a custom playlist.
-                                                </p>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-5">
-                                            {playlists.map(pl => (
-                                                <div
-                                                    key={pl.id}
-                                                    onClick={() => openPlaylistModal(pl)}
-                                                    className="p-5 rounded-3xl bg-[#09090b] border border-zinc-900 hover:border-amber-500/50 transition-all flex flex-col justify-between space-y-4 group shadow-xl cursor-pointer hover:-translate-y-1"
-                                                >
-                                                    <div className="flex items-center justify-between">
-                                                        <div className="w-14 h-14 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 overflow-hidden shadow-inner group-hover:scale-105 transition-transform">
-                                                            {pl.cover_url ? (
-                                                                <img src={pl.cover_url} alt="" className="w-full h-full object-cover" />
-                                                            ) : (
-                                                                <ListMusic size={26} />
-                                                            )}
-                                                        </div>
-                                                        <div className="flex items-center gap-1">
-                                                            <button
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    openPlaylistModal(pl);
-                                                                }}
-                                                                className="p-2 text-zinc-500 hover:text-amber-400 rounded-xl transition-colors cursor-pointer"
-                                                                title="View & Edit Playlist Tracks"
-                                                            >
-                                                                <FolderTree size={15} />
-                                                            </button>
-                                                            <button
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    handleDeletePlaylist(pl.id);
-                                                                }}
-                                                                className="p-2 text-zinc-600 hover:text-red-400 rounded-xl transition-colors cursor-pointer"
-                                                                title="Delete Playlist"
-                                                            >
-                                                                <Trash2 size={15} />
-                                                            </button>
-                                                        </div>
-                                                    </div>
-
-                                                    <div>
-                                                        <h3 className="text-base font-black text-white group-hover:text-amber-400 transition-colors truncate">{pl.name}</h3>
-                                                        <div className="flex items-center justify-between pt-0.5 text-xs text-zinc-500 font-semibold">
-                                                            <span>{pl.items.length} {pl.items.length === 1 ? 'track' : 'tracks'}</span>
-                                                            <span className="text-[10px] text-zinc-600 font-mono">Open Playlist</span>
-                                                        </div>
-                                                    </div>
-
-                                                    <button
-                                                        disabled={pl.items.length === 0}
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            handlePlayAlbum(pl.items);
-                                                        }}
-                                                        className="w-full py-3 bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/30 font-black text-xs uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2 disabled:opacity-40 cursor-pointer"
-                                                    >
-                                                        <Play size={15} /> Play Playlist
-                                                    </button>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
                                 </div>
                             </div>
                         )}
@@ -4377,19 +4113,17 @@ function TheaterPageContent() {
                             <div>
                                 <h2 className="text-2xl font-black text-white">No {activeContentTab === 'movie' ? 'Movie' : activeContentTab === 'show' ? 'Series' : activeContentTab === 'music' ? 'Music' : activeContentTab === 'audiobooks' ? 'Audiobook' : 'Photo'} Libraries Added Yet</h2>
                                 <p className="text-base text-zinc-400 mt-2 leading-relaxed">
-                                    No {activeContentTab === 'movie' ? 'movie' : activeContentTab === 'show' ? 'series' : activeContentTab === 'music' ? 'music' : activeContentTab === 'audiobooks' ? 'audiobook' : 'photo'} libraries have been added yet. Use the button in the top corner to add or import one.
+                                    No {activeContentTab === 'movie' ? 'movie' : activeContentTab === 'show' ? 'series' : activeContentTab === 'music' ? 'music' : activeContentTab === 'audiobooks' ? 'audiobook' : 'photo'} libraries have been added yet. Manage and add your media libraries in the Media tab.
                                 </p>
                             </div>
-                            {activeContentTab === 'audiobooks' && (
-                                <div className="pt-2 flex justify-center">
-                                    <button
-                                        onClick={() => openAddModalForTab('audiobooks')}
-                                        className="px-6 py-3 rounded-2xl bg-orange-500 hover:bg-orange-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-2 transition-all shadow-lg cursor-pointer"
-                                    >
-                                        <Plus size={15} /> Add Audiobook Library
-                                    </button>
-                                </div>
-                            )}
+                            <div className="pt-2 flex justify-center">
+                                <Link
+                                    href="/discover?manage=libraries"
+                                    className="px-6 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-2 transition-all shadow-lg cursor-pointer"
+                                >
+                                    <FolderPlus size={15} /> Manage Libraries in Media Tab
+                                </Link>
+                            </div>
                         </div>
                     )
                 ) : activeContentTab === 'audiobooks' ? (
@@ -4542,12 +4276,12 @@ function TheaterPageContent() {
                         <p className="text-xs text-zinc-500">Ensure the configured storage paths contain supported video, audio, or photo files.</p>
                         {activeLibrary && activeContentTab !== 'live' && (
                             <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
-                                <button
-                                    onClick={() => handleOpenEditLibrary(activeLibrary)}
+                                <Link
+                                    href="/discover?manage=libraries"
                                     className="flex items-center gap-2 px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold border border-zinc-800 hover:border-emerald-500/50 transition-all shadow-sm cursor-pointer"
                                 >
-                                    <Settings2 size={14} className="text-emerald-400" /> Edit Configured Folders
-                                </button>
+                                    <FolderPlus size={14} className="text-emerald-400" /> Manage Folders in Media Tab
+                                </Link>
                                 <button
                                     onClick={() => handleRescanLibrary(activeLibrary)}
                                     className="flex items-center gap-2 px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white rounded-xl text-xs font-bold border border-zinc-800 transition-all shadow-sm cursor-pointer"
@@ -6173,6 +5907,88 @@ function TheaterPageContent() {
                                 </div>
                             )}
                         </div>
+
+                        {/* ── Suggested Songs for this Playlist ── */}
+                        <div className="pt-4 border-t border-zinc-900 space-y-3">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-amber-400">
+                                    <Sparkles size={14} />
+                                    <span>Recommended Songs for this Playlist</span>
+                                </div>
+                                <button
+                                    onClick={() => selectedPlaylist && fetchPlaylistRecommendations(selectedPlaylist)}
+                                    disabled={loadingRecommendations}
+                                    className="text-[11px] text-zinc-400 hover:text-white flex items-center gap-1 transition-colors cursor-pointer"
+                                >
+                                    <RefreshCw size={11} className={loadingRecommendations ? 'animate-spin text-amber-400' : ''} />
+                                    <span>Refresh Suggestions</span>
+                                </button>
+                            </div>
+                            <p className="text-[11px] text-zinc-500">
+                                Matching tracks from your server library and streaming sources, prioritizing artists in this playlist.
+                            </p>
+
+                            {loadingRecommendations ? (
+                                <div className="p-6 bg-zinc-950/40 rounded-2xl border border-zinc-900 text-center flex items-center justify-center gap-2 text-zinc-500 text-xs">
+                                    <RefreshCw size={14} className="animate-spin text-amber-400" />
+                                    <span>Finding matching songs...</span>
+                                </div>
+                            ) : playlistRecommendations.length === 0 ? (
+                                <div className="p-4 bg-zinc-950/40 rounded-2xl border border-zinc-900 text-center text-xs text-zinc-500">
+                                    No additional recommendations found. Add more tracks to expand matches!
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    {playlistRecommendations.map((rec, rIdx) => (
+                                        <div
+                                            key={rec.id || rIdx}
+                                            className="p-2.5 bg-zinc-950 rounded-2xl border border-zinc-800/80 flex items-center justify-between gap-2.5 hover:border-amber-500/40 transition-colors group"
+                                        >
+                                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                                <div className="w-9 h-9 rounded-xl bg-zinc-900 border border-zinc-800 overflow-hidden shrink-0 flex items-center justify-center relative">
+                                                    {rec.posterUrl ? (
+                                                        <img src={rec.posterUrl} alt="" className="w-full h-full object-cover" />
+                                                    ) : (
+                                                        <Music size={14} className="text-zinc-600" />
+                                                    )}
+                                                </div>
+                                                <div className="min-w-0 flex-1">
+                                                    <h5 className="font-bold text-white text-xs truncate group-hover:text-amber-400 transition-colors">
+                                                        {rec.title}
+                                                    </h5>
+                                                    <p className="text-[11px] text-zinc-400 truncate">
+                                                        {rec.artist} {rec.matchReason ? <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/10 text-amber-300 font-bold ml-1">{rec.matchReason}</span> : null}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-1 shrink-0">
+                                                <button
+                                                    onClick={() => playAudio({
+                                                        id: rec.id,
+                                                        title: rec.title,
+                                                        artist: rec.artist,
+                                                        album: rec.album,
+                                                        posterUrl: rec.posterUrl,
+                                                        streamUrl: rec.streamUrl
+                                                    })}
+                                                    className="p-1.5 rounded-lg bg-zinc-900 hover:bg-amber-500 text-zinc-400 hover:text-black transition-colors cursor-pointer"
+                                                    title="Preview Track"
+                                                >
+                                                    <Play size={12} className="fill-current ml-0.5" />
+                                                </button>
+                                                <button
+                                                    onClick={() => handleAddRecommendationToPlaylist(rec)}
+                                                    className="px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-black text-[10px] uppercase tracking-wider transition-all flex items-center gap-1 shadow cursor-pointer"
+                                                    title="Add to this Playlist"
+                                                >
+                                                    <Plus size={12} /> Add
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
             )}
@@ -7793,592 +7609,6 @@ function TheaterPageContent() {
                 </div>
             )}
 
-            {/* ── Add / Import Library Big Spacious Modal (Tailored to Media Type) ── */}
-            {isAddLibModalOpen && (() => {
-                const targetMedia = newLibType === 'photo' ? 'photo' : newLibType === 'music' ? 'music' : newLibType === 'show' ? 'show' : 'movie';
-                const meta = {
-                    movie: {
-                        title: 'Add Movie Library',
-                        subtitle: 'Import movies directly from your Plex server, Radarr root folders, or add a custom movie directory.',
-                        icon: <Film size={30} className="text-indigo-400" />,
-                        accentColor: 'indigo',
-                        activeTabClass: 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 shadow-md',
-                        actionBtnClass: 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/25',
-                        mediaBadge: 'Movie Library',
-                        plexFilter: (p: PlexSourceLibrary) => p.mediaType === 'movie',
-                        showRadarr: true,
-                        showSonarr: false,
-                        namePlaceholder: 'e.g. 4K Movies, Cinema, Remuxes',
-                        folderPlaceholder: 'e.g. /movies, /media/movies, D:\\Movies',
-                        mountMatch: /movie/i,
-                    },
-                    show: {
-                        title: 'Add TV Series Library',
-                        subtitle: 'Import TV series directly from your Plex server, Sonarr root folders, or add a custom series directory.',
-                        icon: <Tv size={30} className="text-emerald-400" />,
-                        accentColor: 'emerald',
-                        activeTabClass: 'bg-emerald-600/20 text-emerald-300 border border-emerald-500/30 shadow-md',
-                        actionBtnClass: 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-emerald-500/25',
-                        mediaBadge: 'TV Series Library',
-                        plexFilter: (p: PlexSourceLibrary) => p.mediaType === 'show',
-                        showRadarr: false,
-                        showSonarr: true,
-                        namePlaceholder: 'e.g. TV Series, Anime, Documentaries',
-                        folderPlaceholder: 'e.g. /tv, /media/tv, D:\\TV Shows',
-                        mountMatch: /tv|show|series/i,
-                    },
-                    music: {
-                        title: 'Add Music Library',
-                        subtitle: 'Import audio albums and tracks directly from Plex audio libraries or configure a local music folder.',
-                        icon: <Music size={30} className="text-amber-400" />,
-                        accentColor: 'amber',
-                        activeTabClass: 'bg-amber-600/20 text-amber-300 border border-amber-500/30 shadow-md',
-                        actionBtnClass: 'bg-amber-500 hover:bg-amber-400 text-black shadow-amber-500/25',
-                        mediaBadge: 'Music Audio Library',
-                        plexFilter: (p: PlexSourceLibrary) => (p.mediaType as string) === 'artist' || p.mediaType === 'music',
-                        showRadarr: false,
-                        showSonarr: false,
-                        namePlaceholder: 'e.g. Lossless FLAC, Main Music, Soundtracks',
-                        folderPlaceholder: 'e.g. /music, /media/music, D:\\Music',
-                        mountMatch: /music|audio/i,
-                    },
-                    photo: {
-                        title: 'Add Photo Library',
-                        subtitle: 'Import photo collections from Plex or connect a local picture and family album directory.',
-                        icon: <ImageIcon size={30} className="text-cyan-400" />,
-                        accentColor: 'cyan',
-                        activeTabClass: 'bg-cyan-600/20 text-cyan-300 border border-cyan-500/30 shadow-md',
-                        actionBtnClass: 'bg-cyan-500 hover:bg-cyan-400 text-black shadow-cyan-500/25',
-                        mediaBadge: 'Photo & Picture Library',
-                        plexFilter: (p: PlexSourceLibrary) => p.mediaType === 'photo',
-                        showRadarr: false,
-                        showSonarr: false,
-                        namePlaceholder: 'e.g. Family Photos, Vacations, Wallpapers',
-                        folderPlaceholder: 'e.g. /photos, /media/photos, D:\\Pictures',
-                        mountMatch: /photo|picture|image/i,
-                    }
-                }[targetMedia];
-
-                const filteredPlex = plexSources.filter(meta.plexFilter);
-                const filteredMounts = commonMounts.filter(m => meta.mountMatch.test(m));
-                const displayMounts = filteredMounts.length > 0 ? filteredMounts : commonMounts;
-
-                return (
-                    <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 sm:p-6 bg-black/45 backdrop-blur-xl animate-in fade-in duration-200">
-                        <div className="bg-[#0c0d12]/95 border border-zinc-800 rounded-[2.5rem] w-full max-w-5xl p-6 sm:p-10 shadow-2xl relative space-y-6 max-h-[92vh] overflow-y-auto custom-scrollbar flex flex-col">
-                            <button
-                                onClick={() => setIsAddLibModalOpen(false)}
-                                className="absolute top-6 right-6 p-3 rounded-2xl text-zinc-400 hover:text-white hover:bg-zinc-800/80 transition-all cursor-pointer"
-                            >
-                                <X size={24} />
-                            </button>
-
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-zinc-900">
-                                <div>
-                                    <h2 className="text-2xl sm:text-3xl font-black text-white flex items-center gap-3">
-                                        {meta.icon} {meta.title}
-                                    </h2>
-                                    <p className="text-sm text-zinc-400 font-medium mt-1">
-                                        {meta.subtitle}
-                                    </p>
-                                </div>
-
-                                <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800 self-start sm:self-auto gap-1">
-                                    <button
-                                        onClick={() => setModalTab('import')}
-                                        className={`flex items-center gap-2 px-5 py-2.5 text-sm font-black rounded-xl transition-all ${
-                                            modalTab === 'import'
-                                                ? meta.activeTabClass
-                                                : 'text-zinc-500 hover:text-zinc-300'
-                                        }`}
-                                    >
-                                        <DownloadCloud size={18} /> 1-Click Import
-                                    </button>
-                                    <button
-                                        onClick={() => {
-                                            setModalTab('custom');
-                                            setNewLibType(targetMedia);
-                                        }}
-                                        className={`flex items-center gap-2 px-5 py-2.5 text-sm font-black rounded-xl transition-all ${
-                                            modalTab === 'custom'
-                                                ? meta.activeTabClass
-                                                : 'text-zinc-500 hover:text-zinc-300'
-                                        }`}
-                                    >
-                                        <Folder size={18} /> Custom Folder
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* ── Mode 1: Tailored 1-Click Import from Plex & Specific Arr ── */}
-                            {modalTab === 'import' && (
-                                <div className="space-y-6">
-                                    {loadingSources ? (
-                                        <div className="flex flex-col items-center justify-center py-24 gap-3">
-                                            <div className="w-10 h-10 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin" />
-                                            <span className="text-zinc-400 text-sm font-bold">Querying Plex and Arr library sources...</span>
-                                        </div>
-                                    ) : (
-                                        <>
-                                            {/* Plex Sources for Target Media */}
-                                            <div className="space-y-3">
-                                                <div className="flex items-center justify-between">
-                                                    <h3 className="text-sm sm:text-base font-black text-amber-400 uppercase tracking-wider flex items-center gap-2">
-                                                        <Layers size={18} /> Plex {meta.mediaBadge} ({filteredPlex.length})
-                                                    </h3>
-                                                    <span className="text-xs text-zinc-500 font-semibold">Click to import library instantly</span>
-                                                </div>
-
-                                                {filteredPlex.length === 0 ? (
-                                                    <div className="p-8 rounded-2xl bg-zinc-950/60 border border-zinc-900 text-center text-sm text-zinc-400">
-                                                        No Plex {meta.mediaBadge} detected. Ensure Plex is connected in Settings or that sections are shared.
-                                                    </div>
-                                                ) : (
-                                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                                                        {filteredPlex.map((plexLib, i) => (
-                                                            <div
-                                                                key={i}
-                                                                className="p-5 rounded-3xl bg-zinc-950 border border-zinc-800/80 hover:border-amber-500/50 transition-all flex flex-col justify-between space-y-4 group shadow-xl"
-                                                            >
-                                                                <div className="space-y-2">
-                                                                    <div className="flex items-center justify-between">
-                                                                        <div className="flex items-center gap-2">
-                                                                            {getLibIcon(plexLib.mediaType, 20)}
-                                                                            <span className="text-base sm:text-lg font-black text-white">{plexLib.title}</span>
-                                                                        </div>
-                                                                        <span className="px-2.5 py-1 rounded-xl text-[11px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-400 border border-amber-500/30">
-                                                                            Plex {plexLib.plexType}
-                                                                        </span>
-                                                                    </div>
-
-                                                                    <p className="text-xs text-zinc-400 font-mono truncate">
-                                                                        {plexLib.locations.join(', ')}
-                                                                    </p>
-                                                                </div>
-
-                                                                <button
-                                                                    disabled={isCreatingLib}
-                                                                    onClick={() => handleImportPlexLibrary(plexLib)}
-                                                                    className="w-full py-3 bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-black border border-amber-500/30 font-black text-xs uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2 shadow-lg cursor-pointer"
-                                                                >
-                                                                    <Plus size={16} /> Import Library
-                                                                </button>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            {/* Radarr Sources (Only for Movies) */}
-                                            {meta.showRadarr && radarrSources.length > 0 && (
-                                                <div className="space-y-3 pt-2">
-                                                    <h3 className="text-sm sm:text-base font-black text-indigo-400 uppercase tracking-wider flex items-center gap-2">
-                                                        <Database size={18} /> Radarr Movie Root Folders ({radarrSources.length})
-                                                    </h3>
-
-                                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                                                        {radarrSources.map((rf, i) => (
-                                                            <div
-                                                                key={`radarr-${i}`}
-                                                                className="p-5 rounded-3xl bg-zinc-950 border border-zinc-800/80 hover:border-indigo-500/50 transition-all flex flex-col justify-between space-y-4 shadow-xl"
-                                                            >
-                                                                <div className="space-y-1.5">
-                                                                    <div className="flex items-center justify-between">
-                                                                        <span className="text-base sm:text-lg font-black text-white flex items-center gap-2">
-                                                                            <Film size={18} className="text-indigo-400" /> {rf.instanceName}
-                                                                        </span>
-                                                                        <span className="px-2.5 py-1 rounded-xl text-[11px] font-black uppercase bg-indigo-500/10 text-indigo-400 border border-indigo-500/30">
-                                                                            Radarr
-                                                                        </span>
-                                                                    </div>
-                                                                    <p className="text-xs text-zinc-400 font-mono truncate">{rf.path}</p>
-                                                                </div>
-
-                                                                <button
-                                                                    disabled={isCreatingLib}
-                                                                    onClick={() => handleImportArrFolder(rf)}
-                                                                    className="w-full py-3 bg-indigo-500/15 hover:bg-indigo-500 text-indigo-300 hover:text-white border border-indigo-500/30 font-black text-xs uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2 cursor-pointer"
-                                                                >
-                                                                    <Plus size={16} /> Import Folder
-                                                                </button>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            )}
-
-                                            {/* Sonarr Sources (Only for Series) */}
-                                            {meta.showSonarr && sonarrSources.length > 0 && (
-                                                <div className="space-y-3 pt-2">
-                                                    <h3 className="text-sm sm:text-base font-black text-emerald-400 uppercase tracking-wider flex items-center gap-2">
-                                                        <Database size={18} /> Sonarr TV Series Root Folders ({sonarrSources.length})
-                                                    </h3>
-
-                                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                                                        {sonarrSources.map((sf, i) => (
-                                                            <div
-                                                                key={`sonarr-${i}`}
-                                                                className="p-5 rounded-3xl bg-zinc-950 border border-zinc-800/80 hover:border-emerald-500/50 transition-all flex flex-col justify-between space-y-4 shadow-xl"
-                                                            >
-                                                                <div className="space-y-1.5">
-                                                                    <div className="flex items-center justify-between">
-                                                                        <span className="text-base sm:text-lg font-black text-white flex items-center gap-2">
-                                                                            <Tv size={18} className="text-emerald-400" /> {sf.instanceName}
-                                                                        </span>
-                                                                        <span className="px-2.5 py-1 rounded-xl text-[11px] font-black uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                                                                            Sonarr
-                                                                        </span>
-                                                                    </div>
-                                                                    <p className="text-xs text-zinc-400 font-mono truncate">{sf.path}</p>
-                                                                </div>
-
-                                                                <button
-                                                                    disabled={isCreatingLib}
-                                                                    onClick={() => handleImportArrFolder(sf)}
-                                                                    className="w-full py-3 bg-emerald-500/15 hover:bg-emerald-500 text-emerald-300 hover:text-black border border-emerald-500/30 font-black text-xs uppercase tracking-wider rounded-2xl transition-all flex items-center justify-center gap-2 cursor-pointer"
-                                                                >
-                                                                    <Plus size={16} /> Import Folder
-                                                                </button>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </>
-                                    )}
-                                </div>
-                            )}
-
-                            {/* ── Mode 2: Custom Local Library (Tailored for Media Type) ── */}
-                            {modalTab === 'custom' && (
-                                <div className="space-y-6">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        <div className="space-y-2">
-                                            <label className="text-sm font-black text-zinc-300 uppercase tracking-wider block">
-                                                Library Name
-                                            </label>
-                                            <input
-                                                type="text"
-                                                placeholder={meta.namePlaceholder}
-                                                value={newLibName}
-                                                onChange={e => setNewLibName(e.target.value)}
-                                                className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl px-5 py-3.5 text-base text-white placeholder-zinc-600 outline-none focus:border-emerald-500 font-medium"
-                                            />
-                                        </div>
-
-                                        <div className="space-y-2">
-                                            <label className="text-sm font-black text-zinc-300 uppercase tracking-wider block">
-                                                Media Type
-                                            </label>
-                                            <div className="p-3.5 bg-zinc-950 border border-zinc-800 rounded-2xl flex items-center justify-between">
-                                                <div className="flex items-center gap-3">
-                                                    {meta.icon}
-                                                    <span className="text-base font-black text-white">{meta.mediaBadge}</span>
-                                                </div>
-                                                <span className="text-xs font-bold text-zinc-500 uppercase tracking-wider">
-                                                    Tailored for this tab
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {displayMounts.length > 0 && (
-                                        <div className="space-y-2">
-                                            <span className="text-xs font-black text-emerald-400 uppercase tracking-wider block">
-                                                Mounted Storage Shortcuts:
-                                            </span>
-                                            <div className="flex flex-wrap gap-2">
-                                                {displayMounts.map((cp, idx) => (
-                                                    <button
-                                                        key={idx}
-                                                        type="button"
-                                                        onClick={() => {
-                                                            setFolderInput(cp);
-                                                            loadBrowserPath(cp);
-                                                        }}
-                                                        className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-xs font-mono text-zinc-300 border border-zinc-800 hover:border-emerald-500/50 transition-all flex items-center gap-2 cursor-pointer"
-                                                    >
-                                                        <HardDrive size={14} className="text-emerald-400" />
-                                                        <span>{cp}</span>
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    <div className="space-y-2">
-                                        <label className="text-sm font-black text-zinc-300 uppercase tracking-wider block">
-                                            Folder Path (Enter any local or NAS path)
-                                        </label>
-                                        <div className="flex gap-2">
-                                            <input
-                                                type="text"
-                                                placeholder={meta.folderPlaceholder}
-                                                value={folderInput}
-                                                onChange={e => {
-                                                    setFolderInput(e.target.value);
-                                                    loadBrowserPath(e.target.value);
-                                                }}
-                                                className="flex-1 bg-zinc-950 border border-zinc-800 rounded-2xl px-5 py-3.5 text-base text-white placeholder-zinc-600 outline-none focus:border-emerald-500 font-mono"
-                                            />
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    if (folderInput.trim() && !newLibFolders.includes(folderInput.trim())) {
-                                                        setNewLibFolders(prev => [...prev, folderInput.trim()]);
-                                                        setFolderInput('');
-                                                    }
-                                                }}
-                                                className="px-6 py-3.5 bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs uppercase tracking-wider rounded-2xl transition-colors shrink-0 cursor-pointer"
-                                            >
-                                                Add Path
-                                            </button>
-                                        </div>
-
-                                        {newLibFolders.length > 0 && (
-                                            <div className="flex flex-wrap gap-2 pt-2">
-                                                {newLibFolders.map((f, i) => (
-                                                    <span key={i} className="px-4 py-2 bg-zinc-900 border border-emerald-500/30 text-emerald-300 rounded-2xl text-xs font-mono flex items-center gap-2 shadow-sm">
-                                                        {f}
-                                                        <button
-                                                            onClick={() => setNewLibFolders(prev => prev.filter((_, idx) => idx !== i))}
-                                                            className="text-zinc-500 hover:text-red-400 p-0.5 cursor-pointer"
-                                                        >
-                                                            <X size={14} />
-                                                        </button>
-                                                    </span>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    <div className="space-y-2 p-5 bg-zinc-950 rounded-3xl border border-zinc-900">
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-xs font-black text-zinc-400 uppercase tracking-wider flex items-center gap-2">
-                                                <FolderTree size={16} /> Directory Browser: <span className="font-mono text-zinc-300">{browserCurrentPath || '/'}</span>
-                                            </span>
-                                            {browserParentPath && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setFolderInput(browserParentPath);
-                                                        loadBrowserPath(browserParentPath);
-                                                    }}
-                                                    className="text-xs text-zinc-400 hover:text-emerald-400 flex items-center gap-1 font-bold transition-colors cursor-pointer"
-                                                >
-                                                    <ArrowUp size={14} /> Up One Level
-                                                </button>
-                                            )}
-                                        </div>
-
-                                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 pt-2 max-h-48 overflow-y-auto custom-scrollbar">
-                                            {browserFolders.map((bf, i) => (
-                                                <button
-                                                    key={i}
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setFolderInput(bf.path);
-                                                        loadBrowserPath(bf.path);
-                                                    }}
-                                                    className="p-3 rounded-2xl bg-zinc-900/80 border border-zinc-800 hover:border-emerald-500/50 hover:bg-zinc-900 text-left text-xs text-zinc-300 hover:text-emerald-400 transition-all flex items-center gap-2 truncate cursor-pointer"
-                                                >
-                                                    <Folder size={14} className="shrink-0 text-zinc-500" />
-                                                    <span className="truncate font-medium">{bf.name}</span>
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    <div className="flex gap-3 pt-2">
-                                        <button
-                                            onClick={() => setIsAddLibModalOpen(false)}
-                                            className="flex-1 h-14 bg-zinc-900 border border-zinc-800 text-zinc-400 font-black uppercase text-xs tracking-widest rounded-2xl hover:text-white transition-all cursor-pointer"
-                                        >
-                                            Cancel
-                                        </button>
-                                        <button
-                                            disabled={isCreatingLib}
-                                            onClick={handleCreateCustomLibrary}
-                                            className={`flex-[2] h-14 ${meta.actionBtnClass} font-black uppercase text-xs tracking-widest rounded-2xl transition-all flex items-center justify-center gap-2 shadow-lg disabled:opacity-50 cursor-pointer`}
-                                        >
-                                            {isCreatingLib ? <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> : <Plus size={18} />}
-                                            {isCreatingLib ? 'Creating...' : `Create ${meta.mediaBadge}`}
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                );
-            })()}
-
-            {/* ── Edit Theater Library Modal ── */}
-            {isEditLibModalOpen && (
-                <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 sm:p-6 bg-black/45 backdrop-blur-xl animate-in fade-in duration-200">
-                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-2xl p-6 sm:p-8 shadow-2xl relative space-y-6 max-h-[92vh] overflow-y-auto custom-scrollbar flex flex-col">
-                        <button
-                            onClick={() => setIsEditLibModalOpen(false)}
-                            className="absolute top-6 right-6 p-2.5 rounded-2xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all cursor-pointer"
-                        >
-                            <X size={22} />
-                        </button>
-
-                        <div className="flex items-center gap-3 pb-3 border-b border-zinc-900">
-                            <div className="w-10 h-10 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
-                                <Settings2 size={22} />
-                            </div>
-                            <div>
-                                <h2 className="text-xl font-black text-white">Edit Library Folders</h2>
-                                <p className="text-xs text-zinc-500 font-medium">Update storage paths and name for this library</p>
-                            </div>
-                        </div>
-
-                        <div className="space-y-4">
-                            {/* Library Name */}
-                            <div className="space-y-1.5">
-                                <label className="text-xs font-black text-zinc-400 uppercase tracking-wider block">
-                                    Library Name
-                                </label>
-                                <input
-                                    type="text"
-                                    value={editLibName}
-                                    onChange={e => setEditLibName(e.target.value)}
-                                    className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-3 text-sm text-white outline-none focus:border-indigo-500"
-                                    placeholder="Library Name"
-                                />
-                            </div>
-
-                            {/* Storage Folders */}
-                            <div className="space-y-2">
-                                <label className="text-xs font-black text-zinc-400 uppercase tracking-wider block">
-                                    Configured Storage Folders ({editLibFolders.length})
-                                </label>
-                                <p className="text-[11px] text-zinc-500">
-                                    Files within these directories will be scanned and made available in Theater.
-                                </p>
-
-                                {/* Current Folders List */}
-                                <div className="space-y-2">
-                                    {editLibFolders.map((f, i) => (
-                                        <div key={i} className="flex items-center justify-between p-3 bg-zinc-950 rounded-2xl border border-zinc-800 gap-3">
-                                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                                                <Folder size={16} className="text-emerald-400 shrink-0" />
-                                                <span className="text-xs font-mono text-zinc-200 truncate">{f}</span>
-                                            </div>
-                                            <button
-                                                type="button"
-                                                onClick={() => setEditLibFolders(prev => prev.filter((_, idx) => idx !== i))}
-                                                className="p-1.5 rounded-xl text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0 cursor-pointer"
-                                                title="Remove folder"
-                                            >
-                                                <Trash2 size={14} />
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
-
-                                {/* Add Folder Input */}
-                                <div className="pt-2 space-y-2">
-                                    <label className="text-[11px] font-bold text-zinc-400 block">
-                                        Add Another Folder Path:
-                                    </label>
-                                    <div className="flex gap-2">
-                                        <input
-                                            type="text"
-                                            placeholder="e.g. /mnt/user/data/media/movies or D:\Movies"
-                                            value={editLibFolderInput}
-                                            onChange={e => setEditLibFolderInput(e.target.value)}
-                                            onKeyDown={e => {
-                                                if (e.key === 'Enter') {
-                                                    e.preventDefault();
-                                                    const val = editLibFolderInput.trim();
-                                                    if (val && !editLibFolders.includes(val)) {
-                                                        setEditLibFolders(prev => [...prev, val]);
-                                                        setEditLibFolderInput('');
-                                                    }
-                                                }
-                                            }}
-                                            className="flex-1 bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-3 text-xs text-white placeholder-zinc-600 outline-none focus:border-indigo-500 font-mono"
-                                        />
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                const val = editLibFolderInput.trim();
-                                                if (val && !editLibFolders.includes(val)) {
-                                                    setEditLibFolders(prev => [...prev, val]);
-                                                    setEditLibFolderInput('');
-                                                }
-                                            }}
-                                            className="px-5 py-3 bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs uppercase tracking-wider rounded-2xl transition-colors shrink-0 cursor-pointer"
-                                        >
-                                            Add
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {/* Common Shortcuts */}
-                                {commonMounts.length > 0 && (
-                                    <div className="pt-2 space-y-1.5">
-                                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-wider block">
-                                            Quick Mount Shortcuts:
-                                        </span>
-                                        <div className="flex flex-wrap gap-1.5">
-                                            {commonMounts.map((cp, idx) => (
-                                                <button
-                                                    key={idx}
-                                                    type="button"
-                                                    onClick={() => {
-                                                        if (!editLibFolders.includes(cp)) {
-                                                            setEditLibFolders(prev => [...prev, cp]);
-                                                        }
-                                                    }}
-                                                    className="px-2.5 py-1 rounded-xl bg-zinc-950 hover:bg-zinc-900 text-[11px] font-mono text-zinc-400 hover:text-emerald-400 border border-zinc-800 transition-all flex items-center gap-1.5 cursor-pointer"
-                                                >
-                                                    <HardDrive size={11} />
-                                                    <span>{cp}</span>
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Actions */}
-                        <div className="flex items-center justify-between pt-4 border-t border-zinc-900 gap-3">
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setIsEditLibModalOpen(false);
-                                    handleDeleteLibrary(editLibId, editLibName);
-                                }}
-                                className="h-12 px-4 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-2xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer"
-                            >
-                                <Trash2 size={15} /> Delete Library
-                            </button>
-
-                            <div className="flex items-center gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => setIsEditLibModalOpen(false)}
-                                    className="h-12 px-5 bg-zinc-900 border border-zinc-800 text-zinc-400 font-black uppercase text-xs tracking-wider rounded-2xl hover:text-white transition-all cursor-pointer"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    type="button"
-                                    disabled={isSavingEditLib || editLibFolders.length === 0}
-                                    onClick={handleSaveEditLibrary}
-                                    className="h-12 px-6 bg-emerald-500 hover:bg-emerald-400 text-black font-black uppercase text-xs tracking-wider rounded-2xl transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/20 disabled:opacity-50 cursor-pointer"
-                                >
-                                    {isSavingEditLib ? <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" /> : <Check size={16} />}
-                                    Save &amp; Rescan
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
 
             {/* ── VLC Media Player & External Network Stream Modal ── */}
             {isVlcModalOpen && vlcModalInfo && (
@@ -8775,21 +8005,7 @@ function TheaterPageContent() {
                 }}
             />
 
-            {/* Custom Delete Library/Provider Confirmation Modal */}
-            <ConfirmModal
-                isOpen={!!deleteLibConfirm}
-                onClose={() => setDeleteLibConfirm(null)}
-                onConfirm={handleConfirmDeleteLibrary}
-                loading={isDeletingLibrary}
-                title={activeContentTab === 'live' ? 'Delete IPTV Provider' : 'Delete Library'}
-                description={
-                    <span>
-                        Are you sure you want to delete {activeContentTab === 'live' ? 'IPTV provider' : 'library'} <strong className="text-white">"{deleteLibConfirm?.name}"</strong>? This will permanently remove its media records and configuration.
-                    </span>
-                }
-                confirmText={activeContentTab === 'live' ? 'Delete Provider' : 'Delete Library'}
-                variant="danger"
-            />
+
 
             {/* Custom Delete File / Album Confirmation Modal */}
             <ConfirmModal

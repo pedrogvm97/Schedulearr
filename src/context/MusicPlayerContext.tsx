@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
     Play, Pause, Volume2, VolumeX, Maximize, Maximize2, Minimize2, X,
-    Shuffle, Repeat, SkipForward, SkipBack,
+    Shuffle, Repeat, Repeat1, SkipForward, SkipBack,
     Disc, Music, ListMusic, Download, ArrowDownToLine,
     Info, Mic2, Edit3, Search, Sparkles, Check,
     RefreshCw, ChevronDown, ChevronUp, ArrowLeft, Sliders, Cast, Tv, Trash2, Plus,
@@ -89,6 +89,7 @@ interface MusicPlayerContextType {
     queueIndex: number;
     isShuffle: boolean;
     isRepeat: boolean;
+    repeatMode: 'off' | 'all' | 'one';
     audioVolume: number;
     isAudioMuted: boolean;
     isExpandedPlayerOpen: boolean;
@@ -102,6 +103,7 @@ interface MusicPlayerContextType {
     toggleMute: () => void;
     toggleShuffle: () => void;
     toggleRepeat: () => void;
+    cycleRepeatMode: () => void;
     closePlayer: () => void;
     openExpandedPlayer: () => void;
     closeExpandedPlayer: () => void;
@@ -478,7 +480,23 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     const [audioQueue, setAudioQueue] = useState<MediaItem[]>([]);
     const [queueIndex, setQueueIndex] = useState(0);
     const [isShuffle, setIsShuffle] = useState(false);
-    const [isRepeat, setIsRepeat] = useState(false);
+    const [repeatMode, setRepeatMode] = useState<'off' | 'all' | 'one'>('off');
+    const isRepeat = repeatMode !== 'off';
+
+    const cycleRepeatMode = () => {
+        setRepeatMode(prev => {
+            if (prev === 'off') {
+                toast.info('Repeat: All (Loop Queue)');
+                return 'all';
+            }
+            if (prev === 'all') {
+                toast.info('Repeat: One (Loop Current Song)');
+                return 'one';
+            }
+            toast.info('Repeat: Off');
+            return 'off';
+        });
+    };
     const [audioVolume, setAudioVolume] = useState(1);
     const [isAudioMuted, setIsAudioMuted] = useState(false);
 
@@ -555,6 +573,77 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     const [showInPlayerCreatePlaylist, setShowInPlayerCreatePlaylist] = useState(false);
     const [selectedInPlayerPlaylist, setSelectedInPlayerPlaylist] = useState<any | null>(null);
     const [inPlayerPlaylistSearchQuery, setInPlayerPlaylistSearchQuery] = useState('');
+    const [inPlayerRecommendations, setInPlayerRecommendations] = useState<any[]>([]);
+    const [loadingInPlayerRecommendations, setLoadingInPlayerRecommendations] = useState(false);
+
+    const fetchInPlayerRecommendations = async (pl: any) => {
+        if (!pl || !pl.items) return;
+        setLoadingInPlayerRecommendations(true);
+        try {
+            const res = await fetch('/api/theater/music/playlists/recommendations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    playlistId: pl.id,
+                    items: pl.items
+                })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setInPlayerRecommendations(Array.isArray(data.recommendations) ? data.recommendations : []);
+            } else {
+                setInPlayerRecommendations([]);
+            }
+        } catch {
+            setInPlayerRecommendations([]);
+        } finally {
+            setLoadingInPlayerRecommendations(false);
+        }
+    };
+
+    const handleSelectInPlayerPlaylist = (pl: any) => {
+        setSelectedInPlayerPlaylist(pl);
+        setInPlayerPlaylistSearchQuery('');
+        fetchInPlayerRecommendations(pl);
+    };
+
+    const handleAddInPlayerRecommendation = async (rec: any) => {
+        if (!selectedInPlayerPlaylist) return;
+        const newTrack = {
+            id: rec.id || `rec-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            title: rec.title,
+            artist: rec.artist,
+            album: rec.album || 'Single',
+            duration: rec.duration || '3:30',
+            durationMs: rec.durationMs || 210000,
+            posterUrl: rec.posterUrl,
+            streamUrl: rec.streamUrl,
+            audioUrl: rec.streamUrl || rec.audioUrl,
+            source: rec.source || 'online'
+        };
+        const updatedItems = [...(selectedInPlayerPlaylist.items || []), newTrack];
+        const updatedPl = { ...selectedInPlayerPlaylist, items: updatedItems };
+        setSelectedInPlayerPlaylist(updatedPl);
+        setInPlayerRecommendations(prev => prev.filter(r => (r.streamUrl && r.streamUrl === rec.streamUrl) ? false : r.id !== rec.id));
+
+        try {
+            const res = await fetch('/api/theater/music/playlists', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id: selectedInPlayerPlaylist.id,
+                    items: updatedItems
+                })
+            });
+            if (res.ok) {
+                toast.success(`Added "${rec.title}" to playlist`);
+                await fetchInPlayerPlaylists();
+                window.dispatchEvent(new CustomEvent('schedulearr:playlists-updated'));
+            }
+        } catch {
+            toast.error('Failed to update playlist');
+        }
+    };
 
     const fetchInPlayerPlaylists = async () => {
         try {
@@ -1929,15 +2018,33 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
     const nextTrack = () => {
         if (audioQueue.length === 0) return;
+        if (repeatMode === 'one') {
+            if (audioRef.current) {
+                audioRef.current.currentTime = 0;
+                audioRef.current.play().catch(() => {});
+            }
+            setIsAudioPlaying(true);
+            setAudioCurrentTime(0);
+            return;
+        }
         let nextIdx = queueIndex + 1;
         if (isShuffle) {
             nextIdx = Math.floor(Math.random() * audioQueue.length);
         } else if (nextIdx >= audioQueue.length) {
-            if (isRepeat) {
+            if (repeatMode === 'all' || isRepeat) {
                 nextIdx = 0;
             } else {
                 return;
             }
+        }
+        if (nextIdx === queueIndex) {
+            if (audioRef.current) {
+                audioRef.current.currentTime = 0;
+                audioRef.current.play().catch(() => {});
+            }
+            setIsAudioPlaying(true);
+            setAudioCurrentTime(0);
+            return;
         }
         setQueueIndex(nextIdx);
         setPlayingAudio(audioQueue[nextIdx]);
@@ -2600,6 +2707,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                 queueIndex,
                 isShuffle,
                 isRepeat,
+                repeatMode,
                 audioVolume,
                 isAudioMuted,
                 isExpandedPlayerOpen,
@@ -2612,7 +2720,8 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                 setVolume: handleVolumeChange,
                 toggleMute,
                 toggleShuffle: () => setIsShuffle(!isShuffle),
-                toggleRepeat: () => setIsRepeat(!isRepeat),
+                toggleRepeat: cycleRepeatMode,
+                cycleRepeatMode,
                 closePlayer,
                 openExpandedPlayer: () => setIsExpandedPlayerOpen(true),
                 closeExpandedPlayer: () => setIsExpandedPlayerOpen(false),
@@ -2714,6 +2823,24 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                     }
                 }}
                 onEnded={() => {
+                    if (repeatMode === 'one') {
+                        if (audioRef.current) {
+                            audioRef.current.currentTime = 0;
+                            audioRef.current.play().catch(() => {});
+                            setIsAudioPlaying(true);
+                            setAudioCurrentTime(0);
+                        }
+                        return;
+                    }
+                    if (audioQueue.length === 1 && (repeatMode === 'all' || isRepeat)) {
+                        if (audioRef.current) {
+                            audioRef.current.currentTime = 0;
+                            audioRef.current.play().catch(() => {});
+                            setIsAudioPlaying(true);
+                            setAudioCurrentTime(0);
+                        }
+                        return;
+                    }
                     nextTrack();
                 }}
                 onError={() => {
@@ -2968,11 +3095,11 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 </button>
 
                                 <button
-                                    onClick={() => setIsRepeat(!isRepeat)}
-                                    className={`p-1.5 sm:p-2 rounded-xl transition-colors flex cursor-pointer ${isRepeat ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-500 hover:text-white'}`}
-                                    title={isRepeat ? "Repeat: Active" : "Repeat: Off"}
+                                    onClick={cycleRepeatMode}
+                                    className={`p-1.5 sm:p-2 rounded-xl transition-colors flex cursor-pointer ${repeatMode !== 'off' ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-500 hover:text-white'}`}
+                                    title={repeatMode === 'one' ? "Repeat: One Track" : repeatMode === 'all' ? "Repeat: All" : "Repeat: Off"}
                                 >
-                                    <Repeat size={15} />
+                                    {repeatMode === 'one' ? <Repeat1 size={15} /> : <Repeat size={15} />}
                                 </button>
                             </div>
 
@@ -3323,11 +3450,11 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         <span>30s</span>
                                     </button>
                                     <button
-                                        onClick={() => setIsRepeat(!isRepeat)}
-                                        className={`p-2 rounded-xl transition-colors cursor-pointer ${isRepeat ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-500 hover:text-white'}`}
-                                        title={isRepeat ? "Repeat: Active" : "Repeat: Off"}
+                                        onClick={cycleRepeatMode}
+                                        className={`p-2 rounded-xl transition-colors cursor-pointer ${repeatMode !== 'off' ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-500 hover:text-white'}`}
+                                        title={repeatMode === 'one' ? "Repeat: One Track" : repeatMode === 'all' ? "Repeat: All" : "Repeat: Off"}
                                     >
-                                        <Repeat size={18} />
+                                        {repeatMode === 'one' ? <Repeat1 size={18} /> : <Repeat size={18} />}
                                     </button>
                                     <button
                                         onClick={cyclePlaybackSpeed}
@@ -3396,7 +3523,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                         {/* Left / Center: Artwork & Full Controls - Scaled to fit viewport without parent scroll */}
                         <div className={`${showExpandedSidePanel ? 'hidden lg:flex lg:col-span-5 xl:col-span-5' : 'flex col-span-1 lg:col-span-8 lg:col-start-3'} flex-col justify-between items-center h-full max-h-full mx-auto w-full max-w-md overflow-hidden py-1`}>
                             {/* View Mode Toggle: Vinyl Turntable vs Spinning Disk vs Normal Cover Art */}
-                            <div className="flex items-center gap-1 bg-zinc-950/80 p-1 rounded-xl border border-zinc-800/80 shadow-inner backdrop-blur-md shrink-0">
+                            <div className="flex items-center gap-1 bg-zinc-950/80 p-1 rounded-xl border border-zinc-800/80 shadow-inner backdrop-blur-md shrink-0 mb-1 sm:mb-2">
                                 <button
                                     onClick={() => changePlayerAnimationMode('turntable')}
                                     className={`flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
@@ -3433,10 +3560,10 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             </div>
 
                             {/* Main Artwork Stage: Vinyl Turntable vs Spinning Disk vs Normal Cover Art */}
-                            <div className="flex-1 min-h-0 flex items-center justify-center w-full my-2">
+                            <div className="flex-1 min-h-0 flex items-center justify-center w-full my-1 sm:my-2 overflow-hidden">
                                 {playerAnimationMode === 'turntable' ? (
                                     /* ── 1. Vinyl Turntable Player Representation ── */
-                                    <div className="relative w-full max-w-[320px] sm:max-w-[360px] md:max-w-[390px] aspect-[1.12/1] rounded-[2rem] bg-gradient-to-b from-zinc-800 via-zinc-900 to-[#09090b] border-2 border-zinc-700/80 p-3 shadow-2xl flex items-center justify-center select-none overflow-hidden group">
+                                    <div className="relative max-h-[28vh] sm:max-h-[32vh] md:max-h-[36vh] aspect-[1.12/1] w-auto h-full max-w-[320px] sm:max-w-[360px] md:max-w-[380px] rounded-[1.75rem] sm:rounded-[2rem] bg-gradient-to-b from-zinc-800 via-zinc-900 to-[#09090b] border-2 border-zinc-700/80 p-2 sm:p-3 shadow-2xl flex items-center justify-center select-none overflow-hidden group">
                                         {/* Turntable Plinth Inset */}
                                         <div className="absolute inset-2 rounded-[1.5rem] bg-gradient-to-b from-[#18181b] to-[#0c0c0e] border border-white/5 pointer-events-none shadow-inner" />
 
@@ -3468,7 +3595,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                 e.stopPropagation();
                                                 togglePlayPause();
                                             }}
-                                            className="relative w-52 h-52 sm:w-60 sm:h-60 -translate-x-2 flex items-center justify-center cursor-pointer select-none group/disc"
+                                            className="relative w-[70%] h-[70%] max-w-[230px] max-h-[230px] aspect-square -translate-x-2 flex items-center justify-center cursor-pointer select-none group/disc"
                                             title={isActivelyPlaying ? "Click Vinyl Record to Pause" : "Click Vinyl Record to Play"}
                                         >
                                             <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-zinc-700 via-zinc-800 to-zinc-600 p-1 shadow-2xl flex items-center justify-center border border-zinc-600/50 pointer-events-none group-hover/disc:border-amber-500/40 transition-colors">
@@ -3519,7 +3646,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                 e.stopPropagation();
                                                 togglePlayPause();
                                             }}
-                                            className="absolute top-1 right-2 w-28 h-48 z-30 select-none cursor-pointer group/tonearm"
+                                            className="absolute top-1 right-2 w-24 sm:w-28 h-40 sm:h-48 z-30 select-none cursor-pointer group/tonearm"
                                             title={isActivelyPlaying ? "Click Needle to Lift & Pause" : "Click Needle to Drop on Record & Play"}
                                         >
                                             {/* Pivot Gimbal Base */}
@@ -3551,7 +3678,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                             e.stopPropagation();
                                             togglePlayPause();
                                         }}
-                                        className="relative w-64 h-64 sm:w-72 sm:h-72 md:w-80 md:h-80 flex items-center justify-center cursor-pointer select-none group/disc transition-transform hover:scale-105 active:scale-95"
+                                        className="relative max-h-[28vh] sm:max-h-[32vh] md:max-h-[36vh] aspect-square w-auto h-full max-w-[280px] sm:max-w-[320px] flex items-center justify-center cursor-pointer select-none group/disc transition-transform hover:scale-105 active:scale-95"
                                         title={isActivelyPlaying ? "Click Spinning Disk to Pause" : "Click Spinning Disk to Play"}
                                     >
                                         <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-zinc-700 via-zinc-800 to-zinc-600 p-2 shadow-2xl flex items-center justify-center border-2 border-zinc-600/50 pointer-events-none group-hover/disc:border-amber-500/50 transition-colors">
@@ -3799,11 +3926,11 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 </button>
 
                                 <button
-                                    onClick={() => setIsRepeat(!isRepeat)}
-                                    className={`p-1.5 sm:p-2 rounded-xl transition-all ${isRepeat ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-500 hover:text-white'}`}
-                                    title="Repeat"
+                                    onClick={cycleRepeatMode}
+                                    className={`p-1.5 sm:p-2 rounded-xl transition-all cursor-pointer ${repeatMode !== 'off' ? 'text-amber-400 bg-amber-500/20' : 'text-zinc-500 hover:text-white'}`}
+                                    title={repeatMode === 'one' ? "Repeat: One Track" : repeatMode === 'all' ? "Repeat: All" : "Repeat: Off"}
                                 >
-                                    <Repeat size={16} />
+                                    {repeatMode === 'one' ? <Repeat1 size={16} /> : <Repeat size={16} />}
                                 </button>
 
                                 {/* Audiobook / Spoken Word Speed Cycle */}
@@ -5131,6 +5258,97 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                 );
                                                             })
                                                         )}
+
+                                                        {/* Recommended Songs for this Playlist */}
+                                                        <div className="pt-4 mt-4 border-t border-zinc-800/80 space-y-2">
+                                                            <div className="flex items-center justify-between">
+                                                                <h4 className="text-xs sm:text-sm font-black text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                                                                    <Sparkles size={14} /> Recommended for this Playlist
+                                                                </h4>
+                                                                <button
+                                                                    onClick={() => fetchInPlayerRecommendations(selectedInPlayerPlaylist)}
+                                                                    disabled={loadingInPlayerRecommendations}
+                                                                    className="p-1 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors cursor-pointer disabled:opacity-50"
+                                                                    title="Refresh Recommendations"
+                                                                >
+                                                                    <RefreshCw size={13} className={loadingInPlayerRecommendations ? "animate-spin text-amber-400" : ""} />
+                                                                </button>
+                                                            </div>
+                                                            <p className="text-[11px] text-zinc-500">
+                                                                Matching tracks from your library and streaming, prioritizing artists in this playlist.
+                                                            </p>
+
+                                                            {loadingInPlayerRecommendations ? (
+                                                                <div className="p-4 bg-zinc-950/60 rounded-xl border border-zinc-800/60 text-center flex items-center justify-center gap-2 text-zinc-500 text-xs">
+                                                                    <RefreshCw size={14} className="animate-spin text-amber-400" />
+                                                                    <span>Finding matching songs...</span>
+                                                                </div>
+                                                            ) : inPlayerRecommendations.length === 0 ? (
+                                                                <div className="p-3 bg-zinc-950/60 rounded-xl border border-zinc-800/60 text-center text-xs text-zinc-500">
+                                                                    No additional recommendations found. Add more tracks to expand matches!
+                                                                </div>
+                                                            ) : (
+                                                                <div className="space-y-1.5">
+                                                                    {inPlayerRecommendations.map((rec, rIdx) => (
+                                                                        <div
+                                                                            key={rec.id || rIdx}
+                                                                            className="p-2 bg-zinc-950/80 rounded-xl border border-zinc-800/80 flex items-center justify-between gap-2 hover:border-amber-500/40 transition-colors group"
+                                                                        >
+                                                                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                                                                <div className="w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-800 overflow-hidden shrink-0 flex items-center justify-center relative">
+                                                                                    {rec.posterUrl ? (
+                                                                                        <img src={rec.posterUrl} alt="" className="w-full h-full object-cover" />
+                                                                                    ) : (
+                                                                                        <Music size={13} className="text-zinc-600" />
+                                                                                    )}
+                                                                                </div>
+                                                                                <div className="min-w-0 flex-1">
+                                                                                    <h5 className="font-bold text-white text-xs truncate group-hover:text-amber-400 transition-colors">
+                                                                                        {rec.title}
+                                                                                    </h5>
+                                                                                    <p className="text-[11px] text-zinc-400 truncate">
+                                                                                        {rec.artist} {rec.matchReason ? <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/10 text-amber-300 font-bold ml-1">{rec.matchReason}</span> : null}
+                                                                                    </p>
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="flex items-center gap-1 shrink-0">
+                                                                                <button
+                                                                                    onClick={() => playTrack({
+                                                                                        id: rec.id,
+                                                                                        name: rec.title,
+                                                                                        title: rec.title,
+                                                                                        artist: rec.artist,
+                                                                                        album: rec.album || 'Single',
+                                                                                        path: '',
+                                                                                        folder: '',
+                                                                                        category: 'audio',
+                                                                                        extension: 'mp3',
+                                                                                        sizeBytes: 0,
+                                                                                        modifiedAt: new Date().toISOString(),
+                                                                                        duration: rec.duration || '3:30',
+                                                                                        durationMs: rec.durationMs || 210000,
+                                                                                        posterUrl: rec.posterUrl,
+                                                                                        streamUrl: rec.streamUrl,
+                                                                                        source: rec.source || 'online'
+                                                                                    })}
+                                                                                    className="p-1.5 rounded-lg bg-zinc-900 hover:bg-amber-500 text-zinc-400 hover:text-black transition-colors cursor-pointer"
+                                                                                    title="Preview Track"
+                                                                                >
+                                                                                    <Play size={12} className="fill-current ml-0.5" />
+                                                                                </button>
+                                                                                <button
+                                                                                    onClick={() => handleAddInPlayerRecommendation(rec)}
+                                                                                    className="px-2 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-black text-[10px] uppercase tracking-wider transition-all flex items-center gap-1 shadow cursor-pointer"
+                                                                                    title="Add to this Playlist"
+                                                                                >
+                                                                                    <Plus size={11} /> Add
+                                                                                </button>
+                                                                            </div>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 </div>
                                             ) : (
@@ -5204,7 +5422,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                 return (
                                                                     <div
                                                                         key={pl.id}
-                                                                        onClick={() => setSelectedInPlayerPlaylist(pl)}
+                                                                        onClick={() => handleSelectInPlayerPlaylist(pl)}
                                                                         className="p-3 bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-800/80 hover:border-zinc-700/90 rounded-2xl transition-all flex items-center justify-between gap-3 group cursor-pointer"
                                                                     >
                                                                         <div className="flex items-center gap-3 min-w-0 flex-1">

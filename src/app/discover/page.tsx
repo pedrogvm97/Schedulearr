@@ -676,6 +676,9 @@ export default function DiscoverPage() {
             if (tabParam === 'iptv' || tabParam === 'live' || tabParam === 'dvr') {
                 setMediaType('iptv_dvr');
             }
+            if (params.get('manage') === 'libraries') {
+                setIsManageLibrariesOpen(true);
+            }
         }
     }, []);
     const [statusFilter, setStatusFilter] = useState<'all' | 'in_library' | 'not_in_library'>('all');

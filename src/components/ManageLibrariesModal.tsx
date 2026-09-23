@@ -289,17 +289,33 @@ export function ManageLibrariesModal({ isOpen, onClose, onLibrariesChanged }: Ma
     // ── Delete Library ──
     const handleConfirmDelete = async () => {
         if (!deletingLib) return;
+        const deletedId = deletingLib.id;
+        const deletedName = deletingLib.name;
         setIsDeleting(true);
         try {
-            const res = await fetch(`/api/theater/libraries?id=${deletingLib.id}`, {
+            const res = await fetch(`/api/theater/libraries?id=${deletedId}`, {
                 method: 'DELETE'
             });
 
             if (res.ok) {
-                toast.success(`Library "${deletingLib.name}" deleted`);
+                toast.success(`Library "${deletedName}" deleted`);
                 setDeletingLib(null);
                 await fetchLibraries();
                 notifyChange();
+
+                // Clean up local storage caches so Theater tab reflects deletion immediately
+                if (typeof window !== 'undefined') {
+                    try {
+                        const cachedLibsStr = localStorage.getItem('schedulearr_theater_libraries_cache');
+                        if (cachedLibsStr) {
+                            const cachedLibs = JSON.parse(cachedLibsStr);
+                            if (Array.isArray(cachedLibs)) {
+                                const pruned = cachedLibs.filter((l: any) => l.id !== deletedId);
+                                localStorage.setItem('schedulearr_theater_libraries_cache', JSON.stringify(pruned));
+                            }
+                        }
+                    } catch {}
+                }
             } else {
                 toast.error('Failed to delete library');
             }
@@ -389,23 +405,26 @@ export function ManageLibrariesModal({ isOpen, onClose, onLibrariesChanged }: Ma
 
                     {/* Action Buttons */}
                     <div className="flex items-center gap-2.5">
-                        {plexSources.length > 0 && (
-                            <button
-                                onClick={() => setShowPlexImport(!showPlexImport)}
-                                className={`px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider border transition-all flex items-center gap-1.5 cursor-pointer ${
-                                    showPlexImport
-                                        ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
-                                        : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
-                                }`}
-                            >
-                                <Server size={14} className="text-amber-400" />
-                                <span>Import Plex ({plexSources.length})</span>
-                            </button>
-                        )}
+                        <button
+                            onClick={() => {
+                                setShowPlexImport(!showPlexImport);
+                                setIsCreating(false);
+                                setEditingLibId(null);
+                            }}
+                            className={`px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider border transition-all flex items-center gap-1.5 cursor-pointer ${
+                                showPlexImport
+                                    ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+                                    : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
+                            }`}
+                        >
+                            <Server size={14} className="text-amber-400" />
+                            <span>Plex Libraries {plexSources.length > 0 ? `(${plexSources.length})` : ''}</span>
+                        </button>
 
                         <button
                             onClick={() => {
                                 setIsCreating(!isCreating);
+                                setShowPlexImport(false);
                                 setEditingLibId(null);
                             }}
                             className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer shadow-lg ${
@@ -424,15 +443,32 @@ export function ManageLibrariesModal({ isOpen, onClose, onLibrariesChanged }: Ma
                 <div className="flex-1 overflow-y-auto p-6 sm:p-7 space-y-6 custom-scrollbar">
 
                     {/* ── Plex Sources Dropdown Drawer ── */}
-                    {showPlexImport && plexSources.length > 0 && (
-                        <div className="p-5 rounded-3xl bg-amber-500/5 border border-amber-500/20 space-y-3 animate-in fade-in duration-200">
+                    {showPlexImport && (
+                        <div className="p-5 rounded-3xl bg-amber-500/5 border border-amber-500/20 space-y-4 animate-in fade-in duration-200">
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2 text-amber-400 font-bold text-xs">
                                     <Server size={16} />
-                                    <span>Available Plex Media Server Libraries</span>
+                                    <span>Available Plex Media Server Libraries ({plexSources.length})</span>
                                 </div>
-                                <span className="text-[11px] text-zinc-400">Click to import as a connected library</span>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPlexImport(false)}
+                                    className="px-3 py-1 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                                >
+                                    <X size={13} />
+                                    <span>Close / Back</span>
+                                </button>
                             </div>
+
+                            {plexSources.length === 0 ? (
+                                <div className="p-6 bg-zinc-950/60 rounded-2xl border border-zinc-900 text-center space-y-2">
+                                    <Server size={28} className="mx-auto text-zinc-600" />
+                                    <p className="text-sm font-bold text-white">No Plex Libraries Detected</p>
+                                    <p className="text-xs text-zinc-400 max-w-md mx-auto">
+                                        Ensure your Plex Media Server is running and linked in Settings &gt; Media Servers with a valid server address and access token.
+                                    </p>
+                                </div>
+                            ) : (
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                                 {plexSources.map((ps: any, idx: number) => {
@@ -483,6 +519,7 @@ export function ManageLibrariesModal({ isOpen, onClose, onLibrariesChanged }: Ma
                                     );
                                 })}
                             </div>
+                            )}
                         </div>
                     )}
 
