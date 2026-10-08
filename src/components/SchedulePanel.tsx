@@ -76,6 +76,64 @@ function TimelineDateGroup({
     const totalReleases = group.consolidated.length;
     const isMultiItem = totalReleases > 2;
 
+    // Mouse click-and-drag lateral pan state
+    const isMouseDownRef = useRef(false);
+    const startXRef = useRef(0);
+    const scrollLeftStartRef = useRef(0);
+    const hasDraggedRef = useRef(false);
+    const [isDragging, setIsDragging] = useState(false);
+
+    const handleMouseDown = (e: React.MouseEvent) => {
+        if (e.button !== 0) return;
+        const el = scrollContainerRef.current;
+        if (!el || totalReleases <= 2) return;
+        isMouseDownRef.current = true;
+        startXRef.current = e.pageX;
+        scrollLeftStartRef.current = el.scrollLeft;
+        hasDraggedRef.current = false;
+    };
+
+    const handleMouseMove = (e: React.MouseEvent) => {
+        if (!isMouseDownRef.current) return;
+        const el = scrollContainerRef.current;
+        if (!el) return;
+        const dx = e.pageX - startXRef.current;
+        if (Math.abs(dx) > 6) {
+            if (!hasDraggedRef.current) {
+                hasDraggedRef.current = true;
+                setIsDragging(true);
+            }
+            el.scrollLeft = scrollLeftStartRef.current - dx;
+        }
+    };
+
+    const handleMouseUp = () => {
+        isMouseDownRef.current = false;
+        if (hasDraggedRef.current) {
+            setTimeout(() => {
+                hasDraggedRef.current = false;
+                setIsDragging(false);
+            }, 50);
+        } else {
+            setIsDragging(false);
+        }
+    };
+
+    const handleMouseLeave = () => {
+        isMouseDownRef.current = false;
+        setIsDragging(false);
+        setTimeout(() => {
+            hasDraggedRef.current = false;
+        }, 50);
+    };
+
+    const handleClickCapture = (e: React.MouseEvent) => {
+        if (hasDraggedRef.current) {
+            e.stopPropagation();
+            e.preventDefault();
+        }
+    };
+
     const checkScroll = useCallback(() => {
         const el = scrollContainerRef.current;
         if (!el) return;
@@ -209,12 +267,19 @@ function TimelineDateGroup({
                 /* Release Cards: Generously Wide, High-Detail Layout */
                 <div
                     ref={scrollContainerRef}
+                    onMouseDown={handleMouseDown}
+                    onMouseMove={handleMouseMove}
+                    onMouseUp={handleMouseUp}
+                    onMouseLeave={handleMouseLeave}
+                    onClickCapture={handleClickCapture}
                     className={
                         totalReleases === 1
                             ? 'w-full'
                             : totalReleases === 2
                                 ? 'grid grid-cols-1 md:grid-cols-2 gap-5'
-                                : 'flex items-stretch gap-5 overflow-x-auto pb-4 pt-1 custom-scrollbar snap-x scroll-smooth'
+                                : `flex items-stretch gap-5 overflow-x-auto pb-4 pt-1 custom-scrollbar ${
+                                    isDragging ? 'cursor-grabbing select-none scroll-auto' : 'cursor-grab snap-x scroll-smooth'
+                                }`
                     }
                 >
                     {group.consolidated.map((item: any) => {
@@ -377,6 +442,31 @@ export function SchedulePanel() {
     const [viewMode, setViewMode] = useState<'timeline' | 'grid' | 'compact'>('timeline');
     const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
     const [activePreset, setActivePreset] = useState<string>('default');
+
+    // History and Back Button Management for Media Modal
+    const handleSelectEvent = useCallback((ev: CalendarEvent | null) => {
+        setSelectedEvent(ev);
+        if (ev) {
+            window.history.pushState({ modal: 'schedule-media-details' }, '');
+        }
+    }, []);
+
+    const handleCloseMediaDetails = useCallback(() => {
+        setSelectedEvent(null);
+        if (window.history.state?.modal === 'schedule-media-details') {
+            window.history.back();
+        }
+    }, []);
+
+    useEffect(() => {
+        const handlePopState = () => {
+            if (selectedEvent) {
+                setSelectedEvent(null);
+            }
+        };
+        window.addEventListener('popstate', handlePopState);
+        return () => window.removeEventListener('popstate', handlePopState);
+    }, [selectedEvent]);
 
     // Mini calendar month cursor for right panel
     const [miniCalMonth, setMiniCalMonth] = useState<Date>(new Date());
@@ -1126,21 +1216,10 @@ export function SchedulePanel() {
                                             key={dateKey}
                                             dateKey={dateKey}
                                             group={group}
-                                            onSelectEvent={setSelectedEvent}
+                                            onSelectEvent={handleSelectEvent}
                                             todayRef={todayRef}
                                         />
                                     ))}
-
-                                    {/* Floating Quick Jump to Today Button */}
-                                    <button
-                                        type="button"
-                                        onClick={handleJumpToToday}
-                                        className="fixed bottom-24 sm:bottom-8 right-6 z-40 px-6 py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-sm sm:text-base uppercase tracking-wider shadow-[0_12px_35px_rgba(16,185,129,0.45)] flex items-center gap-2.5 transition-all hover:scale-105 active:scale-95 cursor-pointer border border-emerald-300/50 backdrop-blur-md"
-                                        title="Quickly jump to Today in timeline"
-                                    >
-                                        <Flame size={20} className="fill-black" />
-                                        <span>Go to Today</span>
-                                    </button>
                                 </div>
                             )}
 
@@ -1154,7 +1233,7 @@ export function SchedulePanel() {
                                         return (
                                             <div
                                                 key={ev.id}
-                                                onClick={() => setSelectedEvent(ev)}
+                                                onClick={() => handleSelectEvent(ev)}
                                                 className="group relative bg-zinc-950 border border-zinc-900 hover:border-zinc-700 rounded-3xl overflow-hidden flex flex-col shadow-xl cursor-pointer hover:-translate-y-1 transition-all"
                                             >
                                                 <div className="aspect-[2/3] bg-zinc-900 overflow-hidden relative">
@@ -1205,7 +1284,7 @@ export function SchedulePanel() {
                                         return (
                                             <div
                                                 key={ev.id}
-                                                onClick={() => setSelectedEvent(ev)}
+                                                onClick={() => handleSelectEvent(ev)}
                                                 className="p-3.5 sm:p-4 hover:bg-zinc-900/60 transition-colors flex items-center justify-between gap-4 cursor-pointer"
                                             >
                                                 <div className="flex items-center gap-3.5 min-w-0 flex-1">
@@ -1255,6 +1334,17 @@ export function SchedulePanel() {
                             )}
                         </div>
                     )}
+
+                    {/* Floating Quick Jump to Today Button (Visible across all view modes) */}
+                    <button
+                        type="button"
+                        onClick={handleJumpToToday}
+                        className="fixed bottom-24 sm:bottom-8 right-6 z-40 px-6 py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-sm sm:text-base uppercase tracking-wider shadow-[0_12px_35px_rgba(16,185,129,0.45)] flex items-center gap-2.5 transition-all hover:scale-105 active:scale-95 cursor-pointer border border-emerald-300/50 backdrop-blur-md"
+                        title="Quickly jump to Today in timeline"
+                    >
+                        <Flame size={20} className="fill-black" />
+                        <span>Go to Today</span>
+                    </button>
 
                     {/* Bottom Infinite Load More Future Releases Button */}
                     <div className="text-center pt-2">
@@ -1398,7 +1488,7 @@ export function SchedulePanel() {
                                     return (
                                         <div
                                             key={item.id}
-                                            onClick={() => setSelectedEvent(item)}
+                                            onClick={() => handleSelectEvent(item)}
                                             className="p-3 rounded-2xl bg-zinc-950 hover:bg-zinc-900 border border-zinc-900 transition-all flex items-center gap-3 cursor-pointer group shadow-sm"
                                         >
                                             <div className="w-10 h-14 rounded-xl bg-zinc-900 overflow-hidden shrink-0 border border-white/5">
@@ -1446,7 +1536,7 @@ export function SchedulePanel() {
                                 {recentlyAvailable.map(item => (
                                     <div
                                         key={item.id}
-                                        onClick={() => setSelectedEvent(item)}
+                                        onClick={() => handleSelectEvent(item)}
                                         className="p-3 rounded-2xl bg-zinc-950 hover:bg-zinc-900 border border-zinc-900 transition-all flex items-center gap-3 cursor-pointer group shadow-sm"
                                     >
                                         <div className="w-10 h-14 rounded-xl bg-zinc-900 overflow-hidden shrink-0 border border-white/5">
@@ -1530,7 +1620,7 @@ export function SchedulePanel() {
                             colorHex: selectedEvent.instanceColor
                         }]
                     }}
-                    onClose={() => setSelectedEvent(null)}
+                    onClose={handleCloseMediaDetails}
                     onAdd={() => {}}
                     onDelete={() => {}}
                     onTransfer={() => {}}

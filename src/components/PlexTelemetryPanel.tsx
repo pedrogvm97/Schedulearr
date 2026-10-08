@@ -74,11 +74,63 @@ function PlexTelemetryPanelInner() {
     
     const [userColors, setUserColors] = useState<Record<string, string>>({});
     
-    // For clickable media details
     const [selectedHistoryMedia, setSelectedHistoryMedia] = useState<PlexHistory | null>(null);
     const [selectedLibraryExplorer, setSelectedLibraryExplorer] = useState<any | null>(null);
     const [selectedUser, setSelectedUser] = useState<{name: string, thumb?: string} | null>(null);
     const [terminatingId, setTerminatingId] = useState<string | null>(null);
+
+    // History and Back Button Management for Modals
+    const handleOpenHistoryMedia = (item: PlexHistory) => {
+        setSelectedHistoryMedia(item);
+        window.history.pushState({ modal: 'telemetry-media' }, '');
+    };
+    const handleCloseHistoryMedia = () => {
+        setSelectedHistoryMedia(null);
+        if (window.history.state?.modal === 'telemetry-media') {
+            window.history.back();
+        }
+    };
+
+    const handleOpenLibraryExplorer = (lib: any) => {
+        setSelectedLibraryExplorer(lib);
+        window.history.pushState({ modal: 'telemetry-library' }, '');
+    };
+    const handleCloseLibraryExplorer = () => {
+        setSelectedLibraryExplorer(null);
+        if (window.history.state?.modal === 'telemetry-library') {
+            window.history.back();
+        }
+    };
+
+    const handleOpenUser = (u: { name: string; thumb?: string }) => {
+        setSelectedUser(u);
+        window.history.pushState({ modal: 'telemetry-user' }, '');
+    };
+    const handleCloseUser = () => {
+        setSelectedUser(null);
+        if (window.history.state?.modal === 'telemetry-user') {
+            window.history.back();
+        }
+    };
+
+    useEffect(() => {
+        const handlePopState = () => {
+            if (selectedHistoryMedia) {
+                setSelectedHistoryMedia(null);
+                return;
+            }
+            if (selectedLibraryExplorer) {
+                setSelectedLibraryExplorer(null);
+                return;
+            }
+            if (selectedUser) {
+                setSelectedUser(null);
+                return;
+            }
+        };
+        window.addEventListener('popstate', handlePopState);
+        return () => window.removeEventListener('popstate', handlePopState);
+    }, [selectedHistoryMedia, selectedLibraryExplorer, selectedUser]);
 
     useEffect(() => {
         // Load user colors from local storage
@@ -750,7 +802,7 @@ function PlexTelemetryPanelInner() {
                                                             </div>
                                                             <div>
                                                                 <button
-                                                                    onClick={() => setSelectedUser({ name: u.name, thumb: u.thumb })}
+                                                                    onClick={() => handleOpenUser({ name: u.name, thumb: u.thumb })}
                                                                     className="font-bold text-zinc-200 hover:text-white transition-colors cursor-pointer text-left block"
                                                                 >
                                                                     {u.name}
@@ -798,7 +850,7 @@ function PlexTelemetryPanelInner() {
                                     {filteredHistory.slice(0, 50).map(item => (
                                         <div 
                                             key={item.id} 
-                                            onClick={() => setSelectedHistoryMedia(item)}
+                                            onClick={() => handleOpenHistoryMedia(item)}
                                             className="flex items-center gap-4 p-4 hover:bg-zinc-900/50 cursor-pointer transition-colors group"
                                         >
                                             <div className="relative w-10 h-14 shrink-0">
@@ -901,7 +953,7 @@ function PlexTelemetryPanelInner() {
                                             </div>
                                             <div 
                                                 className="flex flex-col cursor-pointer group/user"
-                                                onClick={() => setSelectedUser({ name: u.name, thumb: u.thumb })}
+                                                onClick={() => handleOpenUser({ name: u.name, thumb: u.thumb })}
                                             >
                                                 <span className="text-sm font-bold text-zinc-300 group-hover/user:underline" style={{ color: getUserColor(u.name, i) }}>{u.name}</span>
                                                 <span className="text-[10px] text-zinc-500 font-medium">Click name for activity</span>
@@ -968,7 +1020,7 @@ function PlexTelemetryPanelInner() {
                                 {stats.map(lib => (
                                     <div 
                                         key={lib.id} 
-                                        onClick={() => setSelectedLibraryExplorer(lib)}
+                                        onClick={() => handleOpenLibraryExplorer(lib)}
                                         className="p-4 rounded-xl bg-zinc-950/40 border border-zinc-800/80 flex items-center justify-between cursor-pointer hover:bg-zinc-900/60 hover:border-amber-500/30 transition-all group"
                                     >
                                         <div className="flex items-center gap-3 min-w-0">
@@ -1001,17 +1053,28 @@ function PlexTelemetryPanelInner() {
             {selectedHistoryMedia && (
                 <MediaDetailsPanel
                     item={{ 
-                        title: selectedHistoryMedia.title, 
+                        title: (selectedHistoryMedia.mediaType === 'series' && selectedHistoryMedia.seriesTitle)
+                            ? selectedHistoryMedia.seriesTitle
+                            : selectedHistoryMedia.title,
+                        name: (selectedHistoryMedia.mediaType === 'series' && selectedHistoryMedia.seriesTitle)
+                            ? selectedHistoryMedia.seriesTitle
+                            : selectedHistoryMedia.title,
+                        episodeTitle: (selectedHistoryMedia.mediaType === 'series' && selectedHistoryMedia.seriesTitle)
+                            ? selectedHistoryMedia.title
+                            : undefined,
+                        seasonNumber: selectedHistoryMedia.seasonNumber,
+                        episodeNumber: selectedHistoryMedia.episodeNumber,
                         posterPath: selectedHistoryMedia.poster, 
                         mediaType: selectedHistoryMedia.mediaType === 'series' ? 'tv' : selectedHistoryMedia.mediaType,
-                        // Provide basic info so it renders nicely even without full DB details
-                        overview: `Viewed on ${new Date(selectedHistoryMedia.viewedAt).toLocaleDateString()} by ${selectedHistoryMedia.user.name}.`,
                     }}
-                    watchHistory={history.filter(h => 
-                        (h.mediaType === 'series' && h.seriesTitle === selectedHistoryMedia.seriesTitle) || 
-                        (h.title === selectedHistoryMedia.title)
-                    )}
-                    onClose={() => setSelectedHistoryMedia(null)}
+                    watchHistory={history.filter(h => {
+                        const targetSeries = selectedHistoryMedia.seriesTitle || selectedHistoryMedia.title;
+                        if (h.mediaType === 'series' && h.seriesTitle) {
+                            return h.seriesTitle.toLowerCase() === targetSeries.toLowerCase();
+                        }
+                        return h.title.toLowerCase() === selectedHistoryMedia.title.toLowerCase();
+                    })}
+                    onClose={handleCloseHistoryMedia}
                 />
             )}
 
@@ -1019,7 +1082,7 @@ function PlexTelemetryPanelInner() {
             {selectedLibraryExplorer && (
                 <LibraryExplorerPanel 
                     library={selectedLibraryExplorer}
-                    onClose={() => setSelectedLibraryExplorer(null)}
+                    onClose={handleCloseLibraryExplorer}
                 />
             )}
 
@@ -1031,7 +1094,7 @@ function PlexTelemetryPanelInner() {
                     userColor={getUserColor(selectedUser.name)}
                     history={history} // pass unfiltered history so we can calculate their overall
                     formatHours={formatHours}
-                    onClose={() => setSelectedUser(null)}
+                    onClose={handleCloseUser}
                 />
             )}
         </div>

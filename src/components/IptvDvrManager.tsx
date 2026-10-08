@@ -421,6 +421,7 @@ export function IptvDvrManager() {
         setShortlistCategory('ALL');
         setShortlistFilterMode('all');
         setIsShortlistModalOpen(true);
+        window.history.pushState({ modal: 'iptv-shortlist' }, '');
     };
 
     const openEditShortlist = (sl: IptvShortlist) => {
@@ -432,7 +433,46 @@ export function IptvDvrManager() {
         setShortlistCategory('ALL');
         setShortlistFilterMode('selected');
         setIsShortlistModalOpen(true);
+        window.history.pushState({ modal: 'iptv-shortlist' }, '');
     };
+
+    const handleCloseShortlistModal = () => {
+        setIsShortlistModalOpen(false);
+        if (window.history.state?.modal === 'iptv-shortlist') {
+            window.history.back();
+        }
+    };
+
+    const handleOpenSourcesModal = (chan: any) => {
+        setSourcesModalChannel(chan);
+        window.history.pushState({ modal: 'iptv-sources' }, '');
+    };
+
+    const handleCloseSourcesModal = () => {
+        setSourcesModalChannel(null);
+        if (window.history.state?.modal === 'iptv-sources') {
+            window.history.back();
+        }
+    };
+
+    useEffect(() => {
+        const handlePopState = () => {
+            if (sourcesModalChannel) {
+                setSourcesModalChannel(null);
+                return;
+            }
+            if (isShortlistModalOpen) {
+                setIsShortlistModalOpen(false);
+                return;
+            }
+            if (singleChannelSchedule) {
+                setSingleChannelSchedule(null);
+                return;
+            }
+        };
+        window.addEventListener('popstate', handlePopState);
+        return () => window.removeEventListener('popstate', handlePopState);
+    }, [sourcesModalChannel, isShortlistModalOpen, singleChannelSchedule]);
 
     const handleToggleShortlistChannel = (chanId: string) => {
         if (shortlistPendingRemovalIds.includes(chanId)) {
@@ -1176,7 +1216,7 @@ export function IptvDvrManager() {
                                                     <Calendar size={13} /> Full 7-Day Guide
                                                 </button>
                                                 <button
-                                                    onClick={() => setSourcesModalChannel(chan)}
+                                                    onClick={() => handleOpenSourcesModal(chan)}
                                                     title="Inspect, reorder, or split stream sources"
                                                     className="px-2.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-black uppercase font-mono cursor-pointer transition-all flex items-center gap-1.5"
                                                 >
@@ -1804,7 +1844,7 @@ export function IptvDvrManager() {
                                     </p>
                                 </div>
                             </div>
-                            <button onClick={() => setIsShortlistModalOpen(false)} className="text-zinc-500 hover:text-white">
+                            <button onClick={handleCloseShortlistModal} className="text-zinc-500 hover:text-white">
                                 <X size={20} />
                             </button>
                         </div>
@@ -1865,12 +1905,7 @@ export function IptvDvrManager() {
                                                     : 'text-zinc-400 hover:text-white'
                                             }`}
                                         >
-                                            <span>⭐ Selected ({shortlistSelectedIds.length})</span>
-                                            {shortlistPendingRemovalIds.length > 0 && (
-                                                <span className="px-1.5 py-0.2 rounded-full bg-red-500/25 text-red-300 border border-red-500/40 text-[11px] font-black">
-                                                    {shortlistPendingRemovalIds.length} limbo
-                                                </span>
-                                            )}
+                                            ⭐ Selected ({shortlistSelectedIds.length})
                                         </button>
                                         <button
                                             type="button"
@@ -1948,24 +1983,13 @@ export function IptvDvrManager() {
                                         type="button"
                                         onClick={() => {
                                             const set = new Set(filteredShortlistChannels.map(c => c.id));
-                                            const toLimbo = shortlistSelectedIds.filter(id => set.has(id));
-                                            setShortlistPendingRemovalIds(prev => Array.from(new Set([...prev, ...toLimbo])));
+                                            const toRemove = shortlistSelectedIds.filter(id => set.has(id));
+                                            setShortlistPendingRemovalIds(prev => Array.from(new Set([...prev, ...toRemove])));
                                             setShortlistSelectedIds(prev => prev.filter(id => !set.has(id)));
                                         }}
                                         className="text-amber-400 hover:text-amber-300 cursor-pointer"
                                     >
-                                        - Deselect Filtered (Limbo)
-                                    </button>
-                                    <span className="text-zinc-700">•</span>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setShortlistPendingRemovalIds(prev => Array.from(new Set([...prev, ...shortlistSelectedIds])));
-                                            setShortlistSelectedIds([]);
-                                        }}
-                                        className="text-zinc-500 hover:text-white cursor-pointer"
-                                    >
-                                        Clear to Limbo
+                                        - Deselect Filtered
                                     </button>
                                 </div>
                             </div>
@@ -2031,7 +2055,7 @@ export function IptvDvrManager() {
                                                                     type="button"
                                                                     onClick={(e) => {
                                                                         e.stopPropagation();
-                                                                        setSourcesModalChannel(chan);
+                                                                        handleOpenSourcesModal(chan);
                                                                     }}
                                                                     title="Inspect &amp; split auto-merged sources"
                                                                     className="px-1.5 py-0.5 rounded-md bg-amber-500/15 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 font-mono text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all"
@@ -2100,7 +2124,7 @@ export function IptvDvrManager() {
                                                             type="button"
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
-                                                                setSourcesModalChannel(chan);
+                                                                handleOpenSourcesModal(chan);
                                                             }}
                                                             title="Inspect &amp; split auto-merged sources"
                                                             className="px-2 py-0.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 font-mono text-xs font-bold flex items-center gap-1 cursor-pointer transition-all"
@@ -2119,7 +2143,7 @@ export function IptvDvrManager() {
                                 <button
                                     type="button"
                                     onClick={() => {
-                                        setIsShortlistModalOpen(false);
+                                        handleCloseShortlistModal();
                                         setShortlistPendingRemovalIds([]);
                                     }}
                                     className="px-5 py-2.5 rounded-xl text-zinc-400 hover:text-white text-sm font-bold cursor-pointer"
@@ -2456,7 +2480,7 @@ export function IptvDvrManager() {
                     channel={sourcesModalChannel}
                     libraryId={activeLibrary?.id || ''}
                     allChannels={channels}
-                    onClose={() => setSourcesModalChannel(null)}
+                    onClose={handleCloseSourcesModal}
                     onChannelUpdated={(updated) => {
                         setChannels(prev => prev.map(c => c.id === updated.id ? updated : c));
                         if (activeLibrary?.id) fetchAllData(activeLibrary.id);

@@ -500,13 +500,35 @@ function MediaDetailsPanelInner({
     } | null>(null);
     const [isWatchingWebStream, setIsWatchingWebStream] = useState(false);
     const [activeStreamSourceIdx, setActiveStreamSourceIdx] = useState(0);
-    const [streamSeason, setStreamSeason] = useState(1);
-    const [streamEpisode, setStreamEpisode] = useState(1);
+    const [streamSeason, setStreamSeason] = useState(Number(item.seasonNumber) || 1);
+    const [streamEpisode, setStreamEpisode] = useState(Number(item.episodeNumber) || 1);
     const [isAddingToLibrary, setIsAddingToLibrary] = useState(false);
     const [currentLibStatus, setCurrentLibStatus] = useState<any>(libStatus || null);
 
-    const isSeries = item.type === 'series' || item.mediaType === 'series' || !!item.tvdbId || !!item.seasons || !!item.seriesId;
+    const isSeries = item.type === 'series' || item.mediaType === 'series' || item.mediaType === 'tv' || !!item.tvdbId || !!item.seasons || !!item.seriesId || !!item.episodeTitle;
     const tmdbId = item.tmdbId || (item.isTmdb ? item.id : null);
+
+    const handleOpenWebStream = () => {
+        setIsWatchingWebStream(true);
+        window.history.pushState({ modal: 'media-details-stream' }, '');
+    };
+
+    const handleCloseWebStream = () => {
+        setIsWatchingWebStream(false);
+        if (window.history.state?.modal === 'media-details-stream') {
+            window.history.back();
+        }
+    };
+
+    useEffect(() => {
+        const handlePopState = () => {
+            if (isWatchingWebStream) {
+                setIsWatchingWebStream(false);
+            }
+        };
+        window.addEventListener('popstate', handlePopState);
+        return () => window.removeEventListener('popstate', handlePopState);
+    }, [isWatchingWebStream]);
 
     useEffect(() => {
         if (libStatus) setCurrentLibStatus(libStatus);
@@ -1029,7 +1051,7 @@ function MediaDetailsPanelInner({
                             ) : streamData.probeAvailable === true ? (
                                 /* Confirmed available */
                                 <button
-                                    onClick={() => setIsWatchingWebStream(true)}
+                                    onClick={handleOpenWebStream}
                                     className="w-full h-12 flex items-center justify-center gap-2.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black uppercase text-xs sm:text-sm tracking-wider transition-all shadow-xl shadow-emerald-500/20 active:scale-95"
                                 >
                                     <Clapperboard size={18} /> Stream from IMDb
@@ -1037,7 +1059,7 @@ function MediaDetailsPanelInner({
                             ) : streamData.available && streamData.probeAvailable === null ? (
                                 /* Sources exist but probe failed/timed out — show as uncertain option */
                                 <button
-                                    onClick={() => setIsWatchingWebStream(true)}
+                                    onClick={handleOpenWebStream}
                                     className="w-full h-12 flex items-center justify-center gap-2.5 rounded-2xl bg-zinc-900/80 hover:bg-zinc-800 border border-zinc-700 text-zinc-300 hover:text-white font-black uppercase text-xs sm:text-sm tracking-wider transition-all active:scale-95"
                                     title="Stream availability unverified — may or may not work"
                                 >
@@ -1284,6 +1306,16 @@ function MediaDetailsPanelInner({
                             <h2 className="text-3xl sm:text-5xl lg:text-6xl font-black text-white leading-tight tracking-tight drop-shadow-2xl">
                                 {item.title || details?.name || item.name}
                             </h2>
+                            {item.episodeTitle && (
+                                <div className="text-base sm:text-xl font-bold text-sky-400 flex items-center gap-2">
+                                    <span>Episode: {item.episodeTitle}</span>
+                                    {item.seasonNumber && item.episodeNumber && (
+                                        <span className="text-xs px-2.5 py-0.5 rounded-full bg-sky-500/15 text-sky-300 font-mono border border-sky-500/30">
+                                            S{String(item.seasonNumber).padStart(2, '0')}E{String(item.episodeNumber).padStart(2, '0')}
+                                        </span>
+                                    )}
+                                </div>
+                            )}
                             {details?.tagline && (
                                 <p className="text-base sm:text-xl font-bold text-emerald-400 italic opacity-85">
                                     "{details.tagline}"
@@ -1558,7 +1590,7 @@ function MediaDetailsPanelInner({
                                 )}
 
                                 <button
-                                    onClick={() => setIsWatchingWebStream(false)}
+                                    onClick={handleCloseWebStream}
                                     className="p-2.5 rounded-full bg-zinc-800 hover:bg-zinc-700 text-white transition-all shadow-md active:scale-95"
                                     aria-label="Close Stream Player"
                                 >
