@@ -121,13 +121,15 @@ export async function GET() {
             if (sf.path) allKnownLocations.add(sf.path);
         }
 
-        const accessibleMounts = Array.from(allKnownLocations).filter(p => fs.existsSync(p));
+        const allMounts = Array.from(allKnownLocations);
+        const accessibleMounts = allMounts.filter(p => fs.existsSync(p));
 
         return NextResponse.json({
             plex: plexLibraries,
             radarr: radarrFolders,
             sonarr: sonarrFolders,
-            commonMounts: accessibleMounts
+            commonMounts: allMounts.length > 0 ? allMounts : accessibleMounts,
+            accessibleMounts
         });
     } catch (error: any) {
         console.error('API /theater/sources error:', error);

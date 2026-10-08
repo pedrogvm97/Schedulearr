@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import {
     Folder, Plus, Trash2, Edit3, RefreshCw, X, Film, Tv, Disc,
     Tv2, Check, AlertCircle, HardDrive, Layers, Globe, Radio,
-    FolderPlus, ExternalLink, ChevronRight, Server, BookOpen
+    FolderPlus, ExternalLink, ChevronRight, Server, BookOpen, UploadCloud
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -14,7 +14,9 @@ export interface TheaterLibrary {
     type: 'movie' | 'tv' | 'music' | 'live' | 'audiobooks';
     folders: string[];
     plexSectionId?: string;
+    plex_section_id?: string;
     instanceId?: string;
+    instance_id?: string;
 }
 
 interface ManageLibrariesModalProps {
@@ -56,8 +58,21 @@ export function ManageLibrariesModal({ isOpen, onClose, onLibrariesChanged }: Ma
     // Sources and Mount Shortcuts
     const [commonMounts, setCommonMounts] = useState<string[]>([]);
     const [plexSources, setPlexSources] = useState<any[]>([]);
+    const [radarrSources, setRadarrSources] = useState<any[]>([]);
+    const [sonarrSources, setSonarrSources] = useState<any[]>([]);
     const [showPlexImport, setShowPlexImport] = useState(false);
     const [isImportingPlex, setIsImportingPlex] = useState(false);
+
+    // Selected Plex link for newly created library
+    const [selectedPlexSectionId, setSelectedPlexSectionId] = useState<string | undefined>(undefined);
+    const [selectedInstanceId, setSelectedInstanceId] = useState<string | undefined>(undefined);
+
+    // IPTV Advanced Modes (M3U URL, Upload, Xtream Codes)
+    const [iptvMode, setIptvMode] = useState<'url' | 'upload' | 'xtream'>('url');
+    const [xtreamServer, setXtreamServer] = useState('');
+    const [xtreamUser, setXtreamUser] = useState('');
+    const [xtreamPass, setXtreamPass] = useState('');
+    const [xtreamOutput, setXtreamOutput] = useState<'ts' | 'm3u8'>('ts');
 
     const fetchLibraries = async () => {
         setLoading(true);
@@ -82,6 +97,8 @@ export function ManageLibrariesModal({ isOpen, onClose, onLibrariesChanged }: Ma
                 const data = await res.json();
                 setCommonMounts(Array.isArray(data.commonMounts) ? data.commonMounts : []);
                 setPlexSources(Array.isArray(data.plex) ? data.plex : []);
+                setRadarrSources(Array.isArray(data.radarr) ? data.radarr : []);
+                setSonarrSources(Array.isArray(data.sonarr) ? data.sonarr : []);
             }
         } catch {}
     };
@@ -93,6 +110,8 @@ export function ManageLibrariesModal({ isOpen, onClose, onLibrariesChanged }: Ma
             setIsCreating(false);
             setEditingLibId(null);
             setDeletingLib(null);
+            setSelectedPlexSectionId(undefined);
+            setSelectedInstanceId(undefined);
         }
     }, [isOpen]);
 
@@ -107,23 +126,35 @@ export function ManageLibrariesModal({ isOpen, onClose, onLibrariesChanged }: Ma
     const handleRescan = async (lib: TheaterLibrary) => {
         setRescanningLibIds(prev => ({ ...prev, [lib.id]: true }));
         try {
-            const res = await fetch('/api/theater/scan', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ libraryId: lib.id, force: true })
-            });
-            if (res.ok) {
-                toast.success(`Rescan started for "${lib.name}"`);
-                notifyChange();
+            if (lib.type === 'live') {
+                const res = await fetch('/api/theater/scan', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ libraryId: lib.id, force: true })
+                });
+                if (res.ok) {
+                    toast.success(`Rescan and EPG sync started for "${lib.name}"`);
+                    notifyChange();
+                } else {
+                    toast.error(`Failed to rescan "${lib.name}"`);
+                }
             } else {
-                toast.error(`Failed to rescan "${lib.name}"`);
+                const res = await fetch(`/api/theater/items?libraryId=${encodeURIComponent(lib.id)}&refresh=true`);
+                if (res.ok) {
+                    const data = await res.json();
+                    const count = data.total ?? data.items?.length ?? 0;
+                    toast.success(`Rescanned "${lib.name}" (${count} items detected)`);
+                    notifyChange();
+                } else {
+                    toast.error(`Failed to rescan "${lib.name}"`);
+                }
             }
         } catch {
             toast.error(`Error rescanning "${lib.name}"`);
         } finally {
             setTimeout(() => {
                 setRescanningLibIds(prev => ({ ...prev, [lib.id]: false }));
-            }, 1200);
+            }, 800);
         }
     };
 
@@ -141,11 +172,36 @@ export function ManageLibrariesModal({ isOpen, onClose, onLibrariesChanged }: Ma
         }
 
         if (newLibType === 'live') {
-            if (!iptvUrlInput.trim() && !iptvFile) {
-                toast.error('Please enter an M3U stream URL or upload a file');
-                return;
+            let effectiveM3u = iptvUrlInput.trim();
+            let effectiveEpg = iptvEpgInput.trim();
+
+            if (iptvMode === 'upload') {
+                if (!iptvFile) {
+                    toast.error('Please select an M3U playlist file to upload');
+                    return;
+                }
+            } else if (iptvMode === 'url') {
+                if (!iptvUrlInput.trim()) {
+                    toast.error('Please enter an M3U stream URL');
+                    return;
+                }
+            } else if (iptvMode === 'xtream') {
+                if (!xtreamServer.trim() || !xtreamUser.trim() || !xtreamPass.trim()) {
+                    toast.error('Please fill in Xtream Server URL, Username, and Password');
+                    return;
+                }
+                let base = xtreamServer.trim().replace(/\/$/, '');
+                if (!base.startsWith('http://') && !base.startsWith('https://')) {
+                    base = `http://${base}`;
+                }
+                effectiveM3u = `${base}/get.php?username=${encodeURIComponent(xtreamUser.trim())}&password=${encodeURIComponent(xtreamPass.trim())}&type=m3u_plus&output=${xtreamOutput}`;
+                if (!effectiveEpg) {
+                    effectiveEpg = `${base}/xmltv.php?username=${encodeURIComponent(xtreamUser.trim())}&password=${encodeURIComponent(xtreamPass.trim())}`;
+                }
             }
-            finalFolders = [iptvUrlInput.trim() || 'local_file_upload'];
+
+            finalFolders = [effectiveM3u || 'local_file_upload'];
+            if (effectiveEpg) finalFolders.push(effectiveEpg);
         } else if (finalFolders.length === 0) {
             toast.error('At least one folder path is required');
             return;
@@ -159,7 +215,9 @@ export function ManageLibrariesModal({ isOpen, onClose, onLibrariesChanged }: Ma
                 body: JSON.stringify({
                     name: newLibName.trim(),
                     type: newLibType,
-                    folders: finalFolders
+                    folders: finalFolders,
+                    plexSectionId: selectedPlexSectionId,
+                    instanceId: selectedInstanceId
                 })
             });
 
@@ -172,9 +230,9 @@ export function ManageLibrariesModal({ isOpen, onClose, onLibrariesChanged }: Ma
                     try {
                         const formData = new FormData();
                         formData.append('libraryId', newLibId);
-                        if (iptvFile) formData.append('file', iptvFile);
-                        else if (iptvUrlInput.trim()) formData.append('url', iptvUrlInput.trim());
-                        if (iptvEpgInput.trim()) formData.append('epgUrl', iptvEpgInput.trim());
+                        if (iptvMode === 'upload' && iptvFile) formData.append('file', iptvFile);
+                        else if (finalFolders[0] && finalFolders[0] !== 'local_file_upload') formData.append('url', finalFolders[0]);
+                        if (finalFolders[1]) formData.append('epgUrl', finalFolders[1]);
 
                         await fetch('/api/theater/iptv', { method: 'POST', body: formData });
                     } catch (iptvErr) {
@@ -189,6 +247,11 @@ export function ManageLibrariesModal({ isOpen, onClose, onLibrariesChanged }: Ma
                 setIptvUrlInput('');
                 setIptvEpgInput('');
                 setIptvFile(null);
+                setXtreamServer('');
+                setXtreamUser('');
+                setXtreamPass('');
+                setSelectedPlexSectionId(undefined);
+                setSelectedInstanceId(undefined);
                 setIsCreating(false);
                 await fetchLibraries();
                 notifyChange();
@@ -639,59 +702,262 @@ export function ManageLibrariesModal({ isOpen, onClose, onLibrariesChanged }: Ma
                                         </button>
                                     </div>
 
-                                    {/* Mount Shortcuts */}
-                                    {commonMounts.length > 0 && (
-                                        <div className="pt-2 space-y-1.5">
-                                            <span className="text-[10px] font-black text-zinc-500 uppercase tracking-wider block">
-                                                Quick Server Mount Shortcuts:
-                                            </span>
-                                            <div className="flex flex-wrap gap-1.5">
-                                                {commonMounts.map((cp, idx) => (
-                                                    <button
-                                                        key={idx}
-                                                        type="button"
-                                                        onClick={() => {
-                                                            if (!newLibFolders.includes(cp)) {
-                                                                setNewLibFolders(prev => [...prev, cp]);
-                                                            }
-                                                        }}
-                                                        className="px-2.5 py-1 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-[11px] font-mono text-zinc-400 hover:text-emerald-400 border border-zinc-800 transition-all flex items-center gap-1.5 cursor-pointer"
-                                                    >
-                                                        <HardDrive size={11} />
-                                                        <span>{cp}</span>
-                                                    </button>
-                                                ))}
+                                    {/* Dynamic Plex & Server Storage Suggestions filtered by newLibType */}
+                                    {(() => {
+                                        // 1. Matching Plex sections
+                                        const matchingPlex = plexSources.filter((ps: any) => {
+                                            if (newLibType === 'movie') return ps.mediaType === 'movie' || ps.plexType === 'movie';
+                                            if (newLibType === 'tv') return ps.mediaType === 'show' || ps.plexType === 'show';
+                                            if (newLibType === 'music') return ps.mediaType === 'music' || ps.plexType === 'artist' || ps.plexType === 'music';
+                                            if (newLibType === 'audiobooks') return ps.mediaType === 'audiobooks' || (ps.title || '').toLowerCase().includes('book');
+                                            return false;
+                                        });
+
+                                        // 2. Matching Radarr / Sonarr folders
+                                        const matchingArr = newLibType === 'movie' ? radarrSources : (newLibType === 'tv' ? sonarrSources : []);
+
+                                        const hasPlexSuggestions = matchingPlex.length > 0;
+                                        const hasArrSuggestions = matchingArr.length > 0;
+
+                                        return (
+                                            <div className="pt-2 space-y-3">
+                                                {hasPlexSuggestions && (
+                                                    <div className="space-y-2">
+                                                        <div className="flex items-center justify-between">
+                                                            <div className="flex items-center gap-2 text-amber-400 font-bold text-xs uppercase tracking-wider">
+                                                                <Server size={14} />
+                                                                <span>Plex {newLibType === 'movie' ? 'Movie' : newLibType === 'tv' ? 'Series' : newLibType === 'music' ? 'Music' : 'Audiobook'} Storage Paths:</span>
+                                                            </div>
+                                                            <span className="text-[11px] text-zinc-500 font-medium">Click to use full server path</span>
+                                                        </div>
+
+                                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                            {matchingPlex.flatMap((ps: any, psIdx: number) => {
+                                                                const locs: string[] = ps.locations || [];
+                                                                return locs.map((locPath: string, lIdx: number) => {
+                                                                    const isAdded = newLibFolders.includes(locPath);
+                                                                    return (
+                                                                        <button
+                                                                            key={`plex-${psIdx}-${lIdx}`}
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                if (!newLibFolders.includes(locPath)) {
+                                                                                    setNewLibFolders(prev => [...prev, locPath]);
+                                                                                }
+                                                                                if (!newLibName.trim()) {
+                                                                                    setNewLibName(ps.title);
+                                                                                }
+                                                                                setSelectedPlexSectionId(ps.sectionKey);
+                                                                                setSelectedInstanceId(ps.instanceId);
+                                                                            }}
+                                                                            className={`p-3.5 rounded-2xl border text-left transition-all flex items-start justify-between gap-3 cursor-pointer ${
+                                                                                isAdded
+                                                                                    ? 'bg-amber-500/15 border-amber-500/50 text-white'
+                                                                                    : 'bg-zinc-900/90 hover:bg-zinc-800/90 border-zinc-800 text-zinc-300 hover:border-amber-500/50'
+                                                                            }`}
+                                                                        >
+                                                                            <div className="min-w-0 flex-1 space-y-1">
+                                                                                <div className="flex items-center gap-2 flex-wrap">
+                                                                                    <span className="text-sm font-black text-amber-400 truncate">{ps.title}</span>
+                                                                                    <span className="text-xs px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 font-mono">
+                                                                                        Section #{ps.sectionKey}
+                                                                                    </span>
+                                                                                </div>
+                                                                                <div className="flex items-center gap-2 text-sm font-mono font-bold text-white break-all">
+                                                                                    <Folder size={14} className="text-amber-400 shrink-0" />
+                                                                                    <span className="truncate">{locPath}</span>
+                                                                                </div>
+                                                                            </div>
+                                                                            <span className={`px-2.5 py-1 rounded-xl text-xs font-black uppercase shrink-0 ${
+                                                                                isAdded ? 'bg-amber-500 text-black font-bold' : 'bg-zinc-800 text-zinc-400'
+                                                                            }`}>
+                                                                                {isAdded ? 'Selected' : '+ Use'}
+                                                                            </span>
+                                                                        </button>
+                                                                    );
+                                                                });
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {hasArrSuggestions && (
+                                                    <div className="space-y-2">
+                                                        <span className="text-xs font-black text-zinc-400 uppercase tracking-wider block">
+                                                            Connected {newLibType === 'movie' ? 'Radarr' : 'Sonarr'} Root Folders:
+                                                        </span>
+                                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                            {matchingArr.map((arrItem: any, idx: number) => {
+                                                                const isAdded = newLibFolders.includes(arrItem.path);
+                                                                return (
+                                                                    <button
+                                                                        key={`arr-${idx}`}
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            if (!newLibFolders.includes(arrItem.path)) {
+                                                                                setNewLibFolders(prev => [...prev, arrItem.path]);
+                                                                            }
+                                                                            if (!newLibName.trim()) {
+                                                                                setNewLibName(arrItem.instanceName || 'Media');
+                                                                            }
+                                                                        }}
+                                                                        className={`p-3.5 rounded-2xl border text-left transition-all flex items-start justify-between gap-3 cursor-pointer ${
+                                                                            isAdded
+                                                                                ? 'bg-emerald-500/15 border-emerald-500/50 text-white'
+                                                                                : 'bg-zinc-900/80 hover:bg-zinc-800/80 border-zinc-800 text-zinc-300'
+                                                                        }`}
+                                                                    >
+                                                                        <div className="min-w-0 flex-1 space-y-1">
+                                                                            <span className="text-sm font-black text-emerald-400 block truncate">{arrItem.title}</span>
+                                                                            <span className="text-sm font-mono text-zinc-200 block truncate">{arrItem.path}</span>
+                                                                        </div>
+                                                                        <span className={`px-2.5 py-1 rounded-xl text-xs font-black uppercase shrink-0 ${
+                                                                            isAdded ? 'bg-emerald-500 text-black font-bold' : 'bg-zinc-800 text-zinc-400'
+                                                                        }`}>
+                                                                            {isAdded ? 'Selected' : '+ Use'}
+                                                                        </span>
+                                                                    </button>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {/* Other Server Mount Shortcuts if present */}
+                                                {commonMounts.filter(cp => !matchingPlex.some((p: any) => (p.locations || []).includes(cp))).length > 0 && (
+                                                    <div className="space-y-1.5 pt-1">
+                                                        <span className="text-[10px] font-black text-zinc-500 uppercase tracking-wider block">
+                                                            Other Server Mounts:
+                                                        </span>
+                                                        <div className="flex flex-wrap gap-1.5">
+                                                            {commonMounts
+                                                                .filter(cp => !matchingPlex.some((p: any) => (p.locations || []).includes(cp)))
+                                                                .map((cp, idx) => (
+                                                                    <button
+                                                                        key={idx}
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            if (!newLibFolders.includes(cp)) {
+                                                                                setNewLibFolders(prev => [...prev, cp]);
+                                                                            }
+                                                                        }}
+                                                                        className="px-2.5 py-1 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-[11px] font-mono text-zinc-400 hover:text-emerald-400 border border-zinc-800 transition-all flex items-center gap-1.5 cursor-pointer"
+                                                                    >
+                                                                        <HardDrive size={11} />
+                                                                        <span>{cp}</span>
+                                                                    </button>
+                                                                ))}
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
-                                        </div>
-                                    )}
+                                        );
+                                    })()}
                                 </div>
                             ) : (
                                 /* Live TV Inputs */
                                 <div className="space-y-4 pt-2">
-                                    <div className="space-y-1.5">
-                                        <label className="text-xs font-black text-zinc-300 uppercase tracking-wider block">
-                                            M3U / M3U8 Playlist Stream URL:
-                                        </label>
-                                        <input
-                                            type="url"
-                                            placeholder="https://example.com/playlist.m3u8"
-                                            value={iptvUrlInput}
-                                            onChange={e => setIptvUrlInput(e.target.value)}
-                                            className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-3 text-xs text-white placeholder-zinc-500 outline-none focus:border-red-500 font-mono"
-                                        />
+                                    <div className="grid grid-cols-3 gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setIptvMode('url')}
+                                            className={`py-2 px-3 rounded-xl border text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                                                iptvMode === 'url' ? 'bg-red-500/20 text-red-400 border-red-500/40' : 'bg-zinc-900 text-zinc-400 border-zinc-800'
+                                            }`}
+                                        >
+                                            <Radio size={13} /> M3U URL
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setIptvMode('xtream')}
+                                            className={`py-2 px-3 rounded-xl border text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                                                iptvMode === 'xtream' ? 'bg-amber-500/20 text-amber-400 border-amber-500/40' : 'bg-zinc-900 text-zinc-400 border-zinc-800'
+                                            }`}
+                                        >
+                                            <Server size={13} /> Xtream Codes
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setIptvMode('upload')}
+                                            className={`py-2 px-3 rounded-xl border text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                                                iptvMode === 'upload' ? 'bg-blue-500/20 text-blue-400 border-blue-500/40' : 'bg-zinc-900 text-zinc-400 border-zinc-800'
+                                            }`}
+                                        >
+                                            <UploadCloud size={13} /> Upload File
+                                        </button>
                                     </div>
 
-                                    <div className="space-y-1.5">
-                                        <label className="text-xs font-black text-zinc-300 uppercase tracking-wider block">
-                                            Or Upload Local M3U File:
-                                        </label>
-                                        <input
-                                            type="file"
-                                            accept=".m3u,.m3u8"
-                                            onChange={e => setIptvFile(e.target.files?.[0] || null)}
-                                            className="w-full text-xs text-zinc-400 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-zinc-800 file:text-white hover:file:bg-zinc-700"
-                                        />
-                                    </div>
+                                    {iptvMode === 'url' && (
+                                        <div className="space-y-1.5">
+                                            <label className="text-xs font-black text-zinc-300 uppercase tracking-wider block">
+                                                M3U / M3U8 Playlist Stream URL:
+                                            </label>
+                                            <input
+                                                type="url"
+                                                placeholder="https://example.com/playlist.m3u8"
+                                                value={iptvUrlInput}
+                                                onChange={e => setIptvUrlInput(e.target.value)}
+                                                className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-3 text-xs text-white placeholder-zinc-500 outline-none focus:border-red-500 font-mono"
+                                            />
+                                        </div>
+                                    )}
+
+                                    {iptvMode === 'xtream' && (
+                                        <div className="space-y-3">
+                                            <div className="space-y-1.5">
+                                                <label className="text-xs font-black text-zinc-300 uppercase tracking-wider block">
+                                                    Server Address / Host:
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    placeholder="http://iptv-server.com:8080"
+                                                    value={xtreamServer}
+                                                    onChange={e => setXtreamServer(e.target.value)}
+                                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-3 text-xs text-white placeholder-zinc-500 outline-none focus:border-amber-500 font-mono"
+                                                />
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div className="space-y-1.5">
+                                                    <label className="text-xs font-black text-zinc-300 uppercase tracking-wider block">
+                                                        Username:
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        placeholder="username"
+                                                        value={xtreamUser}
+                                                        onChange={e => setXtreamUser(e.target.value)}
+                                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-3 text-xs text-white placeholder-zinc-500 outline-none focus:border-amber-500 font-mono"
+                                                    />
+                                                </div>
+                                                <div className="space-y-1.5">
+                                                    <label className="text-xs font-black text-zinc-300 uppercase tracking-wider block">
+                                                        Password:
+                                                    </label>
+                                                    <input
+                                                        type="password"
+                                                        placeholder="••••••••"
+                                                        value={xtreamPass}
+                                                        onChange={e => setXtreamPass(e.target.value)}
+                                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-3 text-xs text-white placeholder-zinc-500 outline-none focus:border-amber-500 font-mono"
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {iptvMode === 'upload' && (
+                                        <div className="space-y-1.5">
+                                            <label className="text-xs font-black text-zinc-300 uppercase tracking-wider block">
+                                                Select Local M3U File:
+                                            </label>
+                                            <input
+                                                type="file"
+                                                accept=".m3u,.m3u8"
+                                                onChange={e => setIptvFile(e.target.files?.[0] || null)}
+                                                className="w-full text-xs text-zinc-400 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-zinc-800 file:text-white hover:file:bg-zinc-700"
+                                            />
+                                        </div>
+                                    )}
 
                                     <div className="space-y-1.5">
                                         <label className="text-xs font-black text-zinc-300 uppercase tracking-wider block">

@@ -241,21 +241,45 @@ export async function GET(req: Request) {
             for (const plex of plexInstances) {
                 try {
                     const plexUrl = plex.url.replace(/\/$/, '');
-                    let targetSectionId = lib.plex_section_id;
+                    let targetSectionId = lib.plex_section_id || lib.plexSectionId;
 
                     // If no explicit section ID, search Plex sections by name or folder match
                     if (!targetSectionId) {
                         const secRes = await axios.get(`${plexUrl}/library/sections`, {
                             headers: { 'X-Plex-Token': plex.api_key, 'Accept': 'application/json' },
-                            timeout: 5000
+                            timeout: 6000
                         });
-                        const dirs = secRes.data?.MediaContainer?.Directory || [];
-                        const match = dirs.find((d: any) => {
-                            const nameMatch = d.title.toLowerCase() === lib.name.toLowerCase();
-                            const locs = (d.Location || []).map((l: any) => l.path);
-                            const locMatch = folderList.some((f: string) => locs.includes(f));
+                        const rawDirs = secRes.data?.MediaContainer?.Directory || [];
+                        const dirs = Array.isArray(rawDirs) ? rawDirs : [rawDirs].filter(Boolean);
+                        
+                        let match = dirs.find((d: any) => {
+                            const nameMatch = d.title?.toLowerCase() === lib.name.toLowerCase();
+                            const locs = (d.Location || []).map((l: any) => l.path).filter(Boolean);
+                            const locMatch = folderList.some((f: string) => locs.some((lp: string) => lp === f || lp.includes(f) || f.includes(lp)));
                             return nameMatch || locMatch;
                         });
+
+                        // Fallback matching by library type if not matched by name/path
+                        if (!match) {
+                            if (lib.type === 'music') {
+                                const musicDirs = dirs.filter((d: any) => d.type === 'artist');
+                                if (musicDirs.length === 1) {
+                                    match = musicDirs[0];
+                                } else if (musicDirs.length > 1) {
+                                    match = musicDirs.find((d: any) => 
+                                        d.title?.toLowerCase().includes(lib.name.toLowerCase()) || 
+                                        lib.name.toLowerCase().includes(d.title?.toLowerCase())
+                                    ) || musicDirs[0];
+                                }
+                            } else if (lib.type === 'show' || lib.type === 'tv') {
+                                const showDirs = dirs.filter((d: any) => d.type === 'show');
+                                if (showDirs.length === 1) match = showDirs[0];
+                            } else if (lib.type === 'movie') {
+                                const movieDirs = dirs.filter((d: any) => d.type === 'movie');
+                                if (movieDirs.length === 1) match = movieDirs[0];
+                            }
+                        }
+
                         if (match) {
                             targetSectionId = String(match.key);
                         }
@@ -263,16 +287,37 @@ export async function GET(req: Request) {
 
                     if (targetSectionId) {
                         const isMusic = lib.type === 'music';
-                        const endpoint = isMusic 
-                            ? `${plexUrl}/library/sections/${targetSectionId}/all?type=10`
-                            : `${plexUrl}/library/sections/${targetSectionId}/all`;
+                        let metadata: any[] = [];
 
-                        const res = await axios.get(endpoint, {
-                            headers: { 'X-Plex-Token': plex.api_key, 'Accept': 'application/json' },
-                            timeout: 10000
-                        });
+                        if (isMusic) {
+                            // Try tracks query (?type=10) with generous timeout
+                            try {
+                                const res = await axios.get(`${plexUrl}/library/sections/${targetSectionId}/all?type=10`, {
+                                    headers: { 'X-Plex-Token': plex.api_key, 'Accept': 'application/json' },
+                                    timeout: 25000
+                                });
+                                metadata = res.data?.MediaContainer?.Metadata || [];
+                            } catch (trackErr: any) {
+                                console.warn('Plex ?type=10 query failed, trying standard section fetch:', trackErr.message);
+                            }
 
-                        const metadata = res.data?.MediaContainer?.Metadata || [];
+                            // If type=10 was empty or timed out, query standard section endpoint
+                            if (metadata.length === 0) {
+                                try {
+                                    const fallbackRes = await axios.get(`${plexUrl}/library/sections/${targetSectionId}/all`, {
+                                        headers: { 'X-Plex-Token': plex.api_key, 'Accept': 'application/json' },
+                                        timeout: 20000
+                                    });
+                                    metadata = fallbackRes.data?.MediaContainer?.Metadata || [];
+                                } catch {}
+                            }
+                        } else {
+                            const res = await axios.get(`${plexUrl}/library/sections/${targetSectionId}/all`, {
+                                headers: { 'X-Plex-Token': plex.api_key, 'Accept': 'application/json' },
+                                timeout: 15000
+                            });
+                            metadata = res.data?.MediaContainer?.Metadata || [];
+                        }
                         for (const item of metadata) {
                             const media = item.Media?.[0];
                             const part = media?.Part?.[0];

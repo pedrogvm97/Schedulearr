@@ -40,7 +40,15 @@ export async function GET() {
             }
         } catch {}
 
-        return NextResponse.json({ libraries, plexMusicLibraries });
+        const normalizedLibraries = libraries.map(lib => ({
+            ...lib,
+            plexSectionId: lib.plexSectionId || lib.plex_section_id,
+            plex_section_id: lib.plexSectionId || lib.plex_section_id,
+            instanceId: lib.instanceId || lib.instance_id,
+            instance_id: lib.instanceId || lib.instance_id
+        }));
+
+        return NextResponse.json({ libraries: normalizedLibraries, plexMusicLibraries });
     } catch (error: any) {
         console.error('API /theater/libraries GET error:', error);
         return NextResponse.json({ error: error.message }, { status: 500 });
@@ -50,7 +58,9 @@ export async function GET() {
 export async function POST(req: Request) {
     try {
         const body = await req.json();
-        const { name, type, folders, plexSectionId, instanceId } = body;
+        const { name, type, folders } = body;
+        const plexSectionId = body.plexSectionId || body.plex_section_id;
+        const instanceId = body.instanceId || body.instance_id;
 
         if (!name || !type || !Array.isArray(folders) || folders.length === 0) {
             return NextResponse.json({ error: 'name, type, and at least one folder path are required' }, { status: 400 });

@@ -1,6 +1,7 @@
 'use client';
 
-import React, { Component, useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { Component, useState, useEffect, useMemo, useCallback, useRef, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
     Search, Plus, Film, Tv, CheckCircle,
     Filter, X, Star, Calendar,
@@ -665,22 +666,26 @@ function UnifiedMediaCard({
 // ──────────────────────────────────────────────
 // Main Media Page Component
 // ──────────────────────────────────────────────
-export default function DiscoverPage() {
+function DiscoverPageContent() {
+    const searchParams = useSearchParams();
     const [mediaType, setMediaType] = useState<'movie' | 'series' | 'music' | 'iptv_dvr'>('movie');
     const [isManageLibrariesOpen, setIsManageLibrariesOpen] = useState(false);
 
     useEffect(() => {
-        if (typeof window !== 'undefined') {
-            const params = new URLSearchParams(window.location.search);
-            const tabParam = params.get('tab');
-            if (tabParam === 'iptv' || tabParam === 'live' || tabParam === 'dvr') {
-                setMediaType('iptv_dvr');
-            }
-            if (params.get('manage') === 'libraries') {
-                setIsManageLibrariesOpen(true);
-            }
+        const tabParam = searchParams.get('tab') || searchParams.get('type');
+        if (tabParam === 'iptv' || tabParam === 'live' || tabParam === 'dvr' || tabParam === 'iptv_dvr') {
+            setMediaType('iptv_dvr');
+        } else if (tabParam === 'movie' || tabParam === 'movies') {
+            setMediaType('movie');
+        } else if (tabParam === 'tv' || tabParam === 'series' || tabParam === 'shows') {
+            setMediaType('series');
+        } else if (tabParam === 'music') {
+            setMediaType('music');
         }
-    }, []);
+        if (searchParams.get('manage') === 'libraries') {
+            setIsManageLibrariesOpen(true);
+        }
+    }, [searchParams]);
     const [statusFilter, setStatusFilter] = useState<'all' | 'in_library' | 'not_in_library'>('all');
     const [searchQuery, setSearchQuery] = useState('');
     const [isSearching, setIsSearching] = useState(false);
@@ -1693,61 +1698,65 @@ export default function DiscoverPage() {
                         </div>
 
                         {/* Search + Action Buttons */}
-                        {mediaType !== 'iptv_dvr' && (
-                            <div className="flex items-center gap-3 w-full xl:w-auto">
-                                <div className="relative flex-1 xl:w-80 min-w-[200px]">
-                                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
-                                    <input
-                                        type="text"
-                                        placeholder={mediaType === 'movie' ? 'Search movies...' : mediaType === 'series' ? 'Search series...' : 'Search artists, albums, songs, labels...'}
-                                        value={searchQuery}
-                                        onChange={e => setSearchQuery(e.target.value)}
-                                        className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl pl-10 pr-9 py-2.5 text-xs text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all placeholder-zinc-600 font-medium"
-                                    />
-                                    {searchQuery && (
-                                        <button
-                                            type="button"
-                                            onClick={() => setSearchQuery('')}
-                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
-                                        >
-                                            <X size={14} />
-                                        </button>
-                                    )}
-                                </div>
+                        <div className="flex items-center gap-3 w-full xl:w-auto">
+                            {mediaType !== 'iptv_dvr' && (
+                                <>
+                                    <div className="relative flex-1 xl:w-80 min-w-[200px]">
+                                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
+                                        <input
+                                            type="text"
+                                            placeholder={mediaType === 'movie' ? 'Search movies...' : mediaType === 'series' ? 'Search series...' : 'Search artists, albums, songs, labels...'}
+                                            value={searchQuery}
+                                            onChange={e => setSearchQuery(e.target.value)}
+                                            className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl pl-10 pr-9 py-2.5 text-xs text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all placeholder-zinc-600 font-medium"
+                                        />
+                                        {searchQuery && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setSearchQuery('')}
+                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                                            >
+                                                <X size={14} />
+                                            </button>
+                                        )}
+                                    </div>
 
-                                {/* Filters Toggle Button */}
-                                <button
-                                    onClick={() => setShowFilters(!showFilters)}
-                                    className={`flex items-center gap-2 px-4 py-2.5 text-xs font-black rounded-2xl border transition-all shrink-0 whitespace-nowrap ${
-                                        showFilters
-                                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-sm'
-                                            : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-zinc-200'
-                                    }`}
-                                >
-                                    <Filter size={14} />
-                                    <span>Filters</span>
-                                </button>
+                                    {/* Filters Toggle Button */}
+                                    <button
+                                        onClick={() => setShowFilters(!showFilters)}
+                                        className={`flex items-center gap-2 px-4 py-2.5 text-xs font-black rounded-2xl border transition-all shrink-0 whitespace-nowrap ${
+                                            showFilters
+                                                ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-sm'
+                                                : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-zinc-200'
+                                        }`}
+                                    >
+                                        <Filter size={14} />
+                                        <span>Filters</span>
+                                    </button>
+                                </>
+                            )}
 
-                                {/* Libraries & Folders Management */}
-                                <button
-                                    onClick={() => setIsManageLibrariesOpen(true)}
-                                    className="flex items-center gap-2 px-4 py-2.5 text-xs font-black rounded-2xl border transition-all shrink-0 whitespace-nowrap bg-zinc-950 text-zinc-300 border-zinc-800 hover:text-white hover:border-zinc-700 hover:bg-zinc-900 shadow-sm"
-                                    title="Manage Media Libraries & Folders"
-                                >
-                                    <FolderPlus size={14} className="text-emerald-400" />
-                                    <span>Libraries & Folders</span>
-                                </button>
+                            {/* Libraries & Folders Management (Universal access across Movies, Series, Music, and Live TV) */}
+                            <button
+                                onClick={() => setIsManageLibrariesOpen(true)}
+                                className="flex items-center gap-2 px-4 py-2.5 text-sm font-black rounded-2xl border transition-all shrink-0 whitespace-nowrap bg-zinc-950 text-zinc-300 border-zinc-800 hover:text-white hover:border-zinc-700 hover:bg-zinc-900 shadow-sm cursor-pointer"
+                                title="Manage Media Libraries & Folders"
+                            >
+                                <FolderPlus size={16} className="text-emerald-400" />
+                                <span>Libraries & Folders</span>
+                            </button>
 
-                                {/* Refresh Cache */}
+                            {/* Refresh Cache */}
+                            {mediaType !== 'iptv_dvr' && (
                                 <button
                                     onClick={() => loadLibrary()}
                                     title="Refresh Media Cache"
-                                    className="p-2.5 rounded-2xl bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white transition-colors shrink-0"
+                                    className="p-2.5 rounded-2xl bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white transition-colors shrink-0 cursor-pointer"
                                 >
                                     <RefreshCw size={16} className={libraryLoading ? 'animate-spin text-emerald-500' : ''} />
                                 </button>
-                            </div>
-                        )}
+                            )}
+                        </div>
                     </div>
 
                     {/* Instance Filter Pills (Dedicated Row below, consistent across both tabs) */}
@@ -2527,5 +2536,13 @@ function AddMediaModal({ item, mediaType, instances, onAdd, onClose, loading }: 
                 </div>
             </div>
         </div>
+    );
+}
+
+export default function DiscoverPage() {
+    return (
+        <Suspense fallback={<div className="min-h-screen bg-black flex items-center justify-center text-zinc-600 font-mono text-sm">Loading Media...</div>}>
+            <DiscoverPageContent />
+        </Suspense>
     );
 }

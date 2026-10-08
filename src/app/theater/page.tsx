@@ -25,7 +25,6 @@ import Hls from 'hls.js';
 import { useMusicPlayer } from '@/context/MusicPlayerContext';
 import TheaterLiveTvPlayer from '@/components/TheaterLiveTvPlayer';
 import { ConfirmModal } from '@/components/ConfirmModal';
-import { AddIptvProviderModal } from '@/components/AddIptvProviderModal';
 import { smartMatchScore, normalizeSearchTerm, cleanTrackForMatching, findMatchingLocalTrack } from '@/lib/searchUtils';
 import { sanitizeSongMetadata } from '@/lib/songSanitizer';
 
@@ -349,7 +348,6 @@ function TheaterPageContent() {
     const [mergePrimaryChanId, setMergePrimaryChanId] = useState<string | null>(null);
     const [mergeTargetChanIds, setMergeTargetChanIds] = useState<string[]>([]);
     const [isPlexExportModalOpen, setIsPlexExportModalOpen] = useState(false);
-    const [isAddIptvModalOpen, setIsAddIptvModalOpen] = useState(false);
     const [sourcesModalChannel, setSourcesModalChannel] = useState<IptvChannel | null>(null);
     const [isIptvSettingsOpen, setIsIptvSettingsOpen] = useState(false);
     const [isAutoGroupingModalOpen, setIsAutoGroupingModalOpen] = useState(false);
@@ -3178,26 +3176,6 @@ function TheaterPageContent() {
                                     <span className="hidden lg:inline">Scan All Plex</span>
                                 </button>
                             )}
-
-                            {/* Live TV Add Provider (IPTV streams) */}
-                            {activeContentTab === 'live' && (
-                                <button
-                                    onClick={() => setIsAddIptvModalOpen(true)}
-                                    className="flex items-center gap-2 px-4 py-2.5 text-sm font-black rounded-2xl text-red-400 hover:text-red-300 hover:bg-red-500/10 border border-dashed border-red-500/30 transition-all shadow-sm active:scale-95"
-                                >
-                                    <Plus size={16} /> Add Provider
-                                </button>
-                            )}
-
-                            {/* Centralized Library Management in Media Tab */}
-                            <Link
-                                href="/discover?manage=libraries"
-                                className="flex items-center gap-2 px-4 py-2.5 text-sm font-black rounded-2xl text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 border border-dashed border-emerald-500/30 transition-all shadow-sm active:scale-95 shrink-0"
-                                title="Manage all media libraries and folders in Media tab"
-                            >
-                                <FolderPlus size={16} />
-                                <span>Manage Libraries</span>
-                            </Link>
                         </div>
                     </div>
 
@@ -4182,8 +4160,16 @@ function TheaterPageContent() {
                             <div>
                                 <h2 className="text-2xl font-black text-white">No Live TV Providers Added Yet</h2>
                                 <p className="text-base text-zinc-400 mt-2 leading-relaxed">
-                                    No Live TV providers have been configured yet. Use the Add Provider button in the top corner to connect an M3U playlist or stream.
+                                    No Live TV providers have been configured yet. Set up and add IPTV playlists or Xtream streams in the Media tab.
                                 </p>
+                            </div>
+                            <div className="pt-2 flex justify-center">
+                                <Link
+                                    href="/discover?tab=iptv"
+                                    className="px-6 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-2 transition-all shadow-lg cursor-pointer"
+                                >
+                                    <RadioTower size={15} /> Add IPTV Provider in Media Tab
+                                </Link>
                             </div>
                         </div>
                     ) : (
@@ -8274,18 +8260,7 @@ function TheaterPageContent() {
                 </div>
             )}
 
-            {/* Add IPTV Provider Modal */}
-            <AddIptvProviderModal
-                isOpen={isAddIptvModalOpen}
-                onClose={() => setIsAddIptvModalOpen(false)}
-                onProviderCreated={async (newLibId) => {
-                    await fetchLibraries();
-                    if (newLibId) setActiveLibraryId(newLibId);
-                }}
-                onAdded={async () => {
-                    await fetchLibraries();
-                }}
-            />
+
 
 
 

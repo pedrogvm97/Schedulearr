@@ -135,7 +135,8 @@ export default function TheaterLiveTvPlayer({
         isLive: boolean;
     } | null>(null);
     const [recordingPadding, setRecordingPadding] = useState(15);
-    const [recordingDurationMinutes, setRecordingDurationMinutes] = useState(120);
+    const [recordingDurationMinutes, setRecordingDurationMinutes] = useState(60);
+    const [recordingDurationMode, setRecordingDurationMode] = useState<'until_end' | 'custom_minutes'>('until_end');
     const [isScheduling, setIsScheduling] = useState(false);
 
     // Player state
@@ -745,6 +746,21 @@ export default function TheaterLiveTvPlayer({
 
             const chosenDestinations = destinations.filter(d => selectedDestIds.includes(d.id));
 
+            // Determine effective end time & padding based on user choice
+            const now = Date.now();
+            let effectiveEndTime = recordingModalData.program.end_time;
+            let effectivePadding = recordingPadding;
+
+            if (recordingDurationMode === 'custom_minutes') {
+                effectiveEndTime = new Date(now + Math.max(1, recordingDurationMinutes) * 60 * 1000).toISOString();
+                effectivePadding = 0;
+            } else {
+                const progEndMs = new Date(recordingModalData.program.end_time).getTime();
+                if (isNaN(progEndMs) || progEndMs <= now) {
+                    effectiveEndTime = new Date(now + Math.max(1, recordingDurationMinutes) * 60 * 1000).toISOString();
+                }
+            }
+
             // 1. Check if "device" (Direct Local Download) is selected
             const isDeviceSelected = chosenDestinations.some(d => d.type === 'device');
             if (isDeviceSelected) {
@@ -775,9 +791,9 @@ export default function TheaterLiveTvPlayer({
                         programTitle: recordingModalData.program.title,
                         programDescription: recordingModalData.program.description,
                         startTime: recordingModalData.program.start_time,
-                        endTime: recordingModalData.program.end_time,
+                        endTime: effectiveEndTime,
                         destinationFolder: dest.path,
-                        paddingMinutes: recordingPadding
+                        paddingMinutes: effectivePadding
                     })
                 });
 
@@ -1465,6 +1481,141 @@ export default function TheaterLiveTvPlayer({
                                     );
                                 })}
                             </div>
+                        </div>
+
+                        {/* Recording Duration & Stop Choice */}
+                        <div className="space-y-3 pt-3 border-t border-zinc-800/80">
+                            <label className="text-xs font-black text-zinc-300 uppercase tracking-wider block">
+                                Recording Duration / Stop Option:
+                            </label>
+
+                            <div className="grid grid-cols-2 gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setRecordingDurationMode('until_end')}
+                                    className={`p-3 rounded-2xl border text-xs font-black transition-all flex flex-col items-center gap-1 cursor-pointer ${
+                                        recordingDurationMode === 'until_end'
+                                            ? 'bg-red-500/15 text-red-400 border-red-500/50 shadow-sm'
+                                            : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-white'
+                                    }`}
+                                >
+                                    <div className="flex items-center gap-1.5">
+                                        <Clock size={14} />
+                                        <span>Until End of Program</span>
+                                    </div>
+                                    <span className="text-[10px] text-zinc-500 font-mono font-normal">
+                                        {(() => {
+                                            const progEnd = new Date(recordingModalData.program.end_time).getTime();
+                                            const remainingMins = Math.max(1, Math.round((progEnd - Date.now()) / 60000));
+                                            return isNaN(progEnd) ? 'Per EPG guide' : `~${remainingMins} min remaining`;
+                                        })()}
+                                    </span>
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setRecordingDurationMode('custom_minutes')}
+                                    className={`p-3 rounded-2xl border text-xs font-black transition-all flex flex-col items-center gap-1 cursor-pointer ${
+                                        recordingDurationMode === 'custom_minutes'
+                                            ? 'bg-red-500/15 text-red-400 border-red-500/50 shadow-sm'
+                                            : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-white'
+                                    }`}
+                                >
+                                    <div className="flex items-center gap-1.5">
+                                        <Clock size={14} />
+                                        <span>Custom Duration</span>
+                                    </div>
+                                    <span className="text-[10px] text-zinc-500 font-mono font-normal">
+                                        {recordingDurationMinutes} minutes
+                                    </span>
+                                </button>
+                            </div>
+
+                            {recordingDurationMode === 'until_end' ? (
+                                <div className="p-3 bg-zinc-950/80 rounded-2xl border border-zinc-900 space-y-1.5">
+                                    <span className="text-[11px] font-black text-zinc-400 uppercase tracking-wider block">
+                                        Post-Program Extra Padding:
+                                    </span>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {[0, 5, 15, 30, 45, 60].map(mins => (
+                                            <button
+                                                key={mins}
+                                                type="button"
+                                                onClick={() => setRecordingPadding(mins)}
+                                                className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
+                                                    recordingPadding === mins
+                                                        ? 'bg-red-500/20 text-red-400 border border-red-500/40'
+                                                        : 'bg-zinc-900 text-zinc-400 border border-zinc-800 hover:text-white'
+                                                }`}
+                                            >
+                                                {mins === 0 ? 'No Padding' : `+${mins} min`}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="p-3 bg-zinc-950/80 rounded-2xl border border-zinc-900 space-y-2">
+                                    <span className="text-[11px] font-black text-zinc-400 uppercase tracking-wider block">
+                                        Record for Set Minutes:
+                                    </span>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {[15, 30, 45, 60, 90, 120, 180].map(m => (
+                                            <button
+                                                key={m}
+                                                type="button"
+                                                onClick={() => setRecordingDurationMinutes(m)}
+                                                className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
+                                                    recordingDurationMinutes === m
+                                                        ? 'bg-red-500/20 text-red-400 border border-red-500/40'
+                                                        : 'bg-zinc-900 text-zinc-400 border border-zinc-800 hover:text-white'
+                                                }`}
+                                            >
+                                                {m}m
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <div className="flex items-center gap-2 pt-1">
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            max="1440"
+                                            value={recordingDurationMinutes}
+                                            onChange={e => setRecordingDurationMinutes(Math.max(1, parseInt(e.target.value) || 1))}
+                                            className="w-24 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-1.5 text-xs text-white text-center font-mono focus:border-red-500 outline-none"
+                                        />
+                                        <span className="text-xs text-zinc-400 font-bold">Minutes ({Math.floor(recordingDurationMinutes / 60)}h {recordingDurationMinutes % 60}m)</span>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Footer Action Buttons */}
+                        <div className="flex items-center justify-end gap-3 pt-3 border-t border-zinc-800">
+                            <button
+                                type="button"
+                                onClick={() => setRecordingModalData(null)}
+                                className="px-5 py-2.5 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white text-xs font-bold transition-all cursor-pointer"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                disabled={isScheduling || selectedDestIds.length === 0}
+                                onClick={handleConfirmRecording}
+                                className="px-6 py-2.5 rounded-2xl bg-red-600 hover:bg-red-500 text-white font-black text-xs uppercase tracking-wider transition-all flex items-center gap-2 shadow-lg shadow-red-600/30 active:scale-95 disabled:opacity-50 cursor-pointer"
+                            >
+                                {isScheduling ? (
+                                    <>
+                                        <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                        <span>Starting...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Circle size={13} className="fill-current text-white" />
+                                        <span>Start Recording</span>
+                                    </>
+                                )}
+                            </button>
                         </div>
                     </div>
                 </div>
