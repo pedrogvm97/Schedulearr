@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
-import { Film, Pause, Play, Trash2, Info, ShieldCheck, Clock, HardDrive, Tv, Sliders, Radio, Users, Download as DownloadIcon, Music, Folder } from "lucide-react";
+import { Film, Pause, Play, Trash2, Info, ShieldCheck, Clock, HardDrive, Tv, Sliders, Radio, Users, Download as DownloadIcon, Music, Folder, Disc } from "lucide-react";
 import { MediaDetailsPanel } from "@/components/MediaDetailsPanel";
 import { ProfilesPanel } from "@/components/ProfilesPanel";
 import { IndexersPanel } from "@/components/IndexersPanel";
@@ -76,6 +76,12 @@ interface MediaCardRowProps {
 function MediaCardRow({ torrent, onOpenMedia, onPauseResume, onDeleteClick }: MediaCardRowProps) {
     const isPaused = torrent.state.includes('paused');
     const isStalled = torrent.state.includes('stalled');
+    const isTv = torrent.mediaType === 'series' || Boolean(torrent.tvdbId) || /s\d{1,2}e\d{1,2}|\bseason\s*\d+|\b\d{1,2}x\d{1,2}\b/i.test(torrent.name);
+    const [imgError, setImgError] = useState(false);
+
+    useEffect(() => {
+        setImgError(false);
+    }, [torrent.poster]);
 
     return (
         <div
@@ -84,22 +90,19 @@ function MediaCardRow({ torrent, onOpenMedia, onPauseResume, onDeleteClick }: Me
             {/* Poster thumbnail */}
             <div
                 onClick={() => onOpenMedia(torrent)}
-                className="w-10 h-14 rounded-md overflow-hidden bg-zinc-950 border border-zinc-800 flex-shrink-0 group-hover:border-emerald-500/30 cursor-pointer shadow-sm active:scale-95 transition-transform"
+                className="w-12 h-16 sm:w-14 sm:h-20 rounded-xl overflow-hidden bg-zinc-950 border border-zinc-800 flex-shrink-0 group-hover:border-emerald-500/40 cursor-pointer shadow-md active:scale-95 transition-all relative flex items-center justify-center"
                 title="View media details"
             >
-                {torrent.poster ? (
+                {torrent.poster && !imgError ? (
                     <img
                         src={torrent.poster.startsWith('http') ? `/api/proxy?url=${encodeURIComponent(torrent.poster)}` : torrent.poster}
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-cover transition-transform group-hover:scale-105"
                         alt=""
-                        onError={(e) => {
-                            (e.target as HTMLImageElement).src = '';
-                            (e.target as HTMLImageElement).className = 'hidden';
-                        }}
+                        onError={() => setImgError(true)}
                     />
                 ) : (
-                    <div className="w-full h-full flex items-center justify-center text-zinc-700 group-hover:text-emerald-500/50">
-                        <Film size={16} />
+                    <div className="w-full h-full flex items-center justify-center bg-zinc-900/60 text-zinc-600 group-hover:text-emerald-400 transition-colors">
+                        {isTv ? <Tv size={20} /> : <Film size={20} />}
                     </div>
                 )}
             </div>
@@ -228,6 +231,13 @@ function MusicJobRow({ job, onCancel, onOpenMedia }: MusicJobRowProps) {
     const isCompleted = job.status === 'completed';
     const isFailed = job.status === 'failed';
     const isDownloading = job.status === 'downloading';
+    const [imgError, setImgError] = useState(false);
+
+    useEffect(() => {
+        setImgError(false);
+    }, [job.coverUrl, job.artist, job.album]);
+
+    const coverSrc = job.coverUrl || `/api/theater/music/cover?artist=${encodeURIComponent(job.artist)}&album=${encodeURIComponent(job.album)}`;
 
     const handleOpen = () => {
         if (!onOpenMedia) return;
@@ -238,26 +248,30 @@ function MusicJobRow({ job, onCancel, onOpenMedia }: MusicJobRowProps) {
             album: job.album,
             type: 'music',
             mediaType: 'music',
-            remotePoster: job.coverUrl || `/api/theater/music/cover?artist=${encodeURIComponent(job.artist)}&album=${encodeURIComponent(job.album)}`
+            remotePoster: coverSrc
         });
     };
 
     return (
         <div className="p-3 md:px-4 md:py-3 hover:bg-zinc-800/40 transition-colors flex flex-col md:grid md:grid-cols-[auto_2fr_0.8fr_1fr_1fr_1fr_auto] gap-3 md:gap-4 md:items-center relative group">
-            {/* Poster thumbnail */}
+            {/* Album Cover Thumbnail */}
             <div 
                 onClick={handleOpen}
-                className="w-10 h-14 rounded-md overflow-hidden bg-zinc-950 border border-zinc-800 flex-shrink-0 group-hover:border-amber-500/50 shadow-sm relative flex items-center justify-center cursor-pointer active:scale-95 transition-transform"
+                className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl overflow-hidden bg-zinc-950 border border-zinc-800 flex-shrink-0 group-hover:border-amber-500/50 shadow-md relative flex items-center justify-center cursor-pointer active:scale-95 transition-all"
                 title="View music details"
             >
-                <img
-                    src={job.coverUrl || `/api/theater/music/cover?artist=${encodeURIComponent(job.artist)}&album=${encodeURIComponent(job.album)}`}
-                    className="w-full h-full object-cover"
-                    alt=""
-                    onError={(e) => {
-                        (e.target as HTMLImageElement).src = `/api/theater/music/cover?artist=${encodeURIComponent(job.artist)}&album=${encodeURIComponent(job.album)}`;
-                    }}
-                />
+                {!imgError ? (
+                    <img
+                        src={coverSrc}
+                        className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                        alt=""
+                        onError={() => setImgError(true)}
+                    />
+                ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-zinc-900/60 text-zinc-600 group-hover:text-amber-400 transition-colors">
+                        <Disc size={22} />
+                    </div>
+                )}
             </div>
 
             {/* Title + badges + destination folder */}
@@ -453,7 +467,7 @@ function DownloadsContent() {
             if (data.media_smart_clean_mode) setSmartCleanMode(data.media_smart_clean_mode as any);
             if (data.media_smart_clean_immunity_enabled !== undefined) setSmartCleanImmunityEnabled(data.media_smart_clean_immunity_enabled === 'true');
             if (data.media_smart_clean_immunity_days) setSmartCleanImmunityDays(parseInt(data.media_smart_clean_immunity_days));
-            if (data.tmdbApiKey) setTmdbApiKey(data.tmdbApiKey);
+            if (data.tmdb_api_key || data.tmdbApiKey) setTmdbApiKey(data.tmdb_api_key || data.tmdbApiKey);
         } catch (e) {
             console.error(e);
         }

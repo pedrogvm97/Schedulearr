@@ -47,6 +47,7 @@ export function LocalDownloadsPanel() {
     const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
     const [copiedPathId, setCopiedPathId] = useState<string | null>(null);
     const [previewVideo, setPreviewVideo] = useState<LocalMediaItem | null>(null);
+    const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
 
     const fetchLocalItems = async (isManual = false) => {
         if (isManual) setRefreshing(true);
@@ -331,14 +332,13 @@ export function LocalDownloadsPanel() {
                                         className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl overflow-hidden bg-zinc-950 border border-zinc-800/80 flex-shrink-0 relative group/thumb cursor-pointer shadow-md flex items-center justify-center"
                                         title="Play in App"
                                     >
-                                        {item.posterUrl ? (
+                                        {item.posterUrl && !failedImages.has(item.id) ? (
                                             <img
                                                 src={item.posterUrl}
                                                 alt=""
                                                 className="w-full h-full object-cover group-hover/thumb:scale-105 transition-transform"
-                                                onError={(e) => {
-                                                    (e.target as HTMLImageElement).src = '';
-                                                    (e.target as HTMLImageElement).className = 'hidden';
+                                                onError={() => {
+                                                    setFailedImages(prev => new Set(prev).add(item.id));
                                                 }}
                                             />
                                         ) : (

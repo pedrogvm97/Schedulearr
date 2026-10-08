@@ -33,14 +33,33 @@ export async function GET() {
         const radarrInstances = getInstances('radarr', true);
         const sonarrInstances = getInstances('sonarr', true);
 
+        const resolvePoster = (instance: any, item: any) => {
+            if (!item || !instance) return undefined;
+            // 1. Prefer poster coverType (remoteUrl or local relative url)
+            const posterImg = item.images?.find((img: any) => img.coverType === 'poster');
+            // 2. Next prefer any image that is NOT fanart or banner, then fallback to first image
+            const fallbackImg = item.images?.find((img: any) => img.coverType !== 'fanart' && img.coverType !== 'banner') || item.images?.[0];
+            
+            let poster = posterImg?.remoteUrl || posterImg?.url || fallbackImg?.remoteUrl || fallbackImg?.url;
+            if (!poster) return undefined;
+
+            if (!poster.startsWith('http')) {
+                const baseUrl = instance.url.replace(/\/+$/, '');
+                const cleanPoster = poster.startsWith('/') ? poster : `/${poster}`;
+                poster = `${baseUrl}${cleanPoster}${cleanPoster.includes('?') ? '&' : '?'}apikey=${instance.api_key}`;
+            }
+
+            return `/api/proxy?url=${encodeURIComponent(poster)}`;
+        };
+
         const arrQueuePromises = [
-            ...radarrInstances.map(inst => fetch(`${inst.url}/api/v3/queue?apiKey=${inst.api_key}&pageSize=1000`).then(r => r.json()).catch(() => ({ records: [] }))),
-            ...sonarrInstances.map(inst => fetch(`${inst.url}/api/v3/queue?apiKey=${inst.api_key}&pageSize=1000`).then(r => r.json()).catch(() => ({ records: [] })))
+            ...radarrInstances.map(inst => fetch(`${inst.url}/api/v3/queue?apiKey=${inst.api_key}&pageSize=1000`).then(r => r.json()).then(data => ({ inst, data })).catch(() => ({ inst, data: { records: [] } }))),
+            ...sonarrInstances.map(inst => fetch(`${inst.url}/api/v3/queue?apiKey=${inst.api_key}&pageSize=1000`).then(r => r.json()).then(data => ({ inst, data })).catch(() => ({ inst, data: { records: [] } })))
         ];
 
         const arrHistoryPromises = [
-            ...radarrInstances.map(inst => fetch(`${inst.url}/api/v3/history?apiKey=${inst.api_key}&pageSize=1000&eventType=1`).then(r => r.json()).catch(() => ({ records: [] }))),
-            ...sonarrInstances.map(inst => fetch(`${inst.url}/api/v3/history?apiKey=${inst.api_key}&pageSize=1000&eventType=1`).then(r => r.json()).catch(() => ({ records: [] })))
+            ...radarrInstances.map(inst => fetch(`${inst.url}/api/v3/history?apiKey=${inst.api_key}&pageSize=1000&eventType=1`).then(r => r.json()).then(data => ({ inst, data })).catch(() => ({ inst, data: { records: [] } }))),
+            ...sonarrInstances.map(inst => fetch(`${inst.url}/api/v3/history?apiKey=${inst.api_key}&pageSize=1000&eventType=1`).then(r => r.json()).then(data => ({ inst, data })).catch(() => ({ inst, data: { records: [] } })))
         ];
 
         const [queueResults, historyResults, radarrLib, sonarrLib] = await Promise.all([
@@ -50,21 +69,19 @@ export async function GET() {
             Promise.all(sonarrInstances.map(inst => fetch(`${inst.url}/api/v3/series?apiKey=${inst.api_key}`).then(r => r.json()).catch(() => [])))
         ]);
 
-        // Process Queues
-        queueResults.forEach(data => {
+        // Process Queues with instance context
+        queueResults.forEach(({ inst, data }) => {
             if (data && data.records) {
                 data.records.forEach((record: any) => {
                     const hash = record.downloadId?.toLowerCase();
                     if (hash) {
                         const movie = record.movie;
                         const series = record.series;
+                        const poster = resolvePoster(inst, movie || series);
                         
                         hashToMetadata[hash] = {
                             indexer: record.indexer,
-                            poster: movie?.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || 
-                                    series?.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl ||
-                                    movie?.images?.[0]?.remoteUrl || 
-                                    series?.images?.[0]?.remoteUrl,
+                            poster: poster || undefined,
                             canonicalTitle: movie?.title || series?.title,
                             year: movie?.year || series?.year,
                             tmdbId: movie?.tmdbId || series?.tmdbId,
@@ -76,8 +93,8 @@ export async function GET() {
             }
         });
 
-        // Process History (Grabs have the indexer info)
-        historyResults.forEach(data => {
+        // Process History (Grabs have the indexer info) with instance context
+        historyResults.forEach(({ inst, data }) => {
             const records = Array.isArray(data) ? data : (data?.records || []);
             records.forEach((record: any) => {
                 const hash = record.downloadId?.toLowerCase();
@@ -89,18 +106,26 @@ export async function GET() {
                     
                     const movie = record.movie;
                     const series = record.series;
+                    const poster = resolvePoster(inst, movie || series);
 
-                    hashToMetadata[hash].poster = hashToMetadata[hash].poster || 
-                                                  movie?.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || 
-                                                  series?.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl ||
-                                                  movie?.images?.[0]?.remoteUrl || 
-                                                  series?.images?.[0]?.remoteUrl;
-                    
-                    hashToMetadata[hash].canonicalTitle = hashToMetadata[hash].canonicalTitle || movie?.title || series?.title;
-                    hashToMetadata[hash].year = hashToMetadata[hash].year || movie?.year || series?.year;
-                    hashToMetadata[hash].tmdbId = hashToMetadata[hash].tmdbId || movie?.tmdbId || series?.tmdbId;
-                    hashToMetadata[hash].tvdbId = hashToMetadata[hash].tvdbId || movie?.tvdbId || series?.tvdbId;
-                    hashToMetadata[hash].mediaType = hashToMetadata[hash].mediaType || (movie ? 'movie' : 'series');
+                    if (poster && !hashToMetadata[hash].poster) {
+                        hashToMetadata[hash].poster = poster;
+                    }
+                    if (!hashToMetadata[hash].canonicalTitle && (movie?.title || series?.title)) {
+                        hashToMetadata[hash].canonicalTitle = movie?.title || series?.title;
+                    }
+                    if (!hashToMetadata[hash].year && (movie?.year || series?.year)) {
+                        hashToMetadata[hash].year = movie?.year || series?.year;
+                    }
+                    if (!hashToMetadata[hash].tmdbId && (movie?.tmdbId || series?.tmdbId)) {
+                        hashToMetadata[hash].tmdbId = movie?.tmdbId || series?.tmdbId;
+                    }
+                    if (!hashToMetadata[hash].tvdbId && (movie?.tvdbId || series?.tvdbId)) {
+                        hashToMetadata[hash].tvdbId = movie?.tvdbId || series?.tvdbId;
+                    }
+                    if (!hashToMetadata[hash].mediaType) {
+                        hashToMetadata[hash].mediaType = movie ? 'movie' : 'series';
+                    }
                 }
             });
         });
@@ -108,18 +133,6 @@ export async function GET() {
         // 1.5 Title-based library matching fallback
         const titleToMetadata: Record<string, any> = {};
         const slugify = (t: string) => t.toLowerCase().replace(/[^a-z0-9]/g, '');
-
-        const resolvePoster = (instance: any, item: any) => {
-            let poster = item.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl || 
-                          item.images?.[0]?.remoteUrl || 
-                          item.images?.[0]?.url;
-            
-            if (poster && !poster.startsWith('http')) {
-                poster = `${instance.url}${poster}${poster.includes('?') ? '&' : '?'}apikey=${instance.api_key}`;
-            }
-
-            return poster ? `/api/proxy?url=${encodeURIComponent(poster)}` : undefined;
-        };
 
         // Better way to process libraries with instance context
         radarrInstances.forEach((inst, idx) => {
@@ -197,7 +210,7 @@ export async function GET() {
                         } else {
                             // 2. Try substring match (longest matching movie or show title)
                             const matchedKey = Object.keys(titleToMetadata)
-                                .filter(k => k.length > 3 && (slug.includes(k) || k.includes(slug)))
+                                .filter(k => k.length > 3 && (slug.includes(k) || (slug.length > 5 && k.includes(slug))))
                                 .sort((a, b) => b.length - a.length)[0];
                             
                             if (matchedKey) {
@@ -214,13 +227,20 @@ export async function GET() {
                         hashMeta.poster = `/api/proxy?url=${encodeURIComponent(hashMeta.poster)}`;
                     }
 
+                    // Cleanly merge metadata without letting undefined fields in hashMeta overwrite valid titleMeta
+                    const mergedMeta: any = { ...titleMeta };
+                    for (const [key, val] of Object.entries(hashMeta)) {
+                        if (val !== undefined && val !== null && val !== '') {
+                            mergedMeta[key] = val;
+                        }
+                    }
+
                     return {
                         ...t,
                         instanceId: instance.id,
                         instanceName: instance.name,
                         instanceColor: instance.color || 'bg-emerald-500',
-                        ...titleMeta,
-                        ...hashMeta
+                        ...mergedMeta
                     };
                 });
                 allTorrents = [...allTorrents, ...tagged];
