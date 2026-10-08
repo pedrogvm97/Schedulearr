@@ -397,7 +397,7 @@ export function ChannelLogoModal({
         : (customUrl.trim() || selectedLogo || channel.logo);
 
     return (
-        <div className="fixed inset-0 z-[220] flex items-center justify-center p-4 sm:p-6 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[10020] flex items-center justify-center p-4 sm:p-6 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200">
             <div className="bg-[#0c0c0e] border border-amber-500/30 rounded-[2.5rem] w-full max-w-3xl p-6 sm:p-8 shadow-2xl relative space-y-6 max-h-[94vh] overflow-y-auto custom-scrollbar flex flex-col text-[125%]">
                 {/* Close button */}
                 <button

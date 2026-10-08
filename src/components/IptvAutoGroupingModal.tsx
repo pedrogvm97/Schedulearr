@@ -210,7 +210,7 @@ export default function IptvAutoGroupingModal({
     };
 
     return (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[10010] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
             <div className="bg-[#0b0c10] border border-amber-500/30 rounded-[2.5rem] w-full max-w-4xl p-6 sm:p-8 space-y-6 shadow-2xl relative max-h-[90vh] flex flex-col text-zinc-100">
                 {/* Modal Header */}
                 <div className="flex items-start justify-between border-b border-zinc-900 pb-4">
