@@ -49,8 +49,12 @@ function getCountdownLabel(dateStr: string) {
     return { label: `In ${diffDays}d`, isToday: false, color: 'bg-zinc-800/80 text-zinc-400 border-zinc-700' };
 }
 
-function formatDateKey(date: Date): string {
-    return date.toISOString().split('T')[0];
+function formatDateKey(date: Date | string): string {
+    const dObj = typeof date === 'string' ? new Date(date) : date;
+    const y = dObj.getFullYear();
+    const m = String(dObj.getMonth() + 1).padStart(2, '0');
+    const d = String(dObj.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
 }
 
 function TimelineDateGroup({
@@ -111,13 +115,16 @@ function TimelineDateGroup({
     return (
         <div
             id={`timeline-date-${dateKey}`}
+            data-date-key={dateKey}
+            data-is-today={group.isToday ? 'true' : undefined}
             ref={group.isToday ? todayRef : null}
-            className={`relative pl-6 sm:pl-10 transition-all ${
+            className={`scroll-mt-24 relative pl-6 sm:pl-10 transition-all ${
                 group.isToday
                     ? 'p-5 sm:p-7 rounded-[2.5rem] bg-gradient-to-r from-emerald-500/15 via-zinc-950/90 to-zinc-950/60 border-2 border-emerald-500/60 shadow-[0_0_50px_rgba(16,185,129,0.22)] ring-1 ring-emerald-400/30'
                     : ''
             }`}
         >
+            {group.isToday && <div id="timeline-today-anchor" className="absolute -top-20 left-0 pointer-events-none" />}
             {/* Glowing Timeline Node */}
             <div className={`absolute left-0 top-3 w-5 h-5 rounded-full ${
                 group.isToday
@@ -134,7 +141,7 @@ function TimelineDateGroup({
                     <h2 className="text-xl sm:text-2xl font-black text-white uppercase tracking-wider flex items-center gap-2.5">
                         {group.dateStr}
                         {group.isToday && (
-                            <span className="px-3.5 py-1 rounded-full bg-emerald-500 text-black text-xs font-black uppercase tracking-widest shadow-lg shadow-emerald-500/30 animate-pulse">
+                            <span className="px-4 py-1.5 rounded-full bg-emerald-500 text-black text-xs sm:text-sm font-black uppercase tracking-widest shadow-lg shadow-emerald-500/30 animate-pulse">
                                 TODAY — CURRENT DAY
                             </span>
                         )}
@@ -373,8 +380,39 @@ export function SchedulePanel() {
 
     // Mini calendar month cursor for right panel
     const [miniCalMonth, setMiniCalMonth] = useState<Date>(new Date());
+    const [pendingScrollToToday, setPendingScrollToToday] = useState(false);
 
     const todayRef = useRef<HTMLDivElement>(null);
+
+    const scrollToToday = useCallback(() => {
+        const performScroll = () => {
+            const todayAnchor = document.getElementById('timeline-today-anchor');
+            const targetEl = todayAnchor?.parentElement
+                || todayRef.current
+                || (document.querySelector('[data-is-today="true"]') as HTMLElement | null)
+                || document.getElementById(`timeline-date-${formatDateKey(new Date())}`);
+
+            if (targetEl) {
+                const navOffset = window.innerWidth >= 640 ? 84 : 76;
+                const rect = targetEl.getBoundingClientRect();
+                const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+                const targetTop = rect.top + scrollTop - navOffset;
+
+                window.scrollTo({
+                    top: Math.max(0, targetTop),
+                    behavior: 'smooth'
+                });
+                return true;
+            }
+            return false;
+        };
+
+        requestAnimationFrame(() => {
+            if (!performScroll()) {
+                setTimeout(performScroll, 80);
+            }
+        });
+    }, []);
 
     // Fetch Calendar Events for active date range
     const fetchCalendarRange = useCallback(async (start: Date, end: Date, isEarlier = false, isFuture = false) => {
@@ -445,22 +483,36 @@ export function SchedulePanel() {
     };
 
     const handleJumpToToday = () => {
-        const now = new Date();
-        const start = new Date(now);
-        start.setDate(now.getDate() - 14);
-        const end = new Date(now);
-        end.setDate(now.getDate() + 45);
-        setActivePreset('default');
-        setStartDate(start);
-        setEndDate(end);
-        setMiniCalMonth(new Date());
+        const needsViewModeSwitch = viewMode !== 'timeline';
+        if (needsViewModeSwitch) {
+            setViewMode('timeline');
+        }
 
-        setTimeout(() => {
-            const todayEl = todayRef.current || document.getElementById(`timeline-date-${formatDateKey(new Date())}`);
-            if (todayEl) {
-                todayEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
+        const startCheck = new Date(startDate);
+        startCheck.setHours(0, 0, 0, 0);
+        const endCheck = new Date(endDate);
+        endCheck.setHours(23, 59, 59, 999);
+
+        const isTodayInRange = now.getTime() >= startCheck.getTime() && now.getTime() <= endCheck.getTime();
+
+        if (isTodayInRange && !loading && !needsViewModeSwitch) {
+            scrollToToday();
+        } else {
+            setPendingScrollToToday(true);
+            if (!isTodayInRange) {
+                const start = new Date(now);
+                start.setDate(now.getDate() - 14);
+                const end = new Date(now);
+                end.setDate(now.getDate() + 45);
+
+                setActivePreset('default');
+                setStartDate(start);
+                setEndDate(end);
+                setMiniCalMonth(new Date());
             }
-        }, 150);
+        }
     };
 
     const handleApplyPreset = (preset: string) => {
@@ -682,6 +734,17 @@ export function SchedulePanel() {
         return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
     }, [filteredEvents]);
 
+    // Scroll to Today once data is ready if pending
+    useEffect(() => {
+        if (pendingScrollToToday && !loading && groupedEvents.length > 0) {
+            const timer = setTimeout(() => {
+                scrollToToday();
+                setPendingScrollToToday(false);
+            }, 80);
+            return () => clearTimeout(timer);
+        }
+    }, [pendingScrollToToday, loading, groupedEvents, scrollToToday]);
+
     // Analytics / Stats Calculations
     const stats = useMemo(() => {
         const total = filteredEvents.length;
@@ -776,10 +839,27 @@ export function SchedulePanel() {
     }, [miniCalMonth, events]);
 
     const handleScrollToDate = (dateKey: string) => {
-        const el = document.getElementById(`timeline-date-${dateKey}`);
-        if (el) {
-            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (viewMode !== 'timeline') setViewMode('timeline');
+        const todayKey = formatDateKey(new Date());
+        if (dateKey === todayKey) {
+            scrollToToday();
+            return;
         }
+
+        requestAnimationFrame(() => {
+            const targetEl = document.getElementById(`timeline-date-${dateKey}`);
+            if (targetEl) {
+                const navOffset = window.innerWidth >= 640 ? 84 : 76;
+                const rect = targetEl.getBoundingClientRect();
+                const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+                const targetTop = Math.max(0, rect.top + scrollTop - navOffset);
+
+                window.scrollTo({
+                    top: targetTop,
+                    behavior: 'smooth'
+                });
+            }
+        });
     };
 
     return (
@@ -849,10 +929,10 @@ export function SchedulePanel() {
 
                         <button
                             onClick={handleJumpToToday}
-                            className="px-4 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-sm"
+                            className="px-4.5 py-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/30 text-sm font-black uppercase tracking-wider flex items-center gap-2 transition-all shadow-sm active:scale-95"
                             title="Jump to Today's releases"
                         >
-                            <Flame size={15} /> Jump to Today
+                            <Flame size={17} /> Jump to Today
                         </button>
 
                         <button
@@ -1031,7 +1111,7 @@ export function SchedulePanel() {
                             </p>
                             <button
                                 onClick={handleJumpToToday}
-                                className="mt-2 px-5 py-2.5 rounded-xl bg-emerald-500 text-black font-black text-xs uppercase tracking-wider"
+                                className="mt-2 px-6 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-sm uppercase tracking-wider transition-all shadow-md active:scale-95"
                             >
                                 Reset to Today
                             </button>
@@ -1055,10 +1135,10 @@ export function SchedulePanel() {
                                     <button
                                         type="button"
                                         onClick={handleJumpToToday}
-                                        className="fixed bottom-24 sm:bottom-8 right-6 z-40 px-5 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs sm:text-sm uppercase tracking-wider shadow-[0_12px_35px_rgba(16,185,129,0.45)] flex items-center gap-2.5 transition-all hover:scale-105 active:scale-95 cursor-pointer border border-emerald-300/50 backdrop-blur-md"
+                                        className="fixed bottom-24 sm:bottom-8 right-6 z-40 px-6 py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-sm sm:text-base uppercase tracking-wider shadow-[0_12px_35px_rgba(16,185,129,0.45)] flex items-center gap-2.5 transition-all hover:scale-105 active:scale-95 cursor-pointer border border-emerald-300/50 backdrop-blur-md"
                                         title="Quickly jump to Today in timeline"
                                     >
-                                        <Flame size={18} className="fill-black" />
+                                        <Flame size={20} className="fill-black" />
                                         <span>Go to Today</span>
                                     </button>
                                 </div>
