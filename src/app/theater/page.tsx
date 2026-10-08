@@ -549,6 +549,9 @@ function TheaterPageContent() {
     const [viewingPhotoIndex, setViewingPhotoIndex] = useState<number | null>(null);
 
     // Enhanced Video Player Controls & Container Fullscreen State
+    const videoRef = useRef<HTMLVideoElement>(null);
+    const liveVideoRef = useRef<HTMLVideoElement>(null);
+    const hlsInstanceRef = useRef<Hls | null>(null);
     const videoContainerRef = useRef<HTMLDivElement>(null);
     const [isPlayerFullscreen, setIsPlayerFullscreen] = useState(false);
     const [videoCurrentTimeSec, setVideoCurrentTimeSec] = useState(0);
@@ -855,6 +858,22 @@ function TheaterPageContent() {
         return () => clearTimeout(timer);
     }, [searchQuery]);
 
+    // Video Player Advanced Controls & Diagnostics & Nerd Tools
+    const [showStatsHud, setShowStatsHud] = useState(false);
+    const [showNerdToolsModal, setShowNerdToolsModal] = useState(false);
+    const [nerdActiveTab, setNerdActiveTab] = useState<'telemetry' | 'logs' | 'compat'>('telemetry');
+    const [debugLogs, setDebugLogs] = useState<{ id: string; timestamp: string; level: 'info' | 'warn' | 'error' | 'success'; message: string; details?: any; }[]>([]);
+    const [playbackError, setPlaybackError] = useState<{ code?: number; codeName?: string; message: string; details?: string; suggestion?: string; } | null>(null);
+    const [isVlcModalOpen, setIsVlcModalOpen] = useState(false);
+    const [vlcModalInfo, setVlcModalInfo] = useState<{ title: string; m3uUrl: string; directUrl: string; transcodeUrl: string } | null>(null);
+    const stallTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+    const addDebugLog = (level: 'info' | 'warn' | 'error' | 'success', message: string, details?: any) => {
+        const id = Math.random().toString(36).substring(2, 9);
+        const timestamp = new Date().toLocaleTimeString();
+        setDebugLogs(prev => [...prev.slice(-150), { id, timestamp, level, message, details }]);
+    };
+
     const handleSetVideoMode = (mode: 'universal' | 'transcode' | 'direct') => {
         setVideoAudioMode(mode);
         try { localStorage.setItem('schedulearr_video_mode', mode); } catch {}
@@ -873,22 +892,6 @@ function TheaterPageContent() {
         setVideoQuality(q);
         try { localStorage.setItem('schedulearr_video_quality', q); } catch {}
         toast.info(`Quality preset set to: ${q.toUpperCase()}`);
-    };
-
-    // Video Player Advanced Controls & Diagnostics & Nerd Tools
-    const [showStatsHud, setShowStatsHud] = useState(false);
-    const [showNerdToolsModal, setShowNerdToolsModal] = useState(false);
-    const [nerdActiveTab, setNerdActiveTab] = useState<'telemetry' | 'logs' | 'compat'>('telemetry');
-    const [debugLogs, setDebugLogs] = useState<{ id: string; timestamp: string; level: 'info' | 'warn' | 'error' | 'success'; message: string; details?: any; }[]>([]);
-    const [playbackError, setPlaybackError] = useState<{ code?: number; codeName?: string; message: string; details?: string; suggestion?: string; } | null>(null);
-    const [isVlcModalOpen, setIsVlcModalOpen] = useState(false);
-    const [vlcModalInfo, setVlcModalInfo] = useState<{ title: string; m3uUrl: string; directUrl: string; transcodeUrl: string } | null>(null);
-    const stallTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-    const addDebugLog = (level: 'info' | 'warn' | 'error' | 'success', message: string, details?: any) => {
-        const id = Math.random().toString(36).substring(2, 9);
-        const timestamp = new Date().toLocaleTimeString();
-        setDebugLogs(prev => [...prev.slice(-150), { id, timestamp, level, message, details }]);
     };
 
     const [showSubtitlesDrawer, setShowSubtitlesDrawer] = useState(false);
@@ -921,10 +924,6 @@ function TheaterPageContent() {
         droppedFrames: 0,
         sourceMode: 'Direct Play / Local'
     });
-
-    const videoRef = useRef<HTMLVideoElement>(null);
-    const liveVideoRef = useRef<HTMLVideoElement>(null);
-    const hlsInstanceRef = useRef<Hls | null>(null);
 
     const handleOpenInVlc = (video: MediaItem) => {
         const streamOrigin = window.location.origin;
@@ -1112,6 +1111,24 @@ function TheaterPageContent() {
         }
     }, [activeContentTab, libraries]);
 
+    const fetchGlobalPlaylists = async () => {
+        try {
+            const url = '/api/theater/music/playlists';
+            const playRes = await fetch(url);
+            if (playRes.ok) {
+                const pData = await playRes.json();
+                const loadedPlaylists = Array.isArray(pData.playlists) ? pData.playlists : [];
+                setPlaylists(loadedPlaylists);
+                // If a playlist is open, keep its tracklist in sync
+                setSelectedPlaylist(prev => {
+                    if (!prev) return null;
+                    const match = loadedPlaylists.find((p: any) => p.id === prev.id);
+                    return match || prev;
+                });
+            }
+        } catch {}
+    };
+
     // 2. Fetch Items for Enabled Libraries in Tab (Files, Music, or IPTV)
     const fetchLibrariesContent = async (libs: TheaterLibrary[], forceRefresh: boolean = false) => {
         if (!libs || libs.length === 0) {
@@ -1230,24 +1247,6 @@ function TheaterPageContent() {
         } finally {
             setLoadingItems(false);
         }
-    };
-
-    const fetchGlobalPlaylists = async () => {
-        try {
-            const url = '/api/theater/music/playlists';
-            const playRes = await fetch(url);
-            if (playRes.ok) {
-                const pData = await playRes.json();
-                const loadedPlaylists = Array.isArray(pData.playlists) ? pData.playlists : [];
-                setPlaylists(loadedPlaylists);
-                // If a playlist is open, keep its tracklist in sync
-                setSelectedPlaylist(prev => {
-                    if (!prev) return null;
-                    const match = loadedPlaylists.find((p: any) => p.id === prev.id);
-                    return match || prev;
-                });
-            }
-        } catch {}
     };
 
     useEffect(() => {
