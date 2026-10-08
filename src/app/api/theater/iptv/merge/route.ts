@@ -1,15 +1,33 @@
 import { NextResponse } from 'next/server';
-import { mergeIptvChannels, batchMergeIptvChannels, getIptvChannels, saveIptvChannels } from '@/lib/db';
+import { mergeIptvChannels, batchMergeIptvChannels, getIptvChannels, saveIptvChannels, unlinkIptvChannelStream } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
     try {
         const body = await req.json();
-        const { libraryId, primaryChannelId, channelsToMergeIds, reorderedStreams, batchMerges } = body;
+        const { libraryId, primaryChannelId, channelsToMergeIds, reorderedStreams, batchMerges, action, channelId, streamUrl, streamUrlToUnlink, createSeparateChannel } = body;
 
         if (!libraryId) {
             return NextResponse.json({ error: 'libraryId is required' }, { status: 400 });
+        }
+
+        // 0. Unlink / Split a stream from a channel
+        if (action === 'unlink' || streamUrlToUnlink) {
+            const targetChanId = channelId || primaryChannelId;
+            const targetStreamUrl = streamUrl || streamUrlToUnlink;
+            if (!targetChanId || !targetStreamUrl) {
+                return NextResponse.json({ error: 'channelId and streamUrl are required to unlink' }, { status: 400 });
+            }
+            const res = unlinkIptvChannelStream(libraryId, targetChanId, targetStreamUrl, createSeparateChannel !== false);
+            if (res.success) {
+                return NextResponse.json({
+                    success: true,
+                    newChannelId: res.newChannelId,
+                    message: res.newChannelId ? 'Stream unlinked as new separate channel' : 'Stream unlinked successfully'
+                });
+            }
+            return NextResponse.json({ error: 'Failed to unlink stream' }, { status: 500 });
         }
 
         // 1. Batch Merge from Auto-Grouping Suggestions

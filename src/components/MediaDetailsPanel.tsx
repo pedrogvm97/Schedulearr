@@ -7,7 +7,7 @@ import {
     ListOrdered, Clock, HardDrive, Radio, FileText, Layers, Monitor,
     AlertCircle, Sparkles, ShieldCheck, Volume2, Video, Subtitles,
     Folder, CheckCircle2, ArrowDownToLine, Tv, Globe, ExternalLink,
-    Clapperboard, Download
+    Clapperboard, Download, RefreshCw
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -503,10 +503,47 @@ function MediaDetailsPanelInner({
     const [streamSeason, setStreamSeason] = useState(1);
     const [streamEpisode, setStreamEpisode] = useState(1);
     const [isAddingToLibrary, setIsAddingToLibrary] = useState(false);
+    const [currentLibStatus, setCurrentLibStatus] = useState<any>(libStatus || null);
 
     const isSeries = item.type === 'series' || item.mediaType === 'series' || !!item.tvdbId || !!item.seasons || !!item.seriesId;
-    // tmdbId is only valid if explicitly tagged as tmdbId or if item came from TMDB
     const tmdbId = item.tmdbId || (item.isTmdb ? item.id : null);
+
+    useEffect(() => {
+        if (libStatus) setCurrentLibStatus(libStatus);
+    }, [libStatus]);
+
+    const refreshLibraryStatus = async () => {
+        const titleToQuery = item.canonicalTitle || details?.title || details?.name || item.title || item.name;
+        const typeToQuery = isSeries ? 'series' : 'movie';
+        const qTmdb = details?.id || tmdbId || item.tmdbId;
+        const qTvdb = details?.external_ids?.tvdb_id || item.tvdbId;
+        if (!titleToQuery && !qTmdb && !qTvdb) return;
+
+        const params = new URLSearchParams({ type: typeToQuery });
+        if (titleToQuery) params.append('title', titleToQuery);
+        if (qTmdb) params.append('tmdbId', String(qTmdb));
+        if (qTvdb) params.append('tvdbId', String(qTvdb));
+        if (item.path) params.append('path', item.path);
+
+        try {
+            const res = await fetch(`/api/media/status?${params.toString()}`);
+            if (res.ok) {
+                const data = await res.json();
+                setCurrentLibStatus((prev: any) => ({ ...prev, ...data }));
+            }
+        } catch {}
+    };
+
+    useEffect(() => {
+        refreshLibraryStatus();
+        const handleLibUpdate = () => refreshLibraryStatus();
+        window.addEventListener('media-library-updated', handleLibUpdate);
+        window.addEventListener('theater-libraries-updated', handleLibUpdate);
+        return () => {
+            window.removeEventListener('media-library-updated', handleLibUpdate);
+            window.removeEventListener('theater-libraries-updated', handleLibUpdate);
+        };
+    }, [details, tmdbId, item.tvdbId, item.title, item.name]);
 
     // Fetch Rich TMDB Details with guaranteed fallback to avoid freezing
     useEffect(() => {
@@ -789,26 +826,61 @@ function MediaDetailsPanelInner({
 
                     {/* Library Controls Card */}
                     <div className="p-5 sm:p-6 rounded-[2rem] bg-zinc-950 border border-white/5 space-y-4 shadow-inner">
-                        {libStatus?.exists ? (
-                            <>
-                                <div className="flex items-center justify-between">
-                                    <div className="space-y-1">
-                                        <span className="text-[11px] font-black text-zinc-500 uppercase tracking-widest block">Library Status</span>
-                                        <div className="flex items-center gap-2">
-                                            <div className={`w-2.5 h-2.5 rounded-full ${libStatus.hasFile ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]' : libStatus.isDownloading ? 'bg-amber-400 animate-pulse' : 'bg-blue-400'}`} />
-                                            <span className={`text-sm sm:text-base font-black uppercase tracking-wider ${libStatus.hasFile ? 'text-emerald-400' : libStatus.isDownloading ? 'text-amber-400' : 'text-blue-400'}`}>
-                                                {libStatus.hasFile ? 'Available on Disk' : libStatus.isDownloading ? 'Downloading...' : 'In Library'}
-                                            </span>
+                        {(() => {
+                            const effStatus = currentLibStatus || libStatus;
+                            const isReadyServer = Boolean(effStatus?.hasFile);
+                            const isReadyLocal = Boolean(effStatus?.hasLocalFile && !effStatus?.hasFile);
+                            const isReady = isReadyServer || isReadyLocal;
+                            const isDownloading = Boolean(effStatus?.isDownloading || effStatus?.isSearching);
+                            const isMissing = Boolean(effStatus?.exists && !isReady && !isDownloading);
+                            const isExists = Boolean(effStatus?.exists || isReady);
+
+                            const displayStatusLabel = effStatus?.statusLabel || (
+                                isReadyServer ? 'Ready (server)' :
+                                isReadyLocal ? 'Ready (local)' :
+                                isDownloading ? 'Downloading' :
+                                isMissing ? 'Missing' :
+                                'Not Added'
+                            );
+
+                            return isExists ? (
+                                <>
+                                    <div className="flex items-center justify-between">
+                                        <div className="space-y-1">
+                                            <span className="text-xs font-black text-zinc-400 uppercase tracking-widest block">Library Status</span>
+                                            <div className="flex items-center gap-2.5">
+                                                <div className={`w-3 h-3 rounded-full ${
+                                                    isReadyServer || isReadyLocal
+                                                        ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]'
+                                                        : isDownloading
+                                                            ? 'bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.9)]'
+                                                            : 'bg-orange-400 shadow-[0_0_8px_rgba(251,146,60,0.9)]'
+                                                }`} />
+                                                <span className={`text-base sm:text-lg font-black uppercase tracking-wider ${
+                                                    isReadyServer || isReadyLocal
+                                                        ? 'text-emerald-400'
+                                                        : isDownloading
+                                                            ? 'text-amber-400'
+                                                            : 'text-orange-400'
+                                                }`}>
+                                                    {displayStatusLabel}
+                                                </span>
+                                            </div>
                                         </div>
+                                        {isReady ? (
+                                            <CheckCircle size={24} className="text-emerald-400" />
+                                        ) : isDownloading ? (
+                                            <ArrowDownToLine size={24} className="text-amber-400 animate-bounce" />
+                                        ) : (
+                                            <AlertCircle size={24} className="text-orange-400" />
+                                        )}
                                     </div>
-                                    <CheckCircle size={22} className="text-emerald-400" />
-                                </div>
 
                                 {/* Instances Badges */}
                                 <div className="pt-2 space-y-2 border-t border-white/5">
                                     <span className="text-[11px] font-black text-zinc-500 uppercase tracking-widest block">Instances</span>
                                     <div className="flex flex-wrap gap-2">
-                                        {(libStatus.instances && libStatus.instances.length > 0 ? libStatus.instances : [{ id: resolvedInstanceId, name: resolvedInstanceName }]).map((inst: any) => {
+                                        {(libStatus?.instances && libStatus.instances.length > 0 ? libStatus.instances : [{ id: resolvedInstanceId, name: resolvedInstanceName }]).map((inst: any) => {
                                             const hex = inst.colorHex || '#10b981';
                                             return (
                                                 <div
@@ -831,7 +903,7 @@ function MediaDetailsPanelInner({
                                         <div className="relative">
                                             <select
                                                 disabled={isUpdatingProfile}
-                                                defaultValue={libStatus.qualityProfileId || item.qualityProfileId}
+                                                defaultValue={libStatus?.qualityProfileId || item.qualityProfileId}
                                                 onChange={(e) => handleUpdateProfile(parseInt(e.target.value))}
                                                 className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-bold text-zinc-200 appearance-none cursor-pointer focus:outline-none focus:border-emerald-500/50 transition-all disabled:opacity-50"
                                             >
@@ -863,15 +935,20 @@ function MediaDetailsPanelInner({
                                     </button>
 
                                     <button
-                                        onClick={() => onQuickSearch?.({
-                                            type: isSeries ? 'series' : 'movie',
-                                            id: resolvedInternalId,
-                                            instanceId: resolvedInstanceId
-                                        })}
+                                        onClick={() => {
+                                            onQuickSearch?.({
+                                                type: isSeries ? 'series' : 'movie',
+                                                id: resolvedInternalId,
+                                                instanceId: resolvedInstanceId
+                                            });
+                                            setCurrentLibStatus((prev: any) => ({ ...prev, exists: true, isDownloading: true, statusLabel: 'Downloading' }));
+                                            setTimeout(() => refreshLibraryStatus(), 2000);
+                                            setTimeout(() => refreshLibraryStatus(), 5000);
+                                        }}
                                         className="h-11 px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-white/10 text-zinc-200 hover:text-emerald-400 active:scale-95 transition-all flex items-center justify-center gap-2 text-xs font-black uppercase tracking-wider touch-target"
                                         title="Auto Quick Search"
                                     >
-                                        <PlayCircle size={14} /> Auto Search
+                                        <PlayCircle size={15} /> Auto Search
                                     </button>
 
                                     <button
@@ -880,13 +957,13 @@ function MediaDetailsPanelInner({
                                             id: resolvedInternalId,
                                             instanceId: resolvedInstanceId,
                                             instanceName: resolvedInstanceName,
-                                            qualityProfileId: libStatus.qualityProfileId || item.qualityProfileId,
+                                            qualityProfileId: libStatus?.qualityProfileId || item.qualityProfileId,
                                             title: item.title || details?.name || item.name
                                         })}
                                         className="h-11 px-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-white/10 text-zinc-200 hover:text-white active:scale-95 transition-all flex items-center justify-center gap-2 text-xs font-black uppercase tracking-wider touch-target"
                                         title="Transfer or Copy to another instance"
                                     >
-                                        <MoveHorizontal size={14} /> Transfer
+                                        <MoveHorizontal size={15} /> Transfer
                                     </button>
 
                                     <button
@@ -899,24 +976,46 @@ function MediaDetailsPanelInner({
                                         className="h-11 px-3 rounded-xl bg-red-500/10 hover:bg-red-500 border border-red-500/20 text-red-400 hover:text-white active:scale-95 transition-all flex items-center justify-center gap-2 text-xs font-black uppercase tracking-wider touch-target"
                                         title="Delete from Library"
                                     >
-                                        <Trash2 size={14} /> Delete
+                                        <Trash2 size={15} /> Delete
                                     </button>
                                 </div>
                             </>
                         ) : (
                             <div className="space-y-4">
                                 <div className="space-y-1">
-                                    <span className="text-[11px] font-black text-zinc-500 uppercase tracking-widest block">Library</span>
-                                    <p className="text-xs sm:text-sm text-zinc-400 font-medium">Not currently in your Arr instances.</p>
+                                    <span className="text-xs font-black text-zinc-400 uppercase tracking-widest block">Library</span>
+                                    <p className="text-sm sm:text-base text-zinc-300 font-medium">Not currently in your Arr instances.</p>
                                 </div>
                                 <button
-                                    onClick={onAdd}
-                                    className="w-full h-12 flex items-center justify-center gap-2.5 rounded-2xl bg-white text-black font-black uppercase text-xs tracking-widest hover:bg-emerald-400 transition-all shadow-xl active:scale-95"
+                                    onClick={() => {
+                                        if (onAdd) {
+                                            onAdd();
+                                            setIsAddingToLibrary(true);
+                                            setTimeout(() => refreshLibraryStatus(), 1500);
+                                            setTimeout(() => {
+                                                refreshLibraryStatus();
+                                                setIsAddingToLibrary(false);
+                                            }, 4500);
+                                        }
+                                    }}
+                                    disabled={isAddingToLibrary}
+                                    className="w-full h-12 flex items-center justify-center gap-2.5 rounded-2xl bg-white text-black font-black uppercase text-xs sm:text-sm tracking-widest hover:bg-emerald-400 transition-all shadow-xl active:scale-95 disabled:opacity-50 cursor-pointer"
                                 >
-                                    <Plus size={18} /> Add to Library
+                                    {isAddingToLibrary ? (
+                                        <>
+                                            <RefreshCw size={18} className="animate-spin" />
+                                            <span>Adding to Library...</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Plus size={18} />
+                                            <span>Add to Library</span>
+                                        </>
+                                    )}
                                 </button>
                             </div>
-                        )}
+                        );
+                    })()}
 
                         {/* Web Stream & IMDb Player Action Card */}
                         <div className="pt-3 border-t border-white/5 space-y-2">

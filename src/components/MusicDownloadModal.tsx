@@ -49,7 +49,17 @@ export function MusicDownloadModal({
     const [currentDownloadStatus, setCurrentDownloadStatus] = useState<string>('');
     const [readyFile, setReadyFile] = useState<{ url: string; filename: string; size?: number } | null>(null);
 
-    // Fetch only clean Local Device, Server Local Storage, and deduplicated Plex libraries
+    const isAlreadyOnServer = Boolean(
+        track?.path || 
+        (albumTracks && albumTracks.length > 0 && albumTracks.every((t: any) => t.path)) ||
+        track?.plexPart ||
+        (albumTracks && albumTracks.length > 0 && albumTracks.every((t: any) => t.plexPart)) ||
+        track?.inLibrary ||
+        track?.source === 'plex' ||
+        (albumTracks?.[0]?.source === 'plex')
+    );
+
+    // Fetch exclusively Local Device and deduplicated Plex libraries (No container-specific /media or /music)
     useEffect(() => {
         const fetchDestinations = async () => {
             const list: DestinationOption[] = [
@@ -62,38 +72,14 @@ export function MusicDownloadModal({
                 }
             ];
 
-            let firstServerDestId: string | null = null;
+            let firstPlexDestId: string | null = null;
 
             try {
                 const res = await fetch('/api/theater/libraries');
                 if (res.ok) {
                     const data = await res.json();
 
-                    // 1. Local Server Storage (One clean consolidated destination for the server's music storage)
-                    const allLibs = Array.isArray(data) ? data : (data.libraries || []);
-                    const musicLibs = allLibs.filter((l: any) => l.type === 'music' || l.type === 'audio' || l.type === 'audiobooks');
-                    let primaryServerPath = '/music';
-                    for (const lib of musicLibs) {
-                        let folders: string[] = [];
-                        try {
-                            folders = typeof lib.folders === 'string' ? JSON.parse(lib.folders) : (lib.folders || []);
-                        } catch {}
-                        if (folders.length > 0 && folders[0]) {
-                            primaryServerPath = folders[0];
-                            break;
-                        }
-                    }
-                    const localDestId = 'server-local';
-                    list.push({
-                        id: localDestId,
-                        name: 'Server Local Storage',
-                        path: primaryServerPath,
-                        type: 'theater',
-                        badge: 'Local Server'
-                    });
-                    if (!firstServerDestId) firstServerDestId = localDestId;
-
-                    // 2. Plex Music Libraries (Strictly deduplicated by Section ID)
+                    // Plex Music Libraries (Strictly deduplicated by Section ID)
                     const plexLibs = Array.isArray(data.plexMusicLibraries) ? data.plexMusicLibraries : [];
                     const seenPlexKeys = new Set<string>();
                     for (const plib of plexLibs) {
@@ -112,17 +98,35 @@ export function MusicDownloadModal({
                             instanceName: plib.instanceName,
                             instanceId: plib.instanceId
                         });
+                        if (!firstPlexDestId) firstPlexDestId = destId;
                     }
                 }
             } catch {}
 
             setDestinations(list);
+
+            if (isAlreadyOnServer) {
+                // If already on server, ensure all Plex destinations are marked and lock server
+                const plexDestIds = list.filter(d => d.type === 'plex').map(d => d.id);
+                try {
+                    const saved = localStorage.getItem('schedulearr_music_destinations');
+                    if (saved) {
+                        const parsed = JSON.parse(saved);
+                        if (Array.isArray(parsed) && parsed.includes('device')) {
+                            setSelectedDestIds([...plexDestIds, 'device']);
+                            return;
+                        }
+                    }
+                } catch {}
+                setSelectedDestIds(plexDestIds.length > 0 ? plexDestIds : ['device']);
+                return;
+            }
+
             try {
                 const saved = localStorage.getItem('schedulearr_music_destinations');
                 if (saved) {
                     const parsed = JSON.parse(saved);
                     if (Array.isArray(parsed) && parsed.length > 0) {
-                        // Keep only saved IDs that actually exist in the clean list
                         const valid = parsed.filter((id: string) => list.some(d => d.id === id));
                         if (valid.length > 0) {
                             setSelectedDestIds(valid);
@@ -131,14 +135,19 @@ export function MusicDownloadModal({
                     }
                 }
             } catch {}
-            // Default to the first detected Local Server or Plex library if available, otherwise device
-            setSelectedDestIds(firstServerDestId ? [firstServerDestId] : ['device']);
+            // Default to the first detected Plex library if available, otherwise device
+            setSelectedDestIds(firstPlexDestId ? [firstPlexDestId] : ['device']);
         };
 
         fetchDestinations();
-    }, []);
+    }, [isAlreadyOnServer]);
 
     const toggleDestination = (id: string) => {
+        const dest = destinations.find(d => d.id === id);
+        if (dest && (dest.type === 'plex' || dest.type === 'theater') && isAlreadyOnServer) {
+            toast.info('Item is already available on server in Plex');
+            return;
+        }
         setSelectedDestIds(prev => {
             let next: string[];
             if (prev.includes(id)) {
@@ -564,44 +573,56 @@ export function MusicDownloadModal({
                             ))}
                         </div>
                     </div>                    {/* 3. Destination Selection (Multi-Destination Checkboxes) */}
-                    <div className="space-y-2">
+                    <div className="space-y-2.5">
                         <div className="flex items-center justify-between">
-                            <label className="text-xs font-black text-zinc-400 uppercase tracking-wider">
+                            <label className="text-sm font-black text-zinc-300 uppercase tracking-wider">
                                 3. Save Destination(s)
                             </label>
-                            <span className="text-[10px] text-zinc-500 font-bold">
-                                {selectedDestIds.length} Selected (Local and/or Server)
+                            <span className="text-xs text-zinc-400 font-bold">
+                                {selectedDestIds.length} Selected (Local and/or Plex)
                             </span>
                         </div>
-                        <div className="space-y-2">
+                        <div className="space-y-2.5">
                             {destinations.map(d => {
-                                const isSelected = selectedDestIds.includes(d.id);
+                                const isServerDest = d.type === 'plex' || d.type === 'theater';
+                                const isLocked = isServerDest && isAlreadyOnServer;
+                                const isSelected = isLocked || selectedDestIds.includes(d.id);
                                 return (
                                     <div
                                         key={d.id}
                                         onClick={() => toggleDestination(d.id)}
-                                        className={`w-full p-3.5 rounded-2xl border text-left transition-all flex items-center justify-between cursor-pointer select-none ${
-                                            isSelected
-                                                ? 'bg-amber-500/15 border-amber-500/60 text-white font-bold'
-                                                : 'bg-zinc-900/50 border-zinc-800/80 text-zinc-400 hover:text-white'
+                                        className={`w-full p-4 rounded-2xl border text-left transition-all flex items-center justify-between select-none ${
+                                            isLocked
+                                                ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300 opacity-95 cursor-default'
+                                                : isSelected
+                                                    ? 'bg-amber-500/15 border-amber-500/60 text-white font-bold cursor-pointer'
+                                                    : 'bg-zinc-900/50 border-zinc-800/80 text-zinc-400 hover:text-white cursor-pointer'
                                         }`}
                                     >
-                                        <div className="flex items-center gap-3 min-w-0">
-                                            <div className={`w-5 h-5 rounded-lg border flex items-center justify-center transition-all shrink-0 ${
-                                                isSelected ? 'bg-amber-500 border-amber-500 text-black' : 'border-zinc-700 bg-zinc-950'
+                                        <div className="flex items-center gap-3.5 min-w-0">
+                                            <div className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all shrink-0 ${
+                                                isLocked
+                                                    ? 'bg-emerald-500 border-emerald-500 text-black'
+                                                    : isSelected
+                                                        ? 'bg-amber-500 border-amber-500 text-black'
+                                                        : 'border-zinc-700 bg-zinc-950'
                                             }`}>
-                                                {isSelected && <Check size={13} strokeWidth={3} />}
+                                                {isSelected && <Check size={15} strokeWidth={3} />}
                                             </div>
-                                            {d.type === 'device' ? <Laptop size={18} className="text-amber-400 shrink-0" /> : <Folder size={18} className="text-emerald-400 shrink-0" />}
+                                            {d.type === 'device' ? <Laptop size={20} className="text-amber-400 shrink-0" /> : <Folder size={20} className="text-emerald-400 shrink-0" />}
                                             <div className="min-w-0">
-                                                <div className="text-xs font-black truncate">{d.name}</div>
-                                                <div className="text-[11px] text-zinc-500 truncate">{d.path}</div>
+                                                <div className="text-sm sm:text-base font-black truncate">{d.name}</div>
+                                                <div className="text-xs text-zinc-400 truncate">{d.path}</div>
                                             </div>
                                         </div>
-                                        <span className={`text-[9px] px-2 py-0.5 rounded-md font-bold uppercase tracking-wider shrink-0 ml-2 ${
-                                            isSelected ? 'bg-amber-500/20 text-amber-300' : 'bg-zinc-800 text-zinc-400'
+                                        <span className={`text-[11px] px-2.5 py-1 rounded-lg font-bold uppercase tracking-wider shrink-0 ml-2 ${
+                                            isLocked
+                                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                                : isSelected
+                                                    ? 'bg-amber-500/20 text-amber-300'
+                                                    : 'bg-zinc-800 text-zinc-400'
                                         }`}>
-                                            {d.badge}
+                                            {isLocked ? 'Ready (server)' : d.badge}
                                         </span>
                                     </div>
                                 );

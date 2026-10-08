@@ -1,19 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
-import { spawn, ChildProcess } from 'child_process';
 import {
     getDvrStorageFolders, addDvrStorageFolder, deleteDvrStorageFolder,
     getDvrRules, saveDvrRule, deleteDvrRule,
     getDvrRecordings, scheduleDvrRecording, updateDvrRecordingStatus, deleteDvrRecording,
     getIptvChannels, getIptvEpg
 } from '@/lib/db';
-import { getFFmpegPath } from '@/lib/transcoder';
+import {
+    checkAndRunScheduledRecordings,
+    startRecordingProcess,
+    cancelRecordingProcess
+} from '@/lib/iptvDvrScheduler';
 
 export const dynamic = 'force-dynamic';
-
-// Track running ffmpeg recording processes
-const activeRecorders = new Map<string, ChildProcess>();
 
 function sanitizeFilename(name: string): string {
     return name.replace(/[/\\?%*:|"<>]/g, '-').replace(/\s+/g, ' ').trim();
@@ -21,6 +21,9 @@ function sanitizeFilename(name: string): string {
 
 export async function GET() {
     try {
+        // Run scheduler tick to trigger any due auto-recordings
+        checkAndRunScheduledRecordings();
+
         const folders = getDvrStorageFolders();
         const rules = getDvrRules();
         const recordings = getDvrRecordings();
@@ -131,47 +134,7 @@ export async function POST(req: NextRequest) {
 
             // If "record_now", spawn FFmpeg capture immediately in background
             if (action === 'record_now') {
-                try {
-                    const ffmpegBin = getFFmpegPath();
-                    const ffmpegArgs = [
-                        '-y',
-                        '-hide_banner',
-                        '-loglevel', 'error',
-                        '-headers', 'User-Agent: VLC/3.0.18 LibVLC/3.0.18\r\n',
-                        '-i', streamUrl,
-                        '-t', durationSec.toString(),
-                        '-c', 'copy',
-                        destFilePath
-                    ];
-
-                    const child = spawn(ffmpegBin, ffmpegArgs, { detached: true, stdio: 'ignore' });
-                    activeRecorders.set(recording.id, child);
-
-                    child.on('exit', (code) => {
-                        activeRecorders.delete(recording.id);
-                        let finalSize = 0;
-                        try {
-                            if (fs.existsSync(destFilePath)) {
-                                finalSize = fs.statSync(destFilePath).size;
-                            }
-                        } catch {}
-
-                        if (code === 0 && finalSize > 1024) {
-                            updateDvrRecordingStatus(recording.id, 'completed', destFilePath, finalSize);
-                        } else {
-                            updateDvrRecordingStatus(recording.id, 'failed', destFilePath, finalSize, `FFmpeg exited with code ${code}`);
-                        }
-                    });
-
-                    child.on('error', (err) => {
-                        activeRecorders.delete(recording.id);
-                        updateDvrRecordingStatus(recording.id, 'failed', undefined, 0, err.message);
-                    });
-
-                    child.unref();
-                } catch (spawnErr: any) {
-                    updateDvrRecordingStatus(recording.id, 'failed', undefined, 0, spawnErr.message);
-                }
+                startRecordingProcess(recording);
             }
 
             return NextResponse.json({ success: true, recording });
@@ -182,13 +145,7 @@ export async function POST(req: NextRequest) {
             const { id } = body;
             if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
 
-            const proc = activeRecorders.get(id);
-            if (proc) {
-                try { proc.kill('SIGTERM'); } catch {}
-                activeRecorders.delete(id);
-            }
-
-            updateDvrRecordingStatus(id, 'cancelled');
+            cancelRecordingProcess(id);
             return NextResponse.json({ success: true });
         }
 

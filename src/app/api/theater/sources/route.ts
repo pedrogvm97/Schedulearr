@@ -43,7 +43,7 @@ export async function GET() {
                         title: d.title || 'Plex Library',
                         plexType: sectionType,
                         mediaType,
-                        locations: locations.length > 0 ? locations : ['/media'],
+                        locations: locations,
                         count: d.count || 0,
                         exists: locations.some(p => fs.existsSync(p))
                     });
@@ -109,21 +109,19 @@ export async function GET() {
             }
         }
 
-        // 4. Common Host Mount Points on Linux / Docker
-        const commonPaths = [
-            '/mnt/user/data/media',
-            '/mnt/user/data',
-            '/mnt/user/appdata',
-            '/media',
-            '/movies',
-            '/tv',
-            '/shows',
-            '/music',
-            '/photos',
-            '/data',
-            '/data/media'
-        ];
-        const accessibleMounts = commonPaths.filter(p => fs.existsSync(p));
+        // 4. Host mount shortcuts (strictly filtered to Plex/instance locations)
+        const allKnownLocations = new Set<string>();
+        for (const pl of plexLibraries) {
+            (pl.locations || []).forEach((loc: string) => allKnownLocations.add(loc));
+        }
+        for (const rf of radarrFolders) {
+            if (rf.path) allKnownLocations.add(rf.path);
+        }
+        for (const sf of sonarrFolders) {
+            if (sf.path) allKnownLocations.add(sf.path);
+        }
+
+        const accessibleMounts = Array.from(allKnownLocations).filter(p => fs.existsSync(p));
 
         return NextResponse.json({
             plex: plexLibraries,

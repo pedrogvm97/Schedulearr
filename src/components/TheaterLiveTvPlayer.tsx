@@ -978,14 +978,14 @@ export default function TheaterLiveTvPlayer({
 
                         {/* On-Screen Channel Schedule Overlay (OSD) */}
                         {osdGuideOpen && currentChannelPrograms.length > 0 && (
-                            <div className="absolute right-4 top-16 bottom-4 w-72 bg-black/85 backdrop-blur-xl border border-zinc-800/80 rounded-2xl p-4 flex flex-col space-y-3 z-30 animate-in fade-in slide-in-from-right duration-200 pointer-events-auto overflow-hidden">
+                            <div className="absolute right-4 top-16 bottom-16 w-80 bg-black/90 backdrop-blur-xl border border-zinc-800/80 rounded-2xl p-4 flex flex-col space-y-3 z-30 animate-in fade-in slide-in-from-right duration-200 pointer-events-auto overflow-hidden">
                                 <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
                                     <div className="min-w-0">
-                                        <h4 className="text-xs font-black text-white truncate">{currentChannel?.name}</h4>
-                                        <p className="text-[10px] text-amber-400 font-bold uppercase">Program Schedule</p>
+                                        <h4 className="text-sm font-black text-white truncate">{currentChannel?.name}</h4>
+                                        <p className="text-xs text-amber-400 font-bold uppercase">Program Schedule</p>
                                     </div>
-                                    <button onClick={() => setOsdGuideOpen(false)} className="text-zinc-500 hover:text-white">
-                                        <X size={14} />
+                                    <button onClick={() => setOsdGuideOpen(false)} className="text-zinc-500 hover:text-white p-1 rounded-lg">
+                                        <X size={16} />
                                     </button>
                                 </div>
 
@@ -996,18 +996,18 @@ export default function TheaterLiveTvPlayer({
                                         return (
                                             <div
                                                 key={prog.id || idx}
-                                                className={`p-2.5 rounded-xl border text-xs transition-all ${
+                                                className={`p-3 rounded-xl border text-sm transition-all ${
                                                     isLive
                                                         ? 'bg-amber-500/15 border-amber-500/40 text-white'
                                                         : 'bg-zinc-900/60 border-zinc-800/80 text-zinc-300 hover:bg-zinc-900'
                                                 }`}
                                             >
-                                                <div className="flex items-center justify-between text-[10px] font-mono text-zinc-400 mb-1">
+                                                <div className="flex items-center justify-between text-xs font-mono text-zinc-400 mb-1">
                                                     <span>{new Date(prog.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(prog.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                                    {isLive && <span className="text-red-400 font-bold uppercase text-[9px] flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" /> LIVE</span>}
+                                                    {isLive && <span className="text-red-400 font-bold uppercase text-[10px] flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" /> LIVE</span>}
                                                 </div>
-                                                <p className="font-bold truncate">{prog.title}</p>
-                                                {prog.description && <p className="text-[10px] text-zinc-500 line-clamp-2 mt-0.5">{prog.description}</p>}
+                                                <p className="font-bold truncate text-sm">{prog.title}</p>
+                                                {prog.description && <p className="text-xs text-zinc-400 line-clamp-2 mt-0.5">{prog.description}</p>}
                                             </div>
                                         );
                                     })}

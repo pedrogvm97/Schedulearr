@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import {
     X, Layers, Plus, ArrowUp, ArrowDown, Trash2, CheckCircle2,
-    Radio, Play, AlertCircle, Zap, Search
+    Radio, Play, AlertCircle, Zap, Search, Split
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -84,6 +84,8 @@ export function IptvChannelSourcesModal({
         });
     };
 
+    const [unlinkingUrl, setUnlinkingUrl] = useState<string | null>(null);
+
     // Remove a stream
     const handleRemoveStream = (index: number) => {
         if (streams.length <= 1) {
@@ -91,6 +93,44 @@ export function IptvChannelSourcesModal({
             return;
         }
         setStreams(prev => prev.filter((_, i) => i !== index));
+    };
+
+    // Split / Unlink stream into its own separate channel
+    const handleUnlinkStream = async (stream: StreamSource) => {
+        if (streams.length <= 1) {
+            toast.error('Channel only has 1 stream source; cannot split.');
+            return;
+        }
+        setUnlinkingUrl(stream.url);
+        try {
+            const res = await fetch('/api/theater/iptv/merge', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    libraryId,
+                    action: 'unlink',
+                    channelId: channel.id,
+                    streamUrl: stream.url,
+                    createSeparateChannel: true
+                })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                toast.success(data.message || 'Stream successfully split into a separate channel!');
+                const newStreams = streams.filter(s => s.url !== stream.url);
+                setStreams(newStreams);
+                onChannelUpdated({
+                    ...channel,
+                    streams: newStreams
+                });
+            } else {
+                toast.error(data.error || 'Failed to split stream');
+            }
+        } catch {
+            toast.error('Error splitting stream');
+        } finally {
+            setUnlinkingUrl(null);
+        }
     };
 
     // Add manual custom stream
@@ -409,43 +449,59 @@ export function IptvChannelSourcesModal({
 
                                     {/* Label & URL */}
                                     <div className="min-w-0 flex-1">
-                                        <h4 className="text-xs font-bold text-white truncate">
+                                        <h4 className="text-sm font-bold text-white truncate">
                                             {stream.label || `Stream #${idx + 1}`}
                                         </h4>
-                                        <p className="text-[10px] text-zinc-500 font-mono truncate">
+                                        <p className="text-xs text-zinc-500 font-mono truncate">
                                             {stream.url}
                                         </p>
                                     </div>
                                 </div>
 
                                 {/* Reorder & Action Controls */}
-                                <div className="flex items-center gap-1 shrink-0">
+                                <div className="flex items-center gap-1.5 shrink-0">
                                     <button
                                         type="button"
                                         disabled={idx === 0}
                                         onClick={() => handleMoveUp(idx)}
                                         title="Move Priority Up"
-                                        className="p-1.5 rounded-lg bg-zinc-900 text-zinc-400 hover:text-white disabled:opacity-30 transition-colors"
+                                        className="p-2 rounded-xl bg-zinc-900 text-zinc-400 hover:text-white disabled:opacity-30 transition-colors"
                                     >
-                                        <ArrowUp size={14} />
+                                        <ArrowUp size={16} />
                                     </button>
                                     <button
                                         type="button"
                                         disabled={idx === streams.length - 1}
                                         onClick={() => handleMoveDown(idx)}
                                         title="Move Priority Down"
-                                        className="p-1.5 rounded-lg bg-zinc-900 text-zinc-400 hover:text-white disabled:opacity-30 transition-colors"
+                                        className="p-2 rounded-xl bg-zinc-900 text-zinc-400 hover:text-white disabled:opacity-30 transition-colors"
                                     >
-                                        <ArrowDown size={14} />
+                                        <ArrowDown size={16} />
                                     </button>
+                                    {streams.length > 1 && (
+                                        <button
+                                            type="button"
+                                            disabled={unlinkingUrl === stream.url}
+                                            onClick={() => handleUnlinkStream(stream)}
+                                            title="Split stream into its own separate channel"
+                                            className="px-2.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 disabled:opacity-30 transition-colors flex items-center gap-1.5 text-xs font-black uppercase tracking-wider"
+                                        >
+                                            {unlinkingUrl === stream.url ? (
+                                                <div className="w-3.5 h-3.5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+                                            ) : (
+                                                <Split size={14} />
+                                            )}
+                                            <span>Split Channel</span>
+                                        </button>
+                                    )}
                                     <button
                                         type="button"
                                         disabled={streams.length <= 1}
                                         onClick={() => handleRemoveStream(idx)}
                                         title="Remove Stream"
-                                        className="p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white disabled:opacity-30 transition-colors ml-1"
+                                        className="p-2 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white disabled:opacity-30 transition-colors"
                                     >
-                                        <Trash2 size={14} />
+                                        <Trash2 size={16} />
                                     </button>
                                 </div>
                             </div>

@@ -29,7 +29,7 @@ export async function GET() {
         }
 
         // 1. Fetch Radarr/Sonarr data to build a hash -> metadata map
-        const hashToMetadata: Record<string, { indexer?: string, poster?: string, tmdbId?: number, tvdbId?: number, mediaType?: 'movie' | 'series' }> = {};
+        const hashToMetadata: Record<string, { indexer?: string, poster?: string, tmdbId?: number, tvdbId?: number, mediaType?: 'movie' | 'series', canonicalTitle?: string, year?: number }> = {};
         const radarrInstances = getInstances('radarr', true);
         const sonarrInstances = getInstances('sonarr', true);
 
@@ -65,6 +65,8 @@ export async function GET() {
                                     series?.images?.find((img: any) => img.coverType === 'poster')?.remoteUrl ||
                                     movie?.images?.[0]?.remoteUrl || 
                                     series?.images?.[0]?.remoteUrl,
+                            canonicalTitle: movie?.title || series?.title,
+                            year: movie?.year || series?.year,
                             tmdbId: movie?.tmdbId || series?.tmdbId,
                             tvdbId: movie?.tvdbId || series?.tvdbId,
                             mediaType: movie ? 'movie' : 'series'
@@ -94,6 +96,8 @@ export async function GET() {
                                                   movie?.images?.[0]?.remoteUrl || 
                                                   series?.images?.[0]?.remoteUrl;
                     
+                    hashToMetadata[hash].canonicalTitle = hashToMetadata[hash].canonicalTitle || movie?.title || series?.title;
+                    hashToMetadata[hash].year = hashToMetadata[hash].year || movie?.year || series?.year;
                     hashToMetadata[hash].tmdbId = hashToMetadata[hash].tmdbId || movie?.tmdbId || series?.tmdbId;
                     hashToMetadata[hash].tvdbId = hashToMetadata[hash].tvdbId || movie?.tvdbId || series?.tvdbId;
                     hashToMetadata[hash].mediaType = hashToMetadata[hash].mediaType || (movie ? 'movie' : 'series');
@@ -117,18 +121,13 @@ export async function GET() {
             return poster ? `/api/proxy?url=${encodeURIComponent(poster)}` : undefined;
         };
 
-        radarrLib.flat().forEach((m: any) => {
-            const inst = radarrInstances.find(i => m.id && m.title); // heuristic to find the right instance if needed, but we have lists
-            // Actually radarrLib is an array of arrays, so we should map instance to its lib results
-        });
-
         // Better way to process libraries with instance context
         radarrInstances.forEach((inst, idx) => {
             const lib = radarrLib[idx];
             if (!Array.isArray(lib)) return;
             lib.forEach((m: any) => {
                 const poster = resolvePoster(inst, m);
-                const meta = { poster, tmdbId: m.tmdbId, mediaType: 'movie' };
+                const meta = { poster, tmdbId: m.tmdbId, mediaType: 'movie', canonicalTitle: m.title, year: m.year };
                 titleToMetadata[slugify(m.title)] = meta;
                 if (m.originalTitle) titleToMetadata[slugify(m.originalTitle)] = meta;
                 if (m.title && m.year) titleToMetadata[slugify(`${m.title} ${m.year}`)] = meta;
@@ -145,7 +144,7 @@ export async function GET() {
             if (!Array.isArray(lib)) return;
             lib.forEach((s: any) => {
                 const poster = resolvePoster(inst, s);
-                const meta = { poster, tvdbId: s.tvdbId, mediaType: 'series' };
+                const meta = { poster, tvdbId: s.tvdbId, mediaType: 'series', canonicalTitle: s.title, year: s.year };
                 titleToMetadata[slugify(s.title)] = meta;
                 if (s.title && s.year) titleToMetadata[slugify(`${s.title} ${s.year}`)] = meta;
                 if (s.alternateTitles) {
@@ -174,25 +173,39 @@ export async function GET() {
                         const slugify = (t: string) => t.toLowerCase().replace(/[^a-z0-9]/g, '');
                         const name = t.name.toLowerCase();
                         
-                        // Aggressive cleanup for matching
+                        // Aggressive cleanup for matching TV shows and movies
+                        const isTvShow = /s\d{1,2}e\d{1,2}|\bseason\s*\d+|\b\d{1,2}x\d{1,2}\b/i.test(name);
                         const cleaned = name
-                            .replace(/\b(1080p|720p|2160p|4k|uhd|bluray|web-dl|webrip|h\.264|h\.265|x264|x265|hevc|ddp5\.1|dts|aac|repack|proper|remux|multi|vostfr|subfrench)\b/gi, '')
+                            .replace(/s\d{1,2}e\d{1,2}.*$/i, '')
+                            .replace(/\bseason\s*\d+.*$/i, '')
+                            .replace(/\b\d{1,2}x\d{1,2}.*$/i, '')
+                            .replace(/\b(1080p|720p|2160p|4k|uhd|bluray|web-dl|webrip|h\.264|h\.265|x264|x265|hevc|ddp5\.1|dts|aac|atmos|truehd|ac3|repack|proper|remux|multi|vostfr|subfrench|dual|amzn|nf|dsnp|hmax|web|dvdrip)\b/gi, '')
+                            .replace(/\b(19\d{2}|20\d{2})\b/g, '')
                             .replace(/[\[\(\]\)]/g, ' ')
-                            .replace(/[\.\-]/g, ' ')
+                            .replace(/[\.\-_]/g, ' ')
+                            .replace(/\s+/g, ' ')
                             .trim();
                         
                         const slug = slugify(cleaned);
                         
                         // 1. Try exact slug match
                         if (titleToMetadata[slug]) {
-                            titleMeta = titleToMetadata[slug];
+                            titleMeta = {
+                                ...titleToMetadata[slug],
+                                mediaType: isTvShow ? 'series' : (titleToMetadata[slug].mediaType || 'movie')
+                            };
                         } else {
-                            // 2. Try substring match (longest matching movie title)
+                            // 2. Try substring match (longest matching movie or show title)
                             const matchedKey = Object.keys(titleToMetadata)
-                                .filter(k => k.length > 5 && slug.includes(k))
+                                .filter(k => k.length > 3 && (slug.includes(k) || k.includes(slug)))
                                 .sort((a, b) => b.length - a.length)[0];
                             
-                            if (matchedKey) titleMeta = titleToMetadata[matchedKey];
+                            if (matchedKey) {
+                                titleMeta = {
+                                    ...titleToMetadata[matchedKey],
+                                    mediaType: isTvShow ? 'series' : (titleToMetadata[matchedKey].mediaType || 'movie')
+                                };
+                            }
                         }
                     }
 

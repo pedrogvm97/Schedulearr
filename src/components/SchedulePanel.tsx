@@ -113,27 +113,29 @@ function TimelineDateGroup({
             id={`timeline-date-${dateKey}`}
             ref={group.isToday ? todayRef : null}
             className={`relative pl-6 sm:pl-10 transition-all ${
-                group.isToday ? 'p-4 sm:p-6 rounded-[2.5rem] bg-emerald-500/5 border border-emerald-500/30 shadow-2xl' : ''
+                group.isToday
+                    ? 'p-5 sm:p-7 rounded-[2.5rem] bg-gradient-to-r from-emerald-500/15 via-zinc-950/90 to-zinc-950/60 border-2 border-emerald-500/60 shadow-[0_0_50px_rgba(16,185,129,0.22)] ring-1 ring-emerald-400/30'
+                    : ''
             }`}
         >
             {/* Glowing Timeline Node */}
-            <div className={`absolute left-0 top-3 w-4 h-4 rounded-full ${
+            <div className={`absolute left-0 top-3 w-5 h-5 rounded-full ${
                 group.isToday
-                    ? 'bg-emerald-400 shadow-[0_0_18px_rgba(16,185,129,0.9)] animate-pulse ring-4 ring-emerald-500/20'
+                    ? 'bg-emerald-400 shadow-[0_0_24px_rgba(16,185,129,1)] animate-pulse ring-4 ring-emerald-500/40'
                     : group.isPast
                         ? 'bg-zinc-700'
                         : 'bg-indigo-500 shadow-[0_0_12px_rgba(99,102,241,0.6)]'
             }`} />
-            <div className="absolute left-[7px] top-7 bottom-[-2rem] w-0.5 bg-zinc-800/80" />
+            <div className="absolute left-[9px] top-8 bottom-[-2rem] w-0.5 bg-zinc-800/80" />
 
             {/* Date Group Header */}
             <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                 <div className="flex items-center gap-3">
-                    <h2 className="text-lg sm:text-xl font-black text-white uppercase tracking-wider flex items-center gap-2">
+                    <h2 className="text-xl sm:text-2xl font-black text-white uppercase tracking-wider flex items-center gap-2.5">
                         {group.dateStr}
                         {group.isToday && (
-                            <span className="px-3 py-1 rounded-full bg-emerald-500 text-black text-[11px] font-black uppercase tracking-widest shadow-md">
-                                TODAY
+                            <span className="px-3.5 py-1 rounded-full bg-emerald-500 text-black text-xs font-black uppercase tracking-widest shadow-lg shadow-emerald-500/30 animate-pulse">
+                                TODAY — CURRENT DAY
                             </span>
                         )}
                     </h2>
@@ -141,7 +143,11 @@ function TimelineDateGroup({
 
                 <div className="flex items-center gap-2">
                     {/* Discrete Release Counter Badge */}
-                    <span className="bg-zinc-900 border border-zinc-800 text-zinc-300 text-xs font-black px-3.5 py-1.5 rounded-xl shadow-sm flex items-center gap-1.5">
+                    <span className={`text-xs font-black px-3.5 py-1.5 rounded-xl shadow-sm flex items-center gap-1.5 border ${
+                        group.isToday
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                            : 'bg-zinc-900 border-zinc-800 text-zinc-300'
+                    }`}>
                         <span className="text-emerald-400">{group.events.length}</span> {group.events.length === 1 ? 'Release' : 'Releases'}
                         {isMultiItem && (
                             <span className="text-zinc-500 font-mono text-[11px] ml-1">
@@ -176,18 +182,35 @@ function TimelineDateGroup({
                 </div>
             </div>
 
-            {/* Release Cards: Generously Wide, High-Detail Layout */}
-            <div
-                ref={scrollContainerRef}
-                className={
-                    totalReleases === 1
-                        ? 'w-full'
-                        : totalReleases === 2
-                            ? 'grid grid-cols-1 md:grid-cols-2 gap-5'
-                            : 'flex items-stretch gap-5 overflow-x-auto pb-4 pt-1 custom-scrollbar snap-x scroll-smooth'
-                }
-            >
-                {group.consolidated.map((item: any) => {
+            {/* Empty releases fallback for Today anchor */}
+            {totalReleases === 0 ? (
+                <div className="w-full p-6 sm:p-8 rounded-[2rem] bg-zinc-950/70 border border-dashed border-emerald-500/40 flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3.5">
+                        <div className="w-12 h-12 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-inner">
+                            <CalendarIcon size={24} />
+                        </div>
+                        <div>
+                            <p className="text-base sm:text-lg font-bold text-white">No releases scheduled for today</p>
+                            <p className="text-xs sm:text-sm text-zinc-500 font-medium">Releases scheduled on other days are shown in the timeline below.</p>
+                        </div>
+                    </div>
+                    <span className="hidden sm:inline-block px-3.5 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-400 text-xs font-black uppercase tracking-wider border border-emerald-500/30">
+                        Today Anchor
+                    </span>
+                </div>
+            ) : (
+                /* Release Cards: Generously Wide, High-Detail Layout */
+                <div
+                    ref={scrollContainerRef}
+                    className={
+                        totalReleases === 1
+                            ? 'w-full'
+                            : totalReleases === 2
+                                ? 'grid grid-cols-1 md:grid-cols-2 gap-5'
+                                : 'flex items-stretch gap-5 overflow-x-auto pb-4 pt-1 custom-scrollbar snap-x scroll-smooth'
+                    }
+                >
+                    {group.consolidated.map((item: any) => {
                     const countdown = getCountdownLabel(item.releaseDate);
                     const poster = item.posterUrl;
 
@@ -313,6 +336,7 @@ function TimelineDateGroup({
                     );
                 })}
             </div>
+            )}
         </div>
     );
 }
@@ -432,10 +456,11 @@ export function SchedulePanel() {
         setMiniCalMonth(new Date());
 
         setTimeout(() => {
-            if (todayRef.current) {
-                todayRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            const todayEl = todayRef.current || document.getElementById(`timeline-date-${formatDateKey(new Date())}`);
+            if (todayEl) {
+                todayEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
-        }, 100);
+        }, 150);
     };
 
     const handleApplyPreset = (preset: string) => {
@@ -551,6 +576,20 @@ export function SchedulePanel() {
             }[];
         }> = {};
         const todayStr = formatDateKey(new Date());
+
+        // Always ensure Today anchor group exists so the user never gets lost
+        if (!groups[todayStr]) {
+            const todayDate = new Date();
+            const todayLabel = todayDate.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
+            groups[todayStr] = {
+                date: todayDate,
+                dateStr: todayLabel,
+                isToday: true,
+                isPast: false,
+                events: [],
+                consolidated: []
+            };
+        }
 
         filteredEvents.forEach(e => {
             const eventDate = new Date(e.releaseDate);
@@ -1001,15 +1040,28 @@ export function SchedulePanel() {
                         <div className="space-y-8">
                             {/* TIMELINE VIEW */}
                             {viewMode === 'timeline' && (
-                                groupedEvents.map(([dateKey, group]) => (
-                                    <TimelineDateGroup
-                                        key={dateKey}
-                                        dateKey={dateKey}
-                                        group={group}
-                                        onSelectEvent={setSelectedEvent}
-                                        todayRef={todayRef}
-                                    />
-                                ))
+                                <div className="space-y-8 relative">
+                                    {groupedEvents.map(([dateKey, group]) => (
+                                        <TimelineDateGroup
+                                            key={dateKey}
+                                            dateKey={dateKey}
+                                            group={group}
+                                            onSelectEvent={setSelectedEvent}
+                                            todayRef={todayRef}
+                                        />
+                                    ))}
+
+                                    {/* Floating Quick Jump to Today Button */}
+                                    <button
+                                        type="button"
+                                        onClick={handleJumpToToday}
+                                        className="fixed bottom-24 sm:bottom-8 right-6 z-40 px-5 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs sm:text-sm uppercase tracking-wider shadow-[0_12px_35px_rgba(16,185,129,0.45)] flex items-center gap-2.5 transition-all hover:scale-105 active:scale-95 cursor-pointer border border-emerald-300/50 backdrop-blur-md"
+                                        title="Quickly jump to Today in timeline"
+                                    >
+                                        <Flame size={18} className="fill-black" />
+                                        <span>Go to Today</span>
+                                    </button>
+                                </div>
                             )}
 
                             {/* GRID VIEW (Compact Poster Grid) */}

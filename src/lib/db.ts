@@ -1125,6 +1125,68 @@ export const batchMergeIptvChannels = (
     }
 };
 
+export const unlinkIptvChannelStream = (
+    libraryId: string,
+    channelId: string,
+    streamUrl: string,
+    createSeparateChannel: boolean = true
+): { success: boolean; newChannelId?: string } => {
+    try {
+        const row: any = db.prepare('SELECT * FROM iptv_channels WHERE library_id = ? AND id = ?').get(libraryId, channelId);
+        if (!row) return { success: false };
+
+        const streams: Array<{ url: string; quality: string; label: string }> = row.streams_json ? JSON.parse(row.streams_json) : [];
+        const unlinkedStream = streams.find(s => s.url === streamUrl);
+        const remaining = streams.filter(s => s.url !== streamUrl);
+
+        if (!unlinkedStream || remaining.length === 0) {
+            return { success: false };
+        }
+
+        db.prepare('UPDATE iptv_channels SET streams_json = ? WHERE id = ?').run(
+            JSON.stringify(remaining),
+            channelId
+        );
+
+        let newChannelId: string | undefined;
+        if (createSeparateChannel) {
+            newChannelId = `chan-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+            let originalName = row.name;
+            const parenthesized = unlinkedStream.label ? unlinkedStream.label.match(/\((.+?)\)/) : null;
+            if (parenthesized && parenthesized[1]) {
+                originalName = parenthesized[1].trim();
+            } else if (unlinkedStream.label && !unlinkedStream.label.toLowerCase().includes('stream')) {
+                originalName = unlinkedStream.label.trim();
+            } else {
+                originalName = `${row.name} (Alt)`;
+            }
+            if (originalName === row.name) {
+                originalName = `${row.name} (Alt)`;
+            }
+
+            db.prepare(`
+                INSERT INTO iptv_channels (id, library_id, name, clean_name, logo, group_title, tvg_id, tvg_name, streams_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(
+                newChannelId,
+                libraryId,
+                originalName,
+                originalName,
+                row.logo,
+                row.group_title,
+                row.tvg_id,
+                row.tvg_name,
+                JSON.stringify([unlinkedStream])
+            );
+        }
+
+        return { success: true, newChannelId };
+    } catch (e) {
+        console.error('Error in unlinkIptvChannelStream:', e);
+        return { success: false };
+    }
+};
+
 export const updateIptvChannelLogo = (libraryId: string, channelId: string, logoUrl: string): boolean => {
     try {
         const stmt = db.prepare('UPDATE iptv_channels SET logo = ? WHERE library_id = ? AND id = ?');

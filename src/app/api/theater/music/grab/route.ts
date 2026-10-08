@@ -290,6 +290,71 @@ export async function POST(req: Request) {
                                 }
                             }
                         }
+
+                        // Concurrent Lidarr Dual-Flow: Add/Monitor Artist & Album in Lidarr using Plex root folder
+                        const lidarrInstances = getInstances().filter(i => i.type === 'lidarr' && i.enabled);
+                        for (const lidarr of lidarrInstances) {
+                            try {
+                                const lidarrUrl = lidarr.url.replace(/\/$/, '');
+                                const headers = { 'X-Api-Key': lidarr.api_key };
+
+                                // 1. Check if artist already exists in Lidarr
+                                const allArtistsRes = await axios.get(`${lidarrUrl}/api/v1/artist`, { headers, timeout: 5000 }).catch(() => null);
+                                const existingList: any[] = Array.isArray(allArtistsRes?.data) ? allArtistsRes.data : [];
+                                const existing = existingList.find((a: any) =>
+                                    (a.artistName || '').toLowerCase() === cleanArtist.toLowerCase() ||
+                                    (a.cleanName || '').toLowerCase() === cleanArtist.toLowerCase()
+                                );
+
+                                if (existing) {
+                                    // Artist exists: trigger rescan to detect the downloaded track/album and search for missing albums
+                                    await axios.post(`${lidarrUrl}/api/v1/command`, {
+                                        name: 'RescanArtist',
+                                        artistId: existing.id
+                                    }, { headers, timeout: 5000 }).catch(() => null);
+                                } else {
+                                    // 2. Lookup artist in Lidarr
+                                    const lookupRes = await axios.get(`${lidarrUrl}/api/v1/artist/lookup?term=${encodeURIComponent(cleanArtist)}`, {
+                                        headers,
+                                        timeout: 7000
+                                    }).catch(() => null);
+
+                                    const foundArtist = Array.isArray(lookupRes?.data) && lookupRes.data.length > 0 ? lookupRes.data[0] : null;
+                                    if (foundArtist) {
+                                        // 3. Resolve Quality Profile (prefer FLAC or MP3/lossless profile)
+                                        const profilesRes = await axios.get(`${lidarrUrl}/api/v1/qualityprofile`, { headers, timeout: 5000 }).catch(() => null);
+                                        const profiles = Array.isArray(profilesRes?.data) ? profilesRes.data : [];
+                                        const matchedProfile = profiles.find((p: any) =>
+                                            /flac|lossless/i.test(p.name)
+                                        ) || profiles.find((p: any) =>
+                                            /mp3|standard|any/i.test(p.name)
+                                        ) || profiles[0];
+
+                                        const qualityProfileId = matchedProfile?.id || 1;
+
+                                        // 4. Resolve Metadata Profile
+                                        const metaProfilesRes = await axios.get(`${lidarrUrl}/api/v1/metadataprofile`, { headers, timeout: 5000 }).catch(() => null);
+                                        const metaProfileId = (Array.isArray(metaProfilesRes?.data) && metaProfilesRes.data[0]?.id) || 1;
+
+                                        // 5. Add artist with Plex musicRoot as root folder
+                                        await axios.post(`${lidarrUrl}/api/v1/artist`, {
+                                            ...foundArtist,
+                                            qualityProfileId,
+                                            metadataProfileId: metaProfileId,
+                                            rootFolderPath: musicRoot,
+                                            monitored: true,
+                                            addOptions: {
+                                                searchForMissingAlbums: true
+                                            }
+                                        }, { headers, timeout: 10000 }).catch((e) => {
+                                            console.warn(`[GRAB] Lidarr auto-add artist error:`, e.message);
+                                        });
+                                    }
+                                }
+                            } catch (lidarrErr: any) {
+                                console.warn(`[GRAB] Lidarr dual-flow integration error for ${lidarr.name}:`, lidarrErr.message);
+                            }
+                        }
                     } catch {}
                 }, 500);
             } catch {}

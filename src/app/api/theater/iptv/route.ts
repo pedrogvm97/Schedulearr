@@ -36,12 +36,16 @@ function detectQuality(name: string, group: string): { quality: string; label: s
         label = 'Backup';
     }
 
-    // Strip country/provider/language prefixes like "VO|", "PT:", "PT |", "|PT|", "[PT]", "MEO|", "NOS|", "PORTUGAL:", "ES:", "US:", "UK:"
-    let cleanName = name
-        .replace(/^(\s*\|?\s*(?:vo|vodafone|meo|nos|nowo|pt|uk|us|es|fr|de)\s*\|?\s*[:\-\|\/])+/i, '')
-        .replace(/^(\s*\|[a-z0-9]+\|\s*)/i, '')
-        .replace(/^(\[[a-z0-9]+\]|\([a-z0-9]+\))\s*/i, '')
-        .replace(/^(\s*\|?\s*[a-z0-9]{2,4}\s*\|\s*)/i, '');
+    // Strip common country/provider/language prefix patterns while protecting known channel names
+    // Examples of tags to strip: "PT |", "VO:", "MEO -", "[PT]", "|PT|", "PORTUGAL:"
+    const knownChannelPrefixes = /^(cnn|bbc|tvi|sic|rtp|hbo|fox|mtv|axn|sky|espn|cbs|nbc|abc)/i;
+    let cleanName = name;
+    if (!knownChannelPrefixes.test(cleanName.trim())) {
+        cleanName = cleanName
+            .replace(/^(\s*\|?\s*(?:vo|vodafone|meo|nos|nowo|pt|uk|us|es|fr|de|br|it)\s*\|?\s*[:\-\|\/])+/i, '')
+            .replace(/^(\s*\|(?:pt|uk|us|es|fr|de|br|it)\|\s*)/i, '')
+            .replace(/^(\[(?:pt|uk|us|es|fr|de|br|it)\]|\((?:pt|uk|us|es|fr|de|br|it)\))\s*/i, '');
+    }
 
     // Clean channel name by stripping quality suffixes (e.g. "RTP 1 4K" -> "RTP 1")
     cleanName = cleanName
@@ -51,7 +55,7 @@ function detectQuality(name: string, group: string): { quality: string; label: s
         .replace(/\s+/g, ' ')
         .trim() || name.trim();
 
-    // Canonical key for merging streams of the same channel across groups (e.g. "rtp 1")
+    // Canonical name key within its group
     const canonicalKey = cleanName.toLowerCase().replace(/[^a-z0-9]/g, '');
 
     return { quality, label, cleanName, canonicalKey };
@@ -192,7 +196,9 @@ async function fetchXtreamLiveChannels(
 
             const mergedMap = new Map<string, StoredIptvChannel>();
             for (const raw of rawChannels) {
-                const key = raw.canonicalKey || raw.cleanName.toLowerCase();
+                const groupKey = (raw.group || 'general').toLowerCase().replace(/[^a-z0-9]/g, '');
+                const nameKey = (raw.canonicalKey || raw.cleanName.toLowerCase()).replace(/[^a-z0-9]/g, '');
+                const key = `${groupKey}:::${nameKey}`;
                 if (!mergedMap.has(key)) {
                     mergedMap.set(key, {
                         id: `chan-${mergedMap.size + 1}`,
@@ -308,11 +314,13 @@ function parseM3uContent(content: string, libraryId: string): StoredIptvChannel[
         }
     }
 
-    // Merge duplicate channels by canonicalKey into redundant multi-stream channels
+    // Merge duplicate channels by canonicalKey within their category into redundant multi-stream channels
     const mergedMap = new Map<string, StoredIptvChannel>();
 
     for (const raw of rawChannels) {
-        const key = raw.canonicalKey || raw.cleanName.toLowerCase();
+        const groupKey = (raw.group || 'general').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const nameKey = (raw.canonicalKey || raw.cleanName.toLowerCase()).replace(/[^a-z0-9]/g, '');
+        const key = `${groupKey}:::${nameKey}`;
         if (!mergedMap.has(key)) {
             mergedMap.set(key, {
                 id: `chan-${mergedMap.size + 1}`,
@@ -376,7 +384,9 @@ export async function GET(req: Request) {
                 for (const c of stored) {
                     const rawName = c.name || '';
                     const { cleanName, canonicalKey, quality, label } = detectQuality(rawName, c.group);
-                    const key = canonicalKey || (c.cleanName || rawName).toLowerCase();
+                    const groupKey = (c.group || 'general').toLowerCase().replace(/[^a-z0-9]/g, '');
+                    const nameKey = (canonicalKey || c.cleanName || rawName).toLowerCase().replace(/[^a-z0-9]/g, '');
+                    const key = `${groupKey}:::${nameKey}`;
 
                     if (!mergedStoredMap.has(key)) {
                         const existingStreams = (c.streams && c.streams.length > 0)

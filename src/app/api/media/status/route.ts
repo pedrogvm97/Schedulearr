@@ -1,3 +1,4 @@
+import fs from 'fs';
 import { NextRequest, NextResponse } from 'next/server';
 import { getInstances } from '@/lib/db';
 import { getAllMovies, getQueue as getRadarrQueue, getCommands as getRadarrCommands } from '@/lib/radarr';
@@ -14,11 +15,18 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: 'Missing title or type' }, { status: 400 });
     }
 
+    const tmdbIdParam = searchParams.get('tmdbId');
+    const tvdbIdParam = searchParams.get('tvdbId');
+    const tmdbId = tmdbIdParam ? Number(tmdbIdParam) : null;
+    const tvdbId = tvdbIdParam ? Number(tvdbIdParam) : null;
+    const filePath = searchParams.get('path');
+
     try {
         const instances = getInstances(type === 'movie' ? 'radarr' : 'sonarr');
         const results = {
             exists: false,
             hasFile: false,
+            hasLocalFile: Boolean(filePath && fs.existsSync(filePath)),
             isDownloading: false,
             isSearching: false,
             isStalled: false,
@@ -28,6 +36,8 @@ export async function GET(req: NextRequest) {
             instances: [] as any[]
         };
 
+        const cleanStr = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const targetClean = cleanStr(title);
         const searchLower = title.toLowerCase();
 
         for (const instance of instances) {
@@ -39,7 +49,13 @@ export async function GET(req: NextRequest) {
                         getRadarrCommands(instance.url, instance.api_key)
                     ]);
 
-                    const movie = movies.find(m => m.title.toLowerCase() === searchLower || (m as any).originalTitle?.toLowerCase() === searchLower);
+                    const movie = movies.find(m => 
+                        (tmdbId && m.tmdbId === tmdbId) ||
+                        m.title.toLowerCase() === searchLower ||
+                        (m as any).originalTitle?.toLowerCase() === searchLower ||
+                        cleanStr(m.title) === targetClean
+                    );
+
                     if (movie) {
                         results.exists = true;
                         const queueItem = queue.find(q => q.movieId === movie.id);
@@ -73,7 +89,13 @@ export async function GET(req: NextRequest) {
                         getSonarrCommands(instance.url, instance.api_key)
                     ]);
 
-                    const series = allSeries.find(s => s.title.toLowerCase() === searchLower);
+                    const series = allSeries.find(s => 
+                        (tvdbId && s.tvdbId === tvdbId) ||
+                        (tmdbId && (s as any).tmdbId === tmdbId) ||
+                        s.title.toLowerCase() === searchLower ||
+                        cleanStr(s.title) === targetClean
+                    );
+
                     if (series) {
                         results.exists = true;
                         const queueItem = queue.find(q => q.seriesId === series.id);
@@ -107,19 +129,18 @@ export async function GET(req: NextRequest) {
             }
         }
 
-        // Determine final label
-        if (!results.exists) {
-            results.statusLabel = 'Not Added';
-        } else if (results.hasFile) {
-            results.statusLabel = 'Available';
-        } else if (results.isStalled) {
-            results.statusLabel = 'Stalled';
-        } else if (results.isDownloading) {
+        // Determine final label according to user specification:
+        // 'Not added', 'Missing', 'Downloading', 'Ready (server)', 'Ready (local)'
+        if (results.hasFile) {
+            results.statusLabel = 'Ready (server)';
+        } else if (results.hasLocalFile) {
+            results.statusLabel = 'Ready (local)';
+        } else if (results.isDownloading || results.isSearching) {
             results.statusLabel = 'Downloading';
-        } else if (results.isSearching) {
-            results.statusLabel = 'Searching';
+        } else if (results.exists) {
+            results.statusLabel = 'Missing';
         } else {
-            results.statusLabel = 'In Library';
+            results.statusLabel = 'Not Added';
         }
 
         return NextResponse.json(results);

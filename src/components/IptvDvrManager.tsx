@@ -5,12 +5,13 @@ import {
     Tv, Folder, Plus, Trash2, Settings, RefreshCw, Layers,
     Sparkles, Calendar, Check, AlertCircle, Play, X,
     HardDrive, Clock, CheckCircle2, ShieldCheck, Search,
-    Bookmark, LayoutGrid, List as Rows, Tv2, Edit3, ArrowRight
+    Bookmark, LayoutGrid, List as Rows, Tv2, Edit3, ArrowRight, Undo2
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AddIptvProviderModal } from './AddIptvProviderModal';
 import IptvSettingsModal from './IptvSettingsModal';
 import IptvAutoGroupingModal, { IptvChannel } from './IptvAutoGroupingModal';
+import { IptvChannelSourcesModal } from './IptvChannelSourcesModal';
 import { ConfirmModal } from './ConfirmModal';
 
 interface DvrStorageFolder {
@@ -167,6 +168,8 @@ export function IptvDvrManager() {
     const [editingShortlistId, setEditingShortlistId] = useState<string | null>(null);
     const [shortlistName, setShortlistName] = useState('');
     const [shortlistSelectedIds, setShortlistSelectedIds] = useState<string[]>([]);
+    const [shortlistPendingRemovalIds, setShortlistPendingRemovalIds] = useState<string[]>([]);
+    const [sourcesModalChannel, setSourcesModalChannel] = useState<any | null>(null);
     const [shortlistSearch, setShortlistSearch] = useState('');
     const [shortlistCategory, setShortlistCategory] = useState('ALL');
     const [shortlistFilterMode, setShortlistFilterMode] = useState<'selected' | 'all'>('selected');
@@ -413,6 +416,7 @@ export function IptvDvrManager() {
         setEditingShortlistId(null);
         setShortlistName('');
         setShortlistSelectedIds([]);
+        setShortlistPendingRemovalIds([]);
         setShortlistSearch('');
         setShortlistCategory('ALL');
         setShortlistFilterMode('all');
@@ -423,10 +427,32 @@ export function IptvDvrManager() {
         setEditingShortlistId(sl.id);
         setShortlistName(sl.name);
         setShortlistSelectedIds(sl.channelIds || []);
+        setShortlistPendingRemovalIds([]);
         setShortlistSearch('');
         setShortlistCategory('ALL');
         setShortlistFilterMode('selected');
         setIsShortlistModalOpen(true);
+    };
+
+    const handleToggleShortlistChannel = (chanId: string) => {
+        if (shortlistPendingRemovalIds.includes(chanId)) {
+            // Undo pending removal
+            setShortlistPendingRemovalIds(prev => prev.filter(id => id !== chanId));
+            setShortlistSelectedIds(prev => Array.from(new Set([...prev, chanId])));
+        } else if (shortlistSelectedIds.includes(chanId)) {
+            // Move to pending removal limbo
+            setShortlistSelectedIds(prev => prev.filter(id => id !== chanId));
+            setShortlistPendingRemovalIds(prev => [...prev, chanId]);
+        } else {
+            // Add to selected pool
+            setShortlistSelectedIds(prev => [...prev, chanId]);
+        }
+    };
+
+    const handleUndoRemoval = (chanId: string, e?: React.MouseEvent) => {
+        if (e) e.stopPropagation();
+        setShortlistPendingRemovalIds(prev => prev.filter(id => id !== chanId));
+        setShortlistSelectedIds(prev => Array.from(new Set([...prev, chanId])));
     };
 
     const handleSaveShortlist = async (e: React.FormEvent) => {
@@ -438,6 +464,7 @@ export function IptvDvrManager() {
 
         setIsSavingShortlist(true);
         try {
+            const finalSelectedIds = shortlistSelectedIds.filter(id => !shortlistPendingRemovalIds.includes(id));
             const res = await fetch('/api/theater/iptv/shortlists', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -445,7 +472,7 @@ export function IptvDvrManager() {
                     id: editingShortlistId || undefined,
                     libraryId: activeLibrary.id,
                     name: shortlistName.trim(),
-                    channelIds: shortlistSelectedIds
+                    channelIds: finalSelectedIds
                 })
             });
 
@@ -454,6 +481,7 @@ export function IptvDvrManager() {
 
             toast.success(`Shortlist "${shortlistName.trim()}" saved!`);
             setIsShortlistModalOpen(false);
+            setShortlistPendingRemovalIds([]);
             fetchAllData(activeLibrary.id);
         } catch (err: any) {
             toast.error(err.message || 'Failed to save shortlist');
@@ -489,10 +517,12 @@ export function IptvDvrManager() {
         let list = channels;
         if (shortlistFilterMode === 'selected') {
             const set = new Set(shortlistSelectedIds);
-            const lowerNames = new Set(shortlistSelectedIds.map(x => String(x).toLowerCase()));
+            const limboSet = new Set(shortlistPendingRemovalIds);
+            const lowerNames = new Set([...shortlistSelectedIds, ...shortlistPendingRemovalIds].map(x => String(x).toLowerCase()));
             list = list.filter(c =>
                 set.has(c.id) ||
-                (c.tvgId && set.has(c.tvgId)) ||
+                limboSet.has(c.id) ||
+                (c.tvgId && (set.has(c.tvgId) || limboSet.has(c.tvgId))) ||
                 (c.cleanName && lowerNames.has(c.cleanName.toLowerCase())) ||
                 (c.name && lowerNames.has(c.name.toLowerCase()))
             );
@@ -509,7 +539,7 @@ export function IptvDvrManager() {
             );
         }
         return list;
-    }, [channels, shortlistFilterMode, shortlistSelectedIds, shortlistCategory, shortlistSearch]);
+    }, [channels, shortlistFilterMode, shortlistSelectedIds, shortlistPendingRemovalIds, shortlistCategory, shortlistSearch]);
 
     const handleAddFolder = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -1145,11 +1175,13 @@ export function IptvDvrManager() {
                                                 >
                                                     <Calendar size={13} /> Full 7-Day Guide
                                                 </button>
-                                                {chan.streams && chan.streams.length > 1 && (
-                                                    <span className="px-2 py-1 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-black uppercase font-mono">
-                                                        ⚡ {chan.streams.length} Qualities
-                                                    </span>
-                                                )}
+                                                <button
+                                                    onClick={() => setSourcesModalChannel(chan)}
+                                                    title="Inspect, reorder, or split stream sources"
+                                                    className="px-2.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-black uppercase font-mono cursor-pointer transition-all flex items-center gap-1.5"
+                                                >
+                                                    ⚡ {chan.streams?.length || 1} {chan.streams?.length === 1 ? 'Source' : 'Sources / Split'}
+                                                </button>
                                             </div>
                                         </div>
 
@@ -1827,18 +1859,23 @@ export function IptvDvrManager() {
                                         <button
                                             type="button"
                                             onClick={() => setShortlistFilterMode('selected')}
-                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                            className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                                                 shortlistFilterMode === 'selected'
                                                     ? 'bg-amber-500 text-black shadow-sm font-black'
                                                     : 'text-zinc-400 hover:text-white'
                                             }`}
                                         >
-                                            ⭐ Selected ({shortlistSelectedIds.length})
+                                            <span>⭐ Selected ({shortlistSelectedIds.length})</span>
+                                            {shortlistPendingRemovalIds.length > 0 && (
+                                                <span className="px-1.5 py-0.2 rounded-full bg-red-500/25 text-red-300 border border-red-500/40 text-[11px] font-black">
+                                                    {shortlistPendingRemovalIds.length} limbo
+                                                </span>
+                                            )}
                                         </button>
                                         <button
                                             type="button"
                                             onClick={() => setShortlistFilterMode('all')}
-                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                            className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-all cursor-pointer ${
                                                 shortlistFilterMode === 'all'
                                                     ? 'bg-zinc-800 text-white shadow-sm font-black'
                                                     : 'text-zinc-400 hover:text-white'
@@ -1852,7 +1889,7 @@ export function IptvDvrManager() {
                                         <select
                                             value={shortlistCategory}
                                             onChange={e => setShortlistCategory(e.target.value)}
-                                            className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-200 outline-none focus:border-amber-500 max-w-[180px] truncate"
+                                            className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-sm text-zinc-200 outline-none focus:border-amber-500 max-w-[200px] truncate"
                                         >
                                             <option value="ALL">All Categories ({channels.length})</option>
                                             {groups.map(g => (
@@ -1865,35 +1902,41 @@ export function IptvDvrManager() {
                                         <button
                                             type="button"
                                             onClick={() => setShortlistViewMode('grid')}
-                                            className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                                            className={`p-2 rounded-lg transition-all cursor-pointer ${
                                                 shortlistViewMode === 'grid' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'
                                             }`}
                                         >
-                                            <LayoutGrid size={14} />
+                                            <LayoutGrid size={16} />
                                         </button>
                                         <button
                                             type="button"
                                             onClick={() => setShortlistViewMode('list')}
-                                            className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                                            className={`p-2 rounded-lg transition-all cursor-pointer ${
                                                 shortlistViewMode === 'list' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'
                                             }`}
                                         >
-                                            <Rows size={14} />
+                                            <Rows size={16} />
                                         </button>
                                     </div>
                                 </div>
                             </div>
 
-                            <div className="flex items-center justify-between px-1 text-xs">
+                            <div className="flex items-center justify-between px-1 text-sm">
                                 <span className="font-bold text-zinc-400">
-                                    <span className="text-amber-400">{shortlistSelectedIds.length}</span> channels selected
+                                    <span className="text-amber-400 font-black">{shortlistSelectedIds.length}</span> channels selected
+                                    {shortlistPendingRemovalIds.length > 0 && (
+                                        <span className="text-red-400 font-bold ml-2">
+                                            ({shortlistPendingRemovalIds.length} marked for removal)
+                                        </span>
+                                    )}
                                     <span className="text-zinc-600 font-normal"> ({filteredShortlistChannels.length} found)</span>
                                 </span>
-                                <div className="flex items-center gap-2 text-[11px] font-bold">
+                                <div className="flex items-center gap-2.5 text-xs font-bold">
                                     <button
                                         type="button"
                                         onClick={() => {
                                             const ids = filteredShortlistChannels.map(c => c.id);
+                                            setShortlistPendingRemovalIds(prev => prev.filter(id => !ids.includes(id)));
                                             setShortlistSelectedIds(prev => Array.from(new Set([...prev, ...ids])));
                                         }}
                                         className="text-emerald-400 hover:text-emerald-300 cursor-pointer"
@@ -1905,65 +1948,96 @@ export function IptvDvrManager() {
                                         type="button"
                                         onClick={() => {
                                             const set = new Set(filteredShortlistChannels.map(c => c.id));
+                                            const toLimbo = shortlistSelectedIds.filter(id => set.has(id));
+                                            setShortlistPendingRemovalIds(prev => Array.from(new Set([...prev, ...toLimbo])));
                                             setShortlistSelectedIds(prev => prev.filter(id => !set.has(id)));
                                         }}
                                         className="text-amber-400 hover:text-amber-300 cursor-pointer"
                                     >
-                                        - Deselect Filtered
+                                        - Deselect Filtered (Limbo)
                                     </button>
                                     <span className="text-zinc-700">•</span>
                                     <button
                                         type="button"
-                                        onClick={() => setShortlistSelectedIds([])}
+                                        onClick={() => {
+                                            setShortlistPendingRemovalIds(prev => Array.from(new Set([...prev, ...shortlistSelectedIds])));
+                                            setShortlistSelectedIds([]);
+                                        }}
                                         className="text-zinc-500 hover:text-white cursor-pointer"
                                     >
-                                        Clear All
+                                        Clear to Limbo
                                     </button>
                                 </div>
                             </div>
 
                             <div className="max-h-80 overflow-y-auto custom-scrollbar p-2 bg-zinc-950 rounded-2xl border border-zinc-900">
                                 {filteredShortlistChannels.length === 0 ? (
-                                    <div className="p-8 text-center text-zinc-500 text-xs">
+                                    <div className="p-8 text-center text-zinc-500 text-sm font-medium">
                                         No channels found matching filter.
                                     </div>
                                 ) : shortlistViewMode === 'grid' ? (
-                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
                                         {filteredShortlistChannels.slice(0, 150).map(chan => {
                                             const isSelected = shortlistSelectedIds.includes(chan.id);
+                                            const isPendingRemoval = shortlistPendingRemovalIds.includes(chan.id);
                                             const streamCount = chan.streams?.length || 1;
                                             return (
                                                 <div
                                                     key={chan.id}
-                                                    onClick={() => {
-                                                        setShortlistSelectedIds(prev =>
-                                                            isSelected ? prev.filter(id => id !== chan.id) : [...prev, chan.id]
-                                                        );
-                                                    }}
-                                                    className={`p-2.5 rounded-xl border text-xs font-bold cursor-pointer transition-all flex flex-col justify-between gap-1.5 select-none ${
-                                                        isSelected
-                                                            ? 'bg-amber-500/20 text-white border-amber-500/50 shadow-md'
-                                                            : 'bg-zinc-900/40 text-zinc-400 border-zinc-800/80 hover:border-zinc-700 hover:bg-zinc-900'
+                                                    onClick={() => handleToggleShortlistChannel(chan.id)}
+                                                    className={`p-3 rounded-2xl border text-sm font-bold cursor-pointer transition-all flex flex-col justify-between gap-2 select-none relative ${
+                                                        isPendingRemoval
+                                                            ? 'bg-red-950/30 text-red-300 border-red-500/50 ring-1 ring-red-500/30'
+                                                            : isSelected
+                                                                ? 'bg-amber-500/20 text-white border-amber-500/50 shadow-md'
+                                                                : 'bg-zinc-900/40 text-zinc-400 border-zinc-800/80 hover:border-zinc-700 hover:bg-zinc-900'
                                                     }`}
                                                 >
                                                     <div className="flex items-center justify-between gap-2">
-                                                        <div className="w-8 h-8 rounded-lg bg-zinc-950 flex items-center justify-center p-0.5 shrink-0 overflow-hidden">
+                                                        <div className="w-9 h-9 rounded-xl bg-zinc-950 flex items-center justify-center p-1 shrink-0 overflow-hidden">
                                                             {chan.logo ? (
-                                                                <img src={chan.logo} alt="" className="max-h-6 max-w-full object-contain" onError={e => (e.currentTarget.style.display = 'none')} />
+                                                                <img src={chan.logo} alt="" className="max-h-7 max-w-full object-contain" onError={e => (e.currentTarget.style.display = 'none')} />
                                                             ) : (
-                                                                <Tv2 size={16} className="text-zinc-600" />
+                                                                <Tv2 size={18} className="text-zinc-600" />
                                                             )}
                                                         </div>
-                                                        <div className={`w-4 h-4 rounded-md border flex items-center justify-center shrink-0 ${isSelected ? 'bg-amber-500 border-amber-500 text-black' : 'border-zinc-700'}`}>
-                                                            {isSelected && <Check size={12} className="stroke-[3]" />}
+                                                        <div className="flex items-center gap-1.5">
+                                                            {isPendingRemoval ? (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => handleUndoRemoval(chan.id, e)}
+                                                                    title="Undo removal (keep in shortlist)"
+                                                                    className="px-2 py-0.5 rounded-lg bg-red-500/25 hover:bg-red-500/40 text-red-300 border border-red-500/40 text-xs font-black uppercase flex items-center gap-1 cursor-pointer"
+                                                                >
+                                                                    <Undo2 size={12} /> Undo
+                                                                </button>
+                                                            ) : (
+                                                                <div className={`w-5 h-5 rounded-lg border flex items-center justify-center shrink-0 ${isSelected ? 'bg-amber-500 border-amber-500 text-black' : 'border-zinc-700'}`}>
+                                                                    {isSelected && <Check size={14} className="stroke-[3]" />}
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     </div>
                                                     <div className="min-w-0">
-                                                        <p className="truncate font-bold text-white text-xs">{chan.name}</p>
-                                                        <div className="flex items-center gap-1 text-[10px] text-zinc-500 mt-0.5">
-                                                            <span className="truncate max-w-[80px]">{chan.group}</span>
-                                                            {streamCount > 1 && (
-                                                                <span className="text-amber-400 font-mono">⚡{streamCount}</span>
+                                                        <p className={`truncate font-bold text-sm ${isPendingRemoval ? 'line-through text-red-400/80' : 'text-white'}`}>
+                                                            {chan.name}
+                                                        </p>
+                                                        <div className="flex items-center justify-between gap-1 text-xs text-zinc-500 mt-1">
+                                                            <span className="truncate max-w-[85px]">{chan.group}</span>
+                                                            {isPendingRemoval ? (
+                                                                <span className="text-[11px] font-black uppercase text-red-400">Will remove</span>
+                                                            ) : (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        setSourcesModalChannel(chan);
+                                                                    }}
+                                                                    title="Inspect &amp; split auto-merged sources"
+                                                                    className="px-1.5 py-0.5 rounded-md bg-amber-500/15 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 font-mono text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all"
+                                                                >
+                                                                    ⚡{streamCount} {streamCount === 1 ? 'src' : 'sources'}
+                                                                </button>
                                                             )}
                                                         </div>
                                                     </div>
@@ -1972,42 +2046,67 @@ export function IptvDvrManager() {
                                         })}
                                     </div>
                                 ) : (
-                                    <div className="space-y-1">
+                                    <div className="space-y-1.5">
                                         {filteredShortlistChannels.slice(0, 150).map(chan => {
                                             const isSelected = shortlistSelectedIds.includes(chan.id);
+                                            const isPendingRemoval = shortlistPendingRemovalIds.includes(chan.id);
                                             const streamCount = chan.streams?.length || 1;
                                             return (
                                                 <div
                                                     key={chan.id}
-                                                    onClick={() => {
-                                                        setShortlistSelectedIds(prev =>
-                                                            isSelected ? prev.filter(id => id !== chan.id) : [...prev, chan.id]
-                                                        );
-                                                    }}
-                                                    className={`p-2 px-3 rounded-xl border text-xs font-bold cursor-pointer transition-all flex items-center justify-between gap-3 select-none ${
-                                                        isSelected
-                                                            ? 'bg-amber-500/20 text-white border-amber-500/50'
-                                                            : 'bg-zinc-900/40 text-zinc-400 border-zinc-800/80 hover:border-zinc-700 hover:bg-zinc-900'
+                                                    onClick={() => handleToggleShortlistChannel(chan.id)}
+                                                    className={`p-2.5 px-3.5 rounded-xl border text-sm font-bold cursor-pointer transition-all flex items-center justify-between gap-3 select-none ${
+                                                        isPendingRemoval
+                                                            ? 'bg-red-950/30 text-red-300 border-red-500/50 ring-1 ring-red-500/30'
+                                                            : isSelected
+                                                                ? 'bg-amber-500/20 text-white border-amber-500/50'
+                                                                : 'bg-zinc-900/40 text-zinc-400 border-zinc-800/80 hover:border-zinc-700 hover:bg-zinc-900'
                                                     }`}
                                                 >
                                                     <div className="flex items-center gap-3 min-w-0 flex-1">
-                                                        <div className={`w-4 h-4 rounded-md border flex items-center justify-center shrink-0 ${isSelected ? 'bg-amber-500 border-amber-500 text-black' : 'border-zinc-700'}`}>
-                                                            {isSelected && <Check size={12} className="stroke-[3]" />}
-                                                        </div>
-                                                        <div className="w-7 h-7 rounded-lg bg-zinc-950 flex items-center justify-center p-0.5 shrink-0 overflow-hidden">
+                                                        {isPendingRemoval ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => handleUndoRemoval(chan.id, e)}
+                                                                title="Undo removal (keep in shortlist)"
+                                                                className="px-2 py-0.5 rounded-lg bg-red-500/25 hover:bg-red-500/40 text-red-300 border border-red-500/40 text-xs font-black uppercase flex items-center gap-1 shrink-0 cursor-pointer"
+                                                            >
+                                                                <Undo2 size={12} /> Undo
+                              </button>
+                                                        ) : (
+                                                            <div className={`w-5 h-5 rounded-lg border flex items-center justify-center shrink-0 ${isSelected ? 'bg-amber-500 border-amber-500 text-black' : 'border-zinc-700'}`}>
+                                                                {isSelected && <Check size={14} className="stroke-[3]" />}
+                                                            </div>
+                                                        )}
+                                                        <div className="w-8 h-8 rounded-xl bg-zinc-950 flex items-center justify-center p-1 shrink-0 overflow-hidden">
                                                             {chan.logo ? (
-                                                                <img src={chan.logo} alt="" className="max-h-5 max-w-full object-contain" onError={e => (e.currentTarget.style.display = 'none')} />
+                                                                <img src={chan.logo} alt="" className="max-h-6 max-w-full object-contain" onError={e => (e.currentTarget.style.display = 'none')} />
                                                             ) : (
-                                                                <Tv2 size={14} className="text-zinc-600" />
+                                                                <Tv2 size={16} className="text-zinc-600" />
                                                             )}
                                                         </div>
-                                                        <span className="truncate font-bold text-white text-xs">{chan.name}</span>
-                                                    </div>
-                                                    <div className="flex items-center gap-2 shrink-0 text-[10px] text-zinc-500 font-bold">
-                                                        <span>{chan.group}</span>
-                                                        {streamCount > 1 && (
-                                                            <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 font-mono">⚡{streamCount}</span>
+                                                        <span className={`truncate font-bold text-sm ${isPendingRemoval ? 'line-through text-red-400/80' : 'text-white'}`}>
+                                                            {chan.name}
+                                                        </span>
+                                                        {isPendingRemoval && (
+                                                            <span className="px-2 py-0.5 rounded-md bg-red-500/20 text-red-300 border border-red-500/30 text-xs font-black uppercase shrink-0">
+                                                                Will be removed
+                                                            </span>
                                                         )}
+                                                    </div>
+                                                    <div className="flex items-center gap-2 shrink-0 text-xs text-zinc-500 font-bold">
+                                                        <span>{chan.group}</span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setSourcesModalChannel(chan);
+                                                            }}
+                                                            title="Inspect &amp; split auto-merged sources"
+                                                            className="px-2 py-0.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 font-mono text-xs font-bold flex items-center gap-1 cursor-pointer transition-all"
+                                                        >
+                                                            ⚡{streamCount} {streamCount === 1 ? 'src' : 'sources'}
+                                                        </button>
                                                     </div>
                                                 </div>
                                             );
@@ -2019,15 +2118,18 @@ export function IptvDvrManager() {
                             <div className="flex items-center justify-end gap-3 pt-3 border-t border-zinc-900">
                                 <button
                                     type="button"
-                                    onClick={() => setIsShortlistModalOpen(false)}
-                                    className="px-5 py-2.5 rounded-xl text-zinc-400 hover:text-white text-xs font-bold cursor-pointer"
+                                    onClick={() => {
+                                        setIsShortlistModalOpen(false);
+                                        setShortlistPendingRemovalIds([]);
+                                    }}
+                                    className="px-5 py-2.5 rounded-xl text-zinc-400 hover:text-white text-sm font-bold cursor-pointer"
                                 >
                                     Cancel
                                 </button>
                                 <button
                                     type="submit"
                                     disabled={isSavingShortlist || !shortlistName.trim()}
-                                    className="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs transition-all shadow-lg shadow-amber-500/20 cursor-pointer disabled:opacity-50"
+                                    className="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-sm transition-all shadow-lg shadow-amber-500/20 cursor-pointer disabled:opacity-50"
                                 >
                                     {isSavingShortlist ? 'Saving...' : 'Save Shortlist'}
                                 </button>
@@ -2345,6 +2447,20 @@ export function IptvDvrManager() {
                     channels={channels}
                     onClose={() => setIsAutoGroupOpen(false)}
                     onApplied={fetchAllData}
+                />
+            )}
+
+            {sourcesModalChannel && (
+                <IptvChannelSourcesModal
+                    isOpen={!!sourcesModalChannel}
+                    channel={sourcesModalChannel}
+                    libraryId={activeLibrary?.id || ''}
+                    allChannels={channels}
+                    onClose={() => setSourcesModalChannel(null)}
+                    onChannelUpdated={(updated) => {
+                        setChannels(prev => prev.map(c => c.id === updated.id ? updated : c));
+                        if (activeLibrary?.id) fetchAllData(activeLibrary.id);
+                    }}
                 />
             )}
 

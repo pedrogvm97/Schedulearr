@@ -157,8 +157,12 @@ function formatBytes(bytes: number): string {
 
 function formatTime(seconds: number): string {
     if (isNaN(seconds) || seconds < 0) return '0:00';
-    const m = Math.floor(seconds / 60);
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
     const s = Math.floor(seconds % 60);
+    if (h > 0) {
+        return `${h}:${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
+    }
     return `${m}:${s < 10 ? '0' : ''}${s}`;
 }
 
@@ -543,6 +547,84 @@ function TheaterPageContent() {
     const [videoAudioMode, setVideoAudioMode] = useState<'universal' | 'transcode' | 'direct'>('universal');
     const [videoQuality, setVideoQuality] = useState<'auto' | '1080p-high' | '1080p' | '720p' | '480p'>('auto');
     const [viewingPhotoIndex, setViewingPhotoIndex] = useState<number | null>(null);
+
+    // Enhanced Video Player Controls & Container Fullscreen State
+    const videoContainerRef = useRef<HTMLDivElement>(null);
+    const [isPlayerFullscreen, setIsPlayerFullscreen] = useState(false);
+    const [videoCurrentTimeSec, setVideoCurrentTimeSec] = useState(0);
+    const [isVideoPlaying, setIsVideoPlaying] = useState(true);
+    const [isControlsVisible, setIsControlsVisible] = useState(true);
+    const controlsHideTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+    useEffect(() => {
+        const handleFullscreenChange = () => {
+            setIsPlayerFullscreen(!!document.fullscreenElement);
+        };
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        return () => {
+            document.removeEventListener('fullscreenchange', handleFullscreenChange);
+        };
+    }, []);
+
+    const toggleContainerFullscreen = () => {
+        if (!document.fullscreenElement) {
+            videoContainerRef.current?.requestFullscreen().catch(() => {});
+        } else {
+            document.exitFullscreen().catch(() => {});
+        }
+    };
+
+    const togglePlayPause = () => {
+        if (!videoRef.current) return;
+        if (videoRef.current.paused) {
+            videoRef.current.play().catch(() => {});
+            setIsVideoPlaying(true);
+        } else {
+            videoRef.current.pause();
+            setIsVideoPlaying(false);
+        }
+    };
+
+    const handleSkip = (seconds: number) => {
+        if (!videoRef.current) return;
+        videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime + seconds);
+        setVideoCurrentTimeSec(videoRef.current.currentTime);
+    };
+
+    const handlePlayerMouseMove = () => {
+        setIsControlsVisible(true);
+        if (controlsHideTimerRef.current) {
+            clearTimeout(controlsHideTimerRef.current);
+        }
+        controlsHideTimerRef.current = setTimeout(() => {
+            if (videoRef.current && !videoRef.current.paused) {
+                setIsControlsVisible(false);
+            }
+        }, 3500);
+    };
+
+    const trueTotalDurationSec = useMemo(() => {
+        if (playingVideo?.durationMs && playingVideo.durationMs > 0) {
+            return Math.round(playingVideo.durationMs / 1000);
+        }
+        if (videoRef.current && isFinite(videoRef.current.duration) && videoRef.current.duration > 0) {
+            return Math.round(videoRef.current.duration);
+        }
+        return 0;
+    }, [playingVideo?.durationMs, videoCurrentTimeSec]);
+
+    const handleProgressBarClick = (e: React.MouseEvent<HTMLDivElement>) => {
+        if (!videoRef.current) return;
+        const rect = e.currentTarget.getBoundingClientRect();
+        const clickX = e.clientX - rect.left;
+        const ratio = Math.max(0, Math.min(1, clickX / rect.width));
+        const targetDuration = trueTotalDurationSec || (isFinite(videoRef.current.duration) ? videoRef.current.duration : 0);
+        if (targetDuration > 0) {
+            const targetSec = Math.round(ratio * targetDuration);
+            videoRef.current.currentTime = targetSec;
+            setVideoCurrentTimeSec(targetSec);
+        }
+    };
 
     // Track previous values to detect null→value transitions only
     const prevVideoRef = useRef<MediaItem | null>(null);
@@ -1712,7 +1794,7 @@ function TheaterPageContent() {
             audioUrl: rec.streamUrl || rec.audioUrl,
             source: rec.source || 'online'
         };
-        const updatedItems = [...selectedPlaylist.items, newTrack];
+        const updatedItems = [...selectedPlaylist.items, newTrack as any as MediaItem];
         const updatedPlaylist = { ...selectedPlaylist, items: updatedItems };
         setSelectedPlaylist(updatedPlaylist);
         setPlaylistRecommendations(prev => prev.filter(r => (r.streamUrl && r.streamUrl === rec.streamUrl) ? false : r.id !== rec.id));
@@ -5963,14 +6045,14 @@ function TheaterPageContent() {
                                             </div>
                                             <div className="flex items-center gap-1 shrink-0">
                                                 <button
-                                                    onClick={() => playAudio({
+                                                    onClick={() => playTrack({
                                                         id: rec.id,
                                                         title: rec.title,
                                                         artist: rec.artist,
                                                         album: rec.album,
                                                         posterUrl: rec.posterUrl,
                                                         streamUrl: rec.streamUrl
-                                                    })}
+                                                    } as any)}
                                                     className="p-1.5 rounded-lg bg-zinc-900 hover:bg-amber-500 text-zinc-400 hover:text-black transition-colors cursor-pointer"
                                                     title="Preview Track"
                                                 >
@@ -6064,14 +6146,19 @@ function TheaterPageContent() {
             {playingVideo && (
                 <div className={
                     isVideoMinimized
-                        ? "fixed bottom-6 right-6 z-[250] w-96 max-w-[calc(100vw-2rem)] bg-[#0e0e10] border-2 border-zinc-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom-6 duration-200"
-                        : "fixed inset-0 z-[200] flex items-center justify-center p-2 sm:p-4 bg-black/95 backdrop-blur-xl animate-in fade-in duration-200"
+                        ? "fixed bottom-6 right-6 z-[350] w-96 max-w-[calc(100vw-2rem)] bg-[#0e0e10] border-2 border-zinc-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom-6 duration-200"
+                        : "fixed inset-0 z-[350] flex items-center justify-center p-2 sm:p-4 bg-black/95 backdrop-blur-xl animate-in fade-in duration-200"
                 }>
-                    <div className={
-                        isVideoMinimized
-                            ? "w-full flex flex-col"
-                            : "bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-5xl overflow-hidden shadow-2xl relative flex flex-col max-h-[95vh]"
-                    }>
+                    <div 
+                        ref={videoContainerRef}
+                        className={
+                            isVideoMinimized
+                                ? "w-full flex flex-col"
+                                : isPlayerFullscreen
+                                    ? "w-full h-full bg-[#0c0c0c] flex flex-col justify-between relative overflow-hidden"
+                                    : "bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-5xl overflow-hidden shadow-2xl relative flex flex-col max-h-[95vh]"
+                        }
+                    >
                         {/* Header Bar */}
                         {isVideoMinimized ? (
                             <div className="px-3.5 py-2.5 bg-zinc-900/95 border-b border-zinc-800 flex items-center justify-between gap-2">
@@ -6147,130 +6234,157 @@ function TheaterPageContent() {
                                     {/* Episodes Picker for TV Shows */}
                                     {currentShowEpisodes.length > 0 && (
                                         <button
-                                            onClick={() => setShowEpisodesDrawer(!showEpisodesDrawer)}
-                                            className={`px-3 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                                            onClick={() => {
+                                                const next = !showEpisodesDrawer;
+                                                setShowEpisodesDrawer(next);
+                                                if (next) {
+                                                    setShowSubtitlesDrawer(false);
+                                                    setShowVideoSettingsPopover(false);
+                                                }
+                                            }}
+                                            className={`px-3.5 py-2.5 rounded-xl border text-sm font-bold flex items-center gap-2 transition-all cursor-pointer ${
                                                 showEpisodesDrawer ? 'bg-amber-500 text-black border-amber-400 font-black shadow-sm' : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:text-white'
                                             }`}
                                             title="Choose Season and Episode"
                                         >
-                                            <Layers size={14} className={showEpisodesDrawer ? 'text-black' : 'text-amber-400'} />
+                                            <Layers size={16} className={showEpisodesDrawer ? 'text-black' : 'text-amber-400'} />
                                             <span className="hidden sm:inline">Episodes ({currentShowEpisodes.length})</span>
                                         </button>
                                     )}
 
                                     {/* Subtitles Button */}
                                     <button
-                                        onClick={() => setShowSubtitlesDrawer(!showSubtitlesDrawer)}
-                                        className={`px-3 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
+                                        onClick={() => {
+                                            const next = !showSubtitlesDrawer;
+                                            setShowSubtitlesDrawer(next);
+                                            if (next) {
+                                                setShowEpisodesDrawer(false);
+                                                setShowVideoSettingsPopover(false);
+                                            }
+                                        }}
+                                        className={`px-3.5 py-2.5 rounded-xl border text-sm font-bold flex items-center gap-2 transition-all cursor-pointer ${
                                             showSubtitlesDrawer || selectedSubtitle ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/40' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
                                         }`}
                                         title="Subtitles & Timing Sync"
                                     >
-                                        <Subtitles size={14} />
+                                        <Subtitles size={16} />
                                         <span className="hidden sm:inline">{selectedSubtitle ? selectedSubtitle.language : 'Subtitles'}</span>
                                     </button>
 
                                     {/* Playback Settings Popover Button */}
                                     <div className="relative">
                                         <button
-                                            onClick={() => setShowVideoSettingsPopover(!showVideoSettingsPopover)}
-                                            className={`p-2.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                            onClick={() => {
+                                                const next = !showVideoSettingsPopover;
+                                                setShowVideoSettingsPopover(next);
+                                                if (next) {
+                                                    setShowEpisodesDrawer(false);
+                                                    setShowSubtitlesDrawer(false);
+                                                }
+                                            }}
+                                            className={`p-2.5 rounded-xl border text-sm font-bold transition-all flex items-center gap-2 cursor-pointer ${
                                                 showVideoSettingsPopover ? 'bg-zinc-800 text-white border-zinc-700' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
                                             }`}
                                             title="Stream Mode & Quality Settings"
                                         >
-                                            <Settings size={15} />
+                                            <Settings size={17} />
                                         </button>
 
                                         {showVideoSettingsPopover && (
-                                            <div className="absolute bottom-12 right-0 z-50 w-72 p-4 rounded-2xl bg-zinc-950 border border-zinc-800 shadow-2xl space-y-3.5 animate-in fade-in duration-150">
-                                                <div className="flex items-center justify-between border-b border-zinc-800/80 pb-2">
-                                                    <span className="text-xs font-black uppercase tracking-wider text-zinc-300 flex items-center gap-1.5">
-                                                        <Settings size={13} className="text-amber-400" /> Playback Settings
-                                                    </span>
-                                                    <button onClick={() => setShowVideoSettingsPopover(false)} className="text-zinc-500 hover:text-white">
-                                                        <X size={14} />
-                                                    </button>
-                                                </div>
-
-                                                {/* Mode options */}
-                                                <div className="space-y-1.5">
-                                                    <label className="text-[10px] font-black uppercase text-zinc-500 tracking-wider">Stream Mode</label>
-                                                    <div className="space-y-1">
-                                                        {[
-                                                            { id: 'transcode', label: 'Direct + AAC Sound', desc: 'Original video + AAC audio' },
-                                                            { id: 'direct', label: 'Direct Raw Play', desc: 'Uncompressed original bitstream' },
-                                                            { id: 'universal', label: 'Full Universal Transcode', desc: 'H.264 + AAC compatibility' }
-                                                        ].map(m => (
-                                                            <button
-                                                                key={m.id}
-                                                                onClick={() => { handleSetVideoMode(m.id as any); setShowVideoSettingsPopover(false); }}
-                                                                className={`w-full p-2.5 rounded-xl text-left transition-all flex items-center justify-between text-xs ${
-                                                                    videoAudioMode === m.id
-                                                                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold'
-                                                                        : 'bg-zinc-900/60 text-zinc-400 hover:text-white'
-                                                                }`}
-                                                            >
-                                                                <div>
-                                                                    <p className="font-bold">{m.label}</p>
-                                                                    <p className="text-[10px] text-zinc-500">{m.desc}</p>
-                                                                </div>
-                                                                {videoAudioMode === m.id && <Check size={14} className="text-amber-400 shrink-0" />}
-                                                            </button>
-                                                        ))}
+                                            <>
+                                                <div 
+                                                    className="fixed inset-0 z-40" 
+                                                    onClick={() => setShowVideoSettingsPopover(false)} 
+                                                />
+                                                <div className="absolute top-full mt-2 right-0 z-50 w-80 p-4.5 rounded-2xl bg-zinc-950/98 border border-zinc-800 shadow-2xl space-y-4 backdrop-blur-xl animate-in fade-in duration-150">
+                                                    <div className="flex items-center justify-between border-b border-zinc-800/80 pb-2.5">
+                                                        <span className="text-sm font-black uppercase tracking-wider text-zinc-200 flex items-center gap-2">
+                                                            <Settings size={15} className="text-amber-400" /> Playback Settings
+                                                        </span>
+                                                        <button onClick={() => setShowVideoSettingsPopover(false)} className="text-zinc-500 hover:text-white p-1 rounded-lg">
+                                                            <X size={16} />
+                                                        </button>
                                                     </div>
-                                                </div>
 
-                                                {/* Quality for Universal Transcode */}
-                                                {videoAudioMode === 'universal' && (
-                                                    <div className="space-y-1.5 pt-2 border-t border-zinc-900">
-                                                        <label className="text-[10px] font-black uppercase text-zinc-500 tracking-wider">Transcode Quality</label>
-                                                        <div className="grid grid-cols-2 gap-1.5">
+                                                    {/* Mode options */}
+                                                    <div className="space-y-2">
+                                                        <label className="text-xs font-black uppercase text-zinc-400 tracking-wider">Stream Mode</label>
+                                                        <div className="space-y-1.5">
                                                             {[
-                                                                { id: 'auto', label: '1080p Standard' },
-                                                                { id: '1080p-high', label: '1080p High' },
-                                                                { id: '720p', label: '720p Fast' },
-                                                                { id: '480p', label: '480p Mobile' }
-                                                            ].map(q => (
+                                                                { id: 'transcode', label: 'Direct + AAC Sound', desc: 'Original video + AAC audio' },
+                                                                { id: 'direct', label: 'Direct Raw Play', desc: 'Uncompressed original bitstream' },
+                                                                { id: 'universal', label: 'Full Universal Transcode', desc: 'H.264 + AAC compatibility' }
+                                                            ].map(m => (
                                                                 <button
-                                                                    key={q.id}
-                                                                    onClick={() => { handleSetVideoQuality(q.id as any); setShowVideoSettingsPopover(false); }}
-                                                                    className={`py-2 px-2.5 rounded-xl text-xs font-bold transition-all text-center ${
-                                                                        videoQuality === q.id
-                                                                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                                                                            : 'bg-zinc-900 text-zinc-400 hover:text-white'
+                                                                    key={m.id}
+                                                                    onClick={() => { handleSetVideoMode(m.id as any); setShowVideoSettingsPopover(false); }}
+                                                                    className={`w-full p-3 rounded-xl text-left transition-all flex items-center justify-between text-sm ${
+                                                                        videoAudioMode === m.id
+                                                                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold'
+                                                                            : 'bg-zinc-900/60 text-zinc-400 hover:text-white'
                                                                     }`}
                                                                 >
-                                                                    {q.label}
+                                                                    <div>
+                                                                        <p className="font-bold text-sm">{m.label}</p>
+                                                                        <p className="text-xs text-zinc-400 mt-0.5">{m.desc}</p>
+                                                                    </div>
+                                                                    {videoAudioMode === m.id && <Check size={16} className="text-amber-400 shrink-0" />}
                                                                 </button>
                                                             ))}
                                                         </div>
                                                     </div>
-                                                )}
 
-                                                {/* External tools: Cast, VLC, Logs */}
-                                                <div className="pt-2 border-t border-zinc-900 flex gap-2">
-                                                    <button
-                                                        onClick={() => { openCastPicker(playingVideo); setShowVideoSettingsPopover(false); }}
-                                                        className="flex-1 py-2 px-2.5 rounded-xl bg-purple-500/15 text-purple-400 hover:bg-purple-500 hover:text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-all"
-                                                    >
-                                                        <Cast size={13} /> Cast
-                                                    </button>
-                                                    <button
-                                                        onClick={() => { handleOpenInVlc(playingVideo); setShowVideoSettingsPopover(false); }}
-                                                        className="flex-1 py-2 px-2.5 rounded-xl bg-orange-500/15 text-orange-400 hover:bg-orange-500 hover:text-black text-xs font-bold flex items-center justify-center gap-1.5 transition-all"
-                                                    >
-                                                        <ExternalLink size={13} /> VLC
-                                                    </button>
-                                                    <button
-                                                        onClick={() => { setShowNerdToolsModal(true); setShowVideoSettingsPopover(false); }}
-                                                        className="py-2 px-2.5 rounded-xl bg-zinc-900 text-zinc-400 hover:text-white text-xs font-bold flex items-center justify-center transition-all"
-                                                        title="Debug Logs"
-                                                    >
-                                                        <Terminal size={13} />
-                                                    </button>
+                                                    {/* Quality for Universal Transcode */}
+                                                    {videoAudioMode === 'universal' && (
+                                                        <div className="space-y-2 pt-2 border-t border-zinc-900">
+                                                            <label className="text-xs font-black uppercase text-zinc-400 tracking-wider">Transcode Quality</label>
+                                                            <div className="grid grid-cols-2 gap-2">
+                                                                {[
+                                                                    { id: 'auto', label: '1080p Standard' },
+                                                                    { id: '1080p-high', label: '1080p High' },
+                                                                    { id: '720p', label: '720p Fast' },
+                                                                    { id: '480p', label: '480p Mobile' }
+                                                                ].map(q => (
+                                                                    <button
+                                                                        key={q.id}
+                                                                        onClick={() => { handleSetVideoQuality(q.id as any); setShowVideoSettingsPopover(false); }}
+                                                                        className={`py-2 px-3 rounded-xl text-xs font-bold transition-all text-center ${
+                                                                            videoQuality === q.id
+                                                                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                                                                                : 'bg-zinc-900 text-zinc-400 hover:text-white'
+                                                                        }`}
+                                                                    >
+                                                                        {q.label}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {/* External tools: Cast, VLC, Logs */}
+                                                    <div className="pt-2 border-t border-zinc-900 flex gap-2">
+                                                        <button
+                                                            onClick={() => { openCastPicker(playingVideo); setShowVideoSettingsPopover(false); }}
+                                                            className="flex-1 py-2.5 px-3 rounded-xl bg-purple-500/15 text-purple-400 hover:bg-purple-500 hover:text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-all"
+                                                        >
+                                                            <Cast size={15} /> Cast
+                                                        </button>
+                                                        <button
+                                                            onClick={() => { handleOpenInVlc(playingVideo); setShowVideoSettingsPopover(false); }}
+                                                            className="flex-1 py-2.5 px-3 rounded-xl bg-orange-500/15 text-orange-400 hover:bg-orange-500 hover:text-black text-xs font-bold flex items-center justify-center gap-1.5 transition-all"
+                                                        >
+                                                            <ExternalLink size={15} /> VLC
+                                                        </button>
+                                                        <button
+                                                            onClick={() => { setShowNerdToolsModal(true); setShowVideoSettingsPopover(false); }}
+                                                            className="py-2.5 px-3 rounded-xl bg-zinc-900 text-zinc-400 hover:text-white text-xs font-bold flex items-center justify-center transition-all"
+                                                            title="Debug Logs"
+                                                        >
+                                                            <Terminal size={15} />
+                                                        </button>
+                                                    </div>
                                                 </div>
-                                            </div>
+                                            </>
                                         )}
                                     </div>
 
@@ -6282,6 +6396,15 @@ function TheaterPageContent() {
                                     >
                                         <Cast size={15} />
                                         <span className="hidden sm:inline">Cast to TV</span>
+                                    </button>
+
+                                    {/* Container Fullscreen Button */}
+                                    <button
+                                        onClick={toggleContainerFullscreen}
+                                        className="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 transition-all flex items-center gap-1.5 text-xs font-bold"
+                                        title={isPlayerFullscreen ? "Exit Fullscreen" : "Fullscreen Player"}
+                                    >
+                                        {isPlayerFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
                                     </button>
 
                                     {/* Minimize & Close */}
@@ -6305,13 +6428,21 @@ function TheaterPageContent() {
                         )}
 
                         {/* Video Stage Container with Single Persistent Video Element */}
-                        <div className="relative aspect-video bg-black flex items-center justify-center overflow-hidden flex-1">
+                        <div 
+                            className="relative aspect-video bg-black flex items-center justify-center overflow-hidden flex-1 group"
+                            onMouseMove={handlePlayerMouseMove}
+                            onClick={(e) => {
+                                if ((e.target as HTMLElement).tagName === 'VIDEO' || e.target === e.currentTarget) {
+                                    togglePlayPause();
+                                }
+                            }}
+                        >
                             <video
                                 ref={videoRef}
-                                controls
+                                controls={isVideoMinimized}
                                 autoPlay
                                 crossOrigin="anonymous"
-                                className="w-full h-full object-contain"
+                                className="w-full h-full object-contain cursor-pointer"
                                 onLoadStart={() => {
                                     addDebugLog('info', 'Video event: loadstart');
                                     setPlaybackError(null);
@@ -6319,9 +6450,11 @@ function TheaterPageContent() {
                                 onLoadedMetadata={(e) => {
                                     const v = e.currentTarget;
                                     addDebugLog('success', `Video event: loadedmetadata (${v.videoWidth}x${v.videoHeight}, duration: ${Math.round(v.duration || 0)}s)`);
+                                    if (v.currentTime > 0) setVideoCurrentTimeSec(v.currentTime);
                                 }}
                                 onCanPlay={() => addDebugLog('success', 'Video event: canplay (Ready for playback)')}
                                 onPlaying={() => {
+                                    setIsVideoPlaying(true);
                                     if (stallTimeoutRef.current) {
                                         clearTimeout(stallTimeoutRef.current);
                                         stallTimeoutRef.current = null;
@@ -6331,8 +6464,10 @@ function TheaterPageContent() {
                                     }
                                     addDebugLog('info', 'Video event: playing');
                                 }}
+                                onPause={() => setIsVideoPlaying(false)}
                                 onTimeUpdate={(e) => {
                                     const v = e.currentTarget;
+                                    setVideoCurrentTimeSec(v.currentTime);
                                     if (v.currentTime > 0) {
                                         if (stallTimeoutRef.current) {
                                             clearTimeout(stallTimeoutRef.current);
@@ -6400,6 +6535,154 @@ function TheaterPageContent() {
                                     />
                                 )}
                             </video>
+
+                            {/* Non-ADHD Custom Video Player Controls Bar */}
+                            {!isVideoMinimized && (
+                                <div 
+                                    className={`absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/95 via-black/60 to-transparent p-4 sm:p-5 pt-8 transition-opacity duration-300 flex flex-col gap-2.5 ${
+                                        isControlsVisible || !isVideoPlaying ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+                                    }`}
+                                    onClick={(e) => e.stopPropagation()}
+                                >
+                                    {/* Seekable Progress Bar */}
+                                    <div 
+                                        className="w-full h-3 flex items-center cursor-pointer group/bar relative"
+                                        onClick={handleProgressBarClick}
+                                    >
+                                        <div className="w-full h-1.5 group-hover/bar:h-2.5 bg-zinc-800/80 rounded-full overflow-hidden relative transition-all">
+                                            {/* Buffered Progress */}
+                                            <div 
+                                                className="absolute top-0 bottom-0 left-0 bg-zinc-600/60 rounded-full"
+                                                style={{ 
+                                                    width: `${trueTotalDurationSec > 0 ? Math.min(100, ((videoCurrentTimeSec + (streamMetrics.bufferedSeconds || 0)) / trueTotalDurationSec) * 100) : 0}%` 
+                                                }}
+                                            />
+                                            {/* Played Progress */}
+                                            <div 
+                                                className="absolute top-0 bottom-0 left-0 bg-amber-500 rounded-full shadow-[0_0_12px_rgba(245,158,11,0.5)]"
+                                                style={{ 
+                                                    width: `${trueTotalDurationSec > 0 ? Math.min(100, (videoCurrentTimeSec / trueTotalDurationSec) * 100) : 0}%` 
+                                                }}
+                                            />
+                                        </div>
+                                        {/* Scrubber Knob */}
+                                        <div 
+                                            className="absolute w-3.5 h-3.5 bg-white rounded-full shadow-md -translate-x-1/2 opacity-0 group-hover/bar:opacity-100 transition-opacity pointer-events-none"
+                                            style={{ 
+                                                left: `${trueTotalDurationSec > 0 ? Math.min(100, (videoCurrentTimeSec / trueTotalDurationSec) * 100) : 0}%` 
+                                            }}
+                                        />
+                                    </div>
+
+                                    {/* Action Controls & Timestamps Row */}
+                                    <div className="flex items-center justify-between gap-3 text-white flex-wrap sm:flex-nowrap">
+                                        <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap">
+                                            {/* Play/Pause */}
+                                            <button
+                                                type="button"
+                                                onClick={togglePlayPause}
+                                                className="p-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black transition-all cursor-pointer shadow-md shadow-amber-500/20 active:scale-95"
+                                                title={isVideoPlaying ? "Pause" : "Play"}
+                                            >
+                                                {isVideoPlaying ? <Pause size={18} /> : <Play size={18} className="translate-x-0.5" />}
+                                            </button>
+
+                                            {/* Skip -10s */}
+                                            <button
+                                                type="button"
+                                                onClick={() => handleSkip(-10)}
+                                                className="p-2 rounded-xl bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-white transition-all cursor-pointer"
+                                                title="Skip backward 10s"
+                                            >
+                                                <Rewind size={18} />
+                                            </button>
+
+                                            {/* Skip +10s */}
+                                            <button
+                                                type="button"
+                                                onClick={() => handleSkip(10)}
+                                                className="p-2 rounded-xl bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-white transition-all cursor-pointer"
+                                                title="Skip forward 10s"
+                                            >
+                                                <FastForward size={18} />
+                                            </button>
+
+                                            {/* Volume Slider */}
+                                            <div className="flex items-center gap-2 bg-zinc-900/80 px-2.5 py-1.5 rounded-xl border border-zinc-800">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const newVol = videoVolume > 0 ? 0 : 1;
+                                                        setVideoVolume(newVol);
+                                                        if (videoRef.current) videoRef.current.volume = newVol;
+                                                    }}
+                                                    className="text-zinc-400 hover:text-white"
+                                                    title={videoVolume === 0 ? "Unmute" : "Mute"}
+                                                >
+                                                    {videoVolume === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
+                                                </button>
+                                                <input
+                                                    type="range"
+                                                    min={0}
+                                                    max={1}
+                                                    step={0.05}
+                                                    value={videoVolume}
+                                                    onChange={(e) => {
+                                                        const v = Number(e.target.value);
+                                                        setVideoVolume(v);
+                                                        if (videoRef.current) videoRef.current.volume = v;
+                                                    }}
+                                                    className="w-14 sm:w-20 h-1 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                                                />
+                                            </div>
+
+                                            {/* Stable, Accurate Time Readout (125% scaled text) */}
+                                            <div className="text-sm font-mono font-bold text-white tracking-wider flex items-center gap-1.5 bg-black/40 px-3 py-1 rounded-xl border border-white/10">
+                                                <span className="text-amber-400">{formatTime(videoCurrentTimeSec)}</span>
+                                                <span className="text-zinc-500">/</span>
+                                                <span className="text-zinc-300">{formatTime(trueTotalDurationSec)}</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-2 shrink-0">
+                                            {/* Audio/Stream Mode Pill */}
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowVideoSettingsPopover(prev => !prev)}
+                                                className="px-3 py-1.5 rounded-xl bg-zinc-900/80 hover:bg-zinc-800 border border-zinc-700 text-xs font-black uppercase tracking-wider text-zinc-300 flex items-center gap-1.5 transition-all cursor-pointer"
+                                                title="Playback mode & stream settings"
+                                            >
+                                                <Settings size={14} className="text-amber-400" />
+                                                <span className="hidden sm:inline">
+                                                    {videoAudioMode === 'universal' ? `Universal (${videoQuality})` : videoAudioMode === 'transcode' ? 'Direct AAC' : 'Direct Play'}
+                                                </span>
+                                            </button>
+
+                                            {/* Subtitles Button */}
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowSubtitlesDrawer(prev => !prev)}
+                                                className={`p-2 rounded-xl border transition-all cursor-pointer ${
+                                                    showSubtitlesDrawer || selectedSubtitle ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/40' : 'bg-zinc-900/80 border-zinc-700 text-zinc-400 hover:text-white'
+                                                }`}
+                                                title="Subtitles"
+                                            >
+                                                <Subtitles size={18} />
+                                            </button>
+
+                                            {/* Container Fullscreen Button */}
+                                            <button
+                                                type="button"
+                                                onClick={toggleContainerFullscreen}
+                                                className="p-2 rounded-xl bg-zinc-900/80 hover:bg-zinc-800 border border-zinc-700 text-zinc-300 hover:text-white transition-all cursor-pointer"
+                                                title={isPlayerFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+                                            >
+                                                {isPlayerFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
 
                             {/* ── Playback Error Crash Diagnostic Overlay ── */}
                             {playbackError && (
@@ -6475,51 +6758,51 @@ function TheaterPageContent() {
 
                             {/* ── Subtitles Drawer / Customization ── */}
                             {showSubtitlesDrawer && (
-                                <div className="absolute top-4 right-4 z-40 w-80 p-5 rounded-3xl bg-zinc-950/95 border border-zinc-800 text-zinc-300 space-y-4 backdrop-blur-xl shadow-2xl animate-in slide-in-from-right">
-                                    <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
-                                        <span className="font-black text-sm text-white flex items-center gap-1.5">
-                                            <Subtitles size={15} className="text-indigo-400" /> Subtitles & Sync
+                                <div className="absolute top-4 right-4 z-40 w-84 max-h-[calc(100%-4.5rem)] overflow-y-auto p-5 rounded-3xl bg-zinc-950/95 border border-zinc-800 text-zinc-300 space-y-4 backdrop-blur-xl shadow-2xl animate-in slide-in-from-right custom-scrollbar">
+                                    <div className="flex items-center justify-between border-b border-zinc-800 pb-2.5">
+                                        <span className="font-black text-base text-white flex items-center gap-2">
+                                            <Subtitles size={17} className="text-indigo-400" /> Subtitles & Sync
                                         </span>
-                                        <button onClick={() => setShowSubtitlesDrawer(false)} className="text-zinc-500 hover:text-white">
-                                            <X size={15} />
+                                        <button onClick={() => setShowSubtitlesDrawer(false)} className="text-zinc-500 hover:text-white p-1 rounded-lg">
+                                            <X size={16} />
                                         </button>
                                     </div>
 
                                     <div className="space-y-2">
                                         <div className="flex items-center justify-between">
-                                            <label className="text-[10px] font-black uppercase text-zinc-500 tracking-wider">Active Track</label>
+                                            <label className="text-xs font-black uppercase text-zinc-400 tracking-wider">Active Track</label>
                                             <button
                                                 onClick={() => setIsSubSearchModalOpen(true)}
-                                                className="text-[10px] text-indigo-400 hover:text-indigo-300 font-bold flex items-center gap-1"
+                                                className="text-xs text-indigo-400 hover:text-indigo-300 font-bold flex items-center gap-1"
                                             >
-                                                <Search size={11} /> Search Online
+                                                <Search size={13} /> Search Online
                                             </button>
                                         </div>
 
-                                        <div className="space-y-1 max-h-32 overflow-y-auto custom-scrollbar">
+                                        <div className="space-y-1.5 max-h-36 overflow-y-auto custom-scrollbar">
                                             <button
                                                 onClick={() => setSelectedSubtitle(null)}
-                                                className={`w-full p-2.5 rounded-xl text-left text-xs font-bold transition-all flex items-center justify-between ${
+                                                className={`w-full p-3 rounded-xl text-left text-sm font-bold transition-all flex items-center justify-between ${
                                                     selectedSubtitle === null ? 'bg-zinc-800 text-white' : 'bg-zinc-900/60 text-zinc-400 hover:text-white'
                                                 }`}
                                             >
                                                 <span>Off (No Subtitles)</span>
-                                                {selectedSubtitle === null && <Check size={14} className="text-emerald-400" />}
+                                                {selectedSubtitle === null && <Check size={16} className="text-emerald-400" />}
                                             </button>
 
                                             {availableSubtitles.map(sub => (
                                                 <button
                                                     key={sub.id}
                                                     onClick={() => setSelectedSubtitle(sub)}
-                                                    className={`w-full p-2.5 rounded-xl text-left text-xs font-bold transition-all flex items-center justify-between ${
+                                                    className={`w-full p-3 rounded-xl text-left text-sm font-bold transition-all flex items-center justify-between ${
                                                         selectedSubtitle?.id === sub.id ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40' : 'bg-zinc-900/60 text-zinc-400 hover:text-white'
                                                     }`}
                                                 >
                                                     <div className="truncate">
                                                         <p className="truncate">{sub.title}</p>
-                                                        <span className="text-[9px] text-zinc-500">{sub.language} • {sub.source}</span>
+                                                        <span className="text-[11px] text-zinc-500">{sub.language} • {sub.source}</span>
                                                     </div>
-                                                    {selectedSubtitle?.id === sub.id && <Check size={14} className="text-indigo-400 shrink-0 ml-2" />}
+                                                    {selectedSubtitle?.id === sub.id && <Check size={16} className="text-indigo-400 shrink-0 ml-2" />}
                                                 </button>
                                             ))}
                                         </div>
@@ -6528,17 +6811,17 @@ function TheaterPageContent() {
                                     {/* Subtitle Timing Sync */}
                                     <div className="space-y-2 pt-2 border-t border-zinc-900">
                                         <div className="flex items-center justify-between">
-                                            <label className="text-[10px] font-black uppercase text-zinc-500 tracking-wider">Timing Sync</label>
+                                            <label className="text-xs font-black uppercase text-zinc-400 tracking-wider">Timing Sync</label>
                                             <button
                                                 onClick={() => setSubOffsetMs(0)}
-                                                className="text-[10px] text-zinc-500 hover:text-white underline font-bold"
+                                                className="text-xs text-zinc-500 hover:text-white underline font-bold"
                                             >
                                                 Reset (0ms)
                                             </button>
                                         </div>
 
                                         <div className="p-3 rounded-2xl bg-zinc-900/80 border border-zinc-800 text-center space-y-1">
-                                            <span className="text-xs font-bold text-white">
+                                            <span className="text-sm font-bold text-white">
                                                 {subOffsetMs === 0 ? (
                                                     <span className="text-emerald-400">Synced (0 ms)</span>
                                                 ) : subOffsetMs < 0 ? (
@@ -6551,7 +6834,7 @@ function TheaterPageContent() {
 
                                         <div className="grid grid-cols-2 gap-2">
                                             <div className="space-y-1">
-                                                <span className="text-[9px] font-bold text-zinc-500 uppercase block text-center">◀ Sooner</span>
+                                                <span className="text-[10px] font-bold text-zinc-500 uppercase block text-center">◀ Sooner</span>
                                                 <div className="flex gap-1">
                                                     <button onClick={() => setSubOffsetMs(prev => prev - 250)} className="flex-1 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-xs font-bold rounded-lg">-0.25s</button>
                                                     <button onClick={() => setSubOffsetMs(prev => prev - 1000)} className="flex-1 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-xs font-bold rounded-lg">-1.0s</button>
@@ -6559,7 +6842,7 @@ function TheaterPageContent() {
                                             </div>
 
                                             <div className="space-y-1">
-                                                <span className="text-[9px] font-bold text-zinc-500 uppercase block text-center">Later ▶</span>
+                                                <span className="text-[10px] font-bold text-zinc-500 uppercase block text-center">Later ▶</span>
                                                 <div className="flex gap-1">
                                                     <button onClick={() => setSubOffsetMs(prev => prev + 250)} className="flex-1 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-xs font-bold rounded-lg">+0.25s</button>
                                                     <button onClick={() => setSubOffsetMs(prev => prev + 1000)} className="flex-1 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-xs font-bold rounded-lg">+1.0s</button>
@@ -6572,14 +6855,14 @@ function TheaterPageContent() {
 
                             {/* ── Season & Episode Selection Drawer Overlay ── */}
                             {showEpisodesDrawer && (
-                                <div className="absolute top-4 right-4 bottom-4 z-40 w-96 max-w-[90vw] p-5 rounded-3xl bg-[#0c0c0e]/98 border border-zinc-800 text-zinc-300 space-y-4 backdrop-blur-2xl shadow-2xl flex flex-col animate-in slide-in-from-right">
+                                <div className="absolute top-4 right-4 bottom-16 z-40 w-96 max-w-[90vw] p-5 rounded-3xl bg-[#0c0c0e]/98 border border-zinc-800 text-zinc-300 space-y-4 backdrop-blur-2xl shadow-2xl flex flex-col animate-in slide-in-from-right">
                                     {/* Header */}
                                     <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
                                         <div className="min-w-0">
-                                            <span className="font-black text-sm text-white flex items-center gap-2">
-                                                <Tv size={16} className="text-emerald-400" /> Seasons &amp; Episodes
+                                            <span className="font-black text-base text-white flex items-center gap-2">
+                                                <Tv size={18} className="text-emerald-400" /> Seasons &amp; Episodes
                                             </span>
-                                            <p className="text-[11px] text-zinc-400 truncate max-w-[240px] mt-0.5 font-bold">
+                                            <p className="text-xs text-zinc-400 truncate max-w-[240px] mt-0.5 font-bold">
                                                 {playingVideo.folder || playingVideo.title}
                                             </p>
                                         </div>

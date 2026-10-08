@@ -108,27 +108,39 @@ function MediaCardRow({ torrent, onOpenMedia, onPauseResume, onDeleteClick }: Me
             <div className="flex items-center gap-4 min-w-0 pr-2 md:pr-0">
                 <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2 mb-1">
-                        <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded-sm bg-opacity-20 text-white truncate max-w-[120px] ${torrent.instanceColor}`}>
+                        <span className={`text-xs uppercase font-bold px-2 py-0.5 rounded bg-opacity-20 text-white truncate max-w-[140px] ${torrent.instanceColor}`}>
                             {torrent.instanceName || 'qBittorrent'}
                         </span>
                         {isStalled && (
-                            <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded-sm bg-orange-500/20 text-orange-500">
+                            <span className="text-xs uppercase font-bold px-2 py-0.5 rounded bg-orange-500/20 text-orange-400 border border-orange-500/30">
                                 stalled
                             </span>
                         )}
                     </div>
                     <h3
-                        className="text-sm font-medium text-white truncate group-hover:text-emerald-400 cursor-pointer"
+                        className="text-base font-semibold text-white truncate group-hover:text-emerald-400 cursor-pointer"
                         title={torrent.name}
                         onClick={() => onOpenMedia(torrent)}
                     >
-                        {torrent.name}
+                        {torrent.canonicalTitle ? (
+                            <>
+                                <span>{torrent.canonicalTitle}</span>
+                                {torrent.year && <span className="text-zinc-400 text-sm ml-1 font-normal">({torrent.year})</span>}
+                            </>
+                        ) : (
+                            torrent.name
+                        )}
                     </h3>
+                    {torrent.canonicalTitle && (
+                        <p className="text-xs text-zinc-500 font-mono truncate mt-0.5" title={torrent.name}>
+                            {torrent.name}
+                        </p>
+                    )}
                 </div>
             </div>
 
             {/* Size */}
-            <div className="text-sm text-zinc-400 flex items-center md:items-start group-hover:text-zinc-300 transition-colors">
+            <div className="text-sm sm:text-base text-zinc-400 flex items-center md:items-start group-hover:text-zinc-300 transition-colors">
                 <span className="md:hidden text-xs text-zinc-500 uppercase font-semibold mr-2 w-16">Size:</span>
                 {formatBytes(torrent.size)}
             </div>
@@ -209,17 +221,35 @@ function MediaCardRow({ torrent, onOpenMedia, onPauseResume, onDeleteClick }: Me
 interface MusicJobRowProps {
     job: MusicJob;
     onCancel: (id: string) => void;
+    onOpenMedia?: (item: any) => void;
 }
 
-function MusicJobRow({ job, onCancel }: MusicJobRowProps) {
+function MusicJobRow({ job, onCancel, onOpenMedia }: MusicJobRowProps) {
     const isCompleted = job.status === 'completed';
     const isFailed = job.status === 'failed';
     const isDownloading = job.status === 'downloading';
 
+    const handleOpen = () => {
+        if (!onOpenMedia) return;
+        onOpenMedia({
+            title: job.album || job.title,
+            cleanTitle: job.album || job.title,
+            artist: job.artist,
+            album: job.album,
+            type: 'music',
+            mediaType: 'music',
+            remotePoster: job.coverUrl || `/api/theater/music/cover?artist=${encodeURIComponent(job.artist)}&album=${encodeURIComponent(job.album)}`
+        });
+    };
+
     return (
         <div className="p-3 md:px-4 md:py-3 hover:bg-zinc-800/40 transition-colors flex flex-col md:grid md:grid-cols-[auto_2fr_0.8fr_1fr_1fr_1fr_auto] gap-3 md:gap-4 md:items-center relative group">
             {/* Poster thumbnail */}
-            <div className="w-10 h-14 rounded-md overflow-hidden bg-zinc-950 border border-zinc-800 flex-shrink-0 group-hover:border-amber-500/30 shadow-sm relative flex items-center justify-center">
+            <div 
+                onClick={handleOpen}
+                className="w-10 h-14 rounded-md overflow-hidden bg-zinc-950 border border-zinc-800 flex-shrink-0 group-hover:border-amber-500/50 shadow-sm relative flex items-center justify-center cursor-pointer active:scale-95 transition-transform"
+                title="View music details"
+            >
                 <img
                     src={job.coverUrl || `/api/theater/music/cover?artist=${encodeURIComponent(job.artist)}&album=${encodeURIComponent(job.album)}`}
                     className="w-full h-full object-cover"
@@ -233,15 +263,18 @@ function MusicJobRow({ job, onCancel }: MusicJobRowProps) {
             {/* Title + badges + destination folder */}
             <div className="min-w-0 pr-2 md:pr-0">
                 <div className="flex flex-wrap items-center gap-1.5 mb-1">
-                    <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded-sm bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                    <span className="text-xs uppercase font-bold px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-400 border border-amber-500/30">
                         Music • {job.qualityLabel || 'Audio'}
                     </span>
-                    <span className="text-[10px] text-zinc-400 font-mono truncate max-w-[280px]" title={job.outputPath || job.targetFolder}>
+                    <span className="text-xs text-zinc-400 font-mono truncate max-w-[280px]" title={job.outputPath || job.targetFolder}>
                         📁 {job.outputPath || job.targetFolder}
                     </span>
                 </div>
-                <h3 className="text-sm font-medium text-white truncate">
-                    {job.title} <span className="text-zinc-500 font-normal text-xs">— {job.artist} ({job.album})</span>
+                <h3 
+                    onClick={handleOpen}
+                    className="text-base font-semibold text-white truncate group-hover:text-amber-400 cursor-pointer"
+                >
+                    {job.title} <span className="text-zinc-500 font-normal text-sm">— {job.artist} ({job.album})</span>
                 </h3>
             </div>
 
@@ -450,29 +483,53 @@ function DownloadsContent() {
     }, []);
 
     const cleanReleaseName = (name: string) => {
-        return name.toLowerCase()
-            .replace(/\b(1080p|720p|2160p|4k|uhd|bluray|web-dl|webrip|h\.264|h\.265|x264|x265|hevc|ddp5\.1|dts|aac|repack|proper|remux|multi|vostfr|subfrench|dual|amzn|nf|dsnp|hmax|web)\b/gi, '')
+        return name
+            .replace(/s\d{1,2}e\d{1,2}.*$/i, '')
+            .replace(/\bseason\s*\d+.*$/i, '')
+            .replace(/\b\d{1,2}x\d{1,2}.*$/i, '')
+            .replace(/\b(1080p|720p|2160p|4k|uhd|bluray|web-dl|webrip|h\.264|h\.265|x264|x265|hevc|ddp5\.1|dts|aac|atmos|truehd|ac3|repack|proper|remux|multi|vostfr|subfrench|dual|amzn|nf|dsnp|hmax|web|dvdrip)\b/gi, '')
+            .replace(/\b(19\d{2}|20\d{2})\b/g, '')
+            .replace(/-[a-zA-Z0-9_]+$/g, '')
             .replace(/[\[\(\]\)]/g, ' ')
-            .replace(/[\.\\-]/g, ' ')
+            .replace(/[\.\\\-_]/g, ' ')
             .replace(/\s+/g, ' ')
             .trim();
     };
 
     const handleOpenMedia = (torrent: Torrent) => {
         const cleanedTitle = cleanReleaseName(torrent.name);
-        const resolvedType: 'movie' | 'series' = torrent.mediaType || (torrent.tvdbId ? 'series' : 'movie');
+        const isTv = /s\d{1,2}e\d{1,2}|\bseason\s*\d+|\b\d{1,2}x\d{1,2}\b/i.test(torrent.name);
+        const resolvedType: 'movie' | 'series' = torrent.mediaType || (torrent.tvdbId || isTv ? 'series' : 'movie');
+        const displayTitle = torrent.canonicalTitle || cleanedTitle;
+
+        let extractedYear = torrent.year;
+        if (!extractedYear) {
+            const yearMatch = torrent.name.match(/\b(19\d{2}|20\d{2})\b/);
+            if (yearMatch) extractedYear = Number(yearMatch[1]);
+        }
+
         const item = {
-            title: torrent.name || cleanedTitle,
+            id: torrent.tmdbId || torrent.tvdbId || torrent.hash,
+            title: displayTitle,
+            name: displayTitle,
             cleanTitle: cleanedTitle,
+            canonicalTitle: torrent.canonicalTitle,
+            year: extractedYear,
             tmdbId: torrent.tmdbId || null,
             tvdbId: torrent.tvdbId || null,
             type: resolvedType,
             mediaType: resolvedType,
-            remotePoster: torrent.poster || null
+            remotePoster: torrent.poster || null,
+            poster: torrent.poster || null
         };
         setSelectedMedia(item);
-        const statusTitle = torrent.tmdbId || torrent.tvdbId ? torrent.name : cleanedTitle;
-        fetch(`/api/media/status?title=${encodeURIComponent(statusTitle)}&type=${resolvedType}`)
+        const queryParams = new URLSearchParams({
+            title: displayTitle,
+            type: resolvedType
+        });
+        if (torrent.tmdbId) queryParams.append('tmdbId', String(torrent.tmdbId));
+        if (torrent.tvdbId) queryParams.append('tvdbId', String(torrent.tvdbId));
+        fetch(`/api/media/status?${queryParams.toString()}`)
             .then(r => r.ok ? r.json() : null)
             .then(status => setLibStatus(status))
             .catch(() => setLibStatus(null));
@@ -775,6 +832,7 @@ function DownloadsContent() {
                                             key={j.id}
                                             job={j}
                                             onCancel={handleCancelMusicJob}
+                                            onOpenMedia={(item) => setSelectedMedia(item)}
                                         />
                                     ))
                                 }
