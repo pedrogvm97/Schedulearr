@@ -66,7 +66,7 @@ export async function GET() {
       ? commitsSettled.value.data
       : [];
 
-    let currentBucketTag = 'v0.6.5';
+    let currentBucketTag = 'v0.6.7';
     for (const c of commits) {
       const rawMsg: string = c?.commit?.message || '';
       if (!rawMsg) continue;
@@ -130,6 +130,20 @@ export async function GET() {
 
     // Ensure current versions are always present even if offline/rate-limited
     if (versionMap.size === 0) {
+      versionMap.set('v0.6.7', {
+        tag: 'v0.6.7',
+        name: 'v0.6.7',
+        publishedAt: new Date().toISOString(),
+        changelog: '• Author canonicalization, real Speech-to-Text & 3-card Storyboard player, Bedside Table & My Reads, Media tab Audiobooks & Live TV manager',
+        prerelease: false
+      });
+      versionMap.set('v0.6.6', {
+        tag: 'v0.6.6',
+        name: 'v0.6.6',
+        publishedAt: new Date().toISOString(),
+        changelog: '• Green API confirmation card with live metrics, backup key pool, load-balancing mode toggle, fix handleDeleteSceneImage brace leak in MusicPlayerContext',
+        prerelease: false
+      });
       versionMap.set('v0.6.5', {
         tag: 'v0.6.5',
         name: 'v0.6.5',

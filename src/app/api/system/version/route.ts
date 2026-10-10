@@ -8,6 +8,12 @@ import { initAutoUpdater } from '@/lib/autoUpdater';
 export const dynamic = 'force-dynamic';
 
 const FALLBACK_GIT_NOTES = [
+  '• [v0.6.7] Author canonicalization, real Speech-to-Text & 3-card Storyboard player, Bedside Table & My Reads, Media tab Audiobooks & Live TV manager',
+  '  - Strip/extract translator, narrator, editor, and lifespan tags so books by the same author always group under one canonical author',
+  '  - Fix 0 API hits in Audiobook Studio by persisting chapter file paths, syncing key pools, and running real chunked Speech-to-Text without placeholder lines',
+  '  - Redesign Audiobook Player with Left Player + Generate tab (whole-book progress & real counters) and Right 3-Card Storyboard / Picturebook view + Voice preset button on the player bar',
+  '  - Separate /theater consumption (Bedside Table, Library shelves, Canonical Authors, My Reads) from /discover Media management (Audiobooks manager & always-visible editable Live TV providers)',
+  '• [v0.6.6] Green API confirmation card with live metrics, backup key pool, load-balancing mode toggle, fix handleDeleteSceneImage brace leak in MusicPlayerContext',
   '• [v0.6.5] Audiobook Shelf Authors vs Books switcher, Author bookshelves with Listening Time & Year of Publication metrics, alphabetical clean sorting, auto-grouped 3D overlaid Collections with AI matcher & Explode/Create actions, and Uniform Book File Renamer with custom templates & Original/Optimized Audio version tags',
   '• [v0.6.4] Fix audiobook auto-sync & scene art fallback, mini-player book cover, Smart TV cast LAN IP/transcode, Bookshelf UI with per-book & shelf settings, unified AI key auto-detector & Dynamic Prompt',
   '• [v0.6.3] Fix vinyl spinner 1:1 circular geometry on tall/desktop screens, fix Plex & untagged audiobook grouping ("Unknown Album") & streaming, and surface full Git commit patch notes in System & Updates',
@@ -37,7 +43,7 @@ export async function GET() {
 
   try {
     // 1. Get current version from package.json or system fallback
-    let currentVersion = '0.6.5';
+    let currentVersion = '0.6.7';
     const possiblePaths = [
       path.join(process.cwd(), 'package.json'),
       path.join(process.cwd(), '..', 'package.json'),
