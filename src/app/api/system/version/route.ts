@@ -8,6 +8,11 @@ import { initAutoUpdater } from '@/lib/autoUpdater';
 export const dynamic = 'force-dynamic';
 
 const FALLBACK_GIT_NOTES = [
+  '• [v0.6.12] Fix Audiobook transcription generation & Plex stream resolution, and add AI Vision & literary image validation with automatic prompt rewriting to prevent nightmare-fuel illustrations',
+  '  - Resolve both local container audio paths and direct Plex HTTP audio streams so FFmpeg audio extraction and Speech-to-Text work across local and Plex-backed Audiobook libraries',
+  '  - Add 4-tier transcription pipeline (Local Sidecar .LRC/.TXT -> Cloud STT via Gemini/Groq/OpenAI in 300s chunks -> Free HuggingFace Whisper Large v3 Turbo Space -> Project Gutenberg verbatim full-text & literary chapter alignment synced to FFmpeg speech cadence)',
+  '  - Validate all generated book/chapter/scene illustrations before acceptance using technical byte-entropy checks, multimodal AI Vision inspection (Gemini/OpenAI), and literary prompt-grounding rules to filter out gratuitous nightmare fuel / grotesque body horror and automatically rewrite prompts to regenerate tasteful artwork',
+  '  - Fix 1-based chapter scene index lookup and add polite provider pacing + negative prompts so multi-chapter illustrations do not hit rate limits',
   '• [v0.6.11] Separate Audiobook playback & quick playback settings in Theater from full Audiobook editing in the Media tab',
   '  - Keep Theater Audiobook shelf, book detail modal, collection modal, and Expanded Audiobook Player strictly focused on playback and quick playback settings (Play/Resume, Chapter list playback, Speed, Narrator Voice Preset selector, Cover view toggle, Volume, and Bedside Table / Finished status)',
   '  - Consolidate all Audiobook editing (Metadata, Studio & AI settings, Custom AI Cover generation, Reset & Redo STT/Art/All, per-chapter Transcribe/Illustrate/Voice, Scene Image curation, Collection management, and File Renaming) into Media -> Audiobooks (/discover?tab=audiobooks) with direct deep-linking via ?bookKey= and ?subTab=',
@@ -62,7 +67,7 @@ export async function GET() {
 
   try {
     // 1. Get current version from package.json or system fallback
-    let currentVersion = '0.6.11';
+    let currentVersion = '0.6.12';
     const possiblePaths = [
       path.join(process.cwd(), 'package.json'),
       path.join(process.cwd(), '..', 'package.json'),

@@ -191,14 +191,23 @@ export async function POST(request: Request) {
         }
 
         if (action === 'reset_and_redo') {
-            const { bookKey, chapterKey, target, redoNow } = body;
+            const { bookKey, chapterKey, target, scope, redoNow } = body;
             if (!bookKey) {
                 return NextResponse.json({ success: false, error: 'Missing bookKey' }, { status: 400 });
             }
+            const rawTarget = String(target || scope || 'all').toLowerCase();
+            const normalizedTarget: 'transcriptions' | 'art' | 'voices' | 'all' =
+                rawTarget === 'transcripts' || rawTarget === 'transcriptions'
+                    ? 'transcriptions'
+                    : rawTarget === 'illustrations' || rawTarget === 'art' || rawTarget === 'images'
+                    ? 'art'
+                    : rawTarget === 'voices' || rawTarget === 'audio'
+                    ? 'voices'
+                    : 'all';
             await resetAndRedoAudiobookAssets({
                 bookKey,
                 chapterKey,
-                target: target || 'all',
+                target: normalizedTarget,
                 redoNow: redoNow !== false
             });
             return NextResponse.json({
@@ -553,7 +562,25 @@ export async function POST(request: Request) {
         }
 
         if (action === 'run_chapter_task') {
-            const { bookKey, chapterKey, taskType, title, author, posterUrl, thumb, chapterTitle, chapterIndex, filePath, path: rawTrackPath, durationSec } = body;
+            const {
+                bookKey,
+                chapterKey,
+                taskType,
+                task,
+                title,
+                bookTitle,
+                author,
+                posterUrl,
+                thumb,
+                chapterTitle,
+                chapterIndex,
+                filePath,
+                chapterPath,
+                path: rawTrackPath,
+                durationSec
+            } = body;
+            const effectiveTaskType = taskType || task;
+            const effectiveBookTitle = title || bookTitle || 'Audiobook';
             const resolvedBookKey = bookKey || (chapterKey ? `book_for_${chapterKey}` : '');
             if (!resolvedBookKey || !chapterKey) {
                 return NextResponse.json({ success: false, error: 'Missing bookKey or chapterKey' }, { status: 400 });
@@ -564,14 +591,14 @@ export async function POST(request: Request) {
             if (!book) {
                 book = upsertAudiobookMeta({
                     book_key: resolvedBookKey,
-                    title: title || 'Audiobook',
+                    title: effectiveBookTitle,
                     author: author || 'Unknown Author',
                     thumb: thumb || posterUrl || undefined,
                     total_chapters: 1
                 });
             }
 
-            let decodedPath = filePath || rawTrackPath || '';
+            let decodedPath = filePath || chapterPath || rawTrackPath || '';
             if (!decodedPath && typeof chapterKey === 'string' && chapterKey.startsWith('local_track_')) {
                 try {
                     decodedPath = Buffer.from(chapterKey.replace('local_track_', ''), 'base64url').toString('utf8');
@@ -600,12 +627,12 @@ export async function POST(request: Request) {
 
             const config = getAudiobookStudioConfig();
 
-            if (taskType === 'transcribe') {
+            if (effectiveTaskType === 'transcribe') {
                 await transcribeAudiobookChapter(book, chapter, config);
-            } else if (taskType === 'illustrate') {
+            } else if (effectiveTaskType === 'illustrate') {
                 const freshChapter = getAudiobookChapterMeta(chapterKey) || chapter;
                 await generateAudiobookChapterIllustrations(book, freshChapter, config, true);
-            } else if (taskType === 'enhance') {
+            } else if (effectiveTaskType === 'enhance') {
                 const freshChapter = getAudiobookChapterMeta(chapterKey) || chapter;
                 await enhanceAudiobookChapterAudio(book, freshChapter, config, body.voicePreset);
             } else {
