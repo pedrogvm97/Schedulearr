@@ -81,18 +81,18 @@ async function checkAndUpdate() {
       }
     }
 
-    // Check latest release from GitHub
-    const ghRes = await axios.get(
-      'https://api.github.com/repos/pedrogvm97/Schedulearr/releases/latest',
-      { headers: { Accept: 'application/vnd.github.v3+json', 'User-Agent': 'Schedulearr-AutoUpdater' } }
+    // Check latest version from GitHub main package.json
+    const pkgRes = await axios.get(
+      'https://raw.githubusercontent.com/pedrogvm97/Schedulearr/main/package.json',
+      { headers: { 'User-Agent': 'Schedulearr-AutoUpdater' }, timeout: 8000 }
     );
 
-    if (!ghRes.data?.tag_name) {
-      global._schedulearrAutoUpdater.lastResult = 'No release found on GitHub';
+    const latestVersion = String(pkgRes.data?.version || '').replace(/^v/i, '').trim();
+    if (!latestVersion || latestVersion === '1.0.0') {
+      global._schedulearrAutoUpdater.lastResult = 'No valid release version found on GitHub';
       return;
     }
 
-    const latestVersion = (ghRes.data.tag_name as string).replace(/^v/, '');
     if (semverCompare(latestVersion, currentVersion) <= 0) {
       global._schedulearrAutoUpdater.lastResult = `Up to date (${currentVersion})`;
       return;

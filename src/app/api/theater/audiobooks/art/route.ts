@@ -19,11 +19,12 @@ export async function GET(request: Request) {
             }
             const buf = fs.readFileSync(fullPath);
             const ext = path.extname(safeName).toLowerCase();
-            const contentType = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
+            const contentType = ext === '.svg' ? 'image/svg+xml' : ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
             return new NextResponse(buf, {
                 headers: {
                     'Content-Type': contentType,
-                    'Cache-Control': 'public, max-age=86400'
+                    'Cache-Control': 'public, max-age=86400',
+                    'Access-Control-Allow-Origin': '*'
                 }
             });
         }

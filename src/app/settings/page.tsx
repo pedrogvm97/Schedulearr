@@ -251,7 +251,7 @@ export default function Settings() {
     }[]>([]);
     const [cleaningLibraryId, setCleaningLibraryId] = useState<string | null>(null);
 
-    // Curated Audiobook AI Studio, Transcription, Audio DSP & Daily Artwork Quota Config
+    // Curated Audiobook AI Studio, Unified API Auto-Detect, Quotas & Schedules Config
     const [audiobookStudioConfig, setAudiobookStudioConfig] = useState<{
         enabled: boolean;
         scheduleMode: 'continuous_low_cpu' | 'hourly' | 'overnight' | 'manual_only';
@@ -260,18 +260,37 @@ export default function Settings() {
         audioEnhancePreset: 'denoise_clarity' | 'vintage_restore' | 'crystal_voice';
         defaultVoicePreset: 'original' | 'deep_narrator' | 'warm_storyteller' | 'crisp_clear' | 'soft_velvet';
         artProvider: 'pollinations_flux' | 'openai' | 'gemini' | 'custom';
+        detectedProvider?: 'gemini' | 'claude' | 'openai' | 'groq' | 'custom_url' | 'free_builtin';
+        rawUnifiedApiKey?: string;
         openaiApiKey: string;
         geminiApiKey: string;
+        anthropicApiKey?: string;
+        groqApiKey?: string;
         customApiUrl: string;
         customApiKey: string;
         dailyImageQuota: number;
+        maxRequestsPerMinute?: number;
         imagesGeneratedToday: number;
         imagesPerChapter: number;
         artStyle: string;
         artResolution: '1024x1024' | '1280x720' | '1536x1024' | '768x768';
         artFocus: 'auto-choice' | 'characters' | 'ambient' | 'theme' | 'landscapes';
         passTranscriptionContext: boolean;
+        dynamicPromptEnabled?: boolean;
         customPromptTemplate: string;
+        lastKeyProbe?: {
+            provider: string;
+            providerLabel: string;
+            valid: boolean;
+            isRateLimited: boolean;
+            tier: string;
+            rateLimitRpm: number;
+            rateLimitRemaining?: string;
+            modelsAvailable: string[];
+            capabilities: string[];
+            statusMessage: string;
+            checkedAt: string;
+        } | null;
     }>({
         enabled: true,
         scheduleMode: 'continuous_low_cpu',
@@ -280,20 +299,30 @@ export default function Settings() {
         audioEnhancePreset: 'denoise_clarity',
         defaultVoicePreset: 'original',
         artProvider: 'pollinations_flux',
+        detectedProvider: 'free_builtin',
+        rawUnifiedApiKey: '',
         openaiApiKey: '',
         geminiApiKey: '',
+        anthropicApiKey: '',
+        groqApiKey: '',
         customApiUrl: '',
         customApiKey: '',
         dailyImageQuota: 10,
+        maxRequestsPerMinute: 10,
         imagesGeneratedToday: 0,
         imagesPerChapter: 2,
-        artStyle: 'Cinematic Concept Art',
+        artStyle: 'cinematic_concept',
         artResolution: '1280x720',
         artFocus: 'auto-choice',
         passTranscriptionContext: true,
-        customPromptTemplate: 'Rich atmospheric book illustration, detailed lighting, no text or watermarks.'
+        dynamicPromptEnabled: true,
+        customPromptTemplate: 'Rich atmospheric book illustration, detailed lighting, no text or watermarks.',
+        lastKeyProbe: null
     });
     const [savingStudioConfig, setSavingStudioConfig] = useState(false);
+    const [probingApiKey, setProbingApiKey] = useState(false);
+    const [showApiFinderHelper, setShowApiFinderHelper] = useState(false);
+    const [selectedHelperProvider, setSelectedHelperProvider] = useState<'gemini' | 'claude' | 'openai' | 'groq'>('gemini');
 
     const saveAudiobookStudioConfig = async (updates?: Partial<typeof audiobookStudioConfig>) => {
         const next = updates ? { ...audiobookStudioConfig, ...updates } : audiobookStudioConfig;
@@ -308,12 +337,41 @@ export default function Settings() {
             const data = await res.json();
             if (res.ok && data.config) {
                 setAudiobookStudioConfig(prev => ({ ...prev, ...data.config }));
-                toast.success('Audiobook AI Studio settings saved');
+                toast.success('AI API & Schedule settings saved');
             }
         } catch {
-            toast.error('Failed to save Audiobook Studio settings');
+            toast.error('Failed to save AI API settings');
         } finally {
             setSavingStudioConfig(false);
+        }
+    };
+
+    const handleAutoDetectApiKey = async (overrideKey?: string) => {
+        const keyToProbe = (overrideKey !== undefined ? overrideKey : (audiobookStudioConfig.rawUnifiedApiKey || audiobookStudioConfig.geminiApiKey || audiobookStudioConfig.openaiApiKey || '')).trim();
+        setProbingApiKey(true);
+        try {
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'detect_api_key', apiKey: keyToProbe })
+            });
+            const data = await res.json();
+            if (res.ok && data.probe) {
+                if (data.config) {
+                    setAudiobookStudioConfig(prev => ({ ...prev, ...data.config }));
+                }
+                if (data.probe.valid) {
+                    toast.success(`${data.probe.providerLabel} detected! (${data.probe.tier})`);
+                } else {
+                    toast.error(data.probe.statusMessage || 'API Key could not be verified');
+                }
+            } else {
+                toast.error(data.error || 'Failed to inspect API key');
+            }
+        } catch {
+            toast.error('Network error while probing API key');
+        } finally {
+            setProbingApiKey(false);
         }
     };
 
@@ -1363,31 +1421,34 @@ export default function Settings() {
                 </div>
             </div>
 
-                    {/* Curated Audiobook AI Studio, Transcription, Audio Enhancement & Daily Artwork Quota */}
+                    {/* Unified AI API Key Registration (Auto-Detect), Quick API Finder Helper, Quotas, Rate Limits & Schedules */}
                     <div className="bg-zinc-900 border border-amber-500/30 rounded-2xl p-6 space-y-6 shadow-xl">
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-800">
                             <div>
-                                <div className="flex items-center gap-2.5">
-                                    <span className="text-2xl">📖</span>
+                                <div className="flex items-center gap-2.5 flex-wrap">
+                                    <span className="text-2xl">🔑</span>
                                     <h2 className="text-xl font-black text-white">
-                                        Audiobook AI Studio &amp; Scheduled Chapter Artwork
+                                        AI API Key Auto-Detector, Usage Limits &amp; Schedules
                                     </h2>
                                     <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${
                                         audiobookStudioConfig.enabled
                                             ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
                                             : 'bg-zinc-800 text-zinc-500 border-zinc-700'
                                     }`}>
-                                        {audiobookStudioConfig.enabled ? 'Studio Active' : 'Paused'}
+                                        {audiobookStudioConfig.enabled ? 'Background Engine Active' : 'Paused'}
                                     </span>
                                 </div>
                                 <p className="text-xs text-zinc-400 mt-1">
-                                    Optimized for low-power Intel Unraid CPUs (single-threaded background queue). Configure transcription models, audio clarity DSP, and ChatGPT / Gemini / Open-Source chapter illustration quotas.
+                                    Paste any AI key below to automatically detect the provider (Gemini, Claude, ChatGPT/OpenAI, Groq, or Custom URL), rate-limit tier, and capabilities. Creative per-book options (Art Style, Voice, Scene Count) now live directly on your <strong>Audiobooks Shelf</strong> in Theater.
                                 </p>
                             </div>
-                            <div className="flex items-center gap-3 shrink-0">
-                                <div className="px-3 py-1.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-bold text-amber-300">
-                                    Today&apos;s Art Quota: <span className="font-mono font-black">{audiobookStudioConfig.imagesGeneratedToday} / {audiobookStudioConfig.dailyImageQuota}</span>
-                                </div>
+                            <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+                                <a
+                                    href="/theater"
+                                    className="px-3.5 py-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 border border-amber-500/30 text-xs font-bold text-amber-300 transition-all"
+                                >
+                                    📚 Open Audiobook Shelf &amp; Book Settings
+                                </a>
                                 <button
                                     type="button"
                                     onClick={() => saveAudiobookStudioConfig({ enabled: !audiobookStudioConfig.enabled })}
@@ -1397,21 +1458,258 @@ export default function Settings() {
                                             : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white'
                                     }`}
                                 >
-                                    {audiobookStudioConfig.enabled ? 'Enabled' : 'Paused'}
+                                    {audiobookStudioConfig.enabled ? 'Engine Enabled' : 'Paused'}
                                 </button>
                             </div>
                         </div>
 
-                        {/* 1. Schedule Mode, Low-CPU Transcription & Audio Clarity Restoration */}
+                        {/* 1. Single Paste & Auto-Detect API Key Box + Quick API Finder Helper */}
+                        <div className="p-5 bg-zinc-950/85 rounded-2xl border border-zinc-800 space-y-4">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                <div>
+                                    <label className="text-sm font-black text-white flex items-center gap-2">
+                                        1. Paste Your AI API Key (Auto-Detects Provider, Tier &amp; Rate Limits)
+                                    </label>
+                                    <p className="text-xs text-zinc-400 mt-0.5">
+                                        Supports Google Gemini (<code className="text-amber-300">AIza...</code>), Anthropic Claude (<code className="text-amber-300">sk-ant-...</code>), OpenAI (<code className="text-amber-300">sk-...</code>), Groq (<code className="text-amber-300">gsk_...</code>), or leave empty for Free Built-In Flux.
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowApiFinderHelper(prev => !prev)}
+                                    className={`px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider border transition-all cursor-pointer shrink-0 ${
+                                        showApiFinderHelper
+                                            ? 'bg-sky-500 text-black border-sky-400'
+                                            : 'bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border-sky-500/35'
+                                    }`}
+                                >
+                                    {showApiFinderHelper ? 'Hide API Key Finder' : '❓ Quick API Key Finder Helper'}
+                                </button>
+                            </div>
+
+                            {/* Paste Box + Auto-Detect Trigger */}
+                            <div className="flex flex-col sm:flex-row gap-2.5">
+                                <input
+                                    type="password"
+                                    placeholder="Paste any API key here (AIza..., sk-ant-..., sk-..., gsk_..., or http://...) — auto-detects everything!"
+                                    value={
+                                        audiobookStudioConfig.rawUnifiedApiKey ||
+                                        audiobookStudioConfig.geminiApiKey ||
+                                        audiobookStudioConfig.anthropicApiKey ||
+                                        audiobookStudioConfig.openaiApiKey ||
+                                        audiobookStudioConfig.groqApiKey ||
+                                        ''
+                                    }
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        setAudiobookStudioConfig(prev => ({ ...prev, rawUnifiedApiKey: val }));
+                                    }}
+                                    onPaste={(e) => {
+                                        const pasted = e.clipboardData.getData('text');
+                                        if (pasted && pasted.trim().length > 6) {
+                                            setAudiobookStudioConfig(prev => ({ ...prev, rawUnifiedApiKey: pasted.trim() }));
+                                            setTimeout(() => handleAutoDetectApiKey(pasted.trim()), 80);
+                                        }
+                                    }}
+                                    className="flex-1 bg-zinc-900 border border-zinc-700 focus:border-amber-400 rounded-xl px-4 py-3 text-xs sm:text-sm font-mono text-white outline-none"
+                                />
+                                <button
+                                    type="button"
+                                    disabled={probingApiKey}
+                                    onClick={() => handleAutoDetectApiKey()}
+                                    className="px-5 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider shrink-0 transition-all cursor-pointer shadow-lg shadow-amber-500/20 disabled:opacity-50"
+                                >
+                                    {probingApiKey ? 'Detecting & Probing Key...' : '🔍 Auto-Detect & Verify Key'}
+                                </button>
+                            </div>
+
+                            {/* Live Auto-Detection Result Banner */}
+                            {audiobookStudioConfig.lastKeyProbe && (
+                                <div className={`p-4 rounded-xl border space-y-2.5 ${
+                                    audiobookStudioConfig.lastKeyProbe.valid
+                                        ? 'bg-emerald-950/25 border-emerald-500/35'
+                                        : 'bg-red-950/25 border-red-500/35'
+                                }`}>
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <span className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase ${
+                                                audiobookStudioConfig.lastKeyProbe.valid
+                                                    ? 'bg-emerald-500 text-black'
+                                                    : 'bg-red-500 text-white'
+                                            }`}>
+                                                {audiobookStudioConfig.lastKeyProbe.valid ? 'Verified' : 'Invalid Key'}
+                                            </span>
+                                            <span className="text-sm font-black text-white">
+                                                {audiobookStudioConfig.lastKeyProbe.providerLabel}
+                                            </span>
+                                            <span className="px-2 py-0.5 rounded-md bg-zinc-900 border border-zinc-700 text-[10px] font-mono font-bold text-amber-300">
+                                                Tier: {audiobookStudioConfig.lastKeyProbe.tier}
+                                            </span>
+                                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-bold border ${
+                                                audiobookStudioConfig.lastKeyProbe.isRateLimited
+                                                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                                    : 'bg-zinc-900 text-emerald-300 border-zinc-800'
+                                            }`}>
+                                                {audiobookStudioConfig.lastKeyProbe.isRateLimited
+                                                    ? '⚠️ Currently Rate-Limited (Auto-Throttling Active)'
+                                                    : `Rate Limit: ~${audiobookStudioConfig.lastKeyProbe.rateLimitRpm} req/min`}
+                                            </span>
+                                        </div>
+                                        {audiobookStudioConfig.lastKeyProbe.rateLimitRemaining && (
+                                            <span className="text-[11px] font-mono text-zinc-400">
+                                                Remaining: {audiobookStudioConfig.lastKeyProbe.rateLimitRemaining}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <p className="text-xs text-zinc-300">
+                                        {audiobookStudioConfig.lastKeyProbe.statusMessage}
+                                    </p>
+                                    {Array.isArray(audiobookStudioConfig.lastKeyProbe.capabilities) && audiobookStudioConfig.lastKeyProbe.capabilities.length > 0 && (
+                                        <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                                            <span className="text-[10px] font-bold uppercase text-zinc-500 mr-1">Unlocked:</span>
+                                            {audiobookStudioConfig.lastKeyProbe.capabilities.map((cap, idx) => (
+                                                <span key={idx} className="px-2 py-0.5 rounded-md bg-black/50 border border-zinc-800 text-[10px] font-semibold text-zinc-300">
+                                                    ✓ {cap}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Interactive Quick API Key Finder Helper */}
+                            {showApiFinderHelper && (
+                                <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-b from-sky-950/30 to-zinc-950 border border-sky-500/35 space-y-4 animate-in fade-in duration-200">
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800 pb-3">
+                                        <div>
+                                            <h4 className="text-sm font-black text-white">
+                                                Quick API Key Finder — Pick a Provider to Get Your Key in 30 Seconds
+                                            </h4>
+                                            <p className="text-xs text-zinc-400">
+                                                Don&apos;t know where to find an API key? Choose which AI service you want to use below and follow the direct link:
+                                            </p>
+                                        </div>
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                            {([
+                                                { id: 'gemini', label: '✨ Google Gemini (Free Tier)' },
+                                                { id: 'claude', label: '🧠 Anthropic Claude' },
+                                                { id: 'openai', label: '🎨 OpenAI / ChatGPT' },
+                                                { id: 'groq', label: '⚡ Groq (Free Fast Tier)' }
+                                            ] as const).map(p => (
+                                                <button
+                                                    key={p.id}
+                                                    type="button"
+                                                    onClick={() => setSelectedHelperProvider(p.id)}
+                                                    className={`px-3 py-1.5 rounded-xl text-xs font-black border cursor-pointer transition-all ${
+                                                        selectedHelperProvider === p.id
+                                                            ? 'bg-sky-500 text-black border-sky-400'
+                                                            : 'bg-zinc-900 text-zinc-300 border-zinc-800 hover:bg-zinc-800'
+                                                    }`}
+                                                >
+                                                    {p.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {selectedHelperProvider === 'gemini' && (
+                                        <div className="space-y-2.5 text-xs text-zinc-300">
+                                            <p className="font-bold text-sky-300">Google Gemini API Key (Starts with <code className="text-white">AIza...</code> — Free Tier Available!)</p>
+                                            <ol className="list-decimal list-inside space-y-1 text-zinc-300">
+                                                <li>Click the button below to open <strong>Google AI Studio</strong> and sign in with your Google account.</li>
+                                                <li>Click the blue <strong>&ldquo;Create API key&rdquo;</strong> button on the top right.</li>
+                                                <li>Copy the key starting with <code className="text-amber-300">AIza...</code> and paste it into the box above — ScheduleArr will auto-detect Gemini 2.0 Flash &amp; Imagen 3!</li>
+                                            </ol>
+                                            <div className="pt-1">
+                                                <a
+                                                    href="https://aistudio.google.com/app/apikey"
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-black font-black text-xs uppercase tracking-wider shadow-lg"
+                                                >
+                                                    ↗ Open Google AI Studio Key Page (aistudio.google.com/app/apikey)
+                                                </a>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {selectedHelperProvider === 'claude' && (
+                                        <div className="space-y-2.5 text-xs text-zinc-300">
+                                            <p className="font-bold text-sky-300">Anthropic Claude API Key (Starts with <code className="text-white">sk-ant-...</code>)</p>
+                                            <ol className="list-decimal list-inside space-y-1 text-zinc-300">
+                                                <li>Click the button below to open the <strong>Anthropic Console Keys</strong> page.</li>
+                                                <li>Click <strong>&ldquo;Create Key&rdquo;</strong>, name it <em>ScheduleArr</em>, and copy the key starting with <code className="text-amber-300">sk-ant-...</code>.</li>
+                                                <li>Paste it into the box above to unlock Claude 3.5 Dynamic Scene Prompting (paired with Flux artwork).</li>
+                                            </ol>
+                                            <div className="pt-1">
+                                                <a
+                                                    href="https://console.anthropic.com/settings/keys"
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-black font-black text-xs uppercase tracking-wider shadow-lg"
+                                                >
+                                                    ↗ Open Anthropic Claude Keys Page (console.anthropic.com/settings/keys)
+                                                </a>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {selectedHelperProvider === 'openai' && (
+                                        <div className="space-y-2.5 text-xs text-zinc-300">
+                                            <p className="font-bold text-sky-300">OpenAI / ChatGPT API Key (Starts with <code className="text-white">sk-...</code>)</p>
+                                            <ol className="list-decimal list-inside space-y-1 text-zinc-300">
+                                                <li>Click the button below to open the <strong>OpenAI Platform API Keys</strong> page.</li>
+                                                <li>Click <strong>&ldquo;Create new secret key&rdquo;</strong> and copy the key starting with <code className="text-amber-300">sk-...</code>.</li>
+                                                <li>Paste it above to unlock GPT-4o-mini Dynamic Scene Prompts, DALL·E 3 artwork, and Whisper Cloud transcription.</li>
+                                            </ol>
+                                            <div className="pt-1">
+                                                <a
+                                                    href="https://platform.openai.com/api-keys"
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-black font-black text-xs uppercase tracking-wider shadow-lg"
+                                                >
+                                                    ↗ Open OpenAI API Keys Page (platform.openai.com/api-keys)
+                                                </a>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {selectedHelperProvider === 'groq' && (
+                                        <div className="space-y-2.5 text-xs text-zinc-300">
+                                            <p className="font-bold text-sky-300">Groq Cloud API Key (Starts with <code className="text-white">gsk_...</code> — Free Tier Available!)</p>
+                                            <ol className="list-decimal list-inside space-y-1 text-zinc-300">
+                                                <li>Click the button below to open <strong>GroqCloud Console</strong> and sign in for free.</li>
+                                                <li>Click <strong>&ldquo;Create API Key&rdquo;</strong> and copy the key starting with <code className="text-amber-300">gsk_...</code>.</li>
+                                                <li>Paste it above for ultra-fast Llama 3.3 70B Dynamic Scene Prompting &amp; Whisper Large v3 Turbo transcription!</li>
+                                            </ol>
+                                            <div className="pt-1">
+                                                <a
+                                                    href="https://console.groq.com/keys"
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-black font-black text-xs uppercase tracking-wider shadow-lg"
+                                                >
+                                                    ↗ Open Groq Console Keys Page (console.groq.com/keys)
+                                                </a>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* 2. API Usage Limits, Rate Limits & Background Schedules */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <div className="space-y-1.5 bg-zinc-950/70 p-4 rounded-xl border border-zinc-800">
+                            {/* Schedule Mode */}
+                            <div className="space-y-2 bg-zinc-950/70 p-4 rounded-xl border border-zinc-800">
                                 <label className="text-xs font-black uppercase tracking-wider text-amber-400 block">
-                                    1. Background Queue Schedule
+                                    2. Background Processing Schedule
                                 </label>
                                 <select
                                     value={audiobookStudioConfig.scheduleMode}
-                                    onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, scheduleMode: e.target.value as any }))}
-                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none focus:border-amber-500"
+                                    onChange={e => saveAudiobookStudioConfig({ scheduleMode: e.target.value as any })}
+                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-xs font-bold text-white outline-none focus:border-amber-500"
                                 >
                                     <option value="continuous_low_cpu">Continuous 1-Thread (Low Unraid CPU)</option>
                                     <option value="hourly">Hourly Batch</option>
@@ -1419,241 +1717,121 @@ export default function Settings() {
                                     <option value="manual_only">Manual Trigger Only</option>
                                 </select>
                                 <p className="text-[11px] text-zinc-500">
-                                    Processes books sequentially following your Bookshelf Priority Queue.
+                                    Controls when ScheduleArr processes books in your Bookshelf Priority Queue.
                                 </p>
                             </div>
 
-                            <div className="space-y-1.5 bg-zinc-950/70 p-4 rounded-xl border border-zinc-800">
-                                <label className="text-xs font-black uppercase tracking-wider text-sky-400 block">
-                                    2. Synced Transcription Model
-                                </label>
-                                <select
-                                    value={audiobookStudioConfig.sttEngine}
-                                    onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, sttEngine: e.target.value as any }))}
-                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none focus:border-amber-500"
-                                >
-                                    <option value="whisper_tiny_local">Local Whisper Tiny / Acoustic Cadence (0 GPU)</option>
-                                    <option value="acoustic_cadence">Ultra-Light Speech Cadence Aligner (Fastest CPU)</option>
-                                    <option value="openai_whisper">OpenAI Whisper-1 Cloud API</option>
-                                    <option value="gemini_audio">Google Gemini 1.5 Flash Audio STT</option>
-                                </select>
-                                <p className="text-[11px] text-zinc-500">
-                                    Creates live `[mm:ss.xx]` karaoke-style reading lines per chapter.
-                                </p>
-                            </div>
-
-                            <div className="space-y-1.5 bg-zinc-950/70 p-4 rounded-xl border border-zinc-800">
-                                <label className="text-xs font-black uppercase tracking-wider text-emerald-400 block">
-                                    3. Audio Quality &amp; Voice Preset
-                                </label>
-                                <div className="grid grid-cols-2 gap-2">
-                                    <select
-                                        value={audiobookStudioConfig.audioEnhancePreset}
-                                        onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, audioEnhancePreset: e.target.value as any }))}
-                                        className="bg-zinc-900 border border-zinc-800 rounded-xl px-2.5 py-2 text-xs font-bold text-white outline-none focus:border-emerald-500"
-                                        title="Noise Reduction & Clarity Filter"
-                                    >
-                                        <option value="denoise_clarity">FFmpeg afftdn Denoise + Clarity</option>
-                                        <option value="vintage_restore">Old Tape / Vintage Restoration</option>
-                                        <option value="crystal_voice">Crystal Vocal Presence Boost</option>
-                                    </select>
-                                    <select
-                                        value={audiobookStudioConfig.defaultVoicePreset}
-                                        onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, defaultVoicePreset: e.target.value as any }))}
-                                        className="bg-zinc-900 border border-zinc-800 rounded-xl px-2.5 py-2 text-xs font-bold text-white outline-none focus:border-emerald-500"
-                                        title="Narrator Voice Timbre / Pitch"
-                                    >
-                                        <option value="original">Original Voice</option>
-                                        <option value="deep_narrator">Deep Cinema Narrator</option>
-                                        <option value="warm_storyteller">Warm Storyteller</option>
-                                        <option value="crisp_clear">Crisp Articulation</option>
-                                        <option value="soft_velvet">Soft Late-Night Voice</option>
-                                    </select>
+                            {/* Daily API / Image Quota */}
+                            <div className="space-y-2 bg-zinc-950/70 p-4 rounded-xl border border-zinc-800">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-xs font-black uppercase tracking-wider text-emerald-400">
+                                        3. Daily API Quota Limit
+                                    </label>
+                                    <span className="text-[11px] font-mono font-bold text-amber-300">
+                                        Used Today: {audiobookStudioConfig.imagesGeneratedToday} / {audiobookStudioConfig.dailyImageQuota}
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={1000}
+                                        value={audiobookStudioConfig.dailyImageQuota}
+                                        onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, dailyImageQuota: Math.max(1, parseInt(e.target.value) || 1) }))}
+                                        onBlur={() => saveAudiobookStudioConfig()}
+                                        className="w-20 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-mono font-black text-amber-300 outline-none focus:border-amber-500"
+                                    />
+                                    <div className="flex gap-1 flex-wrap">
+                                        {[5, 15, 50, 100].map(q => (
+                                            <button
+                                                key={q}
+                                                type="button"
+                                                onClick={() => saveAudiobookStudioConfig({ dailyImageQuota: q })}
+                                                className={`px-2.5 py-1.5 rounded-lg text-[10px] font-black border cursor-pointer ${
+                                                    audiobookStudioConfig.dailyImageQuota === q
+                                                        ? 'bg-emerald-500 text-black border-emerald-400'
+                                                        : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
+                                                }`}
+                                            >
+                                                {q}/day
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
                                 <p className="text-[11px] text-zinc-500">
-                                    Removes tape hiss and enhances vocal clarity on single CPU thread.
+                                    Maximum new scene illustrations generated per day across all queued books.
+                                </p>
+                            </div>
+
+                            {/* Max Requests Per Minute (Rate-Limit Guard) */}
+                            <div className="space-y-2 bg-zinc-950/70 p-4 rounded-xl border border-zinc-800">
+                                <label className="text-xs font-black uppercase tracking-wider text-sky-400 block">
+                                    4. Rate-Limit Guard (Max Req / Min)
+                                </label>
+                                <div className="flex items-center gap-1.5">
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={120}
+                                        value={audiobookStudioConfig.maxRequestsPerMinute || 10}
+                                        onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, maxRequestsPerMinute: Math.max(1, parseInt(e.target.value) || 10) }))}
+                                        onBlur={() => saveAudiobookStudioConfig()}
+                                        className="w-20 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-mono font-black text-sky-300 outline-none focus:border-sky-500"
+                                    />
+                                    <div className="flex gap-1 flex-wrap">
+                                        {[2, 5, 15, 30].map(rpm => (
+                                            <button
+                                                key={rpm}
+                                                type="button"
+                                                onClick={() => saveAudiobookStudioConfig({ maxRequestsPerMinute: rpm })}
+                                                className={`px-2.5 py-1.5 rounded-lg text-[10px] font-black border cursor-pointer ${
+                                                    (audiobookStudioConfig.maxRequestsPerMinute || 10) === rpm
+                                                        ? 'bg-sky-500 text-black border-sky-400'
+                                                        : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
+                                                }`}
+                                            >
+                                                {rpm} RPM
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <p className="text-[11px] text-zinc-500">
+                                    Automatically paces API calls so free-tier keys never hit 429 rate limits.
                                 </p>
                             </div>
                         </div>
 
-                        {/* 2. AI Artwork Provider, API Keys & Daily Quota */}
-                        <div className="p-4 bg-zinc-950/80 rounded-xl border border-zinc-800 space-y-4">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                                <h3 className="text-sm font-black uppercase tracking-wider text-amber-300">
-                                    🎨 Chapter Scene Illustration Provider, Quotas &amp; Prompts
-                                </h3>
-                                <span className="text-[11px] text-zinc-400">
-                                    Supports Open-Source Flux, ChatGPT (DALL·E 3), Google Gemini Imagen 3, or Local SD WebUI
-                                </span>
+                        {/* 3. Dynamic AI Scene Prompt Toggle */}
+                        <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-purple-950/35 via-zinc-950 to-zinc-950 border border-purple-500/35 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <div className="space-y-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-base">✨</span>
+                                    <h3 className="text-sm font-black text-white">
+                                        Dynamic AI Scene Prompting (Allow Gemini / Claude / OpenAI to Write Context-Rich Scene Prompts)
+                                    </h3>
+                                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase ${
+                                        audiobookStudioConfig.dynamicPromptEnabled !== false
+                                            ? 'bg-purple-500 text-black'
+                                            : 'bg-zinc-800 text-zinc-400'
+                                    }`}>
+                                        {audiobookStudioConfig.dynamicPromptEnabled !== false ? 'Enabled' : 'Disabled'}
+                                    </span>
+                                </div>
+                                <p className="text-xs text-zinc-400 leading-relaxed">
+                                    When enabled, your AI model analyzes each chapter&apos;s transcript before painting and writes a bespoke visual prompt containing <strong>character names</strong>, <strong>locations</strong>, <strong>context highlights</strong>, and <strong>visual continuity from previous scene images</strong>.
+                                </p>
                             </div>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                                <div>
-                                    <label className="text-[11px] font-bold text-zinc-400 block mb-1">AI Artwork Provider</label>
-                                    <select
-                                        value={audiobookStudioConfig.artProvider}
-                                        onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, artProvider: e.target.value as any }))}
-                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none focus:border-amber-500"
-                                    >
-                                        <option value="pollinations_flux">Free Open-Source Flux (No Key Needed)</option>
-                                        <option value="openai">ChatGPT / OpenAI (DALL·E 3)</option>
-                                        <option value="gemini">Google Gemini (Imagen 3)</option>
-                                        <option value="custom">Custom Local / SD API Endpoint</option>
-                                    </select>
-                                </div>
-
-                                <div>
-                                    <label className="text-[11px] font-bold text-zinc-400 block mb-1">Daily New Images Quota</label>
-                                    <div className="flex items-center gap-1.5">
-                                        <input
-                                            type="number"
-                                            min={1}
-                                            max={1000}
-                                            value={audiobookStudioConfig.dailyImageQuota}
-                                            onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, dailyImageQuota: Math.max(1, parseInt(e.target.value) || 1) }))}
-                                            className="w-20 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-mono font-black text-amber-300 outline-none focus:border-amber-500"
-                                        />
-                                        <div className="flex gap-1">
-                                            {[1, 10, 50, 100].map(q => (
-                                                <button
-                                                    key={q}
-                                                    type="button"
-                                                    onClick={() => setAudiobookStudioConfig(prev => ({ ...prev, dailyImageQuota: q }))}
-                                                    className={`px-2 py-1.5 rounded-lg text-[10px] font-black border cursor-pointer ${
-                                                        audiobookStudioConfig.dailyImageQuota === q
-                                                            ? 'bg-amber-500 text-black border-amber-400'
-                                                            : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
-                                                    }`}
-                                                >
-                                                    {q}/d
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <label className="text-[11px] font-bold text-zinc-400 block mb-1">Images Per Chapter Scene</label>
-                                    <select
-                                        value={audiobookStudioConfig.imagesPerChapter}
-                                        onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, imagesPerChapter: parseInt(e.target.value) || 2 }))}
-                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none focus:border-amber-500"
-                                    >
-                                        <option value={1}>1 Image per Chapter</option>
-                                        <option value={2}>2 Images (Swaps at 1/2 way)</option>
-                                        <option value={3}>3 Images (Swaps at 1/3 &amp; 2/3)</option>
-                                        <option value={4}>4 Images (Swaps every 1/4)</option>
-                                    </select>
-                                </div>
-
-                                <div>
-                                    <label className="text-[11px] font-bold text-zinc-400 block mb-1">Scene Visual Focus</label>
-                                    <select
-                                        value={audiobookStudioConfig.artFocus}
-                                        onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, artFocus: e.target.value as any }))}
-                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none focus:border-amber-500"
-                                    >
-                                        <option value="auto-choice">✨ Auto-Choice (Context Adaptive)</option>
-                                        <option value="characters">👤 Characters &amp; Expressions</option>
-                                        <option value="ambient">🕯️ Ambient &amp; Mood</option>
-                                        <option value="theme">🎭 Symbolic Theme</option>
-                                        <option value="landscapes">🏔️ Landscapes &amp; Worldbuilding</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                            {/* API Keys Row (shown for OpenAI / Gemini / Custom) */}
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                <div>
-                                    <label className="text-[11px] font-bold text-zinc-400 block mb-1">OpenAI / ChatGPT API Key</label>
-                                    <input
-                                        type="password"
-                                        placeholder="sk-..."
-                                        value={audiobookStudioConfig.openaiApiKey}
-                                        onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, openaiApiKey: e.target.value }))}
-                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-amber-500"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="text-[11px] font-bold text-zinc-400 block mb-1">Google Gemini API Key</label>
-                                    <input
-                                        type="password"
-                                        placeholder="AIza..."
-                                        value={audiobookStudioConfig.geminiApiKey}
-                                        onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, geminiApiKey: e.target.value }))}
-                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-amber-500"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="text-[11px] font-bold text-zinc-400 block mb-1">Custom API URL (Optional)</label>
-                                    <input
-                                        type="text"
-                                        placeholder="http://192.168.1.125:7860/sdapi/v1/txt2img"
-                                        value={audiobookStudioConfig.customApiUrl}
-                                        onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, customApiUrl: e.target.value }))}
-                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-amber-500"
-                                    />
-                                </div>
-                            </div>
-
-                            {/* Art Style, Resolution & Custom Prompt */}
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                <div>
-                                    <label className="text-[11px] font-bold text-zinc-400 block mb-1">Art Style Preset</label>
-                                    <input
-                                        type="text"
-                                        value={audiobookStudioConfig.artStyle}
-                                        onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, artStyle: e.target.value }))}
-                                        placeholder="e.g. Cinematic Concept Art, Oil Painting, Dark Fantasy..."
-                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-amber-500"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="text-[11px] font-bold text-zinc-400 block mb-1">Artwork Resolution</label>
-                                    <select
-                                        value={audiobookStudioConfig.artResolution}
-                                        onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, artResolution: e.target.value as any }))}
-                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none focus:border-amber-500"
-                                    >
-                                        <option value="1280x720">1280×720 (Wide Open-Book Spread)</option>
-                                        <option value="1536x1024">1536×1024 (HD Book Spread)</option>
-                                        <option value="1024x1024">1024×1024 (Square Cover Art)</option>
-                                        <option value="768x768">768×768 (Fast Lightweight)</option>
-                                    </select>
-                                </div>
-                                <div className="flex items-end pb-1">
-                                    <label className="flex items-center gap-2 text-xs font-bold text-zinc-300 cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            checked={audiobookStudioConfig.passTranscriptionContext}
-                                            onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, passTranscriptionContext: e.target.checked }))}
-                                            className="w-4 h-4 rounded accent-amber-500"
-                                        />
-                                        Pass Chapter Transcription Text to AI Painter
-                                    </label>
-                                </div>
-                            </div>
-
-                            <div>
-                                <label className="text-[11px] font-bold text-zinc-400 block mb-1">Custom Prompt Instructions</label>
-                                <div className="flex flex-col sm:flex-row gap-2">
-                                    <input
-                                        type="text"
-                                        value={audiobookStudioConfig.customPromptTemplate}
-                                        onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, customPromptTemplate: e.target.value }))}
-                                        placeholder="Custom prompt directives for chapter illustrations..."
-                                        className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-amber-500"
-                                    />
-                                    <button
-                                        type="button"
-                                        disabled={savingStudioConfig}
-                                        onClick={() => saveAudiobookStudioConfig()}
-                                        className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider shrink-0 transition-all cursor-pointer shadow-lg shadow-amber-500/20"
-                                    >
-                                        {savingStudioConfig ? 'Saving...' : 'Save Studio Settings'}
-                                    </button>
-                                </div>
-                            </div>
+                            <button
+                                type="button"
+                                onClick={() => saveAudiobookStudioConfig({ dynamicPromptEnabled: audiobookStudioConfig.dynamicPromptEnabled === false })}
+                                className={`px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider shrink-0 transition-all cursor-pointer border ${
+                                    audiobookStudioConfig.dynamicPromptEnabled !== false
+                                        ? 'bg-purple-500 hover:bg-purple-400 text-black border-purple-400 shadow-lg shadow-purple-500/20'
+                                        : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-700'
+                                }`}
+                            >
+                                {audiobookStudioConfig.dynamicPromptEnabled !== false ? 'Dynamic Prompt: ON' : 'Dynamic Prompt: OFF'}
+                            </button>
                         </div>
                     </div>
 

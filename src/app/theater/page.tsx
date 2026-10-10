@@ -948,7 +948,7 @@ function TheaterPageContent() {
 
         // 1. Google Cast Web Framework (Standard Cast device picker for Smart TVs / Chromecasts)
         try {
-            if (typeof window !== 'undefined' && (window as any).cast?.framework) {
+            if (typeof window !== 'undefined' && (window as any).cast?.framework && (window as any).chrome?.cast) {
                 const castContext = (window as any).cast.framework.CastContext.getInstance();
                 try {
                     castContext.setOptions({
@@ -959,17 +959,64 @@ function TheaterPageContent() {
                 await castContext.requestSession();
                 const session = castContext.getCurrentSession();
                 if (session && target) {
-                    const stream = (target as any).streamUrl || `${window.location.origin}/api/theater/stream?id=${target.id}`;
-                    const contentType = (target as any).type === 'music' ? 'audio/mp4' : 'video/mp4';
-                    const mediaInfo = new (window as any).chrome.cast.media.MediaInfo(stream, contentType);
+                    // Resolve reachable LAN IP when browser is opened via localhost/127.0.0.1 so the Smart TV can fetch the stream
+                    let castOrigin = window.location.origin;
+                    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+                        try {
+                            const selfRes = await fetch('/api/system/self');
+                            if (selfRes.ok) {
+                                const selfData = await selfRes.json();
+                                if (selfData.lanIp && selfData.lanIp !== '127.0.0.1') {
+                                    const port = window.location.port ? `:${window.location.port}` : '';
+                                    castOrigin = `${window.location.protocol}//${selfData.lanIp}${port}`;
+                                }
+                            }
+                        } catch {}
+                    }
+
+                    let rawStream = (target as any).streamUrl || `/api/theater/stream?id=${encodeURIComponent(target.id)}`;
+                    if (rawStream.startsWith('/')) {
+                        rawStream = `${castOrigin}${rawStream}`;
+                    } else if (rawStream.includes('://localhost') || rawStream.includes('://127.0.0.1')) {
+                        rawStream = rawStream.replace(/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i, castOrigin);
+                    }
+
+                    const isAudioTarget = (target as any).type === 'music' || (target as any).type === 'audiobook';
+                    const isLiveStream = Boolean((target as any).url && !(target as any).streamUrl) || rawStream.includes('.m3u8');
+
+                    // Ensure Smart TV / Chromecast receives a universally supported codec (H.264+AAC MP4 for video, MP3 for audio)
+                    if (rawStream.includes('/api/theater/stream')) {
+                        if (isAudioTarget && !rawStream.includes('transcode=')) {
+                            rawStream += (rawStream.includes('?') ? '&' : '?') + 'transcode=mp3';
+                        } else if (!isAudioTarget && !rawStream.includes('transcode=')) {
+                            rawStream += (rawStream.includes('?') ? '&' : '?') + 'transcode=universal';
+                        }
+                    }
+
+                    const contentType = isAudioTarget
+                        ? 'audio/mpeg'
+                        : rawStream.includes('.m3u8')
+                        ? 'application/x-mpegurl'
+                        : 'video/mp4';
+
+                    const mediaInfo = new (window as any).chrome.cast.media.MediaInfo(rawStream, contentType);
+                    mediaInfo.streamType = isLiveStream
+                        ? ((window as any).chrome.cast.media.StreamType?.LIVE || 'LIVE')
+                        : ((window as any).chrome.cast.media.StreamType?.BUFFERED || 'BUFFERED');
                     mediaInfo.metadata = new (window as any).chrome.cast.media.GenericMediaMetadata();
-                    mediaInfo.metadata.title = target.name || (target as any).title;
-                    if ((target as any).posterUrl) {
-                        mediaInfo.metadata.images = [{ url: (target as any).posterUrl }];
+                    mediaInfo.metadata.title = target.name || (target as any).title || 'ScheduleArr Stream';
+                    const rawPoster = (target as any).posterUrl || (target as any).logo;
+                    if (rawPoster) {
+                        const absPoster = rawPoster.startsWith('/') ? `${castOrigin}${rawPoster}` : rawPoster;
+                        mediaInfo.metadata.images = [{ url: absPoster }];
                     }
                     const request = new (window as any).chrome.cast.media.LoadRequest(mediaInfo);
-                    session.loadMedia(request);
-                    toast.success(`Casting "${target.name || (target as any).title}"!`);
+                    request.autoplay = true;
+                    if (videoEl && Number.isFinite(videoEl.currentTime) && videoEl.currentTime > 2 && !isLiveStream) {
+                        request.currentTime = Math.floor(videoEl.currentTime);
+                    }
+                    await session.loadMedia(request);
+                    toast.success(`Casting "${target.name || (target as any).title}" to TV!`);
                     return;
                 }
             }
@@ -1988,6 +2035,8 @@ function TheaterPageContent() {
     const [audiobookStudioStatus, setAudiobookStudioStatus] = useState<any>(null);
     const [audiobookStudioConfig, setAudiobookStudioConfig] = useState<any>(null);
     const [showAudiobookQueueModal, setShowAudiobookQueueModal] = useState(false);
+    const [showShelfDefaultsModal, setShowShelfDefaultsModal] = useState(false);
+    const [showBookStudioSettings, setShowBookStudioSettings] = useState(false);
     const [runningBookModalTask, setRunningBookModalTask] = useState<string | null>(null);
     const [curatingChapterModal, setCuratingChapterModal] = useState<any | null>(null);
 
@@ -2008,6 +2057,62 @@ function TheaterPageContent() {
             // ignore
         }
     }, []);
+
+    const handleSaveShelfDefaults = async (patch: Record<string, any>) => {
+        const nextConfig = { ...(audiobookStudioConfig || {}), ...patch };
+        setAudiobookStudioConfig(nextConfig);
+        try {
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'save_config',
+                    config: patch
+                })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.config) setAudiobookStudioConfig(data.config);
+                toast.success('Shelf default settings saved for all books');
+            }
+        } catch {
+            toast.error('Failed to save shelf defaults');
+        }
+    };
+
+    const handleSaveBookStudioSettings = async (book: any, patch: Record<string, any>) => {
+        if (!book) return;
+        const bKey = book.bookKey || `${book.author || 'Unknown Author'} - ${book.title}`.toLowerCase().trim();
+        setAudiobooksStudioMap(prev => ({
+            ...prev,
+            [bKey]: { ...(prev[bKey] || {}), ...patch }
+        }));
+        try {
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'update_book_settings',
+                    bookKey: bKey,
+                    title: book.title,
+                    author: book.author,
+                    folder: book.folder,
+                    posterUrl: book.posterUrl,
+                    totalChapters: book.chapters?.length || 1,
+                    ...patch
+                })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.book) {
+                    setAudiobooksStudioMap(prev => ({ ...prev, [bKey]: data.book }));
+                }
+                toast.success(`Saved settings for "${book.title}"`);
+            }
+        } catch {
+            toast.error('Failed to update book settings');
+        }
+    };
 
     useEffect(() => {
         if (activeContentTab === 'audiobooks' || selectedAudiobook || showAudiobookQueueModal) {
@@ -2152,13 +2257,6 @@ function TheaterPageContent() {
         const cKey = ch.chapterKey || ch.id;
         const taskKey = `${cKey}:${taskType}`;
         setRunningBookModalTask(taskKey);
-        toast.info(
-            taskType === 'transcribe'
-                ? `Transcribing "${ch.title || ch.name}" (1 CPU thread)...`
-                : taskType === 'illustrate'
-                ? `Painting scene art for "${ch.title || ch.name}"...`
-                : `Enhancing audio clarity for "${ch.title || ch.name}"...`
-        );
         try {
             const res = await fetch('/api/theater/audiobooks/studio', {
                 method: 'POST',
@@ -2167,6 +2265,11 @@ function TheaterPageContent() {
                     action: 'run_chapter_task',
                     taskType,
                     bookKey: bKey,
+                    title: book.title,
+                    author: book.author,
+                    folder: book.folder,
+                    posterUrl: book.posterUrl,
+                    totalChapters: book.chapters?.length || 1,
                     chapterKey: cKey,
                     chapterTitle: ch.title || ch.name,
                     chapterIndex: ch.trackNumber || idx + 1,
@@ -2193,8 +2296,9 @@ function TheaterPageContent() {
         }
     };
 
-    const openAudiobookModal = async (book: any) => {
+    const openAudiobookModal = async (book: any, openSettingsFirst = false) => {
         setSelectedAudiobook(book);
+        setShowBookStudioSettings(openSettingsFirst);
         setAudiobookDetails({ loading: true });
         loadBookStudioChapters(book);
         try {
@@ -4474,17 +4578,17 @@ function TheaterPageContent() {
                         </div>
                     )
                 ) : activeContentTab === 'audiobooks' ? (
-                    <div className="space-y-5">
-                        {/* ── Curated Audiobook Studio & Priority Queue Header Bar ── */}
-                        <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-zinc-950 via-[#14100c] to-zinc-950 border border-orange-500/25 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                    <div className="space-y-6">
+                        {/* ── Bookshelf Header Bar & Shelf Default Settings Trigger ── */}
+                        <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-[#1a110a] via-[#140e09] to-[#1a110a] border border-amber-700/35 shadow-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                             <div className="flex items-start sm:items-center gap-3.5">
-                                <div className="w-11 h-11 rounded-2xl bg-orange-500/15 border border-orange-500/30 flex items-center justify-center text-orange-400 shrink-0">
-                                    <BookOpen size={22} />
+                                <div className="w-12 h-12 rounded-2xl bg-amber-500/15 border border-amber-500/35 flex items-center justify-center text-amber-400 shrink-0 shadow-inner">
+                                    <BookOpen size={24} />
                                 </div>
                                 <div className="space-y-1">
                                     <div className="flex items-center gap-2 flex-wrap">
-                                        <h3 className="text-sm sm:text-base font-black text-white tracking-tight">
-                                            Curated Audiobook Studio & Priority Queue
+                                        <h3 className="text-base sm:text-lg font-black text-amber-50 tracking-tight">
+                                            Audiobook Library Shelf
                                         </h3>
                                         {audiobookStudioStatus?.isRunning ? (
                                             <span className="px-2.5 py-0.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-black uppercase flex items-center gap-1.5 animate-pulse">
@@ -4492,18 +4596,30 @@ function TheaterPageContent() {
                                                 Processing: {audiobookStudioStatus.currentBookTitle} — {audiobookStudioStatus.currentChapterTitle} ({audiobookStudioStatus.currentStage})
                                             </span>
                                         ) : (
-                                            <span className="px-2 py-0.5 rounded-lg bg-zinc-900 text-zinc-400 border border-zinc-800 text-[10px] font-mono font-bold">
-                                                Low-CPU Unraid Engine (1 Thread) • {Object.values(audiobooksStudioMap).filter((b: any) => b.is_queued === 1).length} Queued
+                                            <span className="px-2.5 py-0.5 rounded-lg bg-black/50 text-amber-300/80 border border-amber-900/40 text-[10px] font-mono font-bold">
+                                                {audiobooks.length} {audiobooks.length === 1 ? 'Book' : 'Books'} on Shelf • {Object.values(audiobooksStudioMap).filter((b: any) => b.is_queued === 1).length} Queued
                                             </span>
                                         )}
                                     </div>
-                                    <p className="text-xs text-zinc-400">
-                                        {audiobookStudioStatus?.lastMessage || 'Open any book to view track-by-track Transcription, Scene Illustration & Audio Clarity progress, or reorder your processing queue.'}
+                                    <p className="text-xs text-amber-200/65">
+                                        {audiobookStudioStatus?.lastMessage || 'Set default art, voice & Dynamic Prompt options for the whole shelf, or click the gear inside any book to customize that specific book.'}
                                     </p>
                                 </div>
                             </div>
 
                             <div className="flex items-center gap-2 flex-wrap shrink-0">
+                                <button
+                                    onClick={() => setShowShelfDefaultsModal(prev => !prev)}
+                                    className={`px-4 py-2.5 rounded-2xl font-black text-xs uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer border ${
+                                        showShelfDefaultsModal
+                                            ? 'bg-amber-400 text-black border-amber-300 shadow-lg shadow-amber-500/25'
+                                            : 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-200 border-amber-500/35'
+                                    }`}
+                                    title="Configure default Art Style, Voice, Scene Count & Dynamic AI Prompting for all books on the shelf"
+                                >
+                                    <Sliders size={14} />
+                                    Shelf Default Settings
+                                </button>
                                 <button
                                     onClick={() => setShowAudiobookQueueModal(true)}
                                     className="px-4 py-2.5 rounded-2xl bg-orange-500 hover:bg-orange-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer shadow-lg shadow-orange-500/20"
@@ -4518,151 +4634,315 @@ function TheaterPageContent() {
                                         }
                                         toast.success(`Queued all ${audiobooks.length} audiobooks for background processing`);
                                     }}
-                                    className="px-3.5 py-2.5 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                                    className="px-3.5 py-2.5 rounded-2xl bg-zinc-900/90 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
                                     title="Add all audiobooks on the bookshelf to the background priority queue"
                                 >
                                     <ListPlus size={14} className="text-orange-400" /> Queue All
                                 </button>
-                                <Link
-                                    href="/settings"
-                                    className="px-3.5 py-2.5 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
-                                    title="Configure ChatGPT / Gemini / Open-Source AI Keys, Daily Art Quotas & Prompts"
-                                >
-                                    <Settings size={14} className="text-amber-400" /> AI Quotas & Prompts
-                                </Link>
                             </div>
                         </div>
 
+                        {/* ── Collapsible Shelf Default Settings Drawer (Applies to All Books Unless Overridden Inside a Book) ── */}
+                        {showShelfDefaultsModal && (
+                            <div className="p-5 sm:p-6 rounded-3xl bg-gradient-to-b from-[#18120c] to-[#0f0b08] border border-amber-500/35 shadow-2xl space-y-5 animate-in fade-in slide-in-from-top-2 duration-200">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-amber-900/30 pb-4">
+                                    <div>
+                                        <h4 className="text-sm sm:text-base font-black text-amber-100 flex items-center gap-2">
+                                            <Sliders size={16} className="text-amber-400" />
+                                            Shelf Default Settings (Default for All Books)
+                                        </h4>
+                                        <p className="text-xs text-amber-200/60 mt-0.5">
+                                            Every book on your shelf inherits these defaults unless you customize the settings inside that specific book.
+                                        </p>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <Link
+                                            href="/settings"
+                                            className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-amber-300 border border-amber-500/30 text-[11px] font-bold flex items-center gap-1.5 transition-all"
+                                        >
+                                            <Settings size={12} /> API Key & Rate Limits in Settings
+                                        </Link>
+                                        <button
+                                            onClick={() => setShowShelfDefaultsModal(false)}
+                                            className="p-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white cursor-pointer"
+                                        >
+                                            <X size={16} />
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                    {/* 1. Default Art Style */}
+                                    <div className="space-y-1.5">
+                                        <label className="text-[11px] font-black uppercase tracking-wider text-amber-300/90 flex items-center gap-1.5">
+                                            <Sparkles size={12} className="text-purple-400" /> Default Art Style
+                                        </label>
+                                        <select
+                                            value={audiobookStudioConfig?.artStyle || 'cinematic_concept'}
+                                            onChange={(e) => handleSaveShelfDefaults({ artStyle: e.target.value })}
+                                            className="w-full px-3 py-2.5 rounded-xl bg-black/60 border border-amber-900/50 text-xs font-bold text-white focus:outline-none focus:border-amber-400"
+                                        >
+                                            <option value="cinematic_concept">Cinematic Concept Art</option>
+                                            <option value="oil_painting">Classical Oil Painting</option>
+                                            <option value="dark_fantasy">Dark Fantasy Illustration</option>
+                                            <option value="graphic_novel">Graphic Novel / Comic Ink</option>
+                                            <option value="watercolor">Storybook Watercolor</option>
+                                            <option value="anime_cel">Anime Feature Film Cel</option>
+                                            <option value="vintage_etching">Vintage Bookplate Etching</option>
+                                            <option value="noir_ink">Atmospheric Noir & Chiaroscuro</option>
+                                        </select>
+                                    </div>
+
+                                    {/* 2. Default Narrator Voice Preset */}
+                                    <div className="space-y-1.5">
+                                        <label className="text-[11px] font-black uppercase tracking-wider text-amber-300/90 flex items-center gap-1.5">
+                                            <Headphones size={12} className="text-emerald-400" /> Default Narrator Voice
+                                        </label>
+                                        <select
+                                            value={audiobookStudioConfig?.voicePreset || 'warm_storyteller'}
+                                            onChange={(e) => handleSaveShelfDefaults({ voicePreset: e.target.value })}
+                                            className="w-full px-3 py-2.5 rounded-xl bg-black/60 border border-amber-900/50 text-xs font-bold text-white focus:outline-none focus:border-amber-400"
+                                        >
+                                            <option value="original">Original Narrator (Unchanged)</option>
+                                            <option value="warm_storyteller">Warm Fireside Storyteller</option>
+                                            <option value="deep_cinema">Deep Cinema Narrator</option>
+                                            <option value="crisp_modern">Crisp Studio Voice</option>
+                                            <option value="late_night_radio">Late-Night Velvet Radio</option>
+                                            <option value="velvet_narrator">Soft Intimate Audiobook</option>
+                                        </select>
+                                    </div>
+
+                                    {/* 3. Default Scenes Per Chapter */}
+                                    <div className="space-y-1.5">
+                                        <label className="text-[11px] font-black uppercase tracking-wider text-amber-300/90 flex items-center gap-1.5">
+                                            <ImageIcon size={12} className="text-orange-400" /> Default Scenes / Chapter
+                                        </label>
+                                        <select
+                                            value={audiobookStudioConfig?.imagesPerChapter || 2}
+                                            onChange={(e) => handleSaveShelfDefaults({ imagesPerChapter: Number(e.target.value) })}
+                                            className="w-full px-3 py-2.5 rounded-xl bg-black/60 border border-amber-900/50 text-xs font-bold text-white focus:outline-none focus:border-amber-400"
+                                        >
+                                            <option value={1}>1 Scene per Chapter</option>
+                                            <option value={2}>2 Scenes per Chapter (Recommended)</option>
+                                            <option value={3}>3 Scenes per Chapter</option>
+                                            <option value={4}>4 Scenes per Chapter</option>
+                                            <option value={6}>6 Scenes per Chapter (Rich Visuals)</option>
+                                        </select>
+                                    </div>
+
+                                    {/* 4. Default Scene Visual Focus */}
+                                    <div className="space-y-1.5">
+                                        <label className="text-[11px] font-black uppercase tracking-wider text-amber-300/90 flex items-center gap-1.5">
+                                            <Zap size={12} className="text-amber-400" /> Default Scene Focus
+                                        </label>
+                                        <select
+                                            value={audiobookStudioConfig?.artFocus || 'balanced'}
+                                            onChange={(e) => handleSaveShelfDefaults({ artFocus: e.target.value })}
+                                            className="w-full px-3 py-2.5 rounded-xl bg-black/60 border border-amber-900/50 text-xs font-bold text-white focus:outline-none focus:border-amber-400"
+                                        >
+                                            <option value="balanced">Balanced (Characters & World)</option>
+                                            <option value="characters">Character Portraits & Expressions</option>
+                                            <option value="environment">Landscapes & Architecture</option>
+                                            <option value="action">Dramatic Action Moments</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {/* Dynamic AI Scene Prompt Master Toggle */}
+                                <div className="p-4 rounded-2xl bg-black/50 border border-purple-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                    <div className="space-y-1">
+                                        <div className="flex items-center gap-2">
+                                            <Sparkles size={15} className="text-purple-400" />
+                                            <span className="text-xs sm:text-sm font-black text-white">
+                                                Dynamic AI Scene Prompting (Context-Aware Character, Location & Continuity Director)
+                                            </span>
+                                            <span className="px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[10px] font-black uppercase">
+                                                {audiobookStudioConfig?.dynamicPromptEnabled !== false ? 'Active' : 'Off'}
+                                            </span>
+                                        </div>
+                                        <p className="text-xs text-zinc-400 leading-relaxed">
+                                            Allows your connected AI model (Gemini, Claude, OpenAI, Groq, or Built-in Director) to read each chapter&apos;s transcript and compose tailored scene prompts containing character names, locations, key dialogue highlights, and visual continuity from previous scene illustrations.
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={() => handleSaveShelfDefaults({ dynamicPromptEnabled: audiobookStudioConfig?.dynamicPromptEnabled === false })}
+                                        className={`px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider shrink-0 transition-all cursor-pointer border ${
+                                            audiobookStudioConfig?.dynamicPromptEnabled !== false
+                                                ? 'bg-purple-500 text-black border-purple-400 shadow-lg shadow-purple-500/20'
+                                                : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
+                                        }`}
+                                    >
+                                        {audiobookStudioConfig?.dynamicPromptEnabled !== false ? 'Dynamic Prompt: ON' : 'Dynamic Prompt: OFF'}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ── Wooden Bookshelf Cabinet Display ── */}
                         {audiobooks.length === 0 ? (
                             <div className="p-16 bg-zinc-950/40 rounded-[2.5rem] border border-zinc-900 text-center space-y-3">
                                 <BookOpen size={40} className="mx-auto text-zinc-700" />
-                                <p className="text-lg font-bold text-white">No audiobooks found in this library</p>
+                                <p className="text-lg font-bold text-white">No audiobooks found on your shelf</p>
                                 <p className="text-xs text-zinc-500">Ensure your audiobook library paths contain .m4b, .mp3, or chaptered audio files.</p>
                             </div>
                         ) : (
-                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5">
-                                {audiobooks.map(book => {
-                                    const formattedDur = formatBookDuration(book.totalDurationMs);
-                                    const bMeta = audiobooksStudioMap[book.bookKey];
-                                    const totalCh = Math.max(1, bMeta?.total_chapters || book.chapters.length || 1);
-                                    const transCh = bMeta?.transcribed_chapters || 0;
-                                    const illCh = bMeta?.illustrated_chapters || 0;
-                                    const enhCh = bMeta?.enhanced_chapters || 0;
-                                    const transPct = Math.min(100, Math.round((transCh / totalCh) * 100));
-                                    const illPct = Math.min(100, Math.round((illCh / totalCh) * 100));
-                                    const enhPct = Math.min(100, Math.round((enhCh / totalCh) * 100));
-                                    const totalPct = Math.min(100, Math.round(((transPct + illPct) / 2)));
-                                    const isQueued = bMeta?.is_queued === 1;
-
+                            <div className="rounded-[2.25rem] bg-gradient-to-b from-[#17100b] via-[#110c08] to-[#17100b] border-2 border-[#3b2514] shadow-[inset_0_10px_40px_rgba(0,0,0,0.85),0_20px_50px_rgba(0,0,0,0.8)] p-5 sm:p-8 space-y-10">
+                                {Array.from({ length: Math.ceil(audiobooks.length / 6) }).map((_, shelfRowIdx) => {
+                                    const rowBooks = audiobooks.slice(shelfRowIdx * 6, (shelfRowIdx + 1) * 6);
                                     return (
-                                        <div
-                                            key={book.id}
-                                            onClick={() => openAudiobookModal(book)}
-                                            className="group flex flex-col bg-[#09090b] border border-zinc-900 hover:border-orange-500/40 rounded-3xl overflow-hidden transition-all duration-300 shadow-xl cursor-pointer hover:-translate-y-1.5"
-                                        >
-                                            <div className="relative aspect-square bg-zinc-900 overflow-hidden flex items-center justify-center border-b border-zinc-900">
-                                                {book.posterUrl ? (
-                                                    <img
-                                                        src={book.posterUrl}
-                                                        alt={book.title}
-                                                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                                                        loading="lazy"
-                                                    />
-                                                ) : (
-                                                    <div className="text-zinc-700 group-hover:scale-110 transition-transform duration-500 flex flex-col items-center gap-2 p-4 text-center">
-                                                        <BookOpen size={56} className="text-orange-500/30 group-hover:text-orange-500/50 transition-colors" />
-                                                        <span className="text-xs font-bold text-zinc-500 line-clamp-2">{book.title}</span>
-                                                    </div>
-                                                )}
+                                        <div key={shelfRowIdx} className="relative">
+                                            {/* Books standing on this shelf row */}
+                                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5 sm:gap-6 px-2 pb-3 items-end">
+                                                {rowBooks.map(book => {
+                                                    const formattedDur = formatBookDuration(book.totalDurationMs);
+                                                    const bMeta = audiobooksStudioMap[book.bookKey];
+                                                    const totalCh = Math.max(1, bMeta?.total_chapters || book.chapters.length || 1);
+                                                    const transCh = bMeta?.transcribed_chapters || 0;
+                                                    const illCh = bMeta?.illustrated_chapters || 0;
+                                                    const enhCh = bMeta?.enhanced_chapters || 0;
+                                                    const transPct = Math.min(100, Math.round((transCh / totalCh) * 100));
+                                                    const illPct = Math.min(100, Math.round((illCh / totalCh) * 100));
+                                                    const totalPct = Math.min(100, Math.round(((transPct + illPct) / 2)));
+                                                    const isQueued = bMeta?.is_queued === 1;
+                                                    const hasCustomBookSettings = Boolean(bMeta?.art_style || bMeta?.voice_preset || bMeta?.images_per_chapter);
 
-                                                <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-transparent opacity-0 group-hover:opacity-100 flex items-center justify-center gap-2 transition-all duration-300">
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            if (book.chapters.length > 0) {
-                                                                handlePlayAlbum(book.chapters);
-                                                                openExpandedPlayer();
-                                                            }
-                                                        }}
-                                                        className="w-12 h-12 rounded-2xl bg-orange-500 text-black flex items-center justify-center shadow-2xl scale-90 group-hover:scale-100 hover:bg-orange-400 transition-all cursor-pointer"
-                                                        title="Play Audiobook in Open Book Player"
-                                                    >
-                                                        <Play size={20} className="ml-0.5 fill-black" />
-                                                    </button>
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            handleQueueAudiobook(book, true);
-                                                        }}
-                                                        className="w-10 h-10 rounded-xl bg-amber-500/90 text-black flex items-center justify-center hover:bg-amber-400 transition-all cursor-pointer shadow-lg"
-                                                        title="Prioritize #1 in Processing Queue"
-                                                    >
-                                                        <Zap size={16} />
-                                                    </button>
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            openAudiobookModal(book);
-                                                        }}
-                                                        className="w-10 h-10 rounded-xl bg-zinc-900/90 text-zinc-200 flex items-center justify-center border border-zinc-700 hover:bg-zinc-800 transition-all cursor-pointer"
-                                                        title="Open Book Chapters & Progress"
-                                                    >
-                                                        <Info size={16} />
-                                                    </button>
-                                                </div>
+                                                    return (
+                                                        <div
+                                                            key={book.id}
+                                                            onClick={() => openAudiobookModal(book, false)}
+                                                            className="group relative flex flex-col bg-[#0c0a09] border border-amber-950/80 hover:border-amber-500/60 rounded-t-2xl rounded-b-md overflow-hidden transition-all duration-300 shadow-[6px_10px_22px_rgba(0,0,0,0.85)] cursor-pointer hover:-translate-y-2"
+                                                        >
+                                                            {/* Left Hardcover Book Spine Crease Highlight */}
+                                                            <div className="absolute inset-y-0 left-0 w-3 bg-gradient-to-r from-white/20 via-black/40 to-transparent z-20 pointer-events-none" />
 
-                                                {isQueued && (
-                                                    <div className="absolute top-3 left-3 px-2 py-0.5 rounded-lg bg-amber-500 text-black text-[9px] font-black uppercase shadow">
-                                                        Queue #{bMeta?.queue_order || 1}
-                                                    </div>
-                                                )}
+                                                            <div className="relative aspect-[4/5] bg-zinc-900 overflow-hidden flex items-center justify-center border-b border-amber-950/70">
+                                                                {book.posterUrl ? (
+                                                                    <img
+                                                                        src={book.posterUrl}
+                                                                        alt={book.title}
+                                                                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                                                        loading="lazy"
+                                                                    />
+                                                                ) : (
+                                                                    <div className="text-zinc-700 group-hover:scale-110 transition-transform duration-500 flex flex-col items-center gap-2 p-4 text-center bg-gradient-to-br from-[#2a180d] to-[#120b07] w-full h-full justify-center">
+                                                                        <BookOpen size={48} className="text-amber-500/40 group-hover:text-amber-400/70 transition-colors" />
+                                                                        <span className="text-xs font-black text-amber-100/80 line-clamp-3 font-serif">{book.title}</span>
+                                                                        <span className="text-[10px] text-amber-300/50 line-clamp-1">{book.author}</span>
+                                                                    </div>
+                                                                )}
 
-                                                <div className="absolute top-3 right-3 px-2.5 py-1 rounded-xl bg-black/75 backdrop-blur-sm border border-white/10 text-[9px] font-black uppercase text-orange-400 shadow flex items-center gap-1">
-                                                    <BookOpen size={10} />
-                                                    <span>{book.chapters.length > 1 ? `${book.chapters.length} Ch` : 'Audiobook'}</span>
-                                                </div>
+                                                                {/* Hover Action Overlay */}
+                                                                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent opacity-0 group-hover:opacity-100 flex items-center justify-center gap-2 transition-all duration-300 z-30">
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            if (book.chapters.length > 0) {
+                                                                                handlePlayAlbum(book.chapters);
+                                                                                openExpandedPlayer();
+                                                                            }
+                                                                        }}
+                                                                        className="w-11 h-11 rounded-2xl bg-orange-500 text-black flex items-center justify-center shadow-2xl scale-90 group-hover:scale-100 hover:bg-orange-400 transition-all cursor-pointer"
+                                                                        title="Open & Listen in Book Player"
+                                                                    >
+                                                                        <Play size={19} className="ml-0.5 fill-black" />
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            openAudiobookModal(book, true);
+                                                                        }}
+                                                                        className="w-10 h-10 rounded-xl bg-amber-500/90 text-black flex items-center justify-center hover:bg-amber-400 transition-all cursor-pointer shadow-lg"
+                                                                        title="Edit Studio Settings for This Specific Book (Art Style, Voice, Dynamic Prompt & Progress)"
+                                                                    >
+                                                                        <Sliders size={15} />
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            handleQueueAudiobook(book, true);
+                                                                        }}
+                                                                        className="w-10 h-10 rounded-xl bg-zinc-900/90 text-amber-300 flex items-center justify-center border border-amber-500/40 hover:bg-zinc-800 transition-all cursor-pointer"
+                                                                        title="Prioritize #1 in Processing Queue"
+                                                                    >
+                                                                        <Zap size={15} />
+                                                                    </button>
+                                                                </div>
 
-                                                {formattedDur && (
-                                                    <div className="absolute bottom-3 left-3 px-2 py-0.5 rounded-lg bg-black/80 backdrop-blur-sm text-[10px] font-mono text-zinc-300">
-                                                        {formattedDur}
-                                                    </div>
-                                                )}
+                                                                {isQueued && (
+                                                                    <div className="absolute top-2.5 left-3.5 px-2 py-0.5 rounded-lg bg-amber-500 text-black text-[9px] font-black uppercase shadow z-20">
+                                                                        Queue #{bMeta?.queue_order || 1}
+                                                                    </div>
+                                                                )}
+
+                                                                <div className="absolute top-2.5 right-2.5 flex items-center gap-1 z-20">
+                                                                    {hasCustomBookSettings && (
+                                                                        <span
+                                                                            className="px-1.5 py-0.5 rounded-md bg-purple-500/85 text-white text-[8px] font-black uppercase shadow"
+                                                                            title="This book uses custom per-book Studio settings"
+                                                                        >
+                                                                            Custom
+                                                                        </span>
+                                                                    )}
+                                                                    <div className="px-2 py-0.5 rounded-lg bg-black/80 backdrop-blur-sm border border-white/10 text-[9px] font-black uppercase text-orange-400 shadow flex items-center gap-1">
+                                                                        <span>{book.chapters.length} Ch</span>
+                                                                    </div>
+                                                                </div>
+
+                                                                {formattedDur && (
+                                                                    <div className="absolute bottom-2.5 left-3.5 px-2 py-0.5 rounded-lg bg-black/80 backdrop-blur-sm text-[9px] font-mono text-zinc-300 z-20">
+                                                                        {formattedDur}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+
+                                                            {/* ── Per-Book Completion Bar Directly on the Spine Foot ── */}
+                                                            <div className="px-3 pt-2 pb-1.5 bg-[#120d0a] border-b border-amber-950/60 space-y-1">
+                                                                <div className="flex items-center justify-between text-[9px] font-mono">
+                                                                    <span className="text-amber-200/60 font-bold uppercase">Done</span>
+                                                                    <span className={totalPct === 100 ? 'text-emerald-400 font-black' : 'text-amber-400 font-black'}>
+                                                                        {totalPct}%
+                                                                    </span>
+                                                                </div>
+                                                                <div className="w-full h-1.5 bg-black/70 rounded-full overflow-hidden flex">
+                                                                    <div
+                                                                        className="h-full bg-gradient-to-r from-orange-500 via-amber-400 to-emerald-400 transition-all duration-500"
+                                                                        style={{ width: `${totalPct}%` }}
+                                                                    />
+                                                                </div>
+                                                                <div className="flex items-center justify-between text-[8px] font-mono text-amber-100/50 pt-0.5">
+                                                                    <span title="Transcribed Chapters">Txt {transCh}/{totalCh}</span>
+                                                                    <span title="Illustrated Chapters">Art {illCh}/{totalCh}</span>
+                                                                    <span title="Voice/Clarity Enhanced Chapters">HQ {enhCh}/{totalCh}</span>
+                                                                </div>
+                                                            </div>
+
+                                                            <div className="p-2.5 pl-3.5 bg-[#0e0a07] flex items-center justify-between gap-1.5">
+                                                                <div className="min-w-0">
+                                                                    <h3 className="font-bold text-amber-50 text-xs sm:text-sm leading-snug line-clamp-1 group-hover:text-orange-400 transition-colors">
+                                                                        {book.title}
+                                                                    </h3>
+                                                                    <p className="text-[10px] text-amber-200/50 truncate font-medium">
+                                                                        {book.author}
+                                                                    </p>
+                                                                </div>
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        openAudiobookModal(book, true);
+                                                                    }}
+                                                                    className="p-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/25 text-amber-300 border border-amber-500/25 shrink-0 transition-all cursor-pointer"
+                                                                    title="Edit settings for this book"
+                                                                >
+                                                                    <Sliders size={12} />
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
                                             </div>
 
-                                            {/* ── Total Progress Bar Directly Below Main Book Artwork ── */}
-                                            <div className="px-3.5 pt-2.5 pb-1 bg-zinc-950/90 border-b border-zinc-900/80 space-y-1.5">
-                                                <div className="flex items-center justify-between text-[10px] font-mono">
-                                                    <span className="text-zinc-400 font-bold uppercase tracking-wider">Total Progress</span>
-                                                    <span className={totalPct === 100 ? 'text-emerald-400 font-black' : 'text-orange-400 font-black'}>
-                                                        {totalPct}%
-                                                    </span>
-                                                </div>
-                                                <div className="w-full h-1.5 bg-zinc-900 rounded-full overflow-hidden flex">
-                                                    <div
-                                                        className="h-full bg-gradient-to-r from-orange-500 via-amber-400 to-emerald-400 transition-all duration-500"
-                                                        style={{ width: `${totalPct}%` }}
-                                                    />
-                                                </div>
-                                                <div className="flex items-center justify-between text-[9px] font-mono text-zinc-500 pb-0.5">
-                                                    <span title="Transcribed Chapters">Txt: {transCh}/{totalCh}</span>
-                                                    <span title="Illustrated Chapters">Art: {illCh}/{totalCh}</span>
-                                                    <span title="Audio Enhanced Chapters">HQ: {enhCh}/{totalCh}</span>
-                                                </div>
-                                            </div>
-
-                                            <div className="p-3.5 space-y-1">
-                                                <h3 className="font-bold text-white text-sm sm:text-base leading-snug line-clamp-1 group-hover:text-orange-400 transition-colors">
-                                                    {book.title}
-                                                </h3>
-                                                <div className="flex items-center justify-between text-xs text-zinc-400 font-semibold pt-0.5">
-                                                    <span className="truncate max-w-[130px] text-zinc-400 hover:text-zinc-200">
-                                                        {book.author}
-                                                    </span>
-                                                    <span className="text-[11px] text-zinc-500 font-mono">
-                                                        {book.chapters.length} {book.chapters.length === 1 ? 'part' : 'parts'}
-                                                    </span>
-                                                </div>
-                                            </div>
+                                            {/* 3D Wooden Bookshelf Plank Ledge Under Every Row */}
+                                            <div className="h-4 w-full rounded-xl bg-gradient-to-b from-[#4a2e18] via-[#341f0f] to-[#1e1108] border-t border-amber-400/25 border-b-2 border-black shadow-[0_14px_24px_rgba(0,0,0,0.9)]" />
                                         </div>
                                     );
                                 })}
@@ -5935,7 +6215,7 @@ function TheaterPageContent() {
                 </div>
             )}
 
-            {/* ── Audiobook Detail Modal (Book Cover + Total Progress Below Artwork, Track-Level Transcription & Illustration Progress, Scene Curation & Player) ── */}
+            {/* ── Audiobook Detail Modal (Book Cover + Total Progress Below Artwork, Per-Book Studio Settings, Track-Level Progress & Player) ── */}
             {selectedAudiobook && (() => {
                 const bKey = (selectedAudiobook as any).bookKey || `${selectedAudiobook.author || 'Unknown Author'} - ${selectedAudiobook.title}`.toLowerCase().trim();
                 const bMeta = audiobooksStudioMap[bKey];
@@ -5948,6 +6228,10 @@ function TheaterPageContent() {
                 const enhPct = Math.min(100, Math.round((enhCh / totalCh) * 100));
                 const totalPct = Math.min(100, Math.round((transPct + illPct) / 2));
                 const isBookQueued = bMeta?.is_queued === 1;
+                const totalBookScenes = Object.values(audiobookChaptersStudioMap).reduce(
+                    (acc: number, ch: any) => acc + (Array.isArray(ch?.images) ? ch.images.length : 0),
+                    0
+                );
 
                 return (
                 <div
@@ -6023,12 +6307,12 @@ function TheaterPageContent() {
                                         <BookOpen size={11} /> Audiobook
                                     </span>
                                     {audiobookDetails?.releaseYear && (
-                                        <span className="px-2 py-0.5 rounded-lg bg-zinc-800 text-zinc-300 text-[10px] font-mono font-bold">
+                                        <span className="px-2.5 py-0.5 rounded-lg bg-zinc-800 text-zinc-300 text-[10px] font-mono font-bold">
                                             {audiobookDetails.releaseYear}
                                         </span>
                                     )}
                                     {audiobookDetails?.genre && (
-                                        <span className="px-2 py-0.5 rounded-lg bg-zinc-800 text-zinc-300 text-[10px] font-bold">
+                                        <span className="px-2.5 py-0.5 rounded-lg bg-zinc-800 text-zinc-300 text-[10px] font-bold">
                                             {audiobookDetails.genre}
                                         </span>
                                     )}
@@ -6084,6 +6368,18 @@ function TheaterPageContent() {
                                     </button>
 
                                     <button
+                                        onClick={() => setShowBookStudioSettings(prev => !prev)}
+                                        className={`px-4 py-2.5 rounded-2xl font-black text-xs uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer border ${
+                                            showBookStudioSettings
+                                                ? 'bg-purple-500 text-black border-purple-400 shadow-lg shadow-purple-500/20'
+                                                : 'bg-purple-500/15 hover:bg-purple-500/25 text-purple-200 border-purple-500/35'
+                                        }`}
+                                        title="Edit Art Style, Narrator Voice, Scene Count & Dynamic Prompt settings specifically for this book"
+                                    >
+                                        <Sliders size={14} /> Book Settings (This Book)
+                                    </button>
+
+                                    <button
                                         onClick={() => handleQueueAudiobook(selectedAudiobook, true)}
                                         className="px-4 py-2.5 rounded-2xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-black text-xs uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer"
                                         title="Put this book #1 at the top of the background transcription & illustration queue"
@@ -6109,6 +6405,178 @@ function TheaterPageContent() {
                                 </div>
                             </div>
                         </div>
+
+                        {/* ── Per-Book Studio Settings Panel (Art Style, Voice, How Many Are Done, Dynamic Prompt for THIS Book) ── */}
+                        {showBookStudioSettings && (
+                            <div className="p-5 rounded-3xl bg-gradient-to-b from-purple-950/30 via-zinc-950 to-zinc-950 border border-purple-500/35 space-y-5 animate-in fade-in duration-200">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800/80 pb-3.5">
+                                    <div>
+                                        <h3 className="text-sm sm:text-base font-black text-white flex items-center gap-2">
+                                            <Sliders size={16} className="text-purple-400" />
+                                            Studio Settings for &ldquo;{selectedAudiobook.title}&rdquo;
+                                        </h3>
+                                        <p className="text-xs text-zinc-400 mt-0.5">
+                                            Customize Art Style, Voice Preset, Scene Count, and Dynamic AI Prompting specifically for this book. Leave on &ldquo;Shelf Default&rdquo; to inherit your bookshelf defaults.
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={() =>
+                                            handleSaveBookStudioSettings(selectedAudiobook, {
+                                                artStyle: '',
+                                                voicePreset: '',
+                                                enhancePreset: '',
+                                                imagesPerChapter: 0,
+                                                artFocus: '',
+                                                customPrompt: ''
+                                            })
+                                        }
+                                        className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 text-[11px] font-bold shrink-0 cursor-pointer"
+                                    >
+                                        Reset to Shelf Defaults
+                                    </button>
+                                </div>
+
+                                {/* How Many Are Done Summary Cards */}
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                    <div className="p-3.5 rounded-2xl bg-black/50 border border-amber-500/25 flex items-center justify-between">
+                                        <div>
+                                            <p className="text-[10px] font-black uppercase tracking-wider text-amber-400">Transcribed</p>
+                                            <p className="text-lg font-black text-white font-mono mt-0.5">{transCh} / {totalCh} <span className="text-xs text-zinc-400">Chapters</span></p>
+                                        </div>
+                                        <span className="text-sm font-black font-mono text-amber-300">{transPct}%</span>
+                                    </div>
+                                    <div className="p-3.5 rounded-2xl bg-black/50 border border-purple-500/25 flex items-center justify-between">
+                                        <div>
+                                            <p className="text-[10px] font-black uppercase tracking-wider text-purple-400">Scene Illustrations</p>
+                                            <p className="text-lg font-black text-white font-mono mt-0.5">{illCh} / {totalCh} <span className="text-xs text-zinc-400">Ch ({totalBookScenes} scenes)</span></p>
+                                        </div>
+                                        <span className="text-sm font-black font-mono text-purple-300">{illPct}%</span>
+                                    </div>
+                                    <div className="p-3.5 rounded-2xl bg-black/50 border border-emerald-500/25 flex items-center justify-between">
+                                        <div>
+                                            <p className="text-[10px] font-black uppercase tracking-wider text-emerald-400">Voice & Clarity</p>
+                                            <p className="text-lg font-black text-white font-mono mt-0.5">{enhCh} / {totalCh} <span className="text-xs text-zinc-400">Chapters</span></p>
+                                        </div>
+                                        <span className="text-sm font-black font-mono text-emerald-300">{enhPct}%</span>
+                                    </div>
+                                </div>
+
+                                {/* Per-Book Creative Selectors */}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-black uppercase tracking-wider text-zinc-400">Book Art Style</label>
+                                        <select
+                                            value={bMeta?.art_style || ''}
+                                            onChange={(e) => handleSaveBookStudioSettings(selectedAudiobook, { artStyle: e.target.value })}
+                                            className="w-full px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-bold text-white"
+                                        >
+                                            <option value="">Use Shelf Default ({audiobookStudioConfig?.artStyle || 'cinematic_concept'})</option>
+                                            <option value="cinematic_concept">Cinematic Concept Art</option>
+                                            <option value="oil_painting">Classical Oil Painting</option>
+                                            <option value="dark_fantasy">Dark Fantasy Illustration</option>
+                                            <option value="graphic_novel">Graphic Novel / Comic Ink</option>
+                                            <option value="watercolor">Storybook Watercolor</option>
+                                            <option value="anime_cel">Anime Feature Film Cel</option>
+                                            <option value="vintage_etching">Vintage Bookplate Etching</option>
+                                            <option value="noir_ink">Atmospheric Noir & Chiaroscuro</option>
+                                        </select>
+                                    </div>
+
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-black uppercase tracking-wider text-zinc-400">Narrator Voice Preset</label>
+                                        <select
+                                            value={bMeta?.voice_preset || ''}
+                                            onChange={(e) => handleSaveBookStudioSettings(selectedAudiobook, { voicePreset: e.target.value })}
+                                            className="w-full px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-bold text-white"
+                                        >
+                                            <option value="">Use Shelf Default ({audiobookStudioConfig?.voicePreset || 'warm_storyteller'})</option>
+                                            <option value="original">Original Narrator (Unchanged)</option>
+                                            <option value="warm_storyteller">Warm Fireside Storyteller</option>
+                                            <option value="deep_cinema">Deep Cinema Narrator</option>
+                                            <option value="crisp_modern">Crisp Studio Voice</option>
+                                            <option value="late_night_radio">Late-Night Velvet Radio</option>
+                                            <option value="velvet_narrator">Soft Intimate Audiobook</option>
+                                        </select>
+                                    </div>
+
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-black uppercase tracking-wider text-zinc-400">Scenes Per Chapter</label>
+                                        <select
+                                            value={bMeta?.images_per_chapter || 0}
+                                            onChange={(e) => handleSaveBookStudioSettings(selectedAudiobook, { imagesPerChapter: Number(e.target.value) })}
+                                            className="w-full px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-bold text-white"
+                                        >
+                                            <option value={0}>Use Shelf Default ({audiobookStudioConfig?.imagesPerChapter || 2})</option>
+                                            <option value={1}>1 Scene per Chapter</option>
+                                            <option value={2}>2 Scenes per Chapter</option>
+                                            <option value={3}>3 Scenes per Chapter</option>
+                                            <option value={4}>4 Scenes per Chapter</option>
+                                            <option value={6}>6 Scenes per Chapter</option>
+                                        </select>
+                                    </div>
+
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-black uppercase tracking-wider text-zinc-400">Scene Visual Focus</label>
+                                        <select
+                                            value={bMeta?.art_focus || ''}
+                                            onChange={(e) => handleSaveBookStudioSettings(selectedAudiobook, { artFocus: e.target.value })}
+                                            className="w-full px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-bold text-white"
+                                        >
+                                            <option value="">Use Shelf Default ({audiobookStudioConfig?.artFocus || 'balanced'})</option>
+                                            <option value="balanced">Balanced (Characters & World)</option>
+                                            <option value="characters">Character Portraits & Expressions</option>
+                                            <option value="environment">Landscapes & Architecture</option>
+                                            <option value="action">Dramatic Action Moments</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {/* Dynamic Prompt Toggle & Character/World Notes for This Book */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 pt-1">
+                                    <div className="p-3.5 rounded-2xl bg-zinc-900/70 border border-purple-500/30 flex items-center justify-between gap-3">
+                                        <div className="space-y-0.5">
+                                            <p className="text-xs font-black text-white flex items-center gap-1.5">
+                                                <Sparkles size={13} className="text-purple-400" />
+                                                Dynamic AI Scene Prompt (This Book)
+                                            </p>
+                                            <p className="text-[11px] text-zinc-400">
+                                                Pass character names, locations, transcript highlights &amp; previous scene continuity to Gemini/Claude/OpenAI.
+                                            </p>
+                                        </div>
+                                        <button
+                                            onClick={() => {
+                                                const cur = bMeta?.dynamic_prompt_enabled !== undefined ? bMeta.dynamic_prompt_enabled !== 0 : true;
+                                                handleSaveBookStudioSettings(selectedAudiobook, { dynamicPromptEnabled: !cur });
+                                            }}
+                                            className={`px-3 py-2 rounded-xl text-[11px] font-black uppercase shrink-0 cursor-pointer border ${
+                                                (bMeta?.dynamic_prompt_enabled !== undefined ? bMeta.dynamic_prompt_enabled !== 0 : true)
+                                                    ? 'bg-purple-500 text-black border-purple-400'
+                                                    : 'bg-zinc-950 text-zinc-400 border-zinc-800'
+                                            }`}
+                                        >
+                                            {(bMeta?.dynamic_prompt_enabled !== undefined ? bMeta.dynamic_prompt_enabled !== 0 : true) ? 'ON' : 'OFF'}
+                                        </button>
+                                    </div>
+
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-black uppercase tracking-wider text-zinc-400">
+                                            Book Character / Setting Notes (Passed to Dynamic Prompt)
+                                        </label>
+                                        <input
+                                            type="text"
+                                            defaultValue={bMeta?.custom_prompt || ''}
+                                            onBlur={(e) => {
+                                                if (e.target.value !== (bMeta?.custom_prompt || '')) {
+                                                    handleSaveBookStudioSettings(selectedAudiobook, { customPrompt: e.target.value });
+                                                }
+                                            }}
+                                            placeholder="e.g. Cyberpunk rainy Tokyo, protagonist wears a worn leather trenchcoat..."
+                                            className="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs text-white placeholder:text-zinc-600 focus:outline-none focus:border-purple-400"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
                         {/* Synopsis & Author Bio Grid */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -6163,9 +6631,15 @@ function TheaterPageContent() {
                                 {selectedAudiobook.chapters.map((ch, idx) => {
                                     const cKey = (ch as any).chapterKey || ch.id;
                                     const cMeta = audiobookChaptersStudioMap[cKey];
-                                    const tPct = cMeta?.transcription_status === 'done' ? 100 : (cMeta?.transcription_progress || 0);
-                                    const iPct = cMeta?.illustration_status === 'done' ? 100 : (cMeta?.illustration_progress || 0);
-                                    const ePct = cMeta?.audio_enhance_status === 'done' ? 100 : (cMeta?.audio_enhance_progress || 0);
+                                    const isTransDone = cMeta?.transcription_status === 'done' || cMeta?.transcription_status === 'completed';
+                                    const isIllDone = cMeta?.illustration_status === 'done' || cMeta?.illustration_status === 'completed';
+                                    const isEnhDone = cMeta?.audio_enhance_status === 'done' || cMeta?.audio_enhance_status === 'completed';
+                                    const isTransRunning = cMeta?.transcription_status === 'running' || cMeta?.transcription_status === 'processing';
+                                    const isIllRunning = cMeta?.illustration_status === 'running' || cMeta?.illustration_status === 'processing';
+                                    const isEnhRunning = cMeta?.audio_enhance_status === 'running' || cMeta?.audio_enhance_status === 'processing';
+                                    const tPct = isTransDone ? 100 : (cMeta?.transcription_progress || 0);
+                                    const iPct = isIllDone ? 100 : (cMeta?.illustration_progress || 0);
+                                    const ePct = isEnhDone ? 100 : (cMeta?.audio_enhance_progress || 0);
                                     const chImages = cMeta?.images || [];
                                     const keptImages = chImages.filter((im: any) => im.kept !== false);
 
@@ -6196,7 +6670,7 @@ function TheaterPageContent() {
                                                                     <span className="font-mono">{formatBytes(ch.sizeBytes)}</span>
                                                                 </>
                                                             )}
-                                                            {cMeta?.transcription_status === 'done' && (
+                                                            {isTransDone && (
                                                                 <span className="px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 font-bold">
                                                                     Synced Transcript
                                                                 </span>
@@ -6206,9 +6680,9 @@ function TheaterPageContent() {
                                                                     {keptImages.length} {keptImages.length === 1 ? 'Scene' : 'Scenes'} Kept
                                                                 </span>
                                                             )}
-                                                            {cMeta?.audio_enhance_status === 'done' && (
+                                                            {isEnhDone && (
                                                                 <span className="px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold">
-                                                                    HQ Voice ({cMeta.voice_preset || 'clean'})
+                                                                    HQ Voice ({cMeta?.voice_preset || bMeta?.voice_preset || 'clean'})
                                                                 </span>
                                                             )}
                                                         </div>
@@ -6240,8 +6714,8 @@ function TheaterPageContent() {
                                                         }`}
                                                         title="Transcribe this chapter audio into synced reading lines"
                                                     >
-                                                        <FileText size={11} className={runningBookModalTask === `${cKey}:transcribe` ? 'animate-spin' : ''} />
-                                                        <span className="hidden sm:inline">{tPct === 100 ? 'Transcribed' : 'Transcribe'}</span>
+                                                        <FileText size={11} className={runningBookModalTask === `${cKey}:transcribe` ? 'animate-spin text-amber-400' : ''} />
+                                                        <span className="hidden sm:inline">{runningBookModalTask === `${cKey}:transcribe` ? 'Transcribing...' : tPct === 100 ? 'Transcribed' : 'Transcribe'}</span>
                                                     </button>
 
                                                     <button
@@ -6257,8 +6731,8 @@ function TheaterPageContent() {
                                                         }`}
                                                         title="Generate scene artwork for this chapter"
                                                     >
-                                                        <Sparkles size={11} className={runningBookModalTask === `${cKey}:illustrate` ? 'animate-spin' : ''} />
-                                                        <span className="hidden sm:inline">{chImages.length > 0 ? `+Art (${chImages.length})` : 'Paint Art'}</span>
+                                                        <Sparkles size={11} className={runningBookModalTask === `${cKey}:illustrate` ? 'animate-spin text-purple-400' : ''} />
+                                                        <span className="hidden sm:inline">{runningBookModalTask === `${cKey}:illustrate` ? 'Painting...' : chImages.length > 0 ? `+Art (${chImages.length})` : 'Paint Art'}</span>
                                                     </button>
 
                                                     {chImages.length > 0 && (
@@ -6288,8 +6762,8 @@ function TheaterPageContent() {
                                                         }`}
                                                         title="Enhance audio quality (noise reduction & clarity) for this track"
                                                     >
-                                                        <Zap size={11} className={runningBookModalTask === `${cKey}:enhance` ? 'animate-spin' : ''} />
-                                                        <span className="hidden sm:inline">{ePct === 100 ? 'HQ Audio' : 'Enhance'}</span>
+                                                        <Zap size={11} className={runningBookModalTask === `${cKey}:enhance` ? 'animate-spin text-emerald-400' : ''} />
+                                                        <span className="hidden sm:inline">{runningBookModalTask === `${cKey}:enhance` ? 'Enhancing...' : ePct === 100 ? 'HQ Audio' : 'Enhance'}</span>
                                                     </button>
 
                                                     <button
@@ -6323,7 +6797,7 @@ function TheaterPageContent() {
                                                     <div className="flex items-center justify-between text-[10px] font-mono">
                                                         <span className="text-zinc-400">Transcription</span>
                                                         <span className={tPct === 100 ? 'text-amber-300 font-bold' : 'text-zinc-500'}>
-                                                            {cMeta?.transcription_status === 'running' ? 'Running...' : `${tPct}%`}
+                                                            {isTransRunning || runningBookModalTask === `${cKey}:transcribe` ? 'Running...' : `${tPct}%`}
                                                         </span>
                                                     </div>
                                                     <div className="w-full h-1 bg-zinc-800 rounded-full overflow-hidden">
@@ -6339,7 +6813,7 @@ function TheaterPageContent() {
                                                     <div className="flex items-center justify-between text-[10px] font-mono">
                                                         <span className="text-zinc-400">Illustration</span>
                                                         <span className={iPct === 100 ? 'text-purple-300 font-bold' : 'text-zinc-500'}>
-                                                            {cMeta?.illustration_status === 'running'
+                                                            {isIllRunning || runningBookModalTask === `${cKey}:illustrate`
                                                                 ? 'Painting...'
                                                                 : chImages.length > 0
                                                                 ? `${keptImages.length}/${chImages.length} kept (${iPct}%)`
@@ -6359,7 +6833,7 @@ function TheaterPageContent() {
                                                     <div className="flex items-center justify-between text-[10px] font-mono">
                                                         <span className="text-zinc-400">Audio Clarity</span>
                                                         <span className={ePct === 100 ? 'text-emerald-300 font-bold' : 'text-zinc-500'}>
-                                                            {cMeta?.audio_enhance_status === 'running' ? 'Enhancing...' : `${ePct}%`}
+                                                            {isEnhRunning || runningBookModalTask === `${cKey}:enhance` ? 'Enhancing...' : `${ePct}%`}
                                                         </span>
                                                     </div>
                                                     <div className="w-full h-1 bg-zinc-800 rounded-full overflow-hidden">

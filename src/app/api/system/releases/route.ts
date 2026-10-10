@@ -50,6 +50,7 @@ export async function GET() {
       for (const r of relSettled.value.data) {
         if (!r?.tag_name) continue;
         const normTag = r.tag_name.startsWith('v') ? r.tag_name : `v${r.tag_name}`;
+        if (normTag === 'v1.0.0') continue;
         versionMap.set(normTag, {
           tag: normTag,
           name: r.name || normTag,
@@ -60,12 +61,12 @@ export async function GET() {
       }
     }
 
-    // 2. Parse commits and associate commit messages with version tags (e.g. v0.6.3, v0.6.2)
+    // 2. Parse commits and associate commit messages with version tags (e.g. v0.6.4, v0.6.3, v0.6.2)
     const commits = commitsSettled.status === 'fulfilled' && Array.isArray(commitsSettled.value.data)
       ? commitsSettled.value.data
       : [];
 
-    let currentBucketTag = 'v0.6.3';
+    let currentBucketTag = 'v0.6.4';
     for (const c of commits) {
       const rawMsg: string = c?.commit?.message || '';
       if (!rawMsg) continue;
@@ -74,7 +75,7 @@ export async function GET() {
       if (!subject || subject.startsWith('Merge branch') || subject.includes('Merge pull request')) continue;
 
       const verMatch = subject.match(/\bv?(\d+\.\d+\.\d+)\b/);
-      if (verMatch && verMatch[1]) {
+      if (verMatch && verMatch[1] && verMatch[1] !== '1.0.0') {
         currentBucketTag = `v${verMatch[1]}`;
       }
 
@@ -108,7 +109,7 @@ export async function GET() {
       tagsSettled.value.data.forEach((t: any, idx: number) => {
         if (!t?.name) return;
         const normTag = t.name.startsWith('v') ? t.name : `v${t.name}`;
-        if (!/v\d+\.\d+\.\d+/.test(normTag)) return;
+        if (!/v\d+\.\d+\.\d+/.test(normTag) || normTag === 'v1.0.0') return;
         if (!versionMap.has(normTag)) {
           const commitSlice = commits.slice(idx * 2, (idx + 1) * 2 + 2);
           const notes = commitSlice
@@ -129,18 +130,18 @@ export async function GET() {
 
     // Ensure current versions are always present even if offline/rate-limited
     if (versionMap.size === 0) {
+      versionMap.set('v0.6.4', {
+        tag: 'v0.6.4',
+        name: 'v0.6.4',
+        publishedAt: new Date().toISOString(),
+        changelog: '• Fix audiobook auto-sync & scene art fallback, mini-player book cover, Smart TV cast LAN IP/transcode, Bookshelf UI with per-book & shelf settings, unified AI key auto-detector & Dynamic Prompt',
+        prerelease: false
+      });
       versionMap.set('v0.6.3', {
         tag: 'v0.6.3',
         name: 'v0.6.3',
         publishedAt: new Date().toISOString(),
         changelog: '• Fix vinyl spinner circular aspect ratio on tall screens, fix Plex/untagged audiobook detection & grouping, and surface full Git commit patch notes',
-        prerelease: false
-      });
-      versionMap.set('v0.6.2', {
-        tag: 'v0.6.2',
-        name: 'v0.6.2',
-        publishedAt: new Date().toISOString(),
-        changelog: '• Fix IPTV Guide EPG auto-matching, Add Library folder browser & Audiobook AI Studio',
         prerelease: false
       });
     }

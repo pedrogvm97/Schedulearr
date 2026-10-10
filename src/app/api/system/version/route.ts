@@ -8,14 +8,12 @@ import { initAutoUpdater } from '@/lib/autoUpdater';
 export const dynamic = 'force-dynamic';
 
 const FALLBACK_GIT_NOTES = [
+  '• [v0.6.4] Fix audiobook auto-sync & scene art fallback, mini-player book cover, Smart TV cast LAN IP/transcode, Bookshelf UI with per-book & shelf settings, unified AI key auto-detector & Dynamic Prompt',
   '• [v0.6.3] Fix vinyl spinner 1:1 circular geometry on tall/desktop screens, fix Plex & untagged audiobook grouping ("Unknown Album") & streaming, and surface full Git commit patch notes in System & Updates',
   '  - Fixed Spinning Disk, Turntable Platter, and Minimalist Vinyl aspect-ratio distortion so records always spin as true circles',
   '  - Fixed audiobook detection & grouping so untagged or Plex-cached tracks derive Author & Book Title instead of collapsing into "Unknown Album"',
   '  - Added on-the-fly Plex ratingKey part resolution and .m4b streaming support so audiobooks play directly in the Open Book Spread UI without falling back to Deezer',
   '• [v0.6.2] Fix IPTV Guide EPG auto-matching, Add Library folder browser & Audiobook AI Studio',
-  '  - Multi-index normalized channel matching and automatic background EPG sync for IPTV Guide',
-  '  - Added interactive Server Folder Browser modal when adding or editing Media Center libraries',
-  '  - Added Curated Audiobook Open Book Spread player, Chapter Studio transcription, scene illustrations & FFmpeg vocal clarity DSP',
   '• [v0.6.1] Fix Plex remote library discovery, audio transcoding fallback & Docker self-update stream',
   '• [v0.6.0] Media Center & Theater overhaul, Live IPTV engine, Subtitles search & Music Vinyl Turntable player'
 ].join('\n');
@@ -38,7 +36,7 @@ export async function GET() {
 
   try {
     // 1. Get current version from package.json or system fallback
-    let currentVersion = '0.6.3';
+    let currentVersion = '0.6.4';
     const possiblePaths = [
       path.join(process.cwd(), 'package.json'),
       path.join(process.cwd(), '..', 'package.json'),
@@ -89,11 +87,13 @@ export async function GET() {
       ]);
 
       const candidateVersions: string[] = [currentVersion];
+      let authoritativeMainVer: string | null = null;
 
-      // Check remote package.json on main branch
+      // Check remote package.json on main branch (authoritative current version on main)
       if (pkgSettled.status === 'fulfilled' && pkgSettled.value.data?.version) {
         const remotePkgVer = String(pkgSettled.value.data.version).replace(/^v/i, '').trim();
         if (/^\d+\.\d+\.\d+$/.test(remotePkgVer)) {
+          authoritativeMainVer = remotePkgVer;
           candidateVersions.push(remotePkgVer);
         }
       }
@@ -102,7 +102,7 @@ export async function GET() {
       let releaseNotesBody = '';
       if (relSettled.status === 'fulfilled' && relSettled.value.data?.tag_name) {
         const relVer = String(relSettled.value.data.tag_name).replace(/^v/i, '').trim();
-        if (/^\d+\.\d+\.\d+$/.test(relVer)) {
+        if (/^\d+\.\d+\.\d+$/.test(relVer) && relVer !== '1.0.0') {
           candidateVersions.push(relVer);
         }
         releaseNotesBody = (relSettled.value.data.body || '').trim();
@@ -112,26 +112,27 @@ export async function GET() {
       if (tagsSettled.status === 'fulfilled' && Array.isArray(tagsSettled.value.data)) {
         for (const t of tagsSettled.value.data) {
           const tv = String(t?.name || '').replace(/^v/i, '').trim();
-          if (/^\d+\.\d+\.\d+$/.test(tv)) {
+          if (/^\d+\.\d+\.\d+$/.test(tv) && tv !== '1.0.0') {
             candidateVersions.push(tv);
           }
         }
       }
 
-      // Parse recent GitHub commits for both version tags and detailed commit patch notes
+      // Parse recent GitHub commits for detailed commit patch notes (only take version from the newest commit)
       if (commitsSettled.status === 'fulfilled' && Array.isArray(commitsSettled.value.data)) {
         const formattedCommitEntries: string[] = [];
-        for (const c of commitsSettled.value.data) {
+        commitsSettled.value.data.forEach((c: any, idx: number) => {
           const rawMsg: string = c?.commit?.message || '';
-          if (!rawMsg) continue;
+          if (!rawMsg) return;
           const lines = rawMsg.split(/\r?\n/).map((l: string) => l.trim()).filter(Boolean);
           const subject = lines[0] || '';
-          if (!subject || subject.startsWith('Merge branch') || subject.includes('Merge pull request')) continue;
+          if (!subject || subject.startsWith('Merge branch') || subject.includes('Merge pull request')) return;
 
-          // Extract version from commit message if present (e.g. "v0.6.3" or "(v0.6.2)")
-          const verMatch = subject.match(/\bv?(\d+\.\d+\.\d+)\b/);
-          if (verMatch && verMatch[1]) {
-            candidateVersions.push(verMatch[1]);
+          if (idx === 0) {
+            const verMatch = subject.match(/\bv?(\d+\.\d+\.\d+)\b/);
+            if (verMatch && verMatch[1] && verMatch[1] !== '1.0.0') {
+              candidateVersions.push(verMatch[1]);
+            }
           }
 
           const sha = String(c?.sha || '').slice(0, 7);
@@ -160,17 +161,20 @@ export async function GET() {
             }
             formattedCommitEntries.push(entry);
           }
-        }
+        });
 
         if (formattedCommitEntries.length > 0) {
           changelog = formattedCommitEntries.join('\n\n');
         }
       }
 
-      // Pick the highest semantic version discovered across remote package.json, commits, tags, and releases
-      for (const cand of candidateVersions) {
-        if (semverCompare(cand, latestVersion) > 0) {
-          latestVersion = cand;
+      if (authoritativeMainVer) {
+        latestVersion = semverCompare(authoritativeMainVer, currentVersion) >= 0 ? authoritativeMainVer : currentVersion;
+      } else {
+        for (const cand of candidateVersions) {
+          if (semverCompare(cand, latestVersion) > 0) {
+            latestVersion = cand;
+          }
         }
       }
 

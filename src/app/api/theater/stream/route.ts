@@ -302,6 +302,7 @@ export async function GET(req: NextRequest) {
                     if (plexRes.headers['content-length']) resHeaders.set('Content-Length', String(plexRes.headers['content-length']));
                     resHeaders.set('Content-Type', plexRes.headers['content-type'] || 'audio/mpeg');
                     resHeaders.set('Accept-Ranges', 'bytes');
+                    resHeaders.set('Access-Control-Allow-Origin', '*');
                     resHeaders.set('X-Stream-Engine', 'Plex Audio Transcode');
 
                     // @ts-ignore
@@ -327,6 +328,7 @@ export async function GET(req: NextRequest) {
                 if (plexRes.headers['content-length']) resHeaders.set('Content-Length', String(plexRes.headers['content-length']));
                 resHeaders.set('Content-Type', plexRes.headers['content-type'] || getMimeType(fileExt || '.mp3'));
                 resHeaders.set('Accept-Ranges', 'bytes');
+                resHeaders.set('Access-Control-Allow-Origin', '*');
                 resHeaders.set('X-Stream-Engine', 'Plex Direct Audio');
 
                 // @ts-ignore
@@ -434,6 +436,7 @@ export async function GET(req: NextRequest) {
             const fallbackMime = getMimeType(fileExt || '.mp4');
             resHeaders.set('Content-Type', incomingMime || fallbackMime);
             resHeaders.set('Accept-Ranges', 'bytes');
+            resHeaders.set('Access-Control-Allow-Origin', '*');
             resHeaders.set('X-Stream-Engine', 'Plex Direct Video');
 
             // @ts-ignore
@@ -596,9 +599,9 @@ export async function GET(req: NextRequest) {
             }
         }
 
-        // 2B. Audio Transcoding for Music Files (FLAC / WAV / ALAC / DSF -> High-Res MP3 320k)
-        const isAudio = ['.flac', '.wav', '.m4a', '.aac', '.ogg', '.opus', '.ape', '.dsf', '.wma', '.mp3', '.aiff'].includes(ext);
-        if (isAudio && ext !== '.mp3' && (transcode === 'audio' || transcode === 'aac' || transcode === 'mp3' || transcode === 'true')) {
+        // 2B. Audio Transcoding for Music & Audiobook Files (FLAC / WAV / M4B / M4A / ALAC / DSF -> High-Res MP3)
+        const isAudio = ['.flac', '.wav', '.m4a', '.m4b', '.aac', '.ogg', '.opus', '.ape', '.dsf', '.wma', '.mp3', '.aiff'].includes(ext);
+        if (isAudio && (ext !== '.mp3' || parseFloat(startTime) > 0) && (transcode === 'audio' || transcode === 'aac' || transcode === 'mp3' || transcode === 'true')) {
             try {
                 const { ffmpegPath } = ensureFfmpegBinaries();
                 const ffmpegArgs = [
@@ -606,7 +609,7 @@ export async function GET(req: NextRequest) {
                     '-i', targetLocalFile,
                     '-vn',
                     '-c:a', 'libmp3lame',
-                    '-b:a', '320k',
+                    '-b:a', '192k',
                     '-ar', '44100',
                     '-id3v2_version', '3',
                     '-f', 'mp3',
@@ -685,7 +688,8 @@ export async function GET(req: NextRequest) {
                         'Content-Type': 'audio/mpeg',
                         'Cache-Control': 'no-cache, no-store, must-revalidate',
                         'Accept-Ranges': 'bytes',
-                        'X-Stream-Engine': 'Server-Side MP3 Transcode (320 kbps)',
+                        'Access-Control-Allow-Origin': '*',
+                        'X-Stream-Engine': 'Server-Side MP3 Transcode (192 kbps)',
                         'X-Stream-Source': 'Local Disk Transcode'
                     }
                 });
@@ -709,7 +713,10 @@ export async function GET(req: NextRequest) {
             if (start >= fileSize || end >= fileSize) {
                 return new NextResponse('Requested range not satisfiable', {
                     status: 416,
-                    headers: { 'Content-Range': `bytes */${fileSize}` }
+                    headers: {
+                        'Content-Range': `bytes */${fileSize}`,
+                        'Access-Control-Allow-Origin': '*'
+                    }
                 });
             }
 
@@ -725,6 +732,7 @@ export async function GET(req: NextRequest) {
                     'Content-Length': String(chunksize),
                     'Content-Type': mimeType,
                     'Cache-Control': 'no-cache',
+                    'Access-Control-Allow-Origin': '*',
                     'X-Stream-Source': 'Local Disk'
                 }
             });
@@ -739,12 +747,27 @@ export async function GET(req: NextRequest) {
                     'Content-Type': mimeType,
                     'Accept-Ranges': 'bytes',
                     'Cache-Control': 'no-cache',
+                    'Access-Control-Allow-Origin': '*',
                     'X-Stream-Source': 'Local Disk'
                 }
             });
         }
     } catch (error: any) {
         console.error('API /theater/stream error:', error);
-        return new NextResponse(`Streaming error: ${error.message}`, { status: 500 });
+        return new NextResponse(`Streaming error: ${error.message}`, {
+            status: 500,
+            headers: { 'Access-Control-Allow-Origin': '*' }
+        });
     }
+}
+
+export async function OPTIONS() {
+    return new NextResponse(null, {
+        status: 204,
+        headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+            'Access-Control-Allow-Headers': 'Range, Content-Type, Authorization'
+        }
+    });
 }

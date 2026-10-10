@@ -1,13 +1,54 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
+import os from 'os';
 import axios from 'axios';
 import { findSelfContainer } from '@/lib/docker';
+import { getInstances } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
+
+function resolveHostLanIp(): string | null {
+  // 1. Check configured service instances (e.g., Plex/Sonarr/Radarr on Unraid LAN IP 192.168.x.x or 10.x.x.x)
+  try {
+    const instances = getInstances();
+    for (const inst of instances) {
+      if (!inst.url) continue;
+      try {
+        const u = new URL(inst.url);
+        const h = u.hostname;
+        if (/^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(h) && !h.startsWith('172.17.')) {
+          return h;
+        }
+      } catch {}
+    }
+  } catch {}
+
+  // 2. Check OS network interfaces for a non-internal, non-Docker-bridge IPv4 address
+  try {
+    const nets = os.networkInterfaces();
+    const candidates: string[] = [];
+    for (const name of Object.keys(nets)) {
+      for (const net of nets[name] || []) {
+        if (net.family === 'IPv4' && !net.internal) {
+          if (net.address.startsWith('192.168.') || net.address.startsWith('10.')) {
+            return net.address;
+          }
+          if (!net.address.startsWith('172.17.')) {
+            candidates.push(net.address);
+          }
+        }
+      }
+    }
+    if (candidates.length > 0) return candidates[0];
+  } catch {}
+
+  return null;
+}
 
 export async function GET() {
   const socketPath = '/var/run/docker.sock';
   const dataDir = '/app/data';
+  const lanIp = resolveHostLanIp();
 
   // Check if data directory is writable from inside the container
   let isDataWritable = false;
@@ -24,6 +65,7 @@ export async function GET() {
     return NextResponse.json({
       available: false,
       isDataWritable,
+      lanIp,
       reason: 'Docker socket not mapped',
       dataDir
     });
@@ -87,6 +129,7 @@ export async function GET() {
     return NextResponse.json({
       available: true,
       isDataWritable,
+      lanIp,
       containerId: data.Id,
       containerName: data.Name?.replace(/^\//, ''),
       image: data.Config?.Image,
@@ -104,6 +147,7 @@ export async function GET() {
     return NextResponse.json({
       available: false,
       isDataWritable,
+      lanIp,
       reason: `Failed to talk to Docker socket: ${error.message}`,
       dataHostPath: '/mnt/user/appdata/Schedulearr/data',
       dataDir
