@@ -588,6 +588,43 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     const [isRunningChapterStudioTask, setIsRunningChapterStudioTask] = useState<string | null>(null);
     const [useEnhancedAudioStream, setUseEnhancedAudioStream] = useState<boolean>(true);
     const [selectedVoicePreset, setSelectedVoicePreset] = useState<string>('original');
+    const [isEditingChapterTranscript, setIsEditingChapterTranscript] = useState<boolean>(false);
+    const [chapterTranscriptDraft, setChapterTranscriptDraft] = useState<string>('');
+    const dspNodesRef = useRef<{
+        highPass: BiquadFilterNode;
+        lowShelf: BiquadFilterNode;
+        midPeak: BiquadFilterNode;
+        lowPass: BiquadFilterNode;
+        compressor: DynamicsCompressorNode;
+        makeupGain: GainNode;
+    } | null>(null);
+
+    const isFakeOrWikiTranscript = useCallback((rawText?: string | null): boolean => {
+        if (!rawText) return false;
+        const lower = rawText.toLowerCase();
+        if (
+            lower.includes('pronounced [') ||
+            lower.includes('also translated as') ||
+            lower.includes('is a novella by') ||
+            lower.includes('is a novel by') ||
+            lower.includes('best-known works') ||
+            lower.includes('tells the story of salesman') ||
+            lower.includes('from wikipedia') ||
+            lower.includes('narrator opens chapter') ||
+            lower.includes('vividly describing the setting and atmosphere of')
+        ) {
+            return true;
+        }
+        const lines = rawText
+            .split('\n')
+            .map(l => l.replace(/^\[\d+:\d+(?:\.\d+)?\]\s*/, '').trim().toLowerCase())
+            .filter(l => l.length > 25);
+        if (lines.length >= 6) {
+            const unique = new Set(lines);
+            if (unique.size <= Math.ceil(lines.length * 0.45)) return true;
+        }
+        return false;
+    }, []);
 
     const isAudiobook = useMemo(() => {
         if (!playingAudio) return false;
@@ -614,7 +651,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     }, [playingAudio, audiobookChapterMeta, audioDuration]);
 
     const parseLrcStringToLines = useCallback((rawLrc: string): Array<{ time: number; text: string }> => {
-        if (!rawLrc) return [];
+        if (!rawLrc || isFakeOrWikiTranscript(rawLrc)) return [];
         const lines: Array<{ time: number; text: string }> = [];
         for (const row of rawLrc.split('\n')) {
             const m = row.match(/\[(\d+):(\d+(?:\.\d+)?)\]\s*(.*)/);
@@ -626,7 +663,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             }
         }
         return lines.sort((a, b) => a.time - b.time);
-    }, []);
+    }, [isFakeOrWikiTranscript]);
 
     const fetchAudiobookChapterStudio = useCallback(async (item: MediaItem) => {
         if (!item) return;
@@ -645,13 +682,12 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                 const ch = data.chapter || (Array.isArray(data.chapters) ? data.chapters.find((c: any) => c.chapter_key === cKey) : null);
                 if (ch) {
                     setAudiobookChapterMeta(ch);
-                    setSelectedVoicePreset(ch.voice_preset || data.book?.voice_preset || 'original');
                     const kept = (ch.images || [])
                         .filter((img: any) => img.kept !== false)
                         .sort((a: any, b: any) => (a.startSec ?? 0) - (b.startSec ?? 0));
                     setShuffledSceneImages(kept);
 
-                    if (ch.synced_lyrics) {
+                    if (ch.synced_lyrics && !isFakeOrWikiTranscript(ch.synced_lyrics)) {
                         const parsed = parseLrcStringToLines(ch.synced_lyrics);
                         if (parsed.length > 0) {
                             setLyricsData({
@@ -664,18 +700,23 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 isSynced: true,
                                 source: 'audiobook-studio'
                             });
+                        } else {
+                            setLyricsData(null);
                         }
+                    } else {
+                        setLyricsData(null);
                     }
                     return;
                 }
             }
             setAudiobookChapterMeta(null);
             setShuffledSceneImages([]);
+            setLyricsData(null);
         } catch {
             setAudiobookChapterMeta(null);
             setShuffledSceneImages([]);
         }
-    }, [parseLrcStringToLines]);
+    }, [parseLrcStringToLines, isFakeOrWikiTranscript]);
 
     // Live poll book & chapter progress while expanded audiobook player is open
     useEffect(() => {
@@ -714,15 +755,14 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    action: 'set_priority',
-                    bookKey: bKey,
-                    priority: 2
+                    action: 'queue_whole_book',
+                    bookKey: bKey
                 })
             });
             const data = await res.json();
             if (res.ok) {
                 if (data.book) setAudiobookBookMeta(data.book);
-                toast.success('Started generating transcriptions & illustrations for the whole book!');
+                toast.success('Queued book for Speech-to-Text & Scene Art!');
                 fetchAudiobookChapterStudio(playingAudio);
             } else {
                 toast.error(data.error || 'Could not queue book generation');
@@ -754,10 +794,59 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             if (res.ok && data.book) {
                 setAudiobookBookMeta(data.book);
                 if (patch.voicePreset) setSelectedVoicePreset(patch.voicePreset);
-                toast.success('Saved settings for this book');
             }
-        } catch {
-            toast.error('Failed to save book settings');
+        } catch {}
+    };
+
+    const handleSaveChapterTranscriptDraft = async () => {
+        if (!playingAudio) return;
+        const bKey = audiobookBookMeta?.book_key || playingAudio.bookKey || `${playingAudio.artist || 'Unknown Author'} - ${playingAudio.album || playingAudio.folder || playingAudio.title}`.toLowerCase().trim();
+        const cKey = audiobookChapterMeta?.chapter_key || playingAudio.chapterKey || playingAudio.id;
+        try {
+            const rawDraft = chapterTranscriptDraft.trim();
+            // If user typed plain lines without [mm:ss], auto-assign even timestamps across chapter duration
+            let formattedLrc = rawDraft;
+            if (rawDraft && !/\[\d+:\d+/.test(rawDraft)) {
+                const lines = rawDraft.split('\n').map(l => l.trim()).filter(Boolean);
+                const dur = Math.max(60, effectiveDuration || 300);
+                formattedLrc = lines.map((line, i) => {
+                    const sec = Math.floor((i / Math.max(1, lines.length)) * dur);
+                    const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+                    const ss = String(sec % 60).padStart(2, '0');
+                    return `[${mm}:${ss}.00] ${line}`;
+                }).join('\n');
+            }
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'update_chapter_transcript',
+                    bookKey: bKey,
+                    chapterKey: cKey,
+                    syncedLyrics: formattedLrc
+                })
+            });
+            const data = await res.json();
+            if (res.ok && data.chapter) {
+                setAudiobookChapterMeta(data.chapter);
+                const parsed = parseLrcStringToLines(data.chapter.synced_lyrics || '');
+                setLyricsData(parsed.length > 0 ? {
+                    trackKey: cKey,
+                    artist: playingAudio.artist,
+                    title: playingAudio.title,
+                    syncedLyrics: data.chapter.synced_lyrics,
+                    plainLyrics: data.chapter.plain_transcript || parsed.map(l => l.text).join('\n'),
+                    lines: parsed,
+                    isSynced: true,
+                    source: 'audiobook-studio'
+                } : null);
+                setIsEditingChapterTranscript(false);
+                toast.success('Chapter transcript saved!');
+            } else {
+                toast.error(data.error || 'Failed to save transcript');
+            }
+        } catch (err: any) {
+            toast.error(`Save failed: ${err.message}`);
         }
     };
 
@@ -765,7 +854,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         if (!playingAudio) return;
         const bKey = audiobookBookMeta?.book_key || playingAudio.bookKey || `${playingAudio.artist || 'Unknown Author'} - ${playingAudio.album || playingAudio.folder || playingAudio.title}`.toLowerCase().trim();
         const cKey = audiobookChapterMeta?.chapter_key || playingAudio.chapterKey || playingAudio.id;
-        const targetPreset = voiceOverride || selectedVoicePreset || 'warm_storyteller';
+        const targetPreset = voiceOverride || selectedVoicePreset || 'clear_voice';
         setIsRunningChapterStudioTask(taskType === 'enhance' ? `enhance:${targetPreset}` : taskType);
         try {
             const res = await fetch('/api/theater/audiobooks/studio', {
@@ -790,39 +879,55 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             if (res.ok && data.chapter) {
                 setAudiobookChapterMeta(data.chapter);
                 setAudiobookBookMeta(data.book || null);
-                const kept = (data.chapter.images || []).filter((img: any) => img.kept !== false);
-                setShuffledSceneImages([...kept].sort(() => Math.random() - 0.5));
-                if (data.chapter.synced_lyrics) {
+                const kept = (data.chapter.images || [])
+                    .filter((img: any) => img.kept !== false)
+                    .sort((a: any, b: any) => (a.startSec ?? 0) - (b.startSec ?? 0));
+                setShuffledSceneImages(kept);
+                if (data.chapter.synced_lyrics && !isFakeOrWikiTranscript(data.chapter.synced_lyrics)) {
                     const parsed = parseLrcStringToLines(data.chapter.synced_lyrics);
-                    setLyricsData({
+                    setLyricsData(parsed.length > 0 ? {
                         trackKey: cKey,
                         artist: playingAudio.artist,
                         title: playingAudio.title,
                         syncedLyrics: data.chapter.synced_lyrics,
                         plainLyrics: data.chapter.plain_transcript || parsed.map(l => l.text).join('\n'),
                         lines: parsed,
-                        isSynced: parsed.length > 0,
+                        isSynced: true,
                         source: 'audiobook-studio'
-                    });
+                    } : null);
+                } else if (taskType === 'transcribe') {
+                    setLyricsData(null);
                 }
+
                 if (taskType === 'enhance') {
                     const generatedPath = data.chapter.processed_voices?.[targetPreset] || data.chapter.enhanced_audio_path;
-                    if (generatedPath && audioRef.current) {
+                    if (generatedPath && data.chapter.audio_enhance_status === 'completed' && audioRef.current) {
                         const curTime = audioRef.current.currentTime;
                         const wasPlaying = !audioRef.current.paused;
                         setSelectedVoicePreset(targetPreset);
+                        applyLiveWebAudioDspPreset('original', true);
                         audioRef.current.src = `/api/theater/audiobooks/art?audio=${encodeURIComponent(generatedPath)}`;
                         setUseEnhancedAudioStream(true);
                         audioRef.current.currentTime = curTime;
                         if (wasPlaying) audioRef.current.play().catch(() => {});
+                        toast.success(`Rendered & switched to .m4a file: ${targetPreset.replace(/_/g, ' ')}`);
+                    } else {
+                        setSelectedVoicePreset(targetPreset);
+                        applyLiveWebAudioDspPreset(targetPreset, false);
+                        toast.error(data.chapter.error_message || 'Could not save .m4a file on disk — applied Live WebAudio DSP filter instead');
                     }
-                    toast.success(`Generated & switched to voice: ${targetPreset.replace(/_/g, ' ')}!`);
+                } else if (taskType === 'transcribe') {
+                    if (data.chapter.transcription_status === 'completed' && data.chapter.synced_lyrics) {
+                        toast.success('Speech-to-Text transcription complete!');
+                    } else {
+                        toast.error(data.chapter.error_message || 'Speech-to-Text failed (add a Gemini, Groq, or OpenAI key in Studio Settings)');
+                    }
                 } else {
-                    toast.success(
-                        taskType === 'transcribe'
-                            ? 'Synced chapter transcription ready!'
-                            : `Painted scene illustration for "${playingAudio.title}"!`
-                    );
+                    if (kept.length > 0) {
+                        toast.success(`Painted ${kept.length} scene illustrations!`);
+                    } else {
+                        toast.error('Image providers unreachable — add an API key in Studio Settings');
+                    }
                 }
             } else {
                 toast.error(data.error || 'Task failed');
@@ -942,26 +1047,222 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                 if (data.book) setAudiobookBookMeta(data.book);
                 if (target === 'transcriptions' || target === 'all') setLyricsData(null);
                 if (target === 'art' || target === 'all') setShuffledSceneImages([]);
-                toast.success(`Cleared old ${target} & queued clean re-processing!`);
+                toast.success(`Cleared ${target} & started fresh generation`);
             }
         } catch {
             toast.error('Failed to reset and redo assets');
         }
     };
 
-    const handleSwitchProcessedVoice = (presetKey: string, mode: 'file' | 'live' = 'file') => {
+    const getOriginalStreamUrl = useCallback((item: MediaItem): string => {
+        if (item.streamUrl && !item.streamUrl.includes('/api/theater/audiobooks/art?audio=')) {
+            return item.streamUrl;
+        }
+        return `/api/theater/stream?path=${encodeURIComponent(item.path || '')}`;
+    }, []);
+
+    const applyLiveWebAudioDspPreset = useCallback((presetKey: string, isPreBakedFile: boolean = false) => {
+        if (!audioRef.current) return;
+        // Ensure WebAudio graph is initialized
+        if (!audioContextRef.current) {
+            try {
+                const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+                if (AudioCtx) {
+                    const ctx = new AudioCtx();
+                    const analyser = ctx.createAnalyser();
+                    analyser.fftSize = 2048;
+                    analyser.smoothingTimeConstant = 0.85;
+
+                    const highPass = ctx.createBiquadFilter();
+                    highPass.type = 'highpass';
+                    highPass.frequency.value = 20;
+
+                    const lowShelf = ctx.createBiquadFilter();
+                    lowShelf.type = 'lowshelf';
+                    lowShelf.frequency.value = 180;
+                    lowShelf.gain.value = 0;
+
+                    const midPeak = ctx.createBiquadFilter();
+                    midPeak.type = 'peaking';
+                    midPeak.frequency.value = 3000;
+                    midPeak.Q.value = 1.0;
+                    midPeak.gain.value = 0;
+
+                    const lowPass = ctx.createBiquadFilter();
+                    lowPass.type = 'lowpass';
+                    lowPass.frequency.value = 20000;
+
+                    const compressor = ctx.createDynamicsCompressor();
+                    compressor.threshold.value = -3;
+                    compressor.ratio.value = 1;
+
+                    const makeupGain = ctx.createGain();
+                    makeupGain.gain.value = 1.0;
+
+                    const source = ctx.createMediaElementSource(audioRef.current);
+                    source.connect(highPass);
+                    highPass.connect(lowShelf);
+                    lowShelf.connect(midPeak);
+                    midPeak.connect(lowPass);
+                    lowPass.connect(compressor);
+                    compressor.connect(makeupGain);
+                    makeupGain.connect(analyser);
+                    analyser.connect(ctx.destination);
+
+                    audioContextRef.current = ctx;
+                    analyserRef.current = analyser;
+                    dspNodesRef.current = { highPass, lowShelf, midPeak, lowPass, compressor, makeupGain };
+                }
+            } catch {}
+        }
+        if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+            audioContextRef.current.resume().catch(() => {});
+        }
+
+        const nodes = dspNodesRef.current;
+        const el = audioRef.current as any;
+
+        const setPitchShift = (factor: number) => {
+            if (!audioRef.current) return;
+            if (Math.abs(factor - 1.0) < 0.005) {
+                el.preservesPitch = true;
+                el.mozPreservesPitch = true;
+                el.webkitPreservesPitch = true;
+                audioRef.current.playbackRate = playbackSpeed;
+            } else {
+                el.preservesPitch = false;
+                el.mozPreservesPitch = false;
+                el.webkitPreservesPitch = false;
+                audioRef.current.playbackRate = Number((playbackSpeed * factor).toFixed(3));
+            }
+        };
+
+        if (!nodes || presetKey === 'original' || isPreBakedFile) {
+            if (nodes) {
+                nodes.highPass.frequency.value = 20;
+                nodes.lowShelf.gain.value = 0;
+                nodes.midPeak.gain.value = 0;
+                nodes.lowPass.frequency.value = 20000;
+                nodes.compressor.threshold.value = -3;
+                nodes.compressor.ratio.value = 1;
+                nodes.makeupGain.gain.value = 1.0;
+            }
+            setPitchShift(1.0);
+            return;
+        }
+
+        switch (presetKey) {
+            case 'clear_voice':
+            case 'denoise_clarity':
+                nodes.highPass.frequency.value = 115;
+                nodes.lowShelf.frequency.value = 180;
+                nodes.lowShelf.gain.value = -2.5;
+                nodes.midPeak.frequency.value = 3100;
+                nodes.midPeak.gain.value = 7.0;
+                nodes.lowPass.frequency.value = 13500;
+                nodes.compressor.threshold.value = -24;
+                nodes.compressor.ratio.value = 3.5;
+                nodes.makeupGain.gain.value = 1.35;
+                setPitchShift(1.0);
+                break;
+            case 'warm_bass':
+            case 'warm_storyteller':
+                nodes.highPass.frequency.value = 65;
+                nodes.lowShelf.frequency.value = 190;
+                nodes.lowShelf.gain.value = 8.0;
+                nodes.midPeak.frequency.value = 2800;
+                nodes.midPeak.gain.value = -1.5;
+                nodes.lowPass.frequency.value = 10500;
+                nodes.compressor.threshold.value = -20;
+                nodes.compressor.ratio.value = 2.5;
+                nodes.makeupGain.gain.value = 1.25;
+                setPitchShift(1.0);
+                break;
+            case 'deep_pitch':
+            case 'deep_narrator':
+            case 'deep_cinema':
+                nodes.highPass.frequency.value = 60;
+                nodes.lowShelf.frequency.value = 155;
+                nodes.lowShelf.gain.value = 6.5;
+                nodes.midPeak.frequency.value = 2600;
+                nodes.midPeak.gain.value = 2.5;
+                nodes.lowPass.frequency.value = 12500;
+                nodes.compressor.threshold.value = -20;
+                nodes.compressor.ratio.value = 2.5;
+                nodes.makeupGain.gain.value = 1.3;
+                setPitchShift(0.92);
+                break;
+            case 'crisp_treble':
+            case 'crisp_clear':
+            case 'crisp_modern':
+                nodes.highPass.frequency.value = 125;
+                nodes.lowShelf.frequency.value = 230;
+                nodes.lowShelf.gain.value = -4.0;
+                nodes.midPeak.frequency.value = 3800;
+                nodes.midPeak.gain.value = 8.5;
+                nodes.lowPass.frequency.value = 16500;
+                nodes.compressor.threshold.value = -22;
+                nodes.compressor.ratio.value = 3.0;
+                nodes.makeupGain.gain.value = 1.35;
+                setPitchShift(1.0);
+                break;
+            case 'bright_pitch':
+            case 'soft_velvet':
+            case 'velvet_narrator':
+                nodes.highPass.frequency.value = 85;
+                nodes.lowShelf.frequency.value = 210;
+                nodes.lowShelf.gain.value = 2.5;
+                nodes.midPeak.frequency.value = 3200;
+                nodes.midPeak.gain.value = 3.5;
+                nodes.lowPass.frequency.value = 11500;
+                nodes.compressor.threshold.value = -18;
+                nodes.compressor.ratio.value = 2.2;
+                nodes.makeupGain.gain.value = 1.25;
+                setPitchShift(1.06);
+                break;
+            case 'night_compress':
+            case 'late_night_radio':
+                nodes.highPass.frequency.value = 80;
+                nodes.lowShelf.frequency.value = 175;
+                nodes.lowShelf.gain.value = 4.5;
+                nodes.midPeak.frequency.value = 2900;
+                nodes.midPeak.gain.value = 5.0;
+                nodes.lowPass.frequency.value = 11000;
+                nodes.compressor.threshold.value = -32;
+                nodes.compressor.ratio.value = 6.0;
+                nodes.makeupGain.gain.value = 1.65;
+                setPitchShift(1.0);
+                break;
+            default:
+                nodes.highPass.frequency.value = 20;
+                nodes.lowShelf.gain.value = 0;
+                nodes.midPeak.gain.value = 0;
+                nodes.lowPass.frequency.value = 20000;
+                nodes.compressor.threshold.value = -3;
+                nodes.compressor.ratio.value = 1;
+                nodes.makeupGain.gain.value = 1.0;
+                setPitchShift(1.0);
+                break;
+        }
+    }, [playbackSpeed]);
+
+    const handleSwitchProcessedVoice = (presetKey: string, mode: 'file' | 'live' = 'live') => {
         if (!audioRef.current || !playingAudio) return;
         const curTime = audioRef.current.currentTime;
         const wasPlaying = !audioRef.current.paused;
+        const origStreamUrl = getOriginalStreamUrl(playingAudio);
 
         if (presetKey === 'original') {
             setSelectedVoicePreset('original');
             handleUpdateInPlayerBookSettings({ voicePreset: 'original' });
-            audioRef.current.src = `/api/theater/stream?path=${encodeURIComponent(playingAudio.path)}`;
+            applyLiveWebAudioDspPreset('original', false);
+            if (audioRef.current.src.includes('/api/theater/audiobooks/art?audio=') || audioRef.current.src.includes('voicePreset=')) {
+                audioRef.current.src = origStreamUrl;
+                audioRef.current.currentTime = curTime;
+                if (wasPlaying) audioRef.current.play().catch(() => {});
+            }
             setUseEnhancedAudioStream(false);
-            audioRef.current.currentTime = curTime;
-            if (wasPlaying) audioRef.current.play().catch(() => {});
-            toast.success('Switched to Original Narrator Voice');
+            toast.success('Audio Filter: Original (Bypass)');
             return;
         }
 
@@ -972,27 +1273,26 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         if (enhancedPath && mode === 'file') {
             setSelectedVoicePreset(presetKey);
             handleUpdateInPlayerBookSettings({ voicePreset: presetKey });
+            applyLiveWebAudioDspPreset('original', true);
             audioRef.current.src = `/api/theater/audiobooks/art?audio=${encodeURIComponent(enhancedPath)}`;
             setUseEnhancedAudioStream(true);
             audioRef.current.currentTime = curTime;
             if (wasPlaying) audioRef.current.play().catch(() => {});
-            toast.success(`Switched to generated voice file: ${presetKey.replace(/_/g, ' ')}`);
+            toast.success(`Playing saved .m4a file: ${presetKey.replace(/_/g, ' ')}`);
             return;
         }
 
-        if (mode === 'live') {
-            setSelectedVoicePreset(presetKey);
-            handleUpdateInPlayerBookSettings({ voicePreset: presetKey });
-            audioRef.current.src = `/api/theater/stream?path=${encodeURIComponent(playingAudio.path)}&transcode=audio&voicePreset=${encodeURIComponent(presetKey)}&ss=${Math.floor(curTime)}`;
-            setUseEnhancedAudioStream(true);
+        // Apply instant 0ms real-time WebAudio DSP filter + pitch on current audio stream
+        if (audioRef.current.src.includes('/api/theater/audiobooks/art?audio=')) {
+            audioRef.current.src = origStreamUrl;
+            audioRef.current.currentTime = curTime;
             if (wasPlaying) audioRef.current.play().catch(() => {});
-            toast.success(`Streaming live FFmpeg voice transformation: ${presetKey.replace(/_/g, ' ')}`);
-            return;
         }
-
-        // Honest guard: if file has not been generated yet, do not pretend to switch!
-        toast.info(`Generating "${presetKey.replace(/_/g, ' ')}" voice file for this chapter now...`);
-        handleRunInPlayerChapterTask('enhance', presetKey);
+        setSelectedVoicePreset(presetKey);
+        handleUpdateInPlayerBookSettings({ voicePreset: presetKey });
+        applyLiveWebAudioDspPreset(presetKey, false);
+        setUseEnhancedAudioStream(true);
+        toast.success(`Applied Live Audio Filter: ${presetKey.replace(/_/g, ' ')}`);
     };
 
     // In-Player Playlist States & Handlers
@@ -1865,12 +2165,52 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             analyser.fftSize = 2048;
             analyser.smoothingTimeConstant = 0.85;
 
+            const highPass = ctx.createBiquadFilter();
+            highPass.type = 'highpass';
+            highPass.frequency.value = 20;
+
+            const lowShelf = ctx.createBiquadFilter();
+            lowShelf.type = 'lowshelf';
+            lowShelf.frequency.value = 180;
+            lowShelf.gain.value = 0;
+
+            const midPeak = ctx.createBiquadFilter();
+            midPeak.type = 'peaking';
+            midPeak.frequency.value = 3000;
+            midPeak.Q.value = 1.0;
+            midPeak.gain.value = 0;
+
+            const lowPass = ctx.createBiquadFilter();
+            lowPass.type = 'lowpass';
+            lowPass.frequency.value = 20000;
+
+            const compressor = ctx.createDynamicsCompressor();
+            compressor.threshold.value = -3;
+            compressor.ratio.value = 1;
+
+            const makeupGain = ctx.createGain();
+            makeupGain.gain.value = 1.0;
+
             const source = ctx.createMediaElementSource(audioRef.current);
-            source.connect(analyser);
+            source.connect(highPass);
+            highPass.connect(lowShelf);
+            lowShelf.connect(midPeak);
+            midPeak.connect(lowPass);
+            lowPass.connect(compressor);
+            compressor.connect(makeupGain);
+            makeupGain.connect(analyser);
             analyser.connect(ctx.destination);
 
             audioContextRef.current = ctx;
             analyserRef.current = analyser;
+            dspNodesRef.current = { highPass, lowShelf, midPeak, lowPass, compressor, makeupGain };
+
+            if (selectedVoicePreset && selectedVoicePreset !== 'original') {
+                applyLiveWebAudioDspPreset(
+                    selectedVoicePreset,
+                    Boolean(audioRef.current?.src?.includes('/api/theater/audiobooks/art?audio='))
+                );
+            }
         } catch (e: any) {
             console.log('Web Audio init note:', e.message);
         }
@@ -3357,7 +3697,12 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                         const fallbackDur = playingAudio?.durationMs ? playingAudio.durationMs / 1000 : parseDurationString(playingAudio?.duration);
                         const finalDur = Number.isFinite(raw) && raw > 0 ? raw : fallbackDur;
                         setAudioDuration(finalDur);
-                        if (playbackSpeed !== 1.0) {
+                        if (selectedVoicePreset && selectedVoicePreset !== 'original') {
+                            applyLiveWebAudioDspPreset(
+                                selectedVoicePreset,
+                                Boolean(audioRef.current.src.includes('/api/theater/audiobooks/art?audio='))
+                            );
+                        } else if (playbackSpeed !== 1.0) {
                             audioRef.current.playbackRate = playbackSpeed;
                         }
                         if (playingAudio) {
@@ -3788,23 +4133,23 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             )}
 
             {/* ══════════════════════════════════════════════════════════════
-               VOICE OPTIONS POPOVER DRAWER (ACCESSIBLE FROM PLAYER BAR)
+               AUDIO FILTER & VOICE ENHANCER POPOVER
                ══════════════════════════════════════════════════════════════ */}
             {showVoiceMenuPopup && playingAudio && (
                 <div className="fixed bottom-36 sm:bottom-24 right-3 sm:right-24 w-full max-w-md z-[290] bg-zinc-950/98 border border-zinc-800 rounded-3xl p-5 shadow-2xl space-y-3.5 animate-in slide-in-from-bottom-5 duration-200">
                     <div className="flex items-center justify-between pb-2.5 border-b border-zinc-900">
                         <div>
                             <span className="text-base font-black uppercase text-emerald-400 tracking-wider flex items-center gap-2">
-                                <Mic2 size={18} /> Narrator Voice Picker
+                                <Mic2 size={18} /> Audio Filter &amp; Pitch
                             </span>
                             <p className="text-xs text-zinc-400 mt-0.5">
-                                Switch between generated voice files or generate a new voice for this chapter
+                                Click any filter for instant live WebAudio EQ/Pitch, or save a permanent .m4a file
                             </p>
                         </div>
                         <button
                             onClick={() => setShowVoiceMenuPopup(false)}
                             className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white cursor-pointer"
-                            title="Close Voice Picker"
+                            title="Close Audio Filter Menu"
                         >
                             <X size={18} />
                         </button>
@@ -3812,101 +4157,87 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
                     <div className="space-y-2 max-h-[52vh] overflow-y-auto custom-scrollbar pr-1">
                         {[
-                            { id: 'original', label: 'Original Narrator', desc: 'Untouched original chapter recording' },
-                            { id: 'deep_narrator', label: 'Deep Resonant Baritone', desc: 'Deeper baritone timbre (-10% pitch + chest EQ)' },
-                            { id: 'warm_storyteller', label: 'Warm Fireside Storyteller', desc: 'Rich warm resonance (-5% pitch + 210Hz warmth)' },
-                            { id: 'crisp_clear', label: 'Crisp Studio Articulation', desc: 'Bright vocal clarity (+3% pitch + 3.4kHz presence)' },
-                            { id: 'soft_velvet', label: 'Soft Velvet Reader', desc: 'Gentle intimate timbre (+5% pitch + smooth high-cut)' },
-                            { id: 'late_night_radio', label: 'Late-Night FM Radio', desc: 'Broadcast baritone (-7% pitch + studio compressor)' },
+                            { id: 'original', label: 'Original Audio', desc: 'Untouched original stream (Bypass EQ & Pitch)' },
+                            { id: 'clear_voice', label: 'Clear Voice', desc: '+7dB vocal presence (3.1kHz) + 115Hz rumble cut + compressor' },
+                            { id: 'warm_bass', label: 'Warm Studio', desc: '+8dB low-mid warmth (190Hz) + smooth 10.5kHz roll-off' },
+                            { id: 'deep_pitch', label: 'Deeper Voice (-8%)', desc: '-8% pitch shift + +6.5dB chest resonance (155Hz)' },
+                            { id: 'crisp_treble', label: 'Crisp Treble', desc: '+8.5dB articulation boost (3.8kHz) + tight low-cut' },
+                            { id: 'bright_pitch', label: 'Higher Voice (+6%)', desc: '+6% pitch shift + intimate vocal presence' },
+                            { id: 'night_compress', label: 'Night Leveler', desc: 'Heavy 6:1 dynamic compression for quiet listening' },
                         ].map(preset => {
                             const isOriginal = preset.id === 'original';
                             const generatedPath = isOriginal
                                 ? playingAudio.path
                                 : (audiobookChapterMeta?.processed_voices?.[preset.id] ||
                                    (audiobookChapterMeta?.voice_preset === preset.id ? audiobookChapterMeta?.enhanced_audio_path : null));
-                            const isGenerated = Boolean(isOriginal || generatedPath);
+                            const isGenerated = Boolean(!isOriginal && generatedPath);
                             const isActive = selectedVoicePreset === preset.id;
                             const isGeneratingThis = isRunningChapterStudioTask === `enhance:${preset.id}`;
 
                             return (
                                 <div
                                     key={preset.id}
-                                    className={`w-full p-3.5 rounded-2xl border text-left transition-all flex items-center justify-between gap-3 ${
+                                    onClick={() => handleSwitchProcessedVoice(preset.id, 'live')}
+                                    className={`w-full p-3.5 rounded-2xl border text-left transition-all flex items-center justify-between gap-3 cursor-pointer ${
                                         isActive
                                             ? 'bg-emerald-500/15 border-emerald-500/50 text-white'
-                                            : isGenerated
-                                            ? 'bg-zinc-900/70 border-zinc-800 text-zinc-200 hover:border-emerald-500/40'
-                                            : 'bg-zinc-950/80 border-zinc-900 text-zinc-400'
+                                            : 'bg-zinc-900/70 border-zinc-800 text-zinc-200 hover:border-emerald-500/40'
                                     }`}
                                 >
-                                    <div
-                                        onClick={() => {
-                                            if (isGenerated) {
-                                                handleSwitchProcessedVoice(preset.id, 'file');
-                                            }
-                                        }}
-                                        className={`min-w-0 flex-1 ${isGenerated ? 'cursor-pointer' : 'cursor-default'}`}
-                                    >
+                                    <div className="min-w-0 flex-1">
                                         <div className="flex items-center gap-2 flex-wrap">
                                             <span className="text-base font-black text-white">{preset.label}</span>
-                                            {isOriginal ? (
-                                                <span className="px-2 py-0.5 rounded-lg bg-zinc-800 text-zinc-300 text-[11px] font-bold">
-                                                    Original File
+                                            {isActive && (
+                                                <span className="px-2 py-0.5 rounded-lg bg-emerald-500 text-black text-[11px] font-black">
+                                                    ACTIVE
                                                 </span>
-                                            ) : isGenerated ? (
+                                            )}
+                                            {isGenerated && (
                                                 <span className="px-2 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-black">
-                                                    ✓ File Ready
-                                                </span>
-                                            ) : (
-                                                <span className="px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[11px] font-bold">
-                                                    Not Generated Yet
+                                                    .m4a Saved
                                                 </span>
                                             )}
                                         </div>
                                         <div className="text-xs text-zinc-400 mt-0.5">{preset.desc}</div>
                                     </div>
 
-                                    <div className="flex items-center gap-1.5 shrink-0">
-                                        {isGenerated ? (
-                                            <button
-                                                type="button"
-                                                onClick={() => handleSwitchProcessedVoice(preset.id, 'file')}
-                                                className={`px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer transition-all ${
-                                                    isActive
-                                                        ? 'bg-emerald-500 text-black shadow-md'
-                                                        : 'bg-zinc-800 hover:bg-emerald-500 hover:text-black text-emerald-300'
-                                                }`}
-                                                title={isActive ? 'Currently active voice' : `Switch playback to ${preset.label}`}
-                                            >
-                                                {isActive ? <Check size={15} /> : <Play size={14} />}
-                                                <span>{isActive ? 'Active' : 'Use'}</span>
-                                            </button>
-                                        ) : (
-                                            <>
+                                    <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleSwitchProcessedVoice(preset.id, 'live')}
+                                            className={`px-3 py-2 rounded-xl border text-xs font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer ${
+                                                isActive
+                                                    ? 'bg-emerald-500 text-black border-emerald-400'
+                                                    : 'bg-zinc-900 hover:bg-zinc-800 text-emerald-300 border-emerald-500/30'
+                                            }`}
+                                            title={`Apply "${preset.label}" live right now`}
+                                        >
+                                            {isActive ? <Check size={14} /> : <Volume2 size={14} />}
+                                            <span>{isActive ? 'On' : 'Live'}</span>
+                                        </button>
+                                        {!isOriginal && (
+                                            isGenerated ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleSwitchProcessedVoice(preset.id, 'file')}
+                                                    className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-emerald-500 hover:text-black text-emerald-300 text-xs font-black uppercase tracking-wider flex items-center gap-1 cursor-pointer"
+                                                    title={`Play pre-rendered .m4a file for "${preset.label}"`}
+                                                >
+                                                    <Play size={13} />
+                                                    <span>File</span>
+                                                </button>
+                                            ) : (
                                                 <button
                                                     type="button"
                                                     disabled={Boolean(isRunningChapterStudioTask)}
                                                     onClick={() => handleRunInPlayerChapterTask('enhance', preset.id)}
-                                                    className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-md"
-                                                    title={`Generate permanent .m4a voice file for "${preset.label}"`}
+                                                    className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-black uppercase tracking-wider flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                                                    title={`Render & save permanent .m4a file on disk for "${preset.label}"`}
                                                 >
-                                                    <RefreshCw size={14} className={isGeneratingThis ? 'animate-spin' : ''} />
-                                                    <span>{isGeneratingThis ? 'Generating...' : 'Generate'}</span>
+                                                    <RefreshCw size={13} className={isGeneratingThis ? 'animate-spin' : ''} />
+                                                    <span>{isGeneratingThis ? '...' : 'Save'}</span>
                                                 </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleSwitchProcessedVoice(preset.id, 'live')}
-                                                    className={`px-3 py-2 rounded-xl border text-xs font-black uppercase tracking-wider flex items-center gap-1 cursor-pointer ${
-                                                        isActive
-                                                            ? 'bg-emerald-500 text-black border-emerald-400'
-                                                            : 'bg-zinc-900 hover:bg-zinc-800 text-emerald-300 border-emerald-500/30'
-                                                    }`}
-                                                    title={`Stream "${preset.label}" live on-the-fly via FFmpeg right now without waiting for file generation`}
-                                                >
-                                                    <Volume2 size={14} />
-                                                    <span>Live</span>
-                                                </button>
-                                            </>
+                                            )
                                         )}
                                     </div>
                                 </div>
@@ -3916,10 +4247,10 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
                     <div className="pt-2.5 border-t border-zinc-900 flex items-center justify-between gap-2 text-xs text-zinc-400">
                         <span>
-                            Playback Speed: <strong className="text-white">{playbackSpeed}x</strong>
+                            Speed: <strong className="text-white">{playbackSpeed}x</strong>
                         </span>
                         <span className="text-emerald-400 font-semibold">
-                            Active: {selectedVoicePreset.replace(/_/g, ' ')}
+                            Filter: {selectedVoicePreset.replace(/_/g, ' ')}
                         </span>
                     </div>
                 </div>
@@ -4089,30 +4420,6 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 ? 'Custom Book Cover'
                                 : 'Book Cover';
 
-                            const totalChaps = Math.max(1, audiobookBookMeta?.total_chapters || audioQueue.length || 1);
-                            const transcribedChaps = audiobookBookMeta?.transcribed_chapters || 0;
-                            const illustratedChaps = audiobookBookMeta?.illustrated_chapters || 0;
-                            const enhancedChaps = audiobookBookMeta?.enhanced_chapters || 0;
-                            const transcribedSecs = audiobookBookMeta?.transcribed_seconds || audiobookChapterMeta?.transcribed_seconds || 0;
-                            const totalBookSecs = Math.max(
-                                transcribedSecs,
-                                audiobookBookMeta?.total_duration_sec ||
-                                audioQueue.reduce((acc, t) => acc + (t.durationMs ? Math.round(t.durationMs / 1000) : 300), 0) ||
-                                Math.round(effectiveDuration || 300)
-                            );
-                            const illustratedScenesCount = audiobookBookMeta?.illustrated_scenes || totalScenes;
-                            const transcribePct = Math.min(100, Math.round((transcribedSecs / Math.max(1, totalBookSecs)) * 100)) || Math.min(100, Math.round((transcribedChaps / totalChaps) * 100));
-                            const illustratePct = Math.min(100, Math.round((illustratedChaps / totalChaps) * 100));
-
-                            const formatDurationCounter = (secs: number) => {
-                                const h = Math.floor(secs / 3600);
-                                const m = Math.floor((secs % 3600) / 60);
-                                const s = Math.floor(secs % 60);
-                                if (h > 0) return `${h}h ${m}m ${s}s`;
-                                if (m > 0) return `${m}m ${s}s`;
-                                return `${s}s`;
-                            };
-
                             const currentBookKey = audiobookBookMeta?.book_key || (playingAudio as any).bookKey || '';
                             const editBookHref = `/discover?tab=audiobooks${currentBookKey ? `&bookKey=${encodeURIComponent(currentBookKey)}` : ''}`;
 
@@ -4120,18 +4427,29 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 <div className="relative z-10 flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch pt-2 overflow-hidden">
                                     {/* ── LEFT PANEL: AUDIOBOOK PLAYER, QUICK PLAYBACK SETTINGS & CHAPTERS ── */}
                                     <div className="col-span-1 lg:col-span-5 xl:col-span-4 h-full max-h-full flex flex-col bg-zinc-950/90 border border-zinc-800/90 rounded-[2rem] p-4 sm:p-5 shadow-2xl space-y-4 min-h-0 overflow-hidden">
-                                        {/* Top Header Bar: Player & Chapters + Link to Media Tab Editor */}
+                                        {/* Top Header Bar: Player & Chapters + Link to Media Tab Studio */}
                                         <div className="flex items-center justify-between gap-2 p-1.5 bg-zinc-900 rounded-2xl border border-zinc-800 shrink-0 pr-24 lg:pr-1.5">
                                             <div className="py-2 px-3 rounded-xl bg-amber-500 text-black text-sm font-black tracking-wide flex items-center gap-2 shadow-md">
                                                 <BookOpen size={15} /> Player &amp; Chapters
                                             </div>
-                                            <a
-                                                href={editBookHref}
-                                                className="py-2 px-3 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-amber-300 border border-amber-500/30 text-xs sm:text-sm font-black tracking-wide flex items-center gap-1.5 transition-all cursor-pointer"
-                                                title="Edit book metadata, AI studio settings, transcriptions, and scene illustrations in the Media tab"
-                                            >
-                                                <Edit3 size={14} /> Edit
-                                            </a>
+                                            <div className="flex items-center gap-1.5">
+                                                <button
+                                                    type="button"
+                                                    disabled={Boolean(isRunningChapterStudioTask)}
+                                                    onClick={() => handleRunInPlayerChapterTask('illustrate')}
+                                                    className="py-2 px-3 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 text-xs sm:text-sm font-black tracking-wide flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                                                    title="Paint scene illustrations for this chapter now"
+                                                >
+                                                    <ImageIcon size={14} /> Paint
+                                                </button>
+                                                <a
+                                                    href={editBookHref}
+                                                    className="py-2 px-3 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-amber-300 border border-amber-500/30 text-xs sm:text-sm font-black tracking-wide flex items-center gap-1.5 transition-all cursor-pointer"
+                                                    title="Open full Book Studio (Chapters, Scenes, Prompts & Transcripts) in Media tab"
+                                                >
+                                                    <Edit3 size={14} /> Studio
+                                                </a>
+                                            </div>
                                         </div>
 
                                         {/* ── MAIN AUDIOBOOK PLAYER & CHAPTER LIST ── */}
@@ -4234,7 +4552,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                 </button>
                                             </div>
 
-                                            {/* Quick Playback Settings: Speed, Narrator Voice Preset, Cover Toggle, Volume */}
+                                            {/* Quick Playback Settings: Speed, Audio Filter Preset, Cover Toggle, Volume */}
                                             <div className="flex items-center justify-between gap-2 pt-2 border-t border-zinc-900 shrink-0 flex-wrap">
                                                 <div className="flex items-center gap-2 flex-wrap">
                                                     <button
@@ -4253,10 +4571,10 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                 ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
                                                                 : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border-zinc-800'
                                                         }`}
-                                                        title="Quick Playback Setting: Select Narrator Voice Preset"
+                                                        title="Audio Filter & Pitch Enhancer"
                                                     >
                                                         <Mic2 size={14} className="text-emerald-400" />
-                                                        <span className="capitalize">{selectedVoicePreset === 'original' ? 'Voice' : selectedVoicePreset.replace(/_/g, ' ')}</span>
+                                                        <span className="capitalize">{selectedVoicePreset === 'original' ? 'Filter' : selectedVoicePreset.replace(/_/g, ' ')}</span>
                                                     </button>
                                                     {audiobookBookMeta?.custom_cover_url && (
                                                         <button
@@ -4288,22 +4606,22 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                 </div>
                                             </div>
 
-                                            {/* Chapters List (Playback Only) */}
+                                            {/* Chapters List */}
                                             <div className="flex-1 min-h-0 flex flex-col space-y-2 pt-2 border-t border-zinc-900 overflow-hidden">
                                                 <div className="flex items-center justify-between px-1 shrink-0">
                                                     <span className="text-xs font-black uppercase tracking-wider text-zinc-400">
                                                         Chapters ({audioQueue.length || 1})
                                                     </span>
                                                     <span className="text-xs text-zinc-500">
-                                                        Click any chapter to play
+                                                        Click to play
                                                     </span>
                                                 </div>
                                                 <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
                                                     {(audioQueue.length > 0 ? audioQueue : [playingAudio]).map((chTrack, idx) => {
                                                         const isCurrentChap = idx === queueIndex || chTrack.id === playingAudio.id;
                                                         const chMeta = audiobookAllChaptersMeta.find((m: any) => m.chapter_key === (chTrack.chapterKey || chTrack.id));
-                                                        const hasTranscript = chMeta?.transcript_status === 'done' || (isCurrentChap && Boolean(lyricsData?.lines?.length));
-                                                        const hasArt = (chMeta?.images?.length || 0) > 0 || (isCurrentChap && totalScenes > 0);
+                                                        const hasTranscript = (chMeta?.transcription_status === 'completed' && Boolean(chMeta?.synced_lyrics)) || (isCurrentChap && Boolean(lyricsData?.lines?.length));
+                                                        const sceneCount = (chMeta?.images?.filter((i: any) => i.kept !== false)?.length || 0) || (isCurrentChap ? totalScenes : 0);
                                                         return (
                                                             <div key={`${chTrack.id}-${idx}`} className="rounded-2xl border border-zinc-800/80 bg-zinc-900/40 overflow-hidden">
                                                                 <div
@@ -4321,8 +4639,14 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                             {idx + 1}. {chTrack.title}
                                                                         </div>
                                                                         <div className="flex items-center gap-2 mt-0.5 text-xs text-zinc-500">
-                                                                            {hasTranscript && <span className="text-emerald-400 font-semibold">Transcribed</span>}
-                                                                            {hasArt && <span className="text-purple-400 font-semibold">Illustrated</span>}
+                                                                            {hasTranscript ? (
+                                                                                <span className="text-emerald-400 font-semibold">✓ STT Ready</span>
+                                                                            ) : (
+                                                                                <span className="text-zinc-500">No STT</span>
+                                                                            )}
+                                                                            {sceneCount > 0 && (
+                                                                                <span className="text-purple-400 font-semibold">• {sceneCount} Scenes</span>
+                                                                            )}
                                                                         </div>
                                                                     </div>
                                                                     {isCurrentChap && (
@@ -4364,7 +4688,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                             : 'text-zinc-400 hover:text-white'
                                                     }`}
                                                 >
-                                                    <ImageIcon size={15} /> Current Live Art
+                                                    <ImageIcon size={15} /> Current Art
                                                 </button>
                                                 <button
                                                     type="button"
@@ -4375,7 +4699,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                             : 'text-zinc-400 hover:text-white'
                                                     }`}
                                                 >
-                                                    <BookOpen size={15} /> Story Gallery ({totalScenes})
+                                                    <BookOpen size={15} /> Scenes ({totalScenes})
                                                 </button>
                                             </div>
 
@@ -4389,9 +4713,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                         {/* ── VISUAL STAGE AREA (STORYBOARD / LIVE ART / GALLERY) ── */}
                                         <div className="flex-1 min-h-0 flex flex-col justify-center overflow-hidden">
                                             {audiobookStageMode === 'storyboard' ? (
-                                                /* 1. STORYBOARD VIEW: Previous Scene (left, recessed) + Current Scene (center, prominent) + Upcoming Scene (right, recessed) */
                                                 <div className="w-full h-full flex items-center justify-center gap-3 sm:gap-5 px-2 py-1 overflow-hidden">
-                                                    {/* Previous Scene Card (Left, Slightly Smaller & Recessed) */}
                                                     <div
                                                         onClick={() => {
                                                             if (prevSceneObj && typeof prevSceneObj.startSec === 'number') {
@@ -4416,7 +4738,6 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                         </div>
                                                     </div>
 
-                                                    {/* Current Scene Card (Center, Prominent & Emphasized) */}
                                                     <div className="flex-1 max-w-xl h-full max-h-[36vh] aspect-[16/10] rounded-3xl border-2 border-amber-500/40 bg-zinc-900 overflow-hidden relative shadow-[0_20px_60px_rgba(0,0,0,0.85)] z-20 flex items-center justify-center group">
                                                         {currentPrimaryArtUrl ? (
                                                             <img
@@ -4431,13 +4752,11 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                             </div>
                                                         )}
 
-                                                        {/* Clear Badge showing if this is Scene X of Y, Chapter Art, or Book Cover */}
                                                         <div className="absolute top-3 left-3 px-3 py-1 rounded-xl bg-black/80 backdrop-blur-md border border-white/15 text-xs font-black text-amber-300">
                                                             {currentPrimaryArtBadge}
                                                         </div>
                                                     </div>
 
-                                                    {/* Upcoming Scene Card (Right, Slightly Smaller & Recessed) */}
                                                     <div
                                                         onClick={() => {
                                                             if (nextSceneObj && typeof nextSceneObj.startSec === 'number') {
@@ -4463,7 +4782,6 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                     </div>
                                                 </div>
                                             ) : audiobookStageMode === 'live_art' ? (
-                                                /* 2. CURRENT LIVE ART VIEW: Large Focused Artwork */
                                                 <div className="w-full h-full flex items-center justify-center p-2 overflow-hidden">
                                                     <div className="relative h-full max-h-[42vh] aspect-[16/10] rounded-3xl border-2 border-amber-500/40 bg-zinc-900 overflow-hidden shadow-2xl group">
                                                         {currentPrimaryArtUrl ? (
@@ -4479,19 +4797,29 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                     </div>
                                                 </div>
                                             ) : (
-                                                /* 3. STORY GALLERY VIEW: Scrollable Picturebook while audio plays */
                                                 <div className="w-full h-full overflow-y-auto custom-scrollbar p-2">
                                                     {totalScenes === 0 ? (
                                                         <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-3">
                                                             <ImageIcon size={36} className="text-zinc-600" />
                                                             <p className="text-sm font-bold text-zinc-300">No Scene Illustrations Generated Yet</p>
-                                                            <a
-                                                                href={editBookHref}
-                                                                className="px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
-                                                                title="Open Media tab to generate scene illustrations for this book"
-                                                            >
-                                                                <Edit3 size={13} /> Edit in Media
-                                                            </a>
+                                                            <div className="flex items-center gap-2">
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={Boolean(isRunningChapterStudioTask)}
+                                                                    onClick={() => handleRunInPlayerChapterTask('illustrate')}
+                                                                    className="px-4 py-2 rounded-xl bg-purple-500 hover:bg-purple-400 text-black text-xs font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                                                    title="Paint scenes for this chapter right now"
+                                                                >
+                                                                    <ImageIcon size={14} /> Paint Scenes
+                                                                </button>
+                                                                <a
+                                                                    href={editBookHref}
+                                                                    className="px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
+                                                                    title="Open Book Studio in Media tab"
+                                                                >
+                                                                    <Edit3 size={13} /> Studio
+                                                                </a>
+                                                            </div>
                                                         </div>
                                                     ) : (
                                                         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3.5">
@@ -4521,28 +4849,68 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                             )}
                                         </div>
 
-                                        {/* ── LIVE CAPTIONS / SYNCED TRANSCRIPTION READER ── */}
-                                        <div className="h-[34%] min-h-[170px] bg-zinc-900/50 border border-zinc-800/90 rounded-2xl p-4 flex flex-col overflow-hidden shrink-0">
-                                            <div className="flex items-center justify-between pb-2 mb-2 border-b border-zinc-800/80 shrink-0">
+                                        {/* ── LIVE CAPTIONS / SYNCED SPEECH-TO-TEXT TRANSCRIPTION READER ── */}
+                                        <div className="h-[34%] min-h-[175px] bg-zinc-900/50 border border-zinc-800/90 rounded-2xl p-4 flex flex-col overflow-hidden shrink-0">
+                                            <div className="flex items-center justify-between gap-2 pb-2 mb-2 border-b border-zinc-800/80 shrink-0 flex-wrap">
                                                 <span className="text-xs font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
-                                                    <BookOpen size={14} /> Live Synced Transcription
+                                                    <BookOpen size={14} /> Live Synced Speech-to-Text
                                                 </span>
-                                                {lyricsData?.lines?.length ? (
-                                                    <span className="text-xs text-zinc-400">
-                                                        Click any spoken line to jump to that moment
-                                                    </span>
-                                                ) : null}
+                                                <div className="flex items-center gap-1.5">
+                                                    <button
+                                                        type="button"
+                                                        disabled={Boolean(isRunningChapterStudioTask)}
+                                                        onClick={() => handleRunInPlayerChapterTask('transcribe')}
+                                                        className="px-2.5 py-1 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-xs font-black flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                                                        title="Run real Speech-to-Text on this chapter's audio stream"
+                                                    >
+                                                        <RefreshCw size={12} className={isRunningChapterStudioTask === 'transcribe' ? 'animate-spin' : ''} />
+                                                        <span>{lyricsData?.lines?.length ? 'Redo STT' : 'Transcribe'}</span>
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            if (!isEditingChapterTranscript) {
+                                                                setChapterTranscriptDraft(audiobookChapterMeta?.synced_lyrics || lyricsData?.syncedLyrics || '');
+                                                            }
+                                                            setIsEditingChapterTranscript(prev => !prev);
+                                                        }}
+                                                        className="px-2.5 py-1 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-black flex items-center gap-1 cursor-pointer"
+                                                        title="Manually edit or paste synced transcript lines ([mm:ss.xx] text)"
+                                                    >
+                                                        <Edit3 size={12} />
+                                                        <span>{isEditingChapterTranscript ? 'Cancel' : 'Edit'}</span>
+                                                    </button>
+                                                </div>
                                             </div>
 
                                             <div
                                                 ref={expandedLyricsContainerRef}
                                                 className="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-2 space-y-2.5"
                                             >
-                                                {isRunningChapterStudioTask === 'transcribe' ? (
+                                                {isEditingChapterTranscript ? (
+                                                    <div className="h-full flex flex-col gap-2">
+                                                        <textarea
+                                                            value={chapterTranscriptDraft}
+                                                            onChange={e => setChapterTranscriptDraft(e.target.value)}
+                                                            placeholder="[00:00.00] Paste or edit chapter transcript lines here..."
+                                                            className="flex-1 w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-sm text-zinc-200 font-mono focus:outline-none focus:border-amber-500 resize-none"
+                                                        />
+                                                        <div className="flex justify-end gap-2 shrink-0">
+                                                            <button
+                                                                type="button"
+                                                                onClick={handleSaveChapterTranscriptDraft}
+                                                                className="px-4 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-black uppercase cursor-pointer"
+                                                                title="Save Chapter Transcript"
+                                                            >
+                                                                Save Transcript
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ) : isRunningChapterStudioTask === 'transcribe' ? (
                                                     <div className="h-full flex flex-col items-center justify-center text-center gap-2">
                                                         <div className="w-6 h-6 border-2 border-amber-500/20 border-t-amber-500 rounded-full animate-spin" />
                                                         <p className="text-sm font-bold text-amber-300">
-                                                            Transcribing chapter audio with Speech-to-Text...
+                                                            Running Speech-to-Text on chapter audio...
                                                         </p>
                                                     </div>
                                                 ) : lyricsData?.lines && lyricsData.lines.length > 0 ? (
@@ -4568,15 +4936,26 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                 ) : (
                                                     <div className="h-full flex flex-col items-center justify-center text-center space-y-2.5">
                                                         <p className="text-sm font-bold text-zinc-300">
-                                                            No speech transcription generated for this chapter yet.
+                                                            {audiobookChapterMeta?.error_message || 'No Speech-to-Text transcript for this chapter yet.'}
                                                         </p>
-                                                        <a
-                                                            href={editBookHref}
-                                                            className="px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
-                                                            title="Open Media tab to transcribe and illustrate this audiobook"
-                                                        >
-                                                            <Edit3 size={13} /> Edit in Media
-                                                        </a>
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                type="button"
+                                                                disabled={Boolean(isRunningChapterStudioTask)}
+                                                                onClick={() => handleRunInPlayerChapterTask('transcribe')}
+                                                                className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                                                title="Run real Speech-to-Text on this chapter right now"
+                                                            >
+                                                                <Mic2 size={14} /> Transcribe Audio Now
+                                                            </button>
+                                                            <a
+                                                                href={editBookHref}
+                                                                className="px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
+                                                                title="Open Book Studio in Media tab"
+                                                            >
+                                                                <Edit3 size={13} /> Studio
+                                                            </a>
+                                                        </div>
                                                     </div>
                                                 )}
                                             </div>

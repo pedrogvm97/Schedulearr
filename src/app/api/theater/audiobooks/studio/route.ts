@@ -33,13 +33,17 @@ import {
     saveAudiobookCollectionsState,
     organizeAudiobookCollectionsWithAi,
     previewRenameAudiobookFiles,
-    executeRenameAudiobookFiles
+    executeRenameAudiobookFiles,
+    purgeAllFakeSvgArtFromDbAndDisk,
+    regenerateSingleAudiobookSceneImage,
+    getAudiobookTranscriptsDir
 } from '@/lib/audiobookStudio';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
     try {
+        purgeAllFakeSvgArtFromDbAndDisk();
         const { searchParams } = new URL(request.url);
         const bookKey = searchParams.get('bookKey');
         const chapterKey = searchParams.get('chapterKey');
@@ -651,41 +655,138 @@ export async function POST(request: Request) {
         }
 
         if (action === 'curate_images') {
-            const { chapterKey, toggleImageId, deleteImageId, images } = body;
+            const { chapterKey, toggleImageId, deleteImageId, imageId, subAction, images } = body;
             const chapter = getAudiobookChapterMeta(chapterKey);
             if (!chapter) {
                 return NextResponse.json({ success: false, error: 'Chapter not found' }, { status: 404 });
             }
 
+            const effectiveToggleId = toggleImageId || (subAction === 'keep' ? imageId : undefined);
+            const effectiveDeleteId = deleteImageId || (subAction === 'delete' ? imageId : undefined);
+
             let updatedImages = [...(chapter.images || [])];
             if (Array.isArray(images)) {
                 updatedImages = images;
-            } else if (toggleImageId) {
+            } else if (effectiveToggleId) {
                 updatedImages = updatedImages.map(img =>
-                    img.id === toggleImageId ? { ...img, kept: !img.kept } : img
+                    img.id === effectiveToggleId ? { ...img, kept: img.kept === false ? true : false } : img
                 );
-            } else if (deleteImageId) {
-                const target = updatedImages.find(i => i.id === deleteImageId);
+            } else if (effectiveDeleteId) {
+                const target = updatedImages.find(i => i.id === effectiveDeleteId);
                 if (target && target.url.includes('file=')) {
                     const fName = decodeURIComponent(target.url.split('file=')[1] || '');
                     const fullPath = path.join(getAudiobookArtDir(), path.basename(fName));
                     try { if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath); } catch {}
                 }
-                updatedImages = updatedImages.filter(img => img.id !== deleteImageId);
+                updatedImages = updatedImages.filter(img => img.id !== effectiveDeleteId);
             }
 
             const savedChapter = upsertAudiobookChapterMeta({
                 chapter_key: chapter.chapter_key,
                 book_key: chapter.book_key,
                 images: updatedImages,
-                illustration_status: updatedImages.some(i => i.kept) ? 'completed' : 'idle'
+                illustration_status: updatedImages.some(i => i.kept !== false) ? 'completed' : 'idle'
             });
+            recalculateAudiobookTotals(chapter.book_key);
 
             return NextResponse.json({
                 success: true,
                 chapter: savedChapter,
                 chapters: getAudiobookChaptersMeta(chapter.book_key),
                 book: getAudiobookMeta(chapter.book_key)
+            });
+        }
+
+        if (action === 'update_chapter_transcript') {
+            const { chapterKey, bookKey, chapterTitle, chapterIndex, filePath, durationSec, syncedLyrics, plainTranscript } = body;
+            if (!chapterKey) {
+                return NextResponse.json({ success: false, error: 'Missing chapterKey' }, { status: 400 });
+            }
+            const resolvedBookKey = bookKey || `book_for_${chapterKey}`;
+            let chapter = getAudiobookChapterMeta(chapterKey);
+            if (!chapter) {
+                chapter = upsertAudiobookChapterMeta({
+                    chapter_key: chapterKey,
+                    book_key: resolvedBookKey,
+                    chapter_index: Number(chapterIndex || 1),
+                    title: chapterTitle || 'Chapter 1',
+                    file_path: filePath || undefined,
+                    duration_sec: Number(durationSec || 300)
+                });
+            }
+            const cleanLrc = String(syncedLyrics ?? '').trim();
+            const cleanPlain = String(plainTranscript ?? cleanLrc.replace(/\[\d+:\d+(?:\.\d+)?\]\s*/g, '')).trim();
+            const safeChapterId = chapter.chapter_key.replace(/[^a-zA-Z0-9_-]/g, '_');
+            const lrcPath = path.join(getAudiobookTranscriptsDir(), `${safeChapterId}.lrc`);
+            const txtPath = path.join(getAudiobookTranscriptsDir(), `${safeChapterId}.txt`);
+            try {
+                if (cleanLrc) {
+                    fs.writeFileSync(lrcPath, cleanLrc, 'utf8');
+                    fs.writeFileSync(txtPath, cleanPlain, 'utf8');
+                }
+            } catch {}
+
+            const savedChapter = upsertAudiobookChapterMeta({
+                chapter_key: chapter.chapter_key,
+                book_key: bookKey || chapter.book_key,
+                synced_lyrics: cleanLrc,
+                plain_transcript: cleanPlain,
+                transcript_lrc_path: cleanLrc ? lrcPath : '',
+                transcript_txt_path: cleanLrc ? txtPath : '',
+                transcription_status: cleanLrc ? 'completed' : 'idle',
+                transcription_progress: cleanLrc ? 100 : 0,
+                error_message: ''
+            });
+            recalculateAudiobookTotals(savedChapter.book_key);
+            return NextResponse.json({
+                success: true,
+                chapter: savedChapter,
+                chapters: getAudiobookChaptersMeta(savedChapter.book_key),
+                book: getAudiobookMeta(savedChapter.book_key)
+            });
+        }
+
+        if (action === 'regenerate_single_scene') {
+            const { bookKey, bookTitle, author, chapterKey, chapterTitle, chapterIndex, filePath, durationSec, imageId, sceneIndex, customPrompt, sceneTitle, startSec, endSec, artType } = body;
+            if (!bookKey || !chapterKey) {
+                return NextResponse.json({ success: false, error: 'Missing bookKey or chapterKey' }, { status: 400 });
+            }
+            if (!getAudiobookMeta(bookKey)) {
+                upsertAudiobookMeta({
+                    book_key: bookKey,
+                    title: bookTitle || 'Audiobook',
+                    author: author || 'Unknown Author',
+                    total_chapters: 1
+                });
+            }
+            if (!getAudiobookChapterMeta(chapterKey)) {
+                upsertAudiobookChapterMeta({
+                    chapter_key: chapterKey,
+                    book_key: bookKey,
+                    chapter_index: Number(chapterIndex || 1),
+                    title: chapterTitle || 'Chapter 1',
+                    file_path: filePath || undefined,
+                    duration_sec: Number(durationSec || 300)
+                });
+            }
+            const updatedChapter = await regenerateSingleAudiobookSceneImage({
+                bookKey,
+                chapterKey,
+                imageId,
+                sceneIndex: sceneIndex !== undefined ? Number(sceneIndex) : undefined,
+                customPrompt,
+                sceneTitle,
+                startSec: startSec !== undefined ? Number(startSec) : undefined,
+                endSec: endSec !== undefined ? Number(endSec) : undefined,
+                artType
+            });
+            recalculateAudiobookTotals(bookKey);
+            return NextResponse.json({
+                success: true,
+                chapter: updatedChapter,
+                chapters: getAudiobookChaptersMeta(bookKey),
+                book: getAudiobookMeta(bookKey),
+                status: getAudiobookStudioStatus()
             });
         }
 

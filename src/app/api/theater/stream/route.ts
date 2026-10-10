@@ -169,6 +169,129 @@ function getMimeType(filePath: string): string {
     }
 }
 
+function buildAudioVoiceFilter(voicePreset: string): string {
+    switch (voicePreset) {
+        case 'clear_voice':
+        case 'denoise_clarity':
+            return 'highpass=f=80,lowpass=f=13500,afftdn=nf=-24,equalizer=f=3000:width_type=h:width=1200:g=3.5,dynaudnorm=f=150:g=13';
+        case 'warm_bass':
+        case 'warm_storyteller':
+            return 'highpass=f=70,lowpass=f=13500,asetrate=44100*0.96,aresample=44100,atempo=1.0417,equalizer=f=190:width_type=h:width=110:g=5,dynaudnorm=f=150:g=13';
+        case 'deep_pitch':
+        case 'deep_narrator':
+        case 'deep_cinema':
+            return 'highpass=f=65,lowpass=f=13000,asetrate=44100*0.91,aresample=44100,atempo=1.0989,equalizer=f=145:width_type=h:width=100:g=4.5,dynaudnorm=f=150:g=13';
+        case 'crisp_treble':
+        case 'crisp_clear':
+        case 'crisp_modern':
+            return 'highpass=f=90,lowpass=f=15500,equalizer=f=3500:width_type=h:width=1300:g=5,acompressor=threshold=-18dB:ratio=2.5:attack=15:release=180,dynaudnorm=f=150:g=13';
+        case 'bright_pitch':
+        case 'soft_velvet':
+        case 'velvet_narrator':
+            return 'highpass=f=80,lowpass=f=12500,asetrate=44100*1.05,aresample=44100,atempo=0.9524,equalizer=f=240:width_type=h:width=120:g=2.5,dynaudnorm=f=150:g=13';
+        case 'night_compress':
+        case 'late_night_radio':
+            return 'highpass=f=75,lowpass=f=11500,equalizer=f=170:width_type=h:width=110:g=3.5,acompressor=threshold=-20dB:ratio=3.5:attack=10:release=150,dynaudnorm=f=120:g=15';
+        default:
+            return '';
+    }
+}
+
+async function spawnLiveAudioVoiceStream(
+    req: NextRequest,
+    inputSource: string,
+    startTime: string,
+    voicePreset: string
+): Promise<Response | null> {
+    try {
+        const { ffmpegPath } = ensureFfmpegBinaries();
+        const voiceFilter = buildAudioVoiceFilter(voicePreset);
+        const ffmpegArgs = [
+            ...(parseFloat(startTime) > 0 ? ['-ss', startTime] : []),
+            '-i', inputSource,
+            '-vn',
+            ...(voiceFilter ? ['-af', voiceFilter] : []),
+            '-c:a', 'libmp3lame',
+            '-b:a', '192k',
+            '-ar', '44100',
+            '-id3v2_version', '3',
+            '-f', 'mp3',
+            'pipe:1'
+        ];
+
+        const ffmpeg = spawn(ffmpegPath, ffmpegArgs);
+        let isClosed = false;
+        const safeEnqueue = (chunk: Uint8Array | Buffer, controller: any) => {
+            if (isClosed) return;
+            try {
+                controller.enqueue(chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk));
+            } catch {
+                isClosed = true;
+            }
+        };
+        const safeClose = (controller: any) => {
+            if (isClosed) return;
+            isClosed = true;
+            try { controller.close(); } catch {}
+        };
+        const safeError = (err: any, controller: any) => {
+            if (isClosed) return;
+            isClosed = true;
+            try { controller.error(err); } catch {}
+        };
+
+        req.signal.addEventListener('abort', () => {
+            isClosed = true;
+            try { ffmpeg.kill('SIGKILL'); } catch {}
+        });
+
+        let firstChunk: Buffer | null = null;
+        await new Promise<void>((resolve, reject) => {
+            const onData = (chunk: Buffer) => {
+                firstChunk = chunk;
+                ffmpeg.stdout.off('data', onData);
+                resolve();
+            };
+            ffmpeg.stdout.on('data', onData);
+            ffmpeg.once('error', reject);
+            ffmpeg.once('close', (code) => {
+                if (!firstChunk) reject(new Error(`FFmpeg exited with code ${code} without audio output`));
+            });
+            setTimeout(() => {
+                if (!firstChunk) reject(new Error('Audio transcode startup timeout'));
+            }, 6000);
+        });
+
+        const webStream = new ReadableStream({
+            start(controller) {
+                if (firstChunk) safeEnqueue(firstChunk, controller);
+                ffmpeg.stdout.on('data', (chunk: Buffer) => safeEnqueue(chunk, controller));
+                ffmpeg.stdout.on('end', () => safeClose(controller));
+                ffmpeg.stdout.on('error', (err) => safeError(err, controller));
+                ffmpeg.on('error', (err) => safeError(err, controller));
+            },
+            cancel() {
+                isClosed = true;
+                try { ffmpeg.kill('SIGKILL'); } catch {}
+            }
+        });
+
+        return new Response(webStream as any, {
+            status: 200,
+            headers: {
+                'Content-Type': 'audio/mpeg',
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Accept-Ranges': 'none',
+                'Access-Control-Allow-Origin': '*',
+                'X-Stream-Engine': `Live FFmpeg Audio DSP (${voicePreset || 'mp3'})`
+            }
+        });
+    } catch (err: any) {
+        console.warn('[FFmpeg Live Audio Voice Stream] Fallback to direct stream:', err?.message);
+        return null;
+    }
+}
+
 export async function GET(req: NextRequest) {
     try {
         const { searchParams } = new URL(req.url);
@@ -282,6 +405,11 @@ export async function GET(req: NextRequest) {
             const directPlexUrl = `${plexUrlBase}${normalizedPlexPart}${sep}X-Plex-Token=${plex.api_key}`;
 
             if (isAudioFile) {
+                if (voicePreset && voicePreset !== 'original') {
+                    const dspRes = await spawnLiveAudioVoiceStream(req, directPlexUrl, startTime, voicePreset);
+                    if (dspRes) return dspRes;
+                }
+
                 // Audio file stream from Plex
                 if (transcode === 'audio' || transcode === 'mp3') {
                     const plexMusicUrl = `${plexUrlBase}/music/:/transcode/universal/start.mp3?path=${encodeURIComponent(normalizedPlexPart)}&mediaIndex=0&partIndex=0&protocol=http&directPlay=0&directStream=1&directStreamAudio=1&fastSeek=1&copyts=1&X-Plex-Token=${plex.api_key}`;
@@ -491,6 +619,11 @@ export async function GET(req: NextRequest) {
                         const sep = normalizedPlexPart.includes('?') ? '&' : '?';
                         const directPlexUrl = `${plexUrlBase}${normalizedPlexPart}${sep}X-Plex-Token=${plex.api_key}`;
 
+                        if (voicePreset && voicePreset !== 'original') {
+                            const dspRes = await spawnLiveAudioVoiceStream(req, directPlexUrl, startTime, voicePreset);
+                            if (dspRes) return dspRes;
+                        }
+
                         const reqHeaders: Record<string, string> = { 'X-Plex-Token': plex.api_key };
                         const clientRange = req.headers.get('range');
                         if (clientRange) reqHeaders['Range'] = clientRange;
@@ -611,18 +744,7 @@ export async function GET(req: NextRequest) {
         if (isAudio && (hasVoiceFilter || ((ext !== '.mp3' || parseFloat(startTime) > 0) && (transcode === 'audio' || transcode === 'aac' || transcode === 'mp3' || transcode === 'true')))) {
             try {
                 const { ffmpegPath } = ensureFfmpegBinaries();
-                let voiceFilter = '';
-                if (voicePreset === 'deep_narrator' || voicePreset === 'deep_cinema') {
-                    voiceFilter = 'highpass=f=70,lowpass=f=13500,asetrate=44100*0.90,aresample=44100,atempo=1.1111,equalizer=f=150:width_type=h:width=100:g=4.5,dynaudnorm=f=150:g=13';
-                } else if (voicePreset === 'warm_storyteller') {
-                    voiceFilter = 'highpass=f=75,lowpass=f=14000,asetrate=44100*0.95,aresample=44100,atempo=1.0526,equalizer=f=210:width_type=h:width=120:g=3.5,dynaudnorm=f=150:g=13';
-                } else if (voicePreset === 'crisp_clear' || voicePreset === 'crisp_modern') {
-                    voiceFilter = 'highpass=f=85,lowpass=f=15500,asetrate=44100*1.03,aresample=44100,atempo=0.9709,equalizer=f=3400:width_type=h:width=1200:g=4.5,acompressor=threshold=-18dB:ratio=2.5:attack=15:release=180,dynaudnorm=f=150:g=13';
-                } else if (voicePreset === 'soft_velvet' || voicePreset === 'velvet_narrator') {
-                    voiceFilter = 'highpass=f=80,lowpass=f=11000,asetrate=44100*1.05,aresample=44100,atempo=0.9524,equalizer=f=240:width_type=h:width=120:g=3,dynaudnorm=f=150:g=13';
-                } else if (voicePreset === 'late_night_radio') {
-                    voiceFilter = 'highpass=f=70,lowpass=f=11500,asetrate=44100*0.93,aresample=44100,atempo=1.0753,equalizer=f=160:width_type=h:width=110:g=4,acompressor=threshold=-16dB:ratio=3:attack=10:release=150,dynaudnorm=f=150:g=13';
-                }
+                const voiceFilter = buildAudioVoiceFilter(voicePreset);
 
                 const ffmpegArgs = [
                     ...(parseFloat(startTime) > 0 ? ['-ss', startTime] : []),

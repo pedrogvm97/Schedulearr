@@ -7901,19 +7901,20 @@ function TheaterPageContent() {
                                 <div className="pt-3 flex items-center justify-center sm:justify-start gap-3 flex-wrap">
                                     <div className="flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-zinc-950 border border-zinc-800">
                                         <Headphones size={15} className="text-emerald-400 shrink-0" />
-                                        <span className="text-xs font-black uppercase tracking-wider text-zinc-400">Voice:</span>
+                                        <span className="text-xs font-black uppercase tracking-wider text-zinc-400">Filter:</span>
                                         <select
                                             value={bMeta?.voice_preset || 'original'}
                                             onChange={(e) => handleSaveBookStudioSettings(selectedAudiobook, { voicePreset: e.target.value })}
                                             className="bg-transparent text-xs sm:text-sm font-bold text-white focus:outline-none cursor-pointer"
-                                            title="Select default narrator voice preset for playback"
+                                            title="Select default audio filter preset for playback"
                                         >
-                                            <option value="original" className="bg-zinc-900 text-white">Original Narrator</option>
-                                            <option value="warm_storyteller" className="bg-zinc-900 text-white">Warm Fireside Storyteller</option>
-                                            <option value="deep_narrator" className="bg-zinc-900 text-white">Deep Resonant Baritone</option>
-                                            <option value="crisp_clear" className="bg-zinc-900 text-white">Crisp Studio Articulation</option>
-                                            <option value="soft_velvet" className="bg-zinc-900 text-white">Soft Velvet Reader</option>
-                                            <option value="late_night_radio" className="bg-zinc-900 text-white">Late-Night FM Radio</option>
+                                            <option value="original" className="bg-zinc-900 text-white">Original Audio</option>
+                                            <option value="clear_voice" className="bg-zinc-900 text-white">Clear Voice (Vocal Boost)</option>
+                                            <option value="warm_bass" className="bg-zinc-900 text-white">Warm Studio (Rich Bass)</option>
+                                            <option value="deep_pitch" className="bg-zinc-900 text-white">Deeper Voice (-8% Pitch)</option>
+                                            <option value="crisp_treble" className="bg-zinc-900 text-white">Crisp Treble</option>
+                                            <option value="bright_pitch" className="bg-zinc-900 text-white">Higher Voice (+6% Pitch)</option>
+                                            <option value="night_compress" className="bg-zinc-900 text-white">Night Leveler</option>
                                         </select>
                                     </div>
 

@@ -8,6 +8,11 @@ import { initAutoUpdater } from '@/lib/autoUpdater';
 export const dynamic = 'force-dynamic';
 
 const FALLBACK_GIT_NOTES = [
+  '• [v0.6.14] Purge fake Wikipedia/literary transcripts, wire instant 0ms WebAudio live audio filter presets + .m4a file export, and redesign Master-Detail Audiobook Chapters & Scenes Studio',
+  '  - Remove Wikipedia/Gutenberg literary summary fallback from transcription pipeline and automatically detect & purge fake/Wikipedia transcripts from SQLite and .lrc/.txt sidecars so only real Speech-to-Text or genuine local sidecars are shown',
+  '  - Replace roleplay voice names with honest Audio Filter presets (Original Audio, Clear Voice, Warm Studio, Deeper Voice -8%, Crisp Treble, Higher Voice +6%, Night Leveler) wired to live 0ms WebAudio DSP + pitch shift and permanent .m4a file export',
+  '  - Redesign Media -> Audiobooks with interactive Chapter & Scene breakdown pills on every book card and a Master-Detail Chapters & Scenes Studio showing time-windowed scenes, editable scene prompts, single-scene repainting, and inline transcript editing',
+  '• [v0.6.13] Interactive real-time /tasks control panel with inline quotas, limits, schedules, book queue actions, and explicit idle/quota status',
   '• [v0.6.12] Fix Audiobook transcription generation & Plex stream resolution, and add AI Vision & literary image validation with automatic prompt rewriting to prevent nightmare-fuel illustrations',
   '  - Resolve both local container audio paths and direct Plex HTTP audio streams so FFmpeg audio extraction and Speech-to-Text work across local and Plex-backed Audiobook libraries',
   '  - Add 4-tier transcription pipeline (Local Sidecar .LRC/.TXT -> Cloud STT via Gemini/Groq/OpenAI in 300s chunks -> Free HuggingFace Whisper Large v3 Turbo Space -> Project Gutenberg verbatim full-text & literary chapter alignment synced to FFmpeg speech cadence)',

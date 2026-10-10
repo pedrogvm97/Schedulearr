@@ -1679,18 +1679,40 @@ export const resolveChapterAudioStreamSource = async (
     return { inputSource: undefined, localPath: undefined, isRemoteUrl: false };
 };
 
-const isFakePlaceholderTranscript = (text?: string): boolean => {
+export const isFakePlaceholderTranscript = (text?: string): boolean => {
     if (!text) return false;
-    return (
+    const lower = text.toLowerCase();
+    if (
         text.includes('The narrator establishes the setting') ||
         text.includes('Opening narration —') ||
-        text.includes('Characters and immediate surroundings come into sharp focus')
-    );
+        text.includes('Characters and immediate surroundings come into sharp focus') ||
+        text.includes('pronounced [') ||
+        lower.includes('also translated as ') ||
+        lower.includes('is a novella by ') ||
+        lower.includes('is a novel by ') ||
+        lower.includes('best-known works') ||
+        lower.includes('tells the story of salesman') ||
+        lower.includes('published in 1915') ||
+        lower.includes('from wikipedia')
+    ) {
+        return true;
+    }
+    // Detect fake repeated-sentence transcripts (where the same sentence is stamped at multiple timestamps)
+    const lines = text
+        .split('\n')
+        .map(l => l.replace(/^\[\d+:\d+(?:\.\d+)?\]\s*/, '').trim())
+        .filter(l => l.length > 25);
+    if (lines.length >= 2) {
+        const unique = new Set(lines.map(l => l.toLowerCase()));
+        if (unique.size < Math.ceil(lines.length * 0.6)) {
+            return true;
+        }
+    }
+    return false;
 };
 
 /**
- * Uses FFmpeg `silencedetect` on an audio file/stream to find real speech segment start times,
- * allowing accurate timestamp alignment when syncing literary chapter text to audio.
+ * Uses FFmpeg `silencedetect` on an audio file/stream to find real speech segment start times.
  */
 const detectSpeechCadenceTimestamps = async (
     inputSource: string | undefined,
@@ -1754,173 +1776,78 @@ const detectSpeechCadenceTimestamps = async (
 };
 
 /**
- * Fetches verbatim public-domain chapter text from Project Gutenberg (Gutendex API)
- * or constructs a faithful chapter text from discovered literary structure when cloud STT is unavailable.
- */
-const fetchVerbatimOrLiteraryChapterText = async (
-    book: AudiobookBookMeta,
-    chapter: AudiobookChapterMeta,
-    totalChapters: number
-): Promise<{ sentences: string[]; sourceLabel: string } | null> => {
-    const cleanTitle = (book.title || '').replace(/\s*\(.*?\)\s*/g, '').trim();
-    const cleanAuthor = (book.author || '').replace(/^Unknown Author$/i, '').split(',')[0].trim();
-
-    // 1. Try Project Gutenberg verbatim full-text lookup via Gutendex
-    const searchQueries = [
-        `${cleanTitle} ${cleanAuthor}`.trim(),
-        cleanTitle
-    ].filter(Boolean);
-
-    for (const q of searchQueries) {
-        try {
-            const gRes = await axios.get(`https://gutendex.com/books?search=${encodeURIComponent(q)}`, { timeout: 10000 });
-            const results = Array.isArray(gRes.data?.results) ? gRes.data.results : [];
-            const matchedBook = results.find((r: any) =>
-                String(r.title || '').toLowerCase().includes(cleanTitle.toLowerCase())
-            ) || results[0];
-
-            if (matchedBook?.formats) {
-                const txtUrl =
-                    matchedBook.formats['text/plain; charset=utf-8'] ||
-                    matchedBook.formats['text/plain; charset=us-ascii'] ||
-                    matchedBook.formats['text/plain'] ||
-                    Object.entries(matchedBook.formats).find(([k, v]) => k.startsWith('text/plain') && typeof v === 'string' && !String(v).endsWith('.zip'))?.[1];
-
-                if (txtUrl && typeof txtUrl === 'string') {
-                    const txtResp = await axios.get(txtUrl, { responseType: 'text', timeout: 15000 });
-                    let fullBody = String(txtResp.data || '');
-                    // Strip Project Gutenberg header and footer boilerplate
-                    const startMarker = fullBody.search(/\*\*\*\s*START OF (THE|THIS) PROJECT GUTENBERG/i);
-                    if (startMarker !== -1) {
-                        const afterHeader = fullBody.indexOf('\n', startMarker);
-                        if (afterHeader !== -1) fullBody = fullBody.slice(afterHeader + 1);
-                    }
-                    const endMarker = fullBody.search(/\*\*\*\s*END OF (THE|THIS) PROJECT GUTENBERG/i);
-                    if (endMarker !== -1) {
-                        fullBody = fullBody.slice(0, endMarker);
-                    }
-                    fullBody = fullBody.replace(/\r\n/g, '\n').trim();
-
-                    if (fullBody.length > 500) {
-                        const chapIndex0 = Math.max(0, (chapter.chapter_index || 1) - 1);
-                        const effTotal = Math.max(totalChapters || 1, book.total_chapters || 1, 1);
-
-                        // Try splitting by Roman numeral or "CHAPTER" headings first
-                        const headingRegex = /\n\s*(?:CHAPTER\s+[IVXLCDM0-9]+|[IVXLCDM]{1,6})\s*\n/g;
-                        const splits = fullBody.split(headingRegex).map(s => s.trim()).filter(s => s.length > 400);
-
-                        let chapterSlice = '';
-                        if (splits.length >= effTotal && splits[chapIndex0]) {
-                            chapterSlice = splits[chapIndex0];
-                        } else {
-                            const sliceLen = Math.floor(fullBody.length / effTotal);
-                            const startPos = chapIndex0 * sliceLen;
-                            chapterSlice = fullBody.slice(startPos, startPos + sliceLen);
-                        }
-
-                        const rawSentences = chapterSlice
-                            .replace(/\s+/g, ' ')
-                            .split(/(?<=[.!?])\s+/)
-                            .map(s => s.trim())
-                            .filter(s => s.length >= 12 && !isFakePlaceholderTranscript(s));
-
-                        if (rawSentences.length >= 5) {
-                            return {
-                                sentences: rawSentences.slice(0, 260),
-                                sourceLabel: 'Project Gutenberg Verbatim Text + Audio Cadence Sync'
-                            };
-                        }
-                    }
-                }
-            }
-        } catch {}
-    }
-
-    // 2. Fallback: Use discovered real book structure + AI / Wikipedia chapter narrative sentences
-    let currentBook = book;
-    if (!currentBook.real_structure_json) {
-        try {
-            await discoverBookRealStructureWithAi(currentBook);
-            currentBook = getAudiobookMeta(book.book_key) || book;
-        } catch {}
-    }
-
-    if (currentBook.real_structure_json) {
-        try {
-            const st: BookRealStructure = JSON.parse(currentBook.real_structure_json);
-            const chapIdx0 = Math.max(0, (chapter.chapter_index || 1) - 1);
-            const matchedChap = st.chapters?.[chapIdx0] || st.chapters?.[chapIdx0 % Math.max(1, (st.chapters || []).length)];
-            if (matchedChap) {
-                const llmRes = await callStudioTextLlmWithFailover({
-                    prompt: [
-                        `Write a detailed, faithful 25-sentence spoken narration transcript for Chapter "${chapter.title}" (${matchedChap.title}) of "${book.title}" by ${book.author}.`,
-                        `Chapter context: ${matchedChap.summary}`,
-                        `Scenes in this chapter: ${(matchedChap.scenes || []).map(s => `${s.title} (${s.visualSetting}): ${s.summary}`).join(' | ')}`,
-                        `Write in the literary style and voice of ${book.author}, following the exact chronological events of this chapter. Output ONLY the narrative sentences separated by periods, with no headers or bullet points.`
-                    ].join('\n'),
-                    task: 'transcription',
-                    maxTokens: 1400,
-                    temperature: 0.4,
-                    description: `Literary chapter alignment for "${book.title}" — ${chapter.title}`
-                });
-
-                if (llmRes?.text && llmRes.text.length > 80) {
-                    const sentences = llmRes.text
-                        .replace(/\r?\n/g, ' ')
-                        .split(/(?<=[.!?])\s+/)
-                        .map(s => s.replace(/^\[\d+:\d+(?:\.\d+)?\]\s*/, '').trim())
-                        .filter(s => s.length >= 10 && !isFakePlaceholderTranscript(s));
-                    if (sentences.length >= 4) {
-                        return {
-                            sentences,
-                            sourceLabel: `${llmRes.providerUsed} Literary Alignment`
-                        };
-                    }
-                }
-
-                // Deterministic real-structure scene narrative if all cloud LLMs are offline
-                const sceneSentences: string[] = [];
-                if (matchedChap.summary) {
-                    sceneSentences.push(...matchedChap.summary.split(/(?<=[.!?])\s+/).filter(Boolean));
-                }
-                for (const sc of (matchedChap.scenes || [])) {
-                    if (sc.summary) {
-                        sceneSentences.push(...sc.summary.split(/(?<=[.!?])\s+/).filter(Boolean));
-                    }
-                }
-                if (sceneSentences.length >= 2) {
-                    return {
-                        sentences: sceneSentences,
-                        sourceLabel: 'Literary Chapter Structure Sync'
-                    };
-                }
-            }
-        } catch {}
-    }
-
-    return null;
-};
-
-/**
- * Free HuggingFace Whisper ASR Space fallback for extracted MP3 audio chunks
- * when no paid Cloud STT key is configured or when cloud keys hit rate limits.
+ * Attempts local Whisper CLI (`whisper` or `faster-whisper`) or Free HuggingFace Whisper ASR Spaces
+ * on an extracted MP3 audio chunk when no cloud STT key is configured or when cloud keys hit limits.
+ * Strictly returns ONLY real Speech-to-Text from the actual audio chunk—NEVER Wikipedia or web text.
  */
 const transcribeChunkViaFreeWhisperSpace = async (
     tmpSamplePath: string,
     startOffsetSec: number,
     currentChunkLenSec: number
 ): Promise<{ lrcLines: string[]; plainParts: string[]; providerLabel: string } | null> => {
+    // 1. Try local whisper CLI if installed on host/container
+    try {
+        const outDir = path.dirname(tmpSamplePath);
+        const baseName = path.basename(tmpSamplePath, path.extname(tmpSamplePath));
+        const srtOut = path.join(outDir, `${baseName}.srt`);
+        const ranLocal = await new Promise<boolean>((resolve) => {
+            const proc = spawn('whisper', [
+                tmpSamplePath,
+                '--model', 'tiny',
+                '--output_format', 'srt',
+                '--output_dir', outDir,
+                '--threads', '1'
+            ]);
+            const t = setTimeout(() => {
+                try { proc.kill('SIGKILL'); } catch {}
+                resolve(false);
+            }, 60000);
+            proc.on('close', (code) => {
+                clearTimeout(t);
+                resolve(code === 0 && fs.existsSync(srtOut));
+            });
+            proc.on('error', () => {
+                clearTimeout(t);
+                resolve(false);
+            });
+        });
+        if (ranLocal && fs.existsSync(srtOut)) {
+            const rawSrt = fs.readFileSync(srtOut, 'utf8');
+            try { fs.unlinkSync(srtOut); } catch {}
+            const blocks = rawSrt.split(/\r?\n\r?\n/);
+            const lrcLines: string[] = [];
+            const plainParts: string[] = [];
+            for (const b of blocks) {
+                const m = b.match(/(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->[\s\S]*?\r?\n([\s\S]+)/);
+                if (m) {
+                    const relSec = parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60 + parseInt(m[3], 10) + parseInt(m[4], 10) / 1000;
+                    const txt = m[5].replace(/\r?\n/g, ' ').trim();
+                    if (txt && !isFakePlaceholderTranscript(txt)) {
+                        lrcLines.push(`${formatLrcTimestamp(startOffsetSec + relSec)} ${txt}`);
+                        plainParts.push(txt);
+                    }
+                }
+            }
+            if (lrcLines.length > 0) {
+                return { lrcLines, plainParts, providerLabel: 'Local Whisper CLI' };
+            }
+        }
+    } catch {}
+
+    // 2. Try HuggingFace Gradio Whisper ASR Spaces (both /gradio_api and root API paths)
     const spaces = [
-        'https://hf-audio-whisper-large-v3-turbo.hf.space',
-        'https://openai-whisper.hf.space'
+        { base: 'https://hf-audio-whisper-large-v3-turbo.hf.space', apiPrefix: '/gradio_api', fnName: 'predict' },
+        { base: 'https://openai-whisper.hf.space', apiPrefix: '/gradio_api', fnName: 'predict' },
+        { base: 'https://hf-audio-whisper-large-v3.hf.space', apiPrefix: '/gradio_api', fnName: 'predict' },
+        { base: 'https://hf-audio-whisper-large-v3-turbo.hf.space', apiPrefix: '', fnName: 'predict' }
     ];
 
-    for (const spaceBase of spaces) {
+    for (const sp of spaces) {
         try {
             const FormData = (await import('form-data')).default;
             const uploadForm = new FormData();
             uploadForm.append('files', fs.createReadStream(tmpSamplePath));
-            const upResp = await axios.post(`${spaceBase}/gradio_api/upload`, uploadForm, {
+            const upResp = await axios.post(`${sp.base}${sp.apiPrefix}/upload`, uploadForm, {
                 headers: uploadForm.getHeaders(),
                 timeout: 20000
             });
@@ -1928,7 +1855,7 @@ const transcribeChunkViaFreeWhisperSpace = async (
             if (!uploadedPath) continue;
 
             const callResp = await axios.post(
-                `${spaceBase}/gradio_api/call/predict`,
+                `${sp.base}${sp.apiPrefix}/call/${sp.fnName}`,
                 {
                     data: [
                         { path: uploadedPath, orig_name: path.basename(tmpSamplePath), meta: { _type: 'gradio.FileData' } },
@@ -1940,7 +1867,7 @@ const transcribeChunkViaFreeWhisperSpace = async (
             const eventId = callResp.data?.event_id;
             if (!eventId) continue;
 
-            const sseResp = await axios.get(`${spaceBase}/gradio_api/call/predict/${eventId}`, {
+            const sseResp = await axios.get(`${sp.base}${sp.apiPrefix}/call/${sp.fnName}/${eventId}`, {
                 timeout: 65000,
                 responseType: 'text'
             });
@@ -1950,7 +1877,7 @@ const transcribeChunkViaFreeWhisperSpace = async (
                 try {
                     const parsed = JSON.parse(dLine.slice(6));
                     const rawText = String(Array.isArray(parsed) ? parsed[0] : (parsed?.text || '')).trim();
-                    if (rawText && rawText.length > 15 && !isFakePlaceholderTranscript(rawText)) {
+                    if (rawText && rawText.length > 10 && !isFakePlaceholderTranscript(rawText)) {
                         const sentences = rawText.split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(Boolean);
                         const lrcLines: string[] = [];
                         const plainParts: string[] = [];
@@ -1976,11 +1903,8 @@ const transcribeChunkViaFreeWhisperSpace = async (
 
 /**
  * Server-persisted real Speech-to-Text & time-synced transcription engine:
- * 1. Resolves both local audio files AND remote Plex audio streams so FFmpeg can always extract audio.
- * 2. Tier 1: Local sidecar `.lrc` / `.txt` next to the audio file.
- * 3. Tier 2: Configured AI keys in priority/failover order (Gemini 2.0/1.5 Flash/Pro Audio, Groq Whisper, OpenAI Whisper) in 300s chunks.
- * 4. Tier 3: Free HuggingFace Whisper Large v3 Turbo Space on extracted audio chunks.
- * 5. Tier 4: Verbatim Project Gutenberg full-text / Literary Chapter Alignment synced to FFmpeg `silencedetect` speech cadence.
+ * STRICT POLICY: ONLY real Speech-to-Text from the audio stream (or genuine local sidecar .lrc/.txt) is accepted.
+ * NEVER substitutes Wikipedia summaries, book blurbs, or LLM-invented sentences.
  */
 export const transcribeAudiobookChapter = async (
     book: AudiobookBookMeta,
@@ -2011,7 +1935,7 @@ export const transcribeAudiobookChapter = async (
         activeChapterTitle: chapter.title,
         activeTask: 'transcribing',
         progress: 5,
-        lastLog: `Preparing audio stream for "${book.title}" — ${chapter.title}...`
+        lastLog: `Extracting audio stream for "${book.title}" — ${chapter.title}...`
     });
 
     upsertAudiobookChapterMeta({
@@ -2093,8 +2017,10 @@ export const transcribeAudiobookChapter = async (
     const freshConfig = getAudiobookStudioConfig();
     const sttCandidates = getCandidateStudioKeys(freshConfig, ['gemini', 'groq', 'openai']);
 
-    const chunkDurationSec = 300;
-    const totalToTranscribeSec = Math.min(Math.max(durationSec, 60), 3600);
+    // Use 180s chunks when cloud STT keys exist, or 60s chunks for free Whisper Spaces so uploads never time out
+    const chunkDurationSec = sttCandidates.length > 0 ? 180 : 60;
+    const maxDurationCap = sttCandidates.length > 0 ? 3600 : 900;
+    const totalToTranscribeSec = Math.min(Math.max(durationSec, 60), maxDurationCap);
     const numChunks = Math.max(1, Math.ceil(totalToTranscribeSec / chunkDurationSec));
     const allLrcLines: string[] = [];
     const allPlainParts: string[] = [];
@@ -2102,7 +2028,9 @@ export const transcribeAudiobookChapter = async (
     let winningProviderLabel = '';
     let lastSttError = '';
 
-    if (ffmpegInputSource) {
+    if (!ffmpegInputSource) {
+        lastSttError = `Could not resolve audio stream for "${chapter.title}" (neither local path nor Plex stream reachable).`;
+    } else {
         for (let chunkIdx = 0; chunkIdx < numChunks; chunkIdx++) {
             const startOffsetSec = chunkIdx * chunkDurationSec;
             const currentChunkLenSec = Math.min(chunkDurationSec, totalToTranscribeSec - startOffsetSec);
@@ -2157,9 +2085,9 @@ export const transcribeAudiobookChapter = async (
                             const audioB64 = fs.readFileSync(tmpSample).toString('base64');
                             const sttPrompt = [
                                 `You are a verbatim Speech-to-Text audio transcriber.`,
-                                `Transcribe the spoken words in this audio recording from "${book.title}" by ${book.author} (Section: "${chapter.title}") word-for-word in the exact language spoken by the narrator.`,
+                                `Transcribe the spoken words in this audio recording word-for-word in the exact language spoken by the narrator.`,
                                 `STRICT RULES:`,
-                                `1. Output ONLY the actual spoken words heard in the audio—do NOT summarize, do NOT describe the narrator, and do NOT invent text.`,
+                                `1. Output ONLY the actual spoken words heard in the audio—do NOT summarize, do NOT output book descriptions or Wikipedia text, and do NOT invent text.`,
                                 `2. Format every spoken sentence or phrase on its own line starting with its relative timestamp in [MM:SS.xx] format (starting at [00:00.00]).`,
                                 `3. Output ONLY the [MM:SS.xx] transcript lines.`
                             ].join('\n');
@@ -2177,7 +2105,7 @@ export const transcribeAudiobookChapter = async (
                                                     { inlineData: { mimeType: 'audio/mp3', data: audioB64 } }
                                                 ]
                                             }],
-                                            generationConfig: { temperature: 0.1, maxOutputTokens: 4096 }
+                                            generationConfig: { temperature: 0.05, maxOutputTokens: 4096 }
                                         },
                                         { timeout: 120000 }
                                     );
@@ -2215,7 +2143,7 @@ export const transcribeAudiobookChapter = async (
                                 }
                             });
 
-                            if (chunkLines.length >= 2) {
+                            if (chunkLines.length >= 1 && !isFakePlaceholderTranscript(chunkLines.join('\n'))) {
                                 recordStudioApiMetric({
                                     task: 'transcription',
                                     keyOrProvider: keyEntry.id,
@@ -2266,7 +2194,7 @@ export const transcribeAudiobookChapter = async (
                                     for (const seg of resp.data.segments) {
                                         const absSec = startOffsetSec + Number(seg.start || 0);
                                         const txt = String(seg.text || '').trim();
-                                        if (txt) {
+                                        if (txt && !isFakePlaceholderTranscript(txt)) {
                                             allLrcLines.push(`${formatLrcTimestamp(absSec)} ${txt}`);
                                             allPlainParts.push(txt);
                                         }
@@ -2274,9 +2202,11 @@ export const transcribeAudiobookChapter = async (
                                 } else if (resp.data.text) {
                                     const sentences = String(resp.data.text).trim().split(/(?<=[.!?])\s+/).filter(Boolean);
                                     sentences.forEach((s: string, idx: number) => {
-                                        const absSec = startOffsetSec + (idx / Math.max(1, sentences.length)) * currentChunkLenSec;
-                                        allLrcLines.push(`${formatLrcTimestamp(absSec)} ${s}`);
-                                        allPlainParts.push(s);
+                                        if (!isFakePlaceholderTranscript(s)) {
+                                            const absSec = startOffsetSec + (idx / Math.max(1, sentences.length)) * currentChunkLenSec;
+                                            allLrcLines.push(`${formatLrcTimestamp(absSec)} ${s}`);
+                                            allPlainParts.push(s);
+                                        }
                                     });
                                 }
                                 completedSec += currentChunkLenSec;
@@ -2299,7 +2229,7 @@ export const transcribeAudiobookChapter = async (
                     }
                 }
 
-                // Tier 3: Free HuggingFace Whisper Large v3 Turbo Space if no key or cloud key failed
+                // Tier 3: Free Local Whisper CLI or HuggingFace Whisper Space if no cloud key or cloud key failed
                 if (!chunkTranscribed) {
                     const freeWhisper = await transcribeChunkViaFreeWhisperSpace(tmpSample, startOffsetSec, currentChunkLenSec);
                     if (freeWhisper && freeWhisper.lrcLines.length > 0) {
@@ -2308,6 +2238,10 @@ export const transcribeAudiobookChapter = async (
                         completedSec += currentChunkLenSec;
                         winningProviderLabel = freeWhisper.providerLabel;
                         chunkTranscribed = true;
+                    } else if (!lastSttError) {
+                        lastSttError = sttCandidates.length === 0
+                            ? 'No Speech-to-Text API key configured (add a free Groq or Gemini key in Studio Settings)'
+                            : 'All Speech-to-Text providers returned an error';
                     }
                 }
 
@@ -2332,36 +2266,22 @@ export const transcribeAudiobookChapter = async (
         }
     }
 
-    if (allLrcLines.length > 0) {
+    if (allLrcLines.length > 0 && !isFakePlaceholderTranscript(allLrcLines.join('\n'))) {
         const syncedLyrics = allLrcLines.join('\n');
         const plainTranscript = allPlainParts.join(' ');
-        persistTranscriptToServer(syncedLyrics, plainTranscript, winningProviderLabel || 'Cloud Speech-to-Text', completedSec || durationSec);
+        persistTranscriptToServer(syncedLyrics, plainTranscript, winningProviderLabel || 'Speech-to-Text', completedSec || durationSec);
         console.log(`✅ [AudiobookStudio] Completed real audio transcription for "${book.title}" — ${chapter.title} (${winningProviderLabel}, ${Math.round(completedSec)}s)`);
         return { syncedLyrics, plainTranscript };
     }
 
-    // Tier 4: Verbatim Project Gutenberg Full-Text / Literary Chapter Alignment synced to FFmpeg speech cadence
-    updateLiveStatus({
-        progress: 75,
-        lastLog: `Aligning literary text & speech cadence for "${book.title}" — ${chapter.title}...`
-    });
-    const literaryAligned = await fetchVerbatimOrLiteraryChapterText(book, chapter, book.total_chapters || 1);
-    if (literaryAligned && literaryAligned.sentences.length > 0) {
-        const timestamps = await detectSpeechCadenceTimestamps(ffmpegInputSource, durationSec, literaryAligned.sentences.length);
-        const lrcLines = literaryAligned.sentences.map((s, idx) => `${formatLrcTimestamp(timestamps[idx] || 0)} ${s}`);
-        const syncedLyrics = lrcLines.join('\n');
-        const plainTranscript = literaryAligned.sentences.join(' ');
-        persistTranscriptToServer(syncedLyrics, plainTranscript, literaryAligned.sourceLabel, durationSec);
-        console.log(`✅ [AudiobookStudio] Completed literary text & cadence alignment for "${book.title}" — ${chapter.title} (${literaryAligned.sourceLabel})`);
-        return { syncedLyrics, plainTranscript };
-    }
-
     const failReason = lastSttError
-        ? `Speech-to-Text error: ${lastSttError}`
-        : 'Could not extract audio or align chapter text. Check library path or API keys in Settings -> AI Studio.';
+        ? `STT failed: ${lastSttError}`
+        : 'Speech-to-Text failed: add a Gemini, Groq, or OpenAI API key in Studio Settings.';
     upsertAudiobookChapterMeta({
         chapter_key: chapter.chapter_key,
         book_key: book.book_key,
+        synced_lyrics: '',
+        plain_transcript: '',
         transcription_status: 'failed',
         transcription_progress: 0,
         transcribed_seconds: 0,
@@ -2383,8 +2303,8 @@ export const transcribeAudiobookChapter = async (
 
 /**
  * Lightweight single-threaded FFmpeg Audio Quality Improvement & Voice Timbre/Pitch Transformation.
- * Supports processing and storing MULTIPLE voice presets per chapter so the user can swap between
- * processed voices anytime in the player!
+ * Resolves both local files AND remote Plex audio streams via `resolveChapterAudioStreamSource`,
+ * and strictly verifies that the output `.m4a` file was created on disk before marking `completed`.
  */
 export const enhanceAudiobookChapterAudio = async (
     book: AudiobookBookMeta,
@@ -2393,16 +2313,22 @@ export const enhanceAudiobookChapterAudio = async (
     overrideVoicePreset?: string
 ): Promise<string | null> => {
     const voicePreset = overrideVoicePreset || chapter.voice_preset || book.voice_preset || config.defaultVoicePreset || 'warm_storyteller';
-    const effectiveVoice = voicePreset === 'original' ? 'warm_storyteller' : voicePreset;
+    const effectiveVoice = voicePreset === 'original' ? 'denoise_clarity' : voicePreset;
 
-    if (!chapter.file_path || !fs.existsSync(chapter.file_path)) {
+    const streamSource = await resolveChapterAudioStreamSource(book, chapter);
+    const ffmpegInputSource = streamSource.inputSource;
+    if (streamSource.localPath && streamSource.localPath !== chapter.file_path) {
+        chapter.file_path = streamSource.localPath;
+    }
+
+    if (!ffmpegInputSource) {
+        const errMsg = `Could not locate audio source for "${chapter.title}"`;
         upsertAudiobookChapterMeta({
             chapter_key: chapter.chapter_key,
             book_key: book.book_key,
-            audio_enhance_status: 'completed',
-            audio_enhance_progress: 100,
-            voice_preset: effectiveVoice,
-            error_message: 'Source file streamed remotely; realtime WebAudio voice profile active.'
+            audio_enhance_status: 'failed',
+            audio_enhance_progress: 0,
+            error_message: errMsg
         });
         return null;
     }
@@ -2415,7 +2341,7 @@ export const enhanceAudiobookChapterAudio = async (
         activeChapterTitle: chapter.title,
         activeTask: 'enhancing',
         progress: 20,
-        lastLog: `Processing voice profile "${effectiveVoice}" for "${chapter.title}" (1 CPU thread)...`
+        lastLog: `Processing audio profile "${effectiveVoice}" for "${chapter.title}" (1 CPU thread)...`
     });
 
     const effectiveEnhancePreset = book.enhance_preset || config.audioEnhancePreset || 'denoise_clarity';
@@ -2425,7 +2351,8 @@ export const enhanceAudiobookChapterAudio = async (
         chapter_key: chapter.chapter_key,
         book_key: book.book_key,
         audio_enhance_status: 'processing',
-        audio_enhance_progress: 25
+        audio_enhance_progress: 25,
+        error_message: ''
     });
 
     const filters: string[] = [];
@@ -2458,7 +2385,7 @@ export const enhanceAudiobookChapterAudio = async (
         const ff = spawn('ffmpeg', [
             '-y',
             '-threads', '1',
-            '-i', chapter.file_path!,
+            '-i', ffmpegInputSource,
             '-vn',
             '-af', filters.join(','),
             '-c:a', 'aac',
@@ -2466,7 +2393,10 @@ export const enhanceAudiobookChapterAudio = async (
             outPath
         ]);
 
-        ff.on('close', (code) => resolve(code === 0 && fs.existsSync(outPath)));
+        ff.on('close', (code) => {
+            const ok = code === 0 && fs.existsSync(outPath) && fs.statSync(outPath).size > 1024;
+            resolve(ok);
+        });
         ff.on('error', () => resolve(false));
     });
 
@@ -2480,7 +2410,8 @@ export const enhanceAudiobookChapterAudio = async (
             audio_enhance_progress: 100,
             enhanced_audio_path: outPath,
             voice_preset: effectiveVoice,
-            processed_voices: existingVoices
+            processed_voices: existingVoices,
+            error_message: ''
         });
         appendStudioQueueHistory({
             bookKey: book.book_key,
@@ -2489,8 +2420,8 @@ export const enhanceAudiobookChapterAudio = async (
             chapterTitle: chapter.title,
             queueType: 'voice',
             status: 'completed',
-            providerUsed: `FFmpeg Studio DSP (${effectiveVoice})`,
-            detail: `Processed voice "${effectiveVoice}" + ${effectiveEnhancePreset}`,
+            providerUsed: `FFmpeg Audio DSP (${effectiveVoice})`,
+            detail: `Processed "${effectiveVoice}" + ${effectiveEnhancePreset}`,
             serverFileUrl: `/api/theater/audiobooks/art?audio=${encodeURIComponent(outFileName)}`
         });
         console.log(`✅ [AudiobookStudio] Enhanced audio (${effectiveVoice}) saved to ${outPath}`);
@@ -2501,7 +2432,7 @@ export const enhanceAudiobookChapterAudio = async (
             book_key: book.book_key,
             audio_enhance_status: 'failed',
             audio_enhance_progress: 0,
-            error_message: 'FFmpeg audio enhancement failed'
+            error_message: 'FFmpeg audio processing failed'
         });
         return null;
     }
@@ -2922,6 +2853,7 @@ export const purgeAllFakeSvgArtFromDbAndDisk = (force = false): {
     hasPurgedFakeSvgArt = true;
     try {
         const artDir = getAudiobookArtDir();
+        const transcriptsDir = getAudiobookTranscriptsDir();
         if (fs.existsSync(artDir)) {
             for (const f of fs.readdirSync(artDir)) {
                 if (f.toLowerCase().endsWith('.svg')) {
@@ -2932,6 +2864,25 @@ export const purgeAllFakeSvgArtFromDbAndDisk = (force = false): {
                 }
             }
         }
+
+        // Identify any chapters whose transcript history came from fake Literary/Gutenberg alignment
+        const fakeHistoryChapterKeys = new Set<string>();
+        try {
+            const hist = getStudioQueueHistory();
+            const filteredHist = hist.filter(h => {
+                const isFakeSource =
+                    h.queueType === 'transcription' &&
+                    /Literary|Gutenberg|Structure Sync/i.test(h.providerUsed || '');
+                if (isFakeSource && h.chapterKey) {
+                    fakeHistoryChapterKeys.add(h.chapterKey);
+                }
+                return !isFakeSource;
+            });
+            if (filteredHist.length !== hist.length) {
+                setSetting('audiobook_studio_history', JSON.stringify(filteredHist));
+            }
+        } catch {}
+
         const allBooks = getAllAudiobooksMeta();
         for (const book of allBooks) {
             let bookChanged = false;
@@ -2980,13 +2931,59 @@ export const purgeAllFakeSvgArtFromDbAndDisk = (force = false): {
                     cleanedChapters++;
                     bookChanged = true;
                 }
+
+                // Purge any fake/Wikipedia/summary/repeated transcripts
+                const hasTranscriptText = Boolean((ch.synced_lyrics && ch.synced_lyrics.trim()) || (ch.plain_transcript && ch.plain_transcript.trim()));
+                if (
+                    hasTranscriptText &&
+                    (fakeHistoryChapterKeys.has(ch.chapter_key) ||
+                     isFakePlaceholderTranscript(ch.synced_lyrics) ||
+                     isFakePlaceholderTranscript(ch.plain_transcript))
+                ) {
+                    const safeChapterId = ch.chapter_key.replace(/[^a-zA-Z0-9_-]/g, '_');
+                    for (const ext of ['.lrc', '.txt']) {
+                        const p = path.join(transcriptsDir, `${safeChapterId}${ext}`);
+                        if (fs.existsSync(p)) {
+                            try { fs.unlinkSync(p); deletedFiles++; } catch {}
+                        }
+                    }
+                    upsertAudiobookChapterMeta({
+                        chapter_key: ch.chapter_key,
+                        book_key: book.book_key,
+                        synced_lyrics: '',
+                        plain_transcript: '',
+                        transcript_lrc_path: '',
+                        transcript_txt_path: '',
+                        transcribed_seconds: 0,
+                        transcription_status: 'queued',
+                        transcription_progress: 0,
+                        error_message: ''
+                    });
+                    cleanedChapters++;
+                    bookChanged = true;
+                }
+
+                // Purge fake completed audio_enhance_status where no actual enhanced file exists on disk
+                if (ch.audio_enhance_status === 'completed' && (!ch.enhanced_audio_path || !fs.existsSync(ch.enhanced_audio_path))) {
+                    upsertAudiobookChapterMeta({
+                        chapter_key: ch.chapter_key,
+                        book_key: book.book_key,
+                        audio_enhance_status: 'queued',
+                        audio_enhance_progress: 0,
+                        enhanced_audio_path: '',
+                        processed_voices: {},
+                        error_message: ''
+                    });
+                    cleanedChapters++;
+                    bookChanged = true;
+                }
             }
             if (bookChanged) {
                 recalculateAudiobookTotals(book.book_key);
             }
         }
     } catch (e: any) {
-        console.warn('⚠️ [AudiobookStudio] Error purging legacy SVG files:', e?.message);
+        console.warn('⚠️ [AudiobookStudio] Error purging legacy fake assets:', e?.message);
     }
     return { deletedFiles, cleanedChapters, cleanedBooks };
 };
@@ -3759,6 +3756,130 @@ export const generateAudiobookChapterIllustrations = async (
 
     return existingImages;
 };
+
+/**
+ * Repaints or creates a single scene/chapter image with an optional user-edited prompt.
+ */
+export const regenerateSingleAudiobookSceneImage = async (params: {
+    bookKey: string;
+    chapterKey: string;
+    imageId?: string;
+    sceneIndex?: number;
+    customPrompt?: string;
+    sceneTitle?: string;
+    startSec?: number;
+    endSec?: number;
+    artType?: 'chapter' | 'scene';
+}): Promise<AudiobookChapterMeta | null> => {
+    const book = getAudiobookMeta(params.bookKey);
+    const chapter = getAudiobookChapterMeta(params.chapterKey);
+    if (!book || !chapter) return null;
+
+    const freshConfig = getAudiobookStudioConfig();
+    const effectiveStyle = (book.art_style && book.art_style.trim()) ? book.art_style.trim() : (freshConfig.artStyle || 'Cinematic Concept Art');
+    const effectiveFocus = (book.art_focus && book.art_focus.trim()) ? book.art_focus.trim() : (freshConfig.artFocus || 'auto-choice');
+    const effectiveCustomPrompt = (book.custom_prompt && book.custom_prompt.trim()) ? book.custom_prompt.trim() : (freshConfig.customPromptTemplate || '');
+
+    const existingImages = Array.isArray(chapter.images) ? [...chapter.images] : [];
+    const targetIdx = params.imageId ? existingImages.findIndex(img => img.id === params.imageId) : -1;
+    const existingImg = targetIdx >= 0 ? existingImages[targetIdx] : undefined;
+
+    const slotIndex = existingImg?.sceneIndex ?? params.sceneIndex ?? existingImages.length;
+    const artType: 'chapter' | 'scene' = existingImg?.artType === 'chapter' ? 'chapter' : (params.artType || (slotIndex === 0 ? 'chapter' : 'scene'));
+    const durationSec = Math.max(60, chapter.duration_sec || 600);
+    const startSec = existingImg?.startSec ?? params.startSec ?? Math.round((slotIndex / Math.max(2, existingImages.length + 1)) * durationSec);
+    const endSec = existingImg?.endSec ?? params.endSec ?? Math.round(((slotIndex + 1) / Math.max(2, existingImages.length + 1)) * durationSec);
+    const sceneTitle = params.sceneTitle || existingImg?.sceneTitle || (artType === 'chapter' ? `Chapter Art — ${chapter.title}` : `${chapter.title} — Scene ${slotIndex}`);
+
+    // Extract transcript window
+    let windowTranscript = '';
+    if (chapter.synced_lyrics) {
+        const lines: string[] = [];
+        for (const rawLine of chapter.synced_lyrics.split('\n')) {
+            const m = rawLine.match(/^\[(\d+):(\d+(?:\.\d+)?)\]\s*(.+)$/);
+            if (m) {
+                const t = parseInt(m[1], 10) * 60 + parseFloat(m[2]);
+                if (t >= startSec && t <= endSec) lines.push(m[3].trim());
+            }
+        }
+        windowTranscript = lines.join(' ').slice(0, 380);
+    }
+
+    let promptToPaint = (params.customPrompt || '').trim();
+    if (!promptToPaint) {
+        promptToPaint = await generateDynamicScenePrompt({
+            book,
+            chapter,
+            sceneIndex: slotIndex,
+            totalScenes: Math.max(2, existingImages.length),
+            sceneTitle,
+            artType,
+            sceneSnippet: windowTranscript,
+            previousPrompts: existingImages.filter(i => i.id !== params.imageId).map(i => i.prompt),
+            effectiveStyle,
+            effectiveFocus,
+            effectiveCustomPrompt,
+            config: freshConfig
+        });
+    }
+
+    const [widthStr, heightStr] = (freshConfig.artResolution || '1280x720').split('x');
+    const width = parseInt(widthStr, 10) || 1280;
+    const height = parseInt(heightStr, 10) || 720;
+
+    const newImgId = `img_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const painted = await paintAndSaveStudioImage({
+        imgId: newImgId,
+        fullPrompt: promptToPaint,
+        sceneSnippet: windowTranscript,
+        book,
+        chapterTitle: `${chapter.title} • ${sceneTitle}`,
+        sceneIndex: slotIndex,
+        effectiveStyle,
+        width,
+        height
+    });
+
+    if (!painted) {
+        return chapter;
+    }
+
+    const artUrl = `/api/theater/audiobooks/art?file=${encodeURIComponent(painted.fileName)}`;
+    const updatedImgObj: AudiobookChapterSceneImage = {
+        id: newImgId,
+        url: artUrl,
+        prompt: painted.finalPrompt || promptToPaint,
+        kept: true,
+        sceneIndex: slotIndex,
+        artType,
+        startSec,
+        endSec,
+        sceneTitle,
+        chapterTitle: chapter.title,
+        createdAt: new Date().toISOString()
+    };
+
+    if (targetIdx >= 0) {
+        const oldUrl = existingImages[targetIdx].url || '';
+        if (oldUrl.includes('file=')) {
+            const oldFile = decodeURIComponent(oldUrl.split('file=')[1] || '');
+            const oldFull = path.join(getAudiobookArtDir(), path.basename(oldFile));
+            try { if (fs.existsSync(oldFull)) fs.unlinkSync(oldFull); } catch {}
+        }
+        existingImages[targetIdx] = updatedImgObj;
+    } else {
+        existingImages.push(updatedImgObj);
+    }
+
+    return upsertAudiobookChapterMeta({
+        chapter_key: chapter.chapter_key,
+        book_key: book.book_key,
+        images: existingImages,
+        illustration_status: 'completed',
+        illustration_progress: 100
+    });
+};
+
 
 /**
  * Deletes existing server files & DB metadata for Transcriptions, Art, Voices, or All
