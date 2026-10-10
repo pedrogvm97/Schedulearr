@@ -1,609 +1,910 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import {
-    Activity, Play, Pause, RefreshCw, Tv, BookOpen, Download,
-    ShieldCheck, Sparkles, Clock, CheckCircle2, AlertCircle,
-    Radio, Trash2, ExternalLink, Cpu, Layers, Mic2, Image as ImageIcon,
-    FileText, Square
+    Activity,
+    Sparkles,
+    Tv,
+    Radio,
+    Disc,
+    CheckCircle2,
+    AlertTriangle,
+    Clock,
+    Play,
+    Pause,
+    RefreshCw,
+    BookOpen,
+    Mic,
+    Image as ImageIcon,
+    Volume2,
+    Trash2,
+    Square,
+    ArrowUp,
+    RotateCcw,
+    Sliders,
+    Plus,
+    X,
+    HardDrive,
+    Search,
+    Terminal
 } from 'lucide-react';
-import { toast } from 'sonner';
-import { useMusicPlayer } from '@/context/MusicPlayerContext';
 
 export default function TasksPage() {
     const [data, setData] = useState<any>(null);
     const [loading, setLoading] = useState(true);
-    const [refreshing, setRefreshing] = useState(false);
-    const [busyAction, setBusyAction] = useState<string | null>(null);
+    const [busyKey, setBusyKey] = useState<string | null>(null);
+    const [toast, setToast] = useState<string | null>(null);
+    const [selectedBookToAdd, setSelectedBookToAdd] = useState<string>('');
+    const [nowMs, setNowMs] = useState<number>(Date.now());
 
-    const { playingAudio, isAudioPlaying, openExpandedPlayer, togglePlayPause } = useMusicPlayer();
+    const showToast = (msg: string) => {
+        setToast(msg);
+        setTimeout(() => setToast(prev => (prev === msg ? null : prev)), 3500);
+    };
 
-    const fetchTasks = useCallback(async (silent = false) => {
-        if (!silent) setRefreshing(true);
+    const fetchTasks = useCallback(async () => {
         try {
             const res = await fetch('/api/tasks', { cache: 'no-store' });
-            if (res.ok) {
-                const json = await res.json();
+            const json = await res.json();
+            if (json.ok) {
                 setData(json);
             }
-        } catch (err) {
-            console.error('Failed to load tasks:', err);
+        } catch {
         } finally {
             setLoading(false);
-            setRefreshing(false);
         }
     }, []);
 
     useEffect(() => {
         fetchTasks();
-        const interval = setInterval(() => fetchTasks(true), 3500);
-        return () => clearInterval(interval);
+        const pollTimer = setInterval(fetchTasks, 2000);
+        const clockTimer = setInterval(() => setNowMs(Date.now()), 1000);
+        return () => {
+            clearInterval(pollTimer);
+            clearInterval(clockTimer);
+        };
     }, [fetchTasks]);
 
-    const runAction = async (action: string, extra: Record<string, any> = {}) => {
-        setBusyAction(action);
+    const runAction = async (key: string, payload: Record<string, any>) => {
+        setBusyKey(key);
         try {
             const res = await fetch('/api/tasks', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action, ...extra })
+                body: JSON.stringify(payload)
             });
             const json = await res.json();
-            if (!res.ok || !json.ok) {
-                throw new Error(json.error || 'Action failed');
-            }
-            toast.success(json.message || 'Task updated');
-            await fetchTasks(true);
-        } catch (err: any) {
-            toast.error(err.message || 'Action failed');
+            if (json.message) showToast(json.message);
+            await fetchTasks();
+        } catch (e: any) {
+            showToast(`Error: ${e.message}`);
         } finally {
-            setBusyAction(null);
+            setBusyKey(null);
         }
     };
 
-    const studioStatus = data?.audiobookStudio?.status;
-    const studioConfig = data?.audiobookStudio?.config;
-    const queueBreakdown = data?.audiobookStudio?.queueBreakdown;
-    const queuedBooks = data?.audiobookStudio?.queuedBooks || [];
-    const studioHistory = data?.audiobookStudio?.history || [];
-    const liveStreams = data?.liveStreams || [];
-    const epgSyncs = data?.epgSyncs || [];
-    const dvrActive = data?.dvr?.active || [];
-    const dvrScheduled = data?.dvr?.scheduled || [];
-    const dvrRecent = data?.dvr?.recent || [];
-    const activeTransfers = data?.transfers?.active || [];
-    const upcomingPipelines = data?.upcomingPipelines || [];
+    const studio = data?.audiobookStudio;
+    const studioCfg = studio?.config || {};
+    const studioStatus = studio?.status || {};
+    const totals = studio?.totals || {
+        transcriptions: { done: 0, total: 0, pending: 0, failed: 0 },
+        art: { doneChapters: 0, totalChapters: 0, keptScenes: 0, pendingChapters: 0, failedChapters: 0 },
+        voices: { done: 0, total: 0, pending: 0, failed: 0 }
+    };
+    const queuedBooks: any[] = studio?.queuedBooks || [];
+    const availableBooks: any[] = studio?.availableBooks || [];
+    const arrScheduler = data?.arrScheduler || {};
+    const liveStreams: any[] = data?.liveStreams || [];
+    const epgSyncs: any[] = data?.epgSyncs || [];
+    const dvrActive: any[] = data?.dvr?.active || [];
+    const dvrScheduled: any[] = data?.dvr?.scheduled || [];
+    const transfersActive: any[] = data?.transfers?.active || [];
+    const recentLogs: any[] = data?.recentSystemLogs || [];
 
-    const totalActiveCount = (data?.activeCount || 0) + (playingAudio ? 1 : 0);
+    const quotaReached = (studioCfg.imagesGeneratedToday ?? 0) >= (studioCfg.dailyImageQuota ?? 20);
+    const totalFailedChapters =
+        (totals.transcriptions.failed || 0) +
+        (totals.art.failedChapters || 0) +
+        (totals.voices.failed || 0);
+
+    const formatNextRun = (ts: number | null) => {
+        if (!ts) return '—';
+        const diffSec = Math.max(0, Math.floor((ts - nowMs) / 1000));
+        if (diffSec <= 0) return 'Running now';
+        const m = Math.floor(diffSec / 60);
+        const s = diffSec % 60;
+        return m > 0 ? `${m}m ${s}s` : `${s}s`;
+    };
 
     return (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-8 pb-28">
-            {/* ── Top Header & Server Daemon Persistence Guarantee Banner ── */}
-            <div className="bg-zinc-900/80 border border-zinc-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-                    <div className="flex items-start gap-5">
-                        <div className="w-16 h-16 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0 shadow-lg shadow-emerald-500/10">
-                            <Activity size={32} className={totalActiveCount > 0 ? 'animate-pulse' : ''} />
-                        </div>
-                        <div className="space-y-1.5">
-                            <div className="flex items-center gap-3 flex-wrap">
-                                <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-                                    Server Tasks &amp; Pipelines
-                                </h1>
-                                <span className={`px-3.5 py-1 rounded-xl text-sm font-black uppercase tracking-wider border ${
-                                    totalActiveCount > 0
-                                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                                        : 'bg-zinc-800 text-zinc-400 border-zinc-700'
-                                }`}>
-                                    {totalActiveCount} Active Now
-                                </span>
-                                {(data?.queuedCount || 0) > 0 && (
-                                    <span className="px-3.5 py-1 rounded-xl text-sm font-black uppercase tracking-wider bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                                        {data.queuedCount} Queued
-                                    </span>
-                                )}
-                            </div>
-                            <p className="text-base text-zinc-300 leading-relaxed max-w-3xl">
-                                Live command center for Now Playing streams, Live TV DVR recordings, Audiobook Studio AI queues (transcriptions, story illustrations, narrator voices), and upcoming background pipelines.
-                            </p>
-                        </div>
-                    </div>
-
-                    <div className="flex items-center gap-3 shrink-0 flex-wrap">
-                        <button
-                            onClick={() => fetchTasks(false)}
-                            disabled={refreshing}
-                            title="Refresh all active server tasks and queue telemetry"
-                            className="px-5 py-3.5 rounded-2xl bg-zinc-800 hover:bg-zinc-700 text-white border border-zinc-700 font-black text-base flex items-center gap-2.5 transition-all cursor-pointer active:scale-95"
-                        >
-                            <RefreshCw size={20} className={refreshing ? 'animate-spin text-emerald-400' : 'text-emerald-400'} />
-                            <span>Refresh</span>
-                        </button>
-                    </div>
+        <div className="min-h-screen bg-[#07090e] text-white px-4 py-5 md:px-8 max-w-[1750px] mx-auto space-y-6">
+            {/* Compact Top Header */}
+            <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-white/10">
+                <div className="flex items-center gap-3">
+                    <Activity className="w-7 h-7 text-indigo-400 shrink-0" />
+                    <h1 className="text-2xl md:text-3xl font-black tracking-tight">Tasks & Schedulers</h1>
+                    <span className={`px-3 py-1 rounded-lg text-sm font-black uppercase border ${
+                        (data?.activeCount ?? 0) > 0
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 animate-pulse'
+                            : 'bg-white/5 text-gray-300 border-white/10'
+                    }`}>
+                        {data?.activeCount ?? 0} Running
+                    </span>
+                    <span className="px-3 py-1 rounded-lg text-sm font-black uppercase bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
+                        {data?.queuedCount ?? 0} Queued
+                    </span>
                 </div>
 
-                {/* Persistent Server Daemon Guarantee Box */}
-                <div className="p-5 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                    <div className="flex items-start gap-4">
-                        <ShieldCheck size={28} className="text-emerald-400 shrink-0 mt-0.5" />
-                        <div className="space-y-1">
-                            <h2 className="text-lg font-black text-emerald-200">
-                                100% Background Server Daemon — Safe to Close Any Menu or Tab
-                            </h2>
-                            <p className="text-base text-emerald-100/80 leading-relaxed">
-                                Closing the Audiobook Studio window, leaving the Live TV player, switching pages, or closing your browser tab completely <strong>never stops or cancels</strong> background tasks. All transcriptions, story illustrations, narrator voice files, EPG syncs, and DVR recordings run inside the persistent server process.
-                            </p>
+                <div className="flex items-center gap-3">
+                    {toast && (
+                        <div className="px-3.5 py-2 rounded-xl bg-indigo-500/20 border border-indigo-500/40 text-indigo-200 text-sm font-bold">
+                            {toast}
                         </div>
-                    </div>
+                    )}
+                    <button
+                        onClick={fetchTasks}
+                        title="Refresh live status"
+                        className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-base font-bold text-gray-200 flex items-center gap-2 whitespace-nowrap cursor-pointer"
+                    >
+                        <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin text-indigo-400' : ''}`} />
+                        Refresh
+                    </button>
                 </div>
             </div>
 
-            {/* ── 1. NOW PLAYING & ACTIVE LIVE STREAMS ── */}
-            <section className="bg-zinc-950/90 border border-zinc-800/90 rounded-3xl p-6 sm:p-7 space-y-5 shadow-xl">
-                <div className="flex items-center justify-between gap-4 flex-wrap border-b border-zinc-800/80 pb-4">
-                    <div className="flex items-center gap-3.5">
-                        <div className="w-12 h-12 rounded-2xl bg-purple-500/15 border border-purple-500/30 flex items-center justify-center text-purple-400">
-                            <Play size={24} />
-                        </div>
-                        <div>
-                            <h2 className="text-xl sm:text-2xl font-black text-white">
-                                Now Playing &amp; Live Stream Hubs
-                            </h2>
-                            <p className="text-sm sm:text-base text-zinc-400">
-                                Active browser audio/book playback and shared single-connection IPTV stream hubs
-                            </p>
-                        </div>
-                    </div>
-                    <Link
-                        href="/theater"
-                        title="Open Theater Mode to watch Live TV or listen to Audiobooks"
-                        className="px-5 py-3 rounded-2xl bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/30 font-black text-base flex items-center gap-2.5 transition-all"
-                    >
-                        <Tv size={20} />
-                        <span>Theater</span>
-                    </Link>
-                </div>
-
-                {!playingAudio && liveStreams.length === 0 && epgSyncs.length === 0 ? (
-                    <div className="p-8 rounded-2xl bg-zinc-900/40 border border-zinc-800/70 text-center space-y-2">
-                        <p className="text-lg font-bold text-zinc-300">No active media streams or EPG syncs running right now</p>
-                        <p className="text-base text-zinc-500">Start an Audiobook, Music track, or Live TV channel in Theater to see live stream telemetry here.</p>
-                    </div>
-                ) : (
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                        {playingAudio && (
-                            <div className="p-5 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between gap-4">
-                                <div className="space-y-1 min-w-0">
-                                    <div className="flex items-center gap-2">
-                                        <span className="px-2.5 py-0.5 rounded-lg bg-amber-500 text-black text-xs font-black uppercase">
-                                            {playingAudio.isAudiobook ? 'Reading Audiobook' : 'Playing Audio'}
-                                        </span>
-                                        <span className="text-sm font-bold text-amber-300">
-                                            {isAudioPlaying ? 'Playing' : 'Paused'}
-                                        </span>
-                                    </div>
-                                    <h3 className="text-lg font-black text-white line-clamp-2">{playingAudio.title}</h3>
-                                    {playingAudio.artist && (
-                                        <p className="text-base text-zinc-300">{playingAudio.artist}</p>
-                                    )}
-                                </div>
-                                <div className="flex items-center gap-2.5 shrink-0">
-                                    <button
-                                        onClick={() => togglePlayPause()}
-                                        title={isAudioPlaying ? 'Pause current audio playback' : 'Resume current audio playback'}
-                                        className="px-4 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-base flex items-center gap-2 cursor-pointer"
-                                    >
-                                        {isAudioPlaying ? <Pause size={20} /> : <Play size={20} />}
-                                        <span>{isAudioPlaying ? 'Pause' : 'Play'}</span>
-                                    </button>
-                                    <button
-                                        onClick={() => openExpandedPlayer()}
-                                        title="Open full expanded Audiobook / Music Player drawer"
-                                        className="px-4 py-3 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-white border border-zinc-700 font-black text-base flex items-center gap-2 cursor-pointer"
-                                    >
-                                        <ExternalLink size={20} />
-                                        <span>Player</span>
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-
-                        {liveStreams.map((hub: any, idx: number) => (
-                            <div key={idx} className="p-5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between gap-4">
-                                <div className="space-y-1 min-w-0">
-                                    <div className="flex items-center gap-2.5">
-                                        <span className="w-3 h-3 rounded-full bg-emerald-400 animate-ping" />
-                                        <span className="text-xs font-black uppercase tracking-wider text-emerald-300">
-                                            Shared Live TV Upstream Hub
-                                        </span>
-                                    </div>
-                                    <h3 className="text-lg font-black text-white line-clamp-2">{hub.channelName}</h3>
-                                    <p className="text-base text-zinc-300">
-                                        {hub.subscribersCount} active consumer(s) sharing 1 IPTV connection • Last packet {hub.lastPacketSecondsAgo}s ago
-                                    </p>
-                                </div>
-                            </div>
-                        ))}
-
-                        {epgSyncs.map((sync: any) => (
-                            <div key={sync.libraryId} className="p-5 rounded-2xl bg-sky-500/10 border border-sky-500/30 space-y-3">
-                                <div className="flex items-center justify-between">
-                                    <span className="text-sm font-black uppercase text-sky-300 flex items-center gap-2">
-                                        <Radio size={18} className="animate-spin" />
-                                        EPG Guide Sync: {sync.libraryName || 'Live TV'}
-                                    </span>
-                                    <span className="text-base font-mono font-black text-white">{sync.progressPercent}%</span>
-                                </div>
-                                <p className="text-base text-zinc-200">{sync.message}</p>
-                                <div className="w-full h-3 bg-zinc-900 rounded-full overflow-hidden">
-                                    <div className="h-full bg-sky-400 rounded-full transition-all duration-300" style={{ width: `${sync.progressPercent}%` }} />
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-            </section>
-
-            {/* ── 2. AUDIOBOOK STUDIO AI WORKER (TRANSCRIPTION, STORY ART & VOICES) ── */}
-            <section className="bg-zinc-950/90 border border-zinc-800/90 rounded-3xl p-6 sm:p-7 space-y-6 shadow-xl">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800/80 pb-5">
-                    <div className="flex items-center gap-4">
-                        <div className="w-14 h-14 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
-                            <BookOpen size={28} />
-                        </div>
-                        <div>
-                            <div className="flex items-center gap-3 flex-wrap">
-                                <h2 className="text-xl sm:text-2xl font-black text-white">
-                                    Audiobook Studio AI Queue
-                                </h2>
-                                <span className={`px-3 py-1 rounded-xl text-xs font-black uppercase ${
-                                    studioStatus?.isRunning
-                                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse'
-                                        : studioConfig?.enabled
-                                        ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
-                                        : 'bg-zinc-800 text-zinc-400 border border-zinc-700'
-                                }`}>
-                                    {studioStatus?.isRunning ? `Running: ${studioStatus.activeTask || 'Working'}` : studioConfig?.enabled ? 'Idle / Ready' : 'Paused'}
-                                </span>
-                            </div>
-                            <p className="text-sm sm:text-base text-zinc-400 mt-1">
-                                Whisper speech-to-text transcription, story-specific raster scene illustrations, and FFmpeg narrator voice packs
-                            </p>
-                        </div>
-                    </div>
-
+            {/* 1. AUDIOBOOK STUDIO AI WORKER, QUOTAS, LIMITS & QUEUE */}
+            <section className="rounded-2xl bg-[#0d111a] border border-white/10 p-5 space-y-5">
+                {/* Single-Row Header + Action Bar */}
+                <div className="flex flex-wrap items-center justify-between gap-4">
                     <div className="flex items-center gap-3 flex-wrap">
-                        <button
-                            onClick={() => runAction('trigger_audiobook_worker')}
-                            disabled={busyAction !== null}
-                            title="Immediately trigger the Audiobook Studio background worker on the server"
-                            className="px-5 py-3.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-base flex items-center gap-2.5 transition-all cursor-pointer shadow-lg shadow-amber-500/20"
-                        >
-                            <Play size={20} className="fill-black" />
-                            <span>Run</span>
-                        </button>
+                        <Sparkles className="w-6 h-6 text-amber-400 shrink-0" />
+                        <h2 className="text-xl font-black text-white">Audiobook Studio Worker</h2>
+                        {studioStatus.isRunning ? (
+                            <span className="px-3 py-1 rounded-lg text-sm font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse">
+                                RUNNING
+                            </span>
+                        ) : !studioCfg.enabled ? (
+                            <span className="px-3 py-1 rounded-lg text-sm font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                                PAUSED
+                            </span>
+                        ) : quotaReached && totals.art.pendingChapters > 0 ? (
+                            <span className="px-3 py-1 rounded-lg text-sm font-black uppercase bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                                QUOTA REACHED ({studioCfg.imagesGeneratedToday}/{studioCfg.dailyImageQuota})
+                            </span>
+                        ) : totalFailedChapters > 0 ? (
+                            <span className="px-3 py-1 rounded-lg text-sm font-black uppercase bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                                {totalFailedChapters} FAILED
+                            </span>
+                        ) : (
+                            <span className="px-3 py-1 rounded-lg text-sm font-black uppercase bg-white/10 text-gray-300 border border-white/15">
+                                IDLE
+                            </span>
+                        )}
+                    </div>
 
+                    <div className="flex items-center gap-2.5 flex-wrap">
                         <button
-                            onClick={() => runAction('toggle_audiobook_worker', { enabled: !studioConfig?.enabled })}
-                            disabled={busyAction !== null}
-                            title={studioConfig?.enabled ? 'Pause automatic Audiobook Studio background queue processing' : 'Resume automatic Audiobook Studio background queue processing'}
-                            className="px-5 py-3.5 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-white border border-zinc-700 font-black text-base flex items-center gap-2.5 transition-all cursor-pointer"
+                            onClick={() => runAction('run_worker', { action: 'trigger_audiobook_worker' })}
+                            disabled={busyKey === 'run_worker'}
+                            title="Run queue immediately (bypasses daily quota and retries failed chapters)"
+                            className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-base flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50"
                         >
-                            {studioConfig?.enabled ? <Pause size={20} className="text-amber-400" /> : <Play size={20} className="text-emerald-400" />}
-                            <span>{studioConfig?.enabled ? 'Pause' : 'Resume'}</span>
+                            <Play className="w-5 h-5 fill-current" />
+                            Run
                         </button>
-
                         <button
-                            onClick={() => runAction('purge_fake_svg')}
-                            disabled={busyAction !== null}
-                            title="Delete any legacy fake SVG placeholder files from disk and database so only genuine story raster paintings remain"
-                            className="px-5 py-3.5 rounded-2xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30 font-black text-base flex items-center gap-2.5 transition-all cursor-pointer"
+                            onClick={() => runAction('toggle_worker', { action: 'toggle_audiobook_worker', enabled: !studioCfg.enabled })}
+                            disabled={busyKey === 'toggle_worker'}
+                            title={studioCfg.enabled ? 'Pause background worker' : 'Resume background worker'}
+                            className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-white font-bold text-base flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50"
                         >
-                            <Trash2 size={20} />
-                            <span>Purge</span>
+                            {studioCfg.enabled ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+                            {studioCfg.enabled ? 'Pause' : 'Resume'}
                         </button>
-
+                        <button
+                            onClick={() => runAction('purge_svg', { action: 'purge_fake_svg' })}
+                            disabled={busyKey === 'purge_svg'}
+                            title="Purge any legacy placeholder SVG files"
+                            className="px-4 py-2.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-200 font-bold text-base flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50"
+                        >
+                            <Trash2 className="w-5 h-5" />
+                            Purge
+                        </button>
                         <Link
                             href="/discover?tab=audiobooks"
-                            title="Open Full Audiobook Studio Settings & Book Queue in Media tab"
-                            className="px-5 py-3.5 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 font-black text-base flex items-center gap-2.5 transition-all"
+                            title="Open Audiobooks in Media tab"
+                            className="px-4 py-2.5 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/30 text-indigo-200 font-bold text-base flex items-center gap-2 whitespace-nowrap shrink-0"
                         >
-                            <Sparkles size={20} className="text-amber-400" />
-                            <span>Studio</span>
+                            <BookOpen className="w-5 h-5" />
+                            Media
                         </Link>
                     </div>
                 </div>
 
-                {/* Live Active Task Banner inside Audiobook Studio */}
-                <div className="p-5 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-3">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                        <div className="flex items-center gap-3">
-                            <Cpu size={22} className={studioStatus?.isRunning ? 'text-emerald-400 animate-spin' : 'text-zinc-500'} />
+                {/* Live Execution / Idle Reason Bar */}
+                <div className={`rounded-xl p-4 border flex flex-wrap items-center justify-between gap-4 ${
+                    studioStatus.isRunning
+                        ? 'bg-emerald-500/10 border-emerald-500/30'
+                        : quotaReached && totals.art.pendingChapters > 0
+                        ? 'bg-rose-500/10 border-rose-500/30'
+                        : 'bg-black/40 border-white/10'
+                }`}>
+                    <div className="space-y-1 min-w-[260px] flex-1">
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                            <span className="text-sm font-black uppercase tracking-wider text-gray-400">Live Status:</span>
                             <span className="text-lg font-black text-white">
-                                {studioStatus?.isRunning
-                                    ? `${studioStatus.activeBookTitle || 'Audiobook'} — ${studioStatus.activeChapterTitle || 'Processing'}`
-                                    : 'Worker Status'}
+                                {studioStatus.isRunning
+                                    ? `${studioStatus.activeBookTitle || 'Book'} — ${studioStatus.activeChapterTitle || studioStatus.activeTask || 'Working'}`
+                                    : (studioStatus.idleReason || studioStatus.lastLog || 'Idle')}
                             </span>
                         </div>
-                        <span className="text-sm font-mono font-bold text-amber-300">
-                            Daily Art Quota: {studioConfig?.imagesGeneratedToday || 0} / {studioConfig?.dailyImageQuota || 30} images
-                        </span>
+                        {studioStatus.isRunning && studioStatus.lastLog && (
+                            <p className="text-base text-emerald-300 font-semibold">{studioStatus.lastLog}</p>
+                        )}
                     </div>
-                    <p className="text-base text-zinc-300 font-medium">
-                        {studioStatus?.lastLog || 'Idle — Ready to process queued audiobooks'}
-                    </p>
-                    {studioStatus?.isRunning && (
-                        <div className="w-full h-3 bg-zinc-950 rounded-full overflow-hidden border border-zinc-800">
-                            <div
-                                className="h-full bg-gradient-to-r from-amber-500 to-emerald-400 rounded-full transition-all duration-500"
-                                style={{ width: `${Math.max(8, studioStatus.progress || 25)}%` }}
-                            />
+
+                    {studioStatus.isRunning && (
+                        <div className="w-full md:w-72 space-y-1">
+                            <div className="flex justify-between text-sm font-black text-emerald-300">
+                                <span>{studioStatus.activeTask || 'Processing'}</span>
+                                <span>{studioStatus.progress ?? 0}%</span>
+                            </div>
+                            <div className="w-full h-3 rounded-full bg-black/60 overflow-hidden border border-white/10">
+                                <div
+                                    className="h-full bg-gradient-to-r from-amber-500 to-emerald-400 transition-all duration-300"
+                                    style={{ width: `${Math.max(5, studioStatus.progress || 10)}%` }}
+                                />
+                            </div>
                         </div>
+                    )}
+
+                    {!studioStatus.isRunning && quotaReached && (
+                        <button
+                            onClick={() => runAction('reset_quota_banner', { action: 'update_studio_limits', resetDailyUsage: true })}
+                            disabled={busyKey === 'reset_quota_banner'}
+                            title="Reset today's generated image counter to 0 and resume queue"
+                            className="px-4 py-2 rounded-xl bg-rose-500 hover:bg-rose-400 text-white font-black text-base flex items-center gap-2 whitespace-nowrap cursor-pointer"
+                        >
+                            <RotateCcw className="w-5 h-5" />
+                            Reset Quota (0)
+                        </button>
                     )}
                 </div>
 
-                {/* 3-Column Queue Breakdown (Transcriptions, Scene Illustrations, Narrator Voices) */}
-                {queueBreakdown && (
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                        <div className="p-5 rounded-2xl bg-zinc-900/50 border border-zinc-800/90 space-y-2">
-                            <div className="flex items-center justify-between">
-                                <span className="text-base font-black text-sky-300 flex items-center gap-2">
-                                    <FileText size={20} /> Transcriptions
-                                </span>
-                                <span className="text-lg font-mono font-black text-white">
-                                    {queueBreakdown.transcription?.completedChapters || 0} / {queueBreakdown.transcription?.totalChapters || 0}
-                                </span>
-                            </div>
-                            <p className="text-sm text-zinc-400">
-                                Pending chapters in queue: <strong className="text-white">{queueBreakdown.transcription?.pendingChapters || 0}</strong>
-                            </p>
-                        </div>
+                {/* Interactive Schedule, Quotas, Limits & API Pool Strip */}
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
+                    {/* Schedule Mode */}
+                    <div className="rounded-xl bg-black/40 border border-white/10 p-3.5 flex flex-col justify-between gap-2">
+                        <span className="text-xs font-black uppercase tracking-wider text-gray-400">Schedule Mode</span>
+                        <select
+                            value={studioCfg.scheduleMode || 'continuous_low_cpu'}
+                            onChange={(e) => runAction('sched_mode', { action: 'update_studio_limits', scheduleMode: e.target.value })}
+                            className="w-full bg-[#141a29] border border-white/15 rounded-lg px-3 py-2 text-base font-bold text-white cursor-pointer"
+                        >
+                            <option value="continuous_low_cpu">Continuous (24/7)</option>
+                            <option value="hourly">Hourly Batch</option>
+                            <option value="overnight">Overnight (01:00–07:00)</option>
+                            <option value="manual_only">Manual Only</option>
+                        </select>
+                    </div>
 
-                        <div className="p-5 rounded-2xl bg-zinc-900/50 border border-zinc-800/90 space-y-2">
-                            <div className="flex items-center justify-between">
-                                <span className="text-base font-black text-amber-300 flex items-center gap-2">
-                                    <ImageIcon size={20} /> Story Scene Art
-                                </span>
-                                <span className="text-lg font-mono font-black text-white">
-                                    {queueBreakdown.illustrations?.completedChapters || 0} / {queueBreakdown.illustrations?.totalChapters || 0}
-                                </span>
-                            </div>
-                            <p className="text-sm text-zinc-400">
-                                Pending chapters: <strong className="text-white">{queueBreakdown.illustrations?.pendingChapters || 0}</strong> • Covers: <strong className="text-white">{queueBreakdown.illustrations?.completedCovers || 0}</strong>
-                            </p>
+                    {/* Daily Art Quota + Reset */}
+                    <div className="rounded-xl bg-black/40 border border-white/10 p-3.5 flex flex-col justify-between gap-2">
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs font-black uppercase tracking-wider text-gray-400">Daily Art Quota</span>
+                            <button
+                                onClick={() => runAction('reset_quota', { action: 'update_studio_limits', resetDailyUsage: true })}
+                                title="Reset daily generated image count to 0"
+                                className="text-xs font-black uppercase px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 cursor-pointer"
+                            >
+                                Reset (0)
+                            </button>
                         </div>
-
-                        <div className="p-5 rounded-2xl bg-zinc-900/50 border border-zinc-800/90 space-y-2">
-                            <div className="flex items-center justify-between">
-                                <span className="text-base font-black text-purple-300 flex items-center gap-2">
-                                    <Mic2 size={20} /> Narrator Voices
-                                </span>
-                                <span className="text-lg font-mono font-black text-white">
-                                    {queueBreakdown.voices?.completedChapters || 0} / {queueBreakdown.voices?.totalChapters || 0}
-                                </span>
-                            </div>
-                            <p className="text-sm text-zinc-400">
-                                Pending voice mastering chapters: <strong className="text-white">{queueBreakdown.voices?.pendingChapters || 0}</strong>
-                            </p>
+                        <div className="flex items-center gap-2">
+                            <span className={`text-lg font-black whitespace-nowrap ${quotaReached ? 'text-rose-400' : 'text-white'}`}>
+                                {studioCfg.imagesGeneratedToday ?? 0} /
+                            </span>
+                            <select
+                                value={studioCfg.dailyImageQuota ?? 20}
+                                onChange={(e) => runAction('daily_quota', { action: 'update_studio_limits', dailyImageQuota: Number(e.target.value) })}
+                                className="flex-1 bg-[#141a29] border border-white/15 rounded-lg px-2.5 py-2 text-base font-bold text-white cursor-pointer"
+                            >
+                                {[20, 50, 100, 200, 500, 1000, 5000].map(q => (
+                                    <option key={q} value={q}>{q} / day</option>
+                                ))}
+                            </select>
                         </div>
                     </div>
-                )}
 
-                {/* Queued Books List */}
-                {queuedBooks.length > 0 && (
-                    <div className="space-y-3">
+                    {/* Scenes Per Chapter */}
+                    <div className="rounded-xl bg-black/40 border border-white/10 p-3.5 flex flex-col justify-between gap-2">
+                        <span className="text-xs font-black uppercase tracking-wider text-gray-400">Images / Chapter</span>
+                        <select
+                            value={studioCfg.imagesPerChapter ?? 3}
+                            onChange={(e) => runAction('img_per_ch', { action: 'update_studio_limits', imagesPerChapter: Number(e.target.value) })}
+                            className="w-full bg-[#141a29] border border-white/15 rounded-lg px-3 py-2 text-base font-bold text-white cursor-pointer"
+                        >
+                            {[1, 2, 3, 4, 6, 8, 10].map(n => (
+                                <option key={n} value={n}>{n} scenes / chapter</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* Rate Limit RPM */}
+                    <div className="rounded-xl bg-black/40 border border-white/10 p-3.5 flex flex-col justify-between gap-2">
+                        <span className="text-xs font-black uppercase tracking-wider text-gray-400">API Rate Limit</span>
+                        <select
+                            value={studioCfg.rateLimitRpm ?? 10}
+                            onChange={(e) => runAction('rpm_limit', { action: 'update_studio_limits', rateLimitRpm: Number(e.target.value) })}
+                            className="w-full bg-[#141a29] border border-white/15 rounded-lg px-3 py-2 text-base font-bold text-white cursor-pointer"
+                        >
+                            {[5, 10, 15, 30, 60, 120].map(rpm => (
+                                <option key={rpm} value={rpm}>{rpm} req / min</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* API Pool & Live Metrics */}
+                    <div className="rounded-xl bg-black/40 border border-white/10 p-3.5 flex flex-col justify-between gap-1.5">
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs font-black uppercase tracking-wider text-gray-400">API Pool & Hits</span>
+                            <span className="text-xs font-bold text-emerald-400">
+                                {studioCfg.detectedProvider || 'Free Pollinations/Whisper'}
+                            </span>
+                        </div>
+                        <div className="flex items-center justify-between text-base font-black">
+                            <span className="text-white">{studioCfg.apiKeysCount ?? 0} Key(s)</span>
+                            <span className="text-emerald-300">
+                                {studioCfg.apiMetrics?.totalSuccess ?? 0} OK
+                            </span>
+                            <span className={(studioCfg.apiMetrics?.totalErrors ?? 0) > 0 ? 'text-rose-400' : 'text-gray-400'}>
+                                {studioCfg.apiMetrics?.totalErrors ?? 0} Err
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* 3 Real Telemetry Counters */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="rounded-xl bg-black/40 border border-white/10 p-4 flex items-center justify-between">
+                        <div className="space-y-1">
+                            <div className="flex items-center gap-2 text-indigo-300 font-black text-base">
+                                <Mic className="w-5 h-5" />
+                                Transcriptions (STT)
+                            </div>
+                            <div className="text-sm text-gray-400 font-semibold">
+                                {totals.transcriptions.pending} pending
+                                {totals.transcriptions.failed > 0 && (
+                                    <span className="text-rose-400 ml-2">• {totals.transcriptions.failed} failed</span>
+                                )}
+                            </div>
+                        </div>
+                        <div className="text-2xl font-black text-white">
+                            {totals.transcriptions.done} / {totals.transcriptions.total}
+                        </div>
+                    </div>
+
+                    <div className="rounded-xl bg-black/40 border border-white/10 p-4 flex items-center justify-between">
+                        <div className="space-y-1">
+                            <div className="flex items-center gap-2 text-amber-300 font-black text-base">
+                                <ImageIcon className="w-5 h-5" />
+                                Story Scene Art
+                            </div>
+                            <div className="text-sm text-gray-400 font-semibold">
+                                {totals.art.keptScenes} scenes kept • {totals.art.pendingChapters} ch pending
+                                {totals.art.failedChapters > 0 && (
+                                    <span className="text-rose-400 ml-2">• {totals.art.failedChapters} failed</span>
+                                )}
+                            </div>
+                        </div>
+                        <div className="text-2xl font-black text-white">
+                            {totals.art.doneChapters} / {totals.art.totalChapters}
+                        </div>
+                    </div>
+
+                    <div className="rounded-xl bg-black/40 border border-white/10 p-4 flex items-center justify-between">
+                        <div className="space-y-1">
+                            <div className="flex items-center gap-2 text-emerald-300 font-black text-base">
+                                <Volume2 className="w-5 h-5" />
+                                Narrator Voices
+                            </div>
+                            <div className="text-sm text-gray-400 font-semibold">
+                                {totals.voices.pending} pending
+                                {totals.voices.failed > 0 && (
+                                    <span className="text-rose-400 ml-2">• {totals.voices.failed} failed</span>
+                                )}
+                            </div>
+                        </div>
+                        <div className="text-2xl font-black text-white">
+                            {totals.voices.done} / {totals.voices.total}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Interactive Queue Table + Add Book Picker */}
+                <div className="space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
                         <h3 className="text-lg font-black text-white">
-                            Queued Books ({queuedBooks.length})
+                            Queued Audiobooks ({queuedBooks.length})
                         </h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {queuedBooks.map((b: any) => {
-                                const cleanTitle = (b.title || '').replace(/^\s*(?:19|20)\d{2}\s*[-–—:]\s*/i, '').trim() || b.title;
+
+                        {availableBooks.length > 0 && (
+                            <div className="flex items-center gap-2">
+                                <select
+                                    value={selectedBookToAdd}
+                                    onChange={(e) => setSelectedBookToAdd(e.target.value)}
+                                    className="bg-[#141a29] border border-white/15 rounded-xl px-3 py-2 text-base font-bold text-white max-w-xs"
+                                >
+                                    <option value="">+ Add audiobook to queue...</option>
+                                    {availableBooks.map((b: any) => (
+                                        <option key={b.book_key} value={b.book_key}>
+                                            {b.title} {b.author ? `— ${b.author}` : ''}
+                                        </option>
+                                    ))}
+                                </select>
+                                <button
+                                    disabled={!selectedBookToAdd || busyKey === 'add_book'}
+                                    onClick={() => {
+                                        if (!selectedBookToAdd) return;
+                                        runAction('add_book', {
+                                            action: 'book_queue_action',
+                                            bookKey: selectedBookToAdd,
+                                            subAction: 'add_queue'
+                                        });
+                                        setSelectedBookToAdd('');
+                                    }}
+                                    title="Add selected book to queue"
+                                    className="px-4 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white font-black text-base flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
+                                >
+                                    <Plus className="w-5 h-5" />
+                                    Queue
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
+                    {queuedBooks.length === 0 ? (
+                        <div className="rounded-xl bg-black/30 border border-white/10 p-5 text-base text-gray-400 font-semibold">
+                            No audiobooks queued. Use the selector above or enable Queue on any book in Media → Audiobooks.
+                        </div>
+                    ) : (
+                        <div className="space-y-2.5">
+                            {queuedBooks.map((book: any, idx: number) => {
+                                const isBookActive = studioStatus.isRunning && studioStatus.activeBookKey === book.book_key;
+                                const totalCh = Math.max(book.total_chapters || 0, book.synced_chapters_count || 0);
                                 return (
-                                    <div key={b.book_key} className="p-4 rounded-2xl bg-zinc-900/70 border border-zinc-800 flex items-center justify-between gap-4">
-                                        <div className="min-w-0 space-y-1">
-                                            <h4 className="text-base sm:text-lg font-black text-white line-clamp-2">{cleanTitle}</h4>
-                                            <p className="text-sm text-zinc-400">
-                                                {b.author || 'Unknown Author'} • {b.transcribed_chapters || 0}/{b.total_chapters || 1} Transcribed • {b.illustrated_scenes || 0} Scenes Painted
-                                            </p>
+                                    <div
+                                        key={book.book_key}
+                                        className={`rounded-xl p-4 border flex flex-wrap items-center justify-between gap-4 ${
+                                            isBookActive
+                                                ? 'bg-emerald-500/10 border-emerald-500/40'
+                                                : 'bg-black/40 border-white/10'
+                                        }`}
+                                    >
+                                        {/* Book Title + Toggles */}
+                                        <div className="flex items-center gap-3.5 min-w-[260px] flex-1">
+                                            <span className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-base font-black text-gray-300 shrink-0">
+                                                #{idx + 1}
+                                            </span>
+                                            <div className="space-y-1 min-w-0">
+                                                <div className="flex items-center gap-2.5 flex-wrap">
+                                                    <span className="text-lg font-black text-white">
+                                                        {book.title}
+                                                    </span>
+                                                    {book.author && (
+                                                        <span className="text-sm font-bold text-gray-400">
+                                                            by {book.author}
+                                                        </span>
+                                                    )}
+                                                    {isBookActive && (
+                                                        <span className="px-2.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-xs font-black uppercase">
+                                                            Active
+                                                        </span>
+                                                    )}
+                                                    {book.failed_chapters_count > 0 && (
+                                                        <span
+                                                            title={book.last_error || 'Chapters failed'}
+                                                            className="px-2.5 py-0.5 rounded bg-rose-500/20 text-rose-300 text-xs font-black uppercase"
+                                                        >
+                                                            {book.failed_chapters_count} Failed
+                                                        </span>
+                                                    )}
+                                                </div>
+
+                                                {/* Clickable Task Pills + Live Progress */}
+                                                <div className="flex items-center gap-2 flex-wrap pt-0.5">
+                                                    <button
+                                                        onClick={() => runAction(`flag_stt_${book.book_key}`, {
+                                                            action: 'book_queue_action',
+                                                            bookKey: book.book_key,
+                                                            subAction: 'toggle_flag',
+                                                            field: 'transcribe_enabled'
+                                                        })}
+                                                        title="Toggle Transcription for this book"
+                                                        className={`px-2.5 py-1 rounded-lg text-xs font-black border cursor-pointer ${
+                                                            book.transcribe_enabled
+                                                                ? 'bg-indigo-500/20 text-indigo-200 border-indigo-500/40'
+                                                                : 'bg-white/5 text-gray-500 border-white/10 line-through'
+                                                        }`}
+                                                    >
+                                                        STT: {book.transcribed_chapters || 0}/{totalCh}
+                                                    </button>
+
+                                                    <button
+                                                        onClick={() => runAction(`flag_art_${book.book_key}`, {
+                                                            action: 'book_queue_action',
+                                                            bookKey: book.book_key,
+                                                            subAction: 'toggle_flag',
+                                                            field: 'illustrate_enabled'
+                                                        })}
+                                                        title="Toggle Scene Art for this book"
+                                                        className={`px-2.5 py-1 rounded-lg text-xs font-black border cursor-pointer ${
+                                                            book.illustrate_enabled
+                                                                ? 'bg-amber-500/20 text-amber-200 border-amber-500/40'
+                                                                : 'bg-white/5 text-gray-500 border-white/10 line-through'
+                                                        }`}
+                                                    >
+                                                        Art: {book.illustrated_chapters || 0}/{totalCh} ({book.illustrated_scenes || 0} img)
+                                                    </button>
+
+                                                    <button
+                                                        onClick={() => runAction(`flag_voice_${book.book_key}`, {
+                                                            action: 'book_queue_action',
+                                                            bookKey: book.book_key,
+                                                            subAction: 'toggle_flag',
+                                                            field: 'enhance_audio_enabled'
+                                                        })}
+                                                        title="Toggle Narrator Voice Rendering for this book"
+                                                        className={`px-2.5 py-1 rounded-lg text-xs font-black border cursor-pointer ${
+                                                            book.enhance_audio_enabled
+                                                                ? 'bg-emerald-500/20 text-emerald-200 border-emerald-500/40'
+                                                                : 'bg-white/5 text-gray-500 border-white/10 line-through'
+                                                        }`}
+                                                    >
+                                                        Voice: {book.enhanced_chapters || 0}/{totalCh}
+                                                    </button>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <span className="px-3 py-1 rounded-xl bg-amber-500/15 text-amber-300 border border-amber-500/30 text-xs font-black uppercase shrink-0">
-                                            {b.status || 'Queued'}
-                                        </span>
+
+                                        {/* Direct Book Actions (Single Row) */}
+                                        <div className="flex items-center gap-2 flex-wrap shrink-0">
+                                            <button
+                                                onClick={() => runAction(`start_${book.book_key}`, {
+                                                    action: 'book_queue_action',
+                                                    bookKey: book.book_key,
+                                                    subAction: 'start_now'
+                                                })}
+                                                title="Start generating this book right now (bypasses daily quota)"
+                                                className="px-3.5 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-200 font-black text-sm flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+                                            >
+                                                <Play className="w-4 h-4 fill-current" />
+                                                Start
+                                            </button>
+
+                                            {idx > 0 && (
+                                                <button
+                                                    onClick={() => runAction(`top_${book.book_key}`, {
+                                                        action: 'book_queue_action',
+                                                        bookKey: book.book_key,
+                                                        subAction: 'prioritize_top'
+                                                    })}
+                                                    title="Move book to #1 priority in queue"
+                                                    className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-white font-bold text-sm flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+                                                >
+                                                    <ArrowUp className="w-4 h-4" />
+                                                    Top
+                                                </button>
+                                            )}
+
+                                            {book.failed_chapters_count > 0 && (
+                                                <button
+                                                    onClick={() => runAction(`retry_${book.book_key}`, {
+                                                        action: 'book_queue_action',
+                                                        bookKey: book.book_key,
+                                                        subAction: 'retry_failed'
+                                                    })}
+                                                    title="Reset failed chapters and retry now"
+                                                    className="px-3.5 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 font-bold text-sm flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+                                                >
+                                                    <RotateCcw className="w-4 h-4" />
+                                                    Retry
+                                                </button>
+                                            )}
+
+                                            <button
+                                                onClick={() => runAction(`redo_${book.book_key}`, {
+                                                    action: 'book_queue_action',
+                                                    bookKey: book.book_key,
+                                                    subAction: 'redo_art'
+                                                })}
+                                                title="Reset and regenerate all scene art for this book"
+                                                className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-gray-200 font-bold text-sm flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+                                            >
+                                                <RotateCcw className="w-4 h-4" />
+                                                Redo Art
+                                            </button>
+
+                                            <Link
+                                                href={`/discover?tab=audiobooks&bookKey=${encodeURIComponent(book.book_key)}`}
+                                                title="Open this book in the Audiobook Studio Editor"
+                                                className="px-3.5 py-2 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/30 text-indigo-200 font-bold text-sm flex items-center gap-1.5 whitespace-nowrap"
+                                            >
+                                                <Sliders className="w-4 h-4" />
+                                                Edit
+                                            </Link>
+
+                                            <button
+                                                onClick={() => runAction(`rm_${book.book_key}`, {
+                                                    action: 'book_queue_action',
+                                                    bookKey: book.book_key,
+                                                    subAction: 'remove_queue'
+                                                })}
+                                                title="Remove book from queue"
+                                                className="px-3 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 font-bold text-sm flex items-center gap-1 whitespace-nowrap cursor-pointer"
+                                            >
+                                                <X className="w-4 h-4" />
+                                                Remove
+                                            </button>
+                                        </div>
                                     </div>
                                 );
                             })}
                         </div>
-                    </div>
-                )}
+                    )}
+                </div>
+            </section>
 
-                {/* Recent Studio Activity Log */}
-                {studioHistory.length > 0 && (
-                    <div className="space-y-3 pt-2">
-                        <h3 className="text-lg font-black text-white">
-                            Recent Audiobook Studio Completions &amp; Events
-                        </h3>
-                        <div className="space-y-2 max-h-80 overflow-y-auto pr-1 custom-scrollbar">
-                            {studioHistory.slice(0, 10).map((entry: any) => (
-                                <div key={entry.id} className="p-4 rounded-2xl bg-zinc-900/50 border border-zinc-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                                    <div className="space-y-0.5">
-                                        <div className="flex items-center gap-2.5 flex-wrap">
-                                            <span className={`px-2.5 py-0.5 rounded-lg text-xs font-black uppercase ${
-                                                entry.status === 'completed'
-                                                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                                                    : 'bg-red-500/20 text-red-300 border border-red-500/30'
-                                            }`}>
-                                                {entry.queueType}
-                                            </span>
-                                            <span className="text-base font-black text-white">
-                                                {(entry.bookTitle || '').replace(/^\s*(?:19|20)\d{2}\s*[-–—:]\s*/i, '').trim()}
-                                            </span>
-                                            {entry.chapterTitle && (
-                                                <span className="text-sm font-bold text-zinc-400">• {entry.chapterTitle}</span>
-                                            )}
-                                        </div>
-                                        <p className="text-sm text-zinc-300">{entry.detail}</p>
+            {/* 2. SERVER SCHEDULERS: ARR BATCH SEARCH & DISK / TORRENT GUARD */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                {/* Arr Batch Search Scheduler */}
+                <section className="rounded-2xl bg-[#0d111a] border border-white/10 p-5 space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                            <Search className="w-6 h-6 text-indigo-400 shrink-0" />
+                            <h2 className="text-xl font-black text-white">Arr Batch Search</h2>
+                            <span className={`px-3 py-1 rounded-lg text-xs font-black uppercase border ${
+                                arrScheduler.enabled
+                                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                    : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                            }`}>
+                                {arrScheduler.enabled ? 'Enabled' : 'Paused'}
+                            </span>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                            <button
+                                onClick={() => runAction('arr_run', { action: 'update_arr_scheduler', runNow: true })}
+                                disabled={busyKey === 'arr_run'}
+                                title="Run Sonarr/Radarr/Lidarr missing search batch now"
+                                className="px-4 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white font-black text-base flex items-center gap-2 whitespace-nowrap cursor-pointer"
+                            >
+                                <Play className="w-4 h-4 fill-current" />
+                                Run
+                            </button>
+                            <button
+                                onClick={() => runAction('arr_toggle', { action: 'update_arr_scheduler', enabled: !arrScheduler.enabled })}
+                                disabled={busyKey === 'arr_toggle'}
+                                title={arrScheduler.enabled ? 'Pause Arr Scheduler' : 'Enable Arr Scheduler'}
+                                className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-white font-bold text-base flex items-center gap-2 whitespace-nowrap cursor-pointer"
+                            >
+                                {arrScheduler.enabled ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                                {arrScheduler.enabled ? 'Pause' : 'Resume'}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-3">
+                        <div className="rounded-xl bg-black/40 border border-white/10 p-3 space-y-1">
+                            <span className="text-xs font-black uppercase text-gray-400">Next Run</span>
+                            <div className="text-lg font-black text-white">
+                                {arrScheduler.enabled ? formatNextRun(arrScheduler.nextRunTimestamp) : 'Paused'}
+                            </div>
+                        </div>
+
+                        <div className="rounded-xl bg-black/40 border border-white/10 p-3 space-y-1">
+                            <span className="text-xs font-black uppercase text-gray-400">Interval</span>
+                            <select
+                                value={arrScheduler.interval || 30}
+                                onChange={(e) => runAction('arr_int', { action: 'update_arr_scheduler', interval: Number(e.target.value) })}
+                                className="w-full bg-[#141a29] border border-white/15 rounded-lg px-2.5 py-1.5 text-base font-bold text-white cursor-pointer"
+                            >
+                                {[15, 30, 60, 120, 360, 720].map(m => (
+                                    <option key={m} value={m}>Every {m}m</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="rounded-xl bg-black/40 border border-white/10 p-3 space-y-1">
+                            <span className="text-xs font-black uppercase text-gray-400">Batch Limit</span>
+                            <select
+                                value={arrScheduler.batchSize || 10}
+                                onChange={(e) => runAction('arr_batch', { action: 'update_arr_scheduler', batchSize: Number(e.target.value) })}
+                                className="w-full bg-[#141a29] border border-white/15 rounded-lg px-2.5 py-1.5 text-base font-bold text-white cursor-pointer"
+                            >
+                                {[1, 5, 10, 20, 50].map(b => (
+                                    <option key={b} value={b}>{b} items</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+                </section>
+
+                {/* Smart Disk Guard & qBittorrent Cleanup */}
+                <section className="rounded-2xl bg-[#0d111a] border border-white/10 p-5 space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                            <HardDrive className="w-6 h-6 text-emerald-400 shrink-0" />
+                            <h2 className="text-xl font-black text-white">Disk Guard & qBit Cleanup</h2>
+                            <span className={`px-3 py-1 rounded-lg text-xs font-black uppercase border ${
+                                arrScheduler.diskAutocleanEnabled
+                                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                    : 'bg-white/10 text-gray-300 border-white/15'
+                            }`}>
+                                {arrScheduler.diskAutocleanEnabled ? 'Auto-Clean ON' : 'Auto-Clean OFF'}
+                            </span>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                            <button
+                                onClick={() => runAction('clean_run', { action: 'update_cleanup_scheduler', runNow: true })}
+                                disabled={busyKey === 'clean_run'}
+                                title="Run torrent & disk cleanup immediately"
+                                className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-base flex items-center gap-2 whitespace-nowrap cursor-pointer"
+                            >
+                                <Play className="w-4 h-4 fill-current" />
+                                Clean
+                            </button>
+                            <button
+                                onClick={() => runAction('clean_toggle', {
+                                    action: 'update_cleanup_scheduler',
+                                    diskAutocleanEnabled: !arrScheduler.diskAutocleanEnabled
+                                })}
+                                disabled={busyKey === 'clean_toggle'}
+                                title="Toggle Smart Disk Auto-Clean"
+                                className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 text-white font-bold text-base flex items-center gap-2 whitespace-nowrap cursor-pointer"
+                            >
+                                {arrScheduler.diskAutocleanEnabled ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                                {arrScheduler.diskAutocleanEnabled ? 'Disable' : 'Enable'}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="rounded-xl bg-black/40 border border-white/10 p-3 space-y-1">
+                            <span className="text-xs font-black uppercase text-gray-400">Disk Threshold</span>
+                            <select
+                                value={arrScheduler.diskThresholdPercent || 85}
+                                onChange={(e) => runAction('disk_thresh', {
+                                    action: 'update_cleanup_scheduler',
+                                    diskThresholdPercent: Number(e.target.value)
+                                })}
+                                className="w-full bg-[#141a29] border border-white/15 rounded-lg px-2.5 py-1.5 text-base font-bold text-white cursor-pointer"
+                            >
+                                {[75, 80, 85, 90, 95].map(p => (
+                                    <option key={p} value={p}>Clean above {p}%</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="rounded-xl bg-black/40 border border-white/10 p-3 space-y-1">
+                            <span className="text-xs font-black uppercase text-gray-400">qBit Check Interval</span>
+                            <select
+                                value={arrScheduler.qbitCleanupIntervalMin || 15}
+                                onChange={(e) => runAction('qbit_int', {
+                                    action: 'update_cleanup_scheduler',
+                                    qbitCleanupIntervalMin: Number(e.target.value)
+                                })}
+                                className="w-full bg-[#141a29] border border-white/15 rounded-lg px-2.5 py-1.5 text-base font-bold text-white cursor-pointer"
+                            >
+                                {[5, 10, 15, 30, 60].map(m => (
+                                    <option key={m} value={m}>Every {m}m</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            {/* 3. LIVE TV STREAMS, EPG SYNC, DVR & TRANSFERS */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                {/* Live Streams & EPG Sync */}
+                <section className="rounded-2xl bg-[#0d111a] border border-white/10 p-5 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2.5">
+                            <Tv className="w-6 h-6 text-sky-400" />
+                            <h2 className="text-lg font-black text-white">Live TV & EPG</h2>
+                        </div>
+                        <button
+                            onClick={() => runAction('epg_sync', { action: 'trigger_epg_sync' })}
+                            disabled={busyKey === 'epg_sync'}
+                            title="Run XMLTV EPG sync now"
+                            className="px-3.5 py-1.5 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/30 text-sky-200 font-bold text-sm flex items-center gap-1.5 cursor-pointer"
+                        >
+                            <RefreshCw className="w-4 h-4" />
+                            Sync EPG
+                        </button>
+                    </div>
+                    <div className="text-base font-bold text-gray-300">
+                        {liveStreams.length} Active Stream(s) • {epgSyncs.length} EPG Sync(s)
+                    </div>
+                    {liveStreams.map((hub: any) => (
+                        <div key={hub.hubKey} className="rounded-xl bg-black/40 border border-white/10 p-3 flex items-center justify-between">
+                            <span className="text-base font-bold text-white truncate">{hub.channelName || hub.hubKey}</span>
+                            <span className="text-xs font-black text-emerald-300 uppercase">{hub.subscriberCount} viewers</span>
+                        </div>
+                    ))}
+                </section>
+
+                {/* DVR Recordings */}
+                <section className="rounded-2xl bg-[#0d111a] border border-white/10 p-5 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2.5">
+                            <Radio className="w-6 h-6 text-rose-400" />
+                            <h2 className="text-lg font-black text-white">DVR Recordings</h2>
+                        </div>
+                        <span className="text-sm font-black text-gray-400">
+                            {dvrActive.length} Rec • {dvrScheduled.length} Sched
+                        </span>
+                    </div>
+                    {dvrActive.length === 0 && dvrScheduled.length === 0 ? (
+                        <div className="text-base text-gray-400 font-semibold">No active or scheduled recordings.</div>
+                    ) : (
+                        <div className="space-y-2">
+                            {dvrActive.map((rec: any) => (
+                                <div key={rec.id} className="rounded-xl bg-rose-500/10 border border-rose-500/30 p-3 flex items-center justify-between gap-2">
+                                    <div className="min-w-0">
+                                        <div className="text-base font-black text-white truncate">{rec.title}</div>
+                                        <div className="text-xs font-bold text-rose-300">{rec.channel_name} • Recording</div>
                                     </div>
-                                    <span className="text-xs font-mono text-zinc-400 shrink-0">
-                                        {entry.providerUsed}
-                                    </span>
+                                    <button
+                                        onClick={() => runAction(`stop_dvr_${rec.id}`, { action: 'stop_dvr_recording', recordingId: rec.id })}
+                                        title="Stop recording"
+                                        className="px-3 py-1.5 rounded-lg bg-rose-500 text-white font-black text-xs flex items-center gap-1 cursor-pointer"
+                                    >
+                                        <Square className="w-3.5 h-3.5 fill-current" />
+                                        Stop
+                                    </button>
                                 </div>
                             ))}
-                        </div>
-                    </div>
-                )}
-            </section>
-
-            {/* ── 3. LIVE TV DVR RECORDINGS (ACTIVE, SCHEDULED & COMPLETED) ── */}
-            <section className="bg-zinc-950/90 border border-zinc-800/90 rounded-3xl p-6 sm:p-7 space-y-5 shadow-xl">
-                <div className="flex items-center justify-between gap-4 flex-wrap border-b border-zinc-800/80 pb-4">
-                    <div className="flex items-center gap-3.5">
-                        <div className="w-12 h-12 rounded-2xl bg-red-500/15 border border-red-500/30 flex items-center justify-center text-red-400">
-                            <Clock size={24} />
-                        </div>
-                        <div>
-                            <h2 className="text-xl sm:text-2xl font-black text-white">
-                                Live TV DVR Recordings ({dvrActive.length} Active, {dvrScheduled.length} Scheduled)
-                            </h2>
-                            <p className="text-sm sm:text-base text-zinc-400">
-                                Resilient server-side MP4/MKV/MP3 captures powered by the shared IPTV stream hub
-                            </p>
-                        </div>
-                    </div>
-                    <Link
-                        href="/discover?tab=livetv"
-                        title="Open Live TV & DVR Manager in Media tab"
-                        className="px-5 py-3 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-white border border-zinc-700 font-black text-base flex items-center gap-2.5 transition-all"
-                    >
-                        <Tv size={20} className="text-amber-400" />
-                        <span>DVR</span>
-                    </Link>
-                </div>
-
-                {dvrActive.length === 0 && dvrScheduled.length === 0 && dvrRecent.length === 0 ? (
-                    <div className="p-8 rounded-2xl bg-zinc-900/40 border border-zinc-800/70 text-center space-y-2">
-                        <p className="text-lg font-bold text-zinc-300">No DVR recordings active or scheduled</p>
-                        <p className="text-base text-zinc-500">Click Record in Theater Live TV or schedule programs from the EPG Guide.</p>
-                    </div>
-                ) : (
-                    <div className="space-y-3">
-                        {[...dvrActive, ...dvrScheduled, ...dvrRecent.slice(0, 6)].map((rec: any) => {
-                            const isRec = rec.status === 'recording';
-                            const isSched = rec.status === 'scheduled';
-                            const isDone = rec.status === 'completed';
-                            return (
-                                <div key={rec.id} className="p-5 rounded-2xl bg-zinc-900/60 border border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                                    <div className="space-y-1">
-                                        <div className="flex items-center gap-2.5 flex-wrap">
-                                            <span className={`px-3 py-0.5 rounded-lg text-xs font-black uppercase ${
-                                                isRec
-                                                    ? 'bg-red-500 text-white animate-pulse'
-                                                    : isSched
-                                                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                                                    : isDone
-                                                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                                                    : 'bg-zinc-800 text-zinc-400'
-                                            }`}>
-                                                {rec.status}
-                                            </span>
-                                            <h3 className="text-lg font-black text-white">{rec.program_title}</h3>
-                                            <span className="text-base font-bold text-zinc-400">({rec.channel_name})</span>
-                                        </div>
-                                        <p className="text-sm text-zinc-400 font-mono">
-                                            {rec.file_path || rec.destination_path}
-                                            {rec.file_size ? ` • ${(rec.file_size / (1024 * 1024)).toFixed(1)} MB` : ''}
-                                        </p>
-                                    </div>
-
-                                    {isRec && (
-                                        <button
-                                            onClick={() => runAction('stop_dvr_recording', { recordingId: rec.id })}
-                                            title="Stop and finalize this active Live TV DVR recording cleanly"
-                                            className="px-5 py-3 rounded-2xl bg-red-500 hover:bg-red-400 text-white font-black text-base flex items-center gap-2 cursor-pointer shrink-0"
-                                        >
-                                            <Square size={18} className="fill-white" />
-                                            <span>Stop</span>
-                                        </button>
-                                    )}
-                                </div>
-                            );
-                        })}
-                    </div>
-                )}
-            </section>
-
-            {/* ── 4. TRANSFERS & UPCOMING AI PIPELINES (PHOTOS FACE RECOGNITION, ETC.) ── */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Active Music / Audio Transfers */}
-                <section className="bg-zinc-950/90 border border-zinc-800/90 rounded-3xl p-6 space-y-4 shadow-xl">
-                    <div className="flex items-center justify-between gap-3 border-b border-zinc-800/80 pb-4">
-                        <div className="flex items-center gap-3">
-                            <div className="w-12 h-12 rounded-2xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400">
-                                <Download size={24} />
-                            </div>
-                            <div>
-                                <h2 className="text-xl font-black text-white">Transfers &amp; Downloads</h2>
-                                <p className="text-sm text-zinc-400">Active music and media acquisition jobs</p>
-                            </div>
-                        </div>
-                        <Link
-                            href="/downloads"
-                            title="Open Transfers & Torrent Queue page"
-                            className="px-4 py-2.5 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-white border border-zinc-700 font-black text-sm flex items-center gap-2"
-                        >
-                            <Download size={18} className="text-sky-400" />
-                            <span>Transfers</span>
-                        </Link>
-                    </div>
-
-                    {activeTransfers.length === 0 ? (
-                        <div className="p-6 rounded-2xl bg-zinc-900/40 border border-zinc-800/70 text-center">
-                            <p className="text-base font-bold text-zinc-300">No active audio downloads in queue</p>
-                        </div>
-                    ) : (
-                        <div className="space-y-3">
-                            {activeTransfers.map((tr: any) => (
-                                <div key={tr.id} className="p-4 rounded-2xl bg-zinc-900/70 border border-zinc-800 space-y-2">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-base font-black text-white">{tr.title}</span>
-                                        <span className="text-sm font-mono font-bold text-sky-400">{tr.progress || 0}%</span>
-                                    </div>
-                                    <p className="text-sm text-zinc-400">{tr.artist}</p>
+                            {dvrScheduled.slice(0, 3).map((rec: any) => (
+                                <div key={rec.id} className="rounded-xl bg-black/40 border border-white/10 p-3 flex items-center justify-between gap-2">
+                                    <span className="text-base font-bold text-white truncate">{rec.title}</span>
+                                    <span className="text-xs font-bold text-indigo-300 whitespace-nowrap">
+                                        {new Date(rec.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
                                 </div>
                             ))}
                         </div>
                     )}
                 </section>
 
-                {/* Upcoming & Scheduled Pipelines */}
-                <section className="bg-zinc-950/90 border border-zinc-800/90 rounded-3xl p-6 space-y-4 shadow-xl">
-                    <div className="flex items-center gap-3 border-b border-zinc-800/80 pb-4">
-                        <div className="w-12 h-12 rounded-2xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
-                            <Layers size={24} />
+                {/* Active Audio Transfers & Recent Logs */}
+                <section className="rounded-2xl bg-[#0d111a] border border-white/10 p-5 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2.5">
+                            <Terminal className="w-6 h-6 text-emerald-400" />
+                            <h2 className="text-lg font-black text-white">Live Server Log</h2>
                         </div>
-                        <div>
-                            <h2 className="text-xl font-black text-white">Upcoming &amp; Standing Pipelines</h2>
-                            <p className="text-sm text-zinc-400">Planned AI indexers &amp; automated background jobs</p>
-                        </div>
+                        <span className="text-sm font-bold text-gray-400">
+                            {transfersActive.length} Transfers
+                        </span>
                     </div>
-
-                    <div className="space-y-3">
-                        {upcomingPipelines.map((pipe: any) => (
-                            <div key={pipe.id} className="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800 space-y-1.5">
-                                <div className="flex items-center justify-between gap-2">
-                                    <h3 className="text-base font-black text-white">{pipe.name}</h3>
-                                    <span className={`px-2.5 py-0.5 rounded-lg text-xs font-black uppercase ${
-                                        pipe.status === 'ready'
-                                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                                            : pipe.status === 'scheduled'
-                                            ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
-                                            : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
-                                    }`}>
-                                        {pipe.status}
-                                    </span>
-                                </div>
-                                <p className="text-sm text-zinc-300 leading-relaxed">{pipe.description}</p>
-                                <p className="text-xs font-bold text-emerald-400">{pipe.persistenceNote}</p>
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                        {(studio?.history || []).slice(0, 6).map((h: any, i: number) => (
+                            <div key={h.id || i} className="text-sm font-mono bg-black/40 border border-white/5 rounded-lg px-3 py-1.5 flex items-center justify-between gap-2">
+                                <span className={h.status === 'failed' ? 'text-rose-300 truncate' : 'text-gray-200 truncate'}>
+                                    [{(h.queueType || h.taskType || 'TASK').toUpperCase()}] {h.bookTitle}{h.chapterTitle ? ` — ${h.chapterTitle}` : ''}: {h.detail || h.details}
+                                </span>
+                                <span className="text-xs text-gray-500 shrink-0">
+                                    {h.timestamp ? new Date(h.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}
+                                </span>
+                            </div>
+                        ))}
+                        {recentLogs.slice(0, 4).map((l: any) => (
+                            <div key={l.id} className="text-sm font-mono bg-black/40 border border-white/5 rounded-lg px-3 py-1.5 text-gray-300 truncate">
+                                [{l.category}] {l.message}
                             </div>
                         ))}
                     </div>

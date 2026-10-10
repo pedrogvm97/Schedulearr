@@ -3983,7 +3983,11 @@ export const getQueueBreakdownAndHistory = () => {
  * 4. Chapter & Scene Art (`generateAudiobookChapterIllustrations`)
  * 5. Voice / Audio Enhancement (`enhanceAudiobookChapterAudio`)
  */
-export const processAudiobookPriorityQueueStep = async (forceBookKey?: string, forceChapterKey?: string): Promise<boolean> => {
+export const processAudiobookPriorityQueueStep = async (
+    forceBookKey?: string,
+    forceChapterKey?: string,
+    forceIgnoreQuota?: boolean
+): Promise<boolean> => {
     purgeAllFakeSvgArtFromDbAndDisk();
     if (g.__audiobookStudioLock) {
         return false;
@@ -4006,10 +4010,17 @@ export const processAudiobookPriorityQueueStep = async (forceBookKey?: string, f
                 activeChapterTitle: null,
                 activeTask: null,
                 progress: 0,
-                lastLog: 'Queue idle — All prioritized audiobooks are up to date'
+                lastLog: allBooks.some(b => b.queue_enabled)
+                    ? 'Idle — All queued audiobooks completed'
+                    : 'Idle — No audiobooks in queue'
             });
             return false;
         }
+
+        let blockedByQuotaCount = 0;
+        let failedChaptersCount = 0;
+        let lastFailedError = '';
+        let unmappedBooksCount = 0;
 
         for (const book of candidateBooks) {
             // 0. Discover real-life book chapter/scene structure first if not yet mapped
@@ -4025,21 +4036,25 @@ export const processAudiobookPriorityQueueStep = async (forceBookKey?: string, f
             }
 
             const chapters = getAudiobookChaptersMeta(book.book_key);
+            if (chapters.length === 0) {
+                unmappedBooksCount++;
+            }
             const targetChapters = forceChapterKey
                 ? chapters.filter(c => c.chapter_key === forceChapterKey)
                 : chapters;
 
             for (const chapter of targetChapters) {
                 // 2. Transcription (so scene art can match the transcribed scenes)
-                if (
-                    book.transcribe_enabled &&
-                    chapter.transcription_status !== 'completed' &&
-                    (chapter.transcription_status !== 'failed' || Boolean(forceChapterKey))
-                ) {
-                    await transcribeAudiobookChapter(book, chapter, config);
-                    recalculateAudiobookTotals(book.book_key);
-                    updateLiveStatus({ isRunning: false, activeTask: null, progress: 100 });
-                    return true;
+                if (book.transcribe_enabled && chapter.transcription_status !== 'completed') {
+                    if (chapter.transcription_status === 'failed' && !forceChapterKey && !forceIgnoreQuota) {
+                        failedChaptersCount++;
+                        if (chapter.error_message && !lastFailedError) lastFailedError = chapter.error_message;
+                    } else {
+                        await transcribeAudiobookChapter(book, chapter, config);
+                        recalculateAudiobookTotals(book.book_key);
+                        updateLiveStatus({ isRunning: false, activeTask: null, progress: 100 });
+                        return true;
+                    }
                 }
 
                 // 3. Art Priority #2 (Chapter Art) & #3 (Scene Art) matched to transcribed scenes
@@ -4051,31 +4066,50 @@ export const processAudiobookPriorityQueueStep = async (forceBookKey?: string, f
                 const keptCount = (chapter.images || []).filter(i => i.kept).length;
                 if (
                     latestBook.illustrate_enabled &&
-                    (chapter.illustration_status !== 'completed' || keptCount < targetCount) &&
-                    (chapter.illustration_status !== 'failed' || Boolean(forceChapterKey)) &&
-                    (Boolean(forceChapterKey) || Boolean(forceBookKey) || freshCfg.imagesGeneratedToday < freshCfg.dailyImageQuota)
+                    (chapter.illustration_status !== 'completed' || keptCount < targetCount)
                 ) {
-                    const updatedChapter = getAudiobookChapterMeta(chapter.chapter_key) || chapter;
-                    await generateAudiobookChapterIllustrations(latestBook, updatedChapter, freshCfg, Boolean(forceChapterKey) || Boolean(forceBookKey));
-                    recalculateAudiobookTotals(book.book_key);
-                    updateLiveStatus({ isRunning: false, activeTask: null, progress: 100 });
-                    return true;
+                    const bypassQuota = Boolean(forceChapterKey) || Boolean(forceBookKey) || Boolean(forceIgnoreQuota);
+                    if (chapter.illustration_status === 'failed' && !bypassQuota) {
+                        failedChaptersCount++;
+                        if (chapter.error_message && !lastFailedError) lastFailedError = chapter.error_message;
+                    } else if (!bypassQuota && freshCfg.imagesGeneratedToday >= freshCfg.dailyImageQuota) {
+                        blockedByQuotaCount++;
+                    } else {
+                        const updatedChapter = getAudiobookChapterMeta(chapter.chapter_key) || chapter;
+                        await generateAudiobookChapterIllustrations(latestBook, updatedChapter, freshCfg, bypassQuota);
+                        recalculateAudiobookTotals(book.book_key);
+                        updateLiveStatus({ isRunning: false, activeTask: null, progress: 100 });
+                        return true;
+                    }
                 }
 
                 // 4. Audio / Voice Enhancement
-                if (
-                    latestBook.enhance_audio_enabled &&
-                    chapter.audio_enhance_status !== 'completed' &&
-                    (chapter.audio_enhance_status !== 'failed' || Boolean(forceChapterKey))
-                ) {
-                    await enhanceAudiobookChapterAudio(latestBook, chapter, config);
-                    recalculateAudiobookTotals(book.book_key);
-                    updateLiveStatus({ isRunning: false, activeTask: null, progress: 100 });
-                    return true;
+                if (latestBook.enhance_audio_enabled && chapter.audio_enhance_status !== 'completed') {
+                    if (chapter.audio_enhance_status === 'failed' && !forceChapterKey && !forceIgnoreQuota) {
+                        failedChaptersCount++;
+                        if (chapter.error_message && !lastFailedError) lastFailedError = chapter.error_message;
+                    } else {
+                        await enhanceAudiobookChapterAudio(latestBook, chapter, config);
+                        recalculateAudiobookTotals(book.book_key);
+                        updateLiveStatus({ isRunning: false, activeTask: null, progress: 100 });
+                        return true;
+                    }
                 }
             }
 
             recalculateAudiobookTotals(book.book_key);
+        }
+
+        const freshCfg = getAudiobookStudioConfig();
+        let idleReason = 'Idle — All queued chapters up to date';
+        if (!freshCfg.enabled && !forceBookKey && !forceChapterKey && !forceIgnoreQuota) {
+            idleReason = 'Paused by user';
+        } else if (blockedByQuotaCount > 0) {
+            idleReason = `Quota Paused: ${freshCfg.imagesGeneratedToday}/${freshCfg.dailyImageQuota} daily images used (${blockedByQuotaCount} chapters waiting)`;
+        } else if (failedChaptersCount > 0) {
+            idleReason = `Idle: ${failedChaptersCount} failed chapter task(s)${lastFailedError ? ` — ${lastFailedError.slice(0, 90)}` : ''}`;
+        } else if (unmappedBooksCount > 0) {
+            idleReason = `Idle: ${unmappedBooksCount} queued book(s) have 0 synced chapters`;
         }
 
         updateLiveStatus({
@@ -4086,7 +4120,7 @@ export const processAudiobookPriorityQueueStep = async (forceBookKey?: string, f
             activeChapterTitle: null,
             activeTask: null,
             progress: 0,
-            lastLog: 'Queue idle — Ready'
+            lastLog: idleReason
         });
         return false;
     } catch (e: any) {
@@ -4105,29 +4139,40 @@ export const processAudiobookPriorityQueueStep = async (forceBookKey?: string, f
 /**
  * Triggers background processing loop until queue is finished or paused.
  */
-export const triggerAudiobookQueueWorker = (forceBookKey?: string, forceChapterKey?: string) => {
+export const triggerAudiobookQueueWorker = (
+    forceBookKey?: string,
+    forceChapterKey?: string,
+    forceIgnoreQuota?: boolean
+) => {
     setTimeout(async () => {
-        // When user explicitly starts a whole-book generation, reset any 'failed' statuses to 'queued' once so they are retried
-        if (forceBookKey && !forceChapterKey) {
-            const chapters = getAudiobookChaptersMeta(forceBookKey);
-            for (const ch of chapters) {
-                if (ch.transcription_status === 'failed' || ch.illustration_status === 'failed' || ch.audio_enhance_status === 'failed') {
-                    upsertAudiobookChapterMeta({
-                        chapter_key: ch.chapter_key,
-                        book_key: forceBookKey,
-                        transcription_status: ch.transcription_status === 'failed' ? 'queued' : ch.transcription_status,
-                        illustration_status: ch.illustration_status === 'failed' ? 'queued' : ch.illustration_status,
-                        audio_enhance_status: ch.audio_enhance_status === 'failed' ? 'queued' : ch.audio_enhance_status,
-                        error_message: ''
-                    });
+        // When user explicitly starts a whole-book or manual queue run, reset any 'failed' statuses to 'queued' so they are retried
+        if ((forceBookKey && !forceChapterKey) || forceIgnoreQuota) {
+            const targetBooks = forceBookKey
+                ? [getAudiobookMeta(forceBookKey)].filter(Boolean)
+                : getAllAudiobooksMeta().filter(b => b.queue_enabled);
+            for (const b of targetBooks) {
+                if (!b) continue;
+                const chapters = getAudiobookChaptersMeta(b.book_key);
+                for (const ch of chapters) {
+                    if (ch.transcription_status === 'failed' || ch.illustration_status === 'failed' || ch.audio_enhance_status === 'failed') {
+                        upsertAudiobookChapterMeta({
+                            chapter_key: ch.chapter_key,
+                            book_key: b.book_key,
+                            transcription_status: ch.transcription_status === 'failed' ? 'queued' : ch.transcription_status,
+                            illustration_status: ch.illustration_status === 'failed' ? 'queued' : ch.illustration_status,
+                            audio_enhance_status: ch.audio_enhance_status === 'failed' ? 'queued' : ch.audio_enhance_status,
+                            error_message: ''
+                        });
+                    }
                 }
+                recalculateAudiobookTotals(b.book_key);
             }
         }
         // Process up to 35 steps sequentially with a 1.2s breather between steps for low-power Intel CPU
         for (let step = 0; step < 35; step++) {
             const cfg = getAudiobookStudioConfig();
-            if (!cfg.enabled && !forceBookKey && !forceChapterKey) break;
-            const didWork = await processAudiobookPriorityQueueStep(forceBookKey, forceChapterKey);
+            if (!cfg.enabled && !forceBookKey && !forceChapterKey && !forceIgnoreQuota) break;
+            const didWork = await processAudiobookPriorityQueueStep(forceBookKey, forceChapterKey, forceIgnoreQuota);
             if (!didWork) break;
             if (forceChapterKey) break; // Single chapter manual trigger finishes after all steps for that chapter
             await new Promise(r => setTimeout(r, 1200));
