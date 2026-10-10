@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getTheaterLibraries, getInstances, getCachedTheaterItems, saveCachedTheaterItems, clearCachedTheaterItems } from '@/lib/db';
+import { getTheaterLibraries, getInstances, getCachedTheaterItems, saveCachedTheaterItems, clearCachedTheaterItems, parseAndCanonicalizeAuthor } from '@/lib/db';
 import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
@@ -37,7 +37,7 @@ function deriveBookAndAuthor(
     libName?: string,
     rawArtist?: string,
     rawAlbum?: string
-): { artist: string; album: string; chapterNumber?: number } {
+): { artist: string; album: string; chapterNumber?: number; translator?: string; narrator?: string } {
     const normPath = (fullPath || '').replace(/\\/g, '/');
     const parts = normPath.split('/').filter(Boolean);
     // parts[parts.length - 1] is filename, parts[parts.length - 2] is parent dir, parts[parts.length - 3] is grandparent dir
@@ -98,6 +98,10 @@ function deriveBookAndAuthor(
         artist = 'Unknown Author';
     }
 
+    const parsedAuthor = parseAndCanonicalizeAuthor(artist, album);
+    artist = parsedAuthor.canonicalAuthor || artist;
+    album = parsedAuthor.cleanTitle || album;
+
     // Extract track/chapter number if present
     let chapterNumber: number | undefined = undefined;
     const chMatch = cleanTitle.match(/(?:chapter|ch|part|pt|track)\s*(\d{1,3})/i) || cleanTitle.match(/^(\d{1,3})\b/);
@@ -105,7 +109,7 @@ function deriveBookAndAuthor(
         chapterNumber = parseInt(chMatch[1], 10);
     }
 
-    return { artist, album, chapterNumber };
+    return { artist, album, chapterNumber, translator: parsedAuthor.translator, narrator: parsedAuthor.narrator };
 }
 
 function scanDirectory(dirPath: string, maxDepth = 8, currentDepth = 0, lib?: any): any[] {
@@ -321,10 +325,22 @@ export async function GET(req: Request) {
                     !it.streamUrl
                 );
                 if (!hasStaleAudiobookCache) {
+                    const normalizedItems = isAudiobooksLib
+                        ? cached.items.map((it: any) => {
+                            const parsed = parseAndCanonicalizeAuthor(it.artist || '', it.album || it.title || '');
+                            return {
+                                ...it,
+                                artist: parsed.canonicalAuthor || it.artist,
+                                album: parsed.cleanTitle || it.album,
+                                translator: it.translator || parsed.translator,
+                                narrator: it.narrator || parsed.narrator,
+                            };
+                        })
+                        : cached.items;
                     return NextResponse.json({
                         library: lib,
-                        items: cached.items,
-                        total: cached.items.length,
+                        items: normalizedItems,
+                        total: normalizedItems.length,
                         cached: true,
                         cachedAt: cached.updatedAt
                     });

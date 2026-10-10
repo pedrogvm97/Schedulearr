@@ -339,7 +339,12 @@ export async function POST(request: Request) {
                 imagesPerChapter,
                 artFocus,
                 dynamicPromptEnabled,
-                customPrompt
+                customPrompt,
+                genre,
+                publishedYear,
+                readingStatus,
+                onBedsideTable,
+                progressPercent
             } = body;
             if (!bookKey) {
                 return NextResponse.json({ success: false, error: 'Missing bookKey' }, { status: 400 });
@@ -358,6 +363,11 @@ export async function POST(request: Request) {
                 book_key: bookKey,
                 title: title || existingBook?.title || 'Untitled Book',
                 author: author || existingBook?.author || 'Unknown Author',
+                genre: genre !== undefined ? String(genre) : existingBook?.genre,
+                published_year: publishedYear !== undefined ? String(publishedYear) : existingBook?.published_year,
+                reading_status: readingStatus || existingBook?.reading_status || 'unstarted',
+                on_bedside_table: onBedsideTable !== undefined ? Boolean(onBedsideTable) : existingBook?.on_bedside_table,
+                progress_percent: progressPercent !== undefined ? Number(progressPercent) : (existingBook?.progress_percent ?? 0),
                 thumb: thumb || posterUrl || existingBook?.thumb,
                 library_id: libraryId || existingBook?.library_id,
                 queue_priority: existingBook ? existingBook.queue_priority : maxPriority + 1,
@@ -378,7 +388,7 @@ export async function POST(request: Request) {
             if (rawTracks.length > 0) {
                 rawTracks.forEach((t: any, idx: number) => {
                     const cKey = t.ratingKey || t.chapterKey || t.chapter_key || `${bookKey}_ch_${idx + 1}`;
-                    let filePath = t.filePath || t.file_path || '';
+                    let filePath = t.path || t.filePath || t.file_path || '';
                     if (!filePath && typeof cKey === 'string' && cKey.startsWith('local_track_')) {
                         try {
                             filePath = Buffer.from(cKey.replace('local_track_', ''), 'base64url').toString('utf8');
@@ -402,7 +412,7 @@ export async function POST(request: Request) {
 
             if (effectiveQueueEnabled) {
                 console.log(`📚 [AudiobookStudio] Book "${bookMeta.title}" added to processing queue.`);
-                triggerAudiobookQueueWorker();
+                triggerAudiobookQueueWorker(bookKey);
             }
 
             return NextResponse.json({
@@ -411,6 +421,104 @@ export async function POST(request: Request) {
                 chapters: getAudiobookChaptersMeta(bookKey),
                 books: getAllAudiobooksMeta(),
                 status: getAudiobookStudioStatus()
+            });
+        }
+
+        if (action === 'update_reading_state') {
+            const { bookKey, title, author, thumb, readingStatus, onBedsideTable, progressPercent, lastPlayedAt } = body;
+            if (!bookKey) {
+                return NextResponse.json({ success: false, error: 'Missing bookKey' }, { status: 400 });
+            }
+            const existing = getAudiobookMeta(bookKey);
+            const nextStatus: 'unstarted' | 'ongoing' | 'finished' =
+                readingStatus || existing?.reading_status || 'unstarted';
+            const nextBedside =
+                onBedsideTable !== undefined
+                    ? Boolean(onBedsideTable)
+                    : nextStatus === 'finished'
+                        ? false
+                        : nextStatus === 'ongoing'
+                            ? true
+                            : (existing?.on_bedside_table ?? false);
+
+            const updated = upsertAudiobookMeta({
+                book_key: bookKey,
+                title: title || existing?.title || 'Untitled Book',
+                author: author || existing?.author || 'Unknown Author',
+                thumb: thumb || existing?.thumb,
+                reading_status: nextStatus,
+                on_bedside_table: nextBedside,
+                progress_percent: progressPercent !== undefined
+                    ? Number(progressPercent)
+                    : (nextStatus === 'finished' ? 100 : (existing?.progress_percent ?? 0)),
+                last_played_at: lastPlayedAt || (nextStatus === 'ongoing' ? new Date().toISOString() : existing?.last_played_at)
+            });
+
+            return NextResponse.json({
+                success: true,
+                book: updated,
+                books: getAllAudiobooksMeta()
+            });
+        }
+
+        if (action === 'edit_book_metadata') {
+            const {
+                bookKey,
+                title,
+                author,
+                translator,
+                narrator,
+                genre,
+                publishedYear,
+                customCoverUrl,
+                useCustomCover,
+                artStyle,
+                imagesPerChapter,
+                artFocus,
+                customPrompt
+            } = body;
+            if (!bookKey) {
+                return NextResponse.json({ success: false, error: 'Missing bookKey' }, { status: 400 });
+            }
+            const existing = getAudiobookMeta(bookKey);
+            const updated = upsertAudiobookMeta({
+                book_key: bookKey,
+                title: title !== undefined ? String(title).trim() : (existing?.title || 'Untitled Book'),
+                author: author !== undefined ? String(author).trim() : (existing?.author || 'Unknown Author'),
+                canonical_author: author !== undefined ? String(author).trim() : existing?.canonical_author,
+                translator: translator !== undefined ? String(translator).trim() : existing?.translator,
+                narrator: narrator !== undefined ? String(narrator).trim() : existing?.narrator,
+                genre: genre !== undefined ? String(genre).trim() : existing?.genre,
+                published_year: publishedYear !== undefined ? String(publishedYear).trim() : existing?.published_year,
+                custom_cover_url: customCoverUrl !== undefined ? String(customCoverUrl).trim() : existing?.custom_cover_url,
+                use_custom_cover: useCustomCover !== undefined ? Boolean(useCustomCover) : existing?.use_custom_cover,
+                art_style: artStyle !== undefined ? String(artStyle) : existing?.art_style,
+                images_per_chapter: imagesPerChapter !== undefined ? Number(imagesPerChapter) : existing?.images_per_chapter,
+                art_focus: artFocus !== undefined ? String(artFocus) : existing?.art_focus,
+                custom_prompt: customPrompt !== undefined ? String(customPrompt) : existing?.custom_prompt
+            });
+
+            // Also update bookMetadata in collections state if cleanTitle or releaseYear was edited
+            if (title !== undefined || publishedYear !== undefined) {
+                const colState = getAudiobookCollectionsState();
+                const prevEnrich = colState.bookMetadata[bookKey] || { bookKey };
+                saveAudiobookCollectionsState({
+                    bookMetadata: {
+                        ...colState.bookMetadata,
+                        [bookKey]: {
+                            ...prevEnrich,
+                            cleanTitle: title !== undefined ? String(title).trim() : prevEnrich.cleanTitle,
+                            releaseYear: publishedYear !== undefined ? String(publishedYear).trim() : prevEnrich.releaseYear
+                        }
+                    }
+                });
+            }
+
+            return NextResponse.json({
+                success: true,
+                book: updated,
+                books: getAllAudiobooksMeta(),
+                collectionsState: getAudiobookCollectionsState()
             });
         }
 
@@ -445,7 +553,7 @@ export async function POST(request: Request) {
         }
 
         if (action === 'run_chapter_task') {
-            const { bookKey, chapterKey, taskType, title, author, posterUrl, thumb, chapterTitle, chapterIndex, filePath, durationSec } = body;
+            const { bookKey, chapterKey, taskType, title, author, posterUrl, thumb, chapterTitle, chapterIndex, filePath, path: rawTrackPath, durationSec } = body;
             const resolvedBookKey = bookKey || (chapterKey ? `book_for_${chapterKey}` : '');
             if (!resolvedBookKey || !chapterKey) {
                 return NextResponse.json({ success: false, error: 'Missing bookKey or chapterKey' }, { status: 400 });
@@ -463,14 +571,15 @@ export async function POST(request: Request) {
                 });
             }
 
+            let decodedPath = filePath || rawTrackPath || '';
+            if (!decodedPath && typeof chapterKey === 'string' && chapterKey.startsWith('local_track_')) {
+                try {
+                    decodedPath = Buffer.from(chapterKey.replace('local_track_', ''), 'base64url').toString('utf8');
+                } catch {}
+            }
+
             let chapter = getAudiobookChapterMeta(chapterKey);
             if (!chapter) {
-                let decodedPath = filePath || '';
-                if (!decodedPath && typeof chapterKey === 'string' && chapterKey.startsWith('local_track_')) {
-                    try {
-                        decodedPath = Buffer.from(chapterKey.replace('local_track_', ''), 'base64url').toString('utf8');
-                    } catch {}
-                }
                 chapter = upsertAudiobookChapterMeta({
                     chapter_key: chapterKey,
                     book_key: resolvedBookKey,
@@ -481,6 +590,12 @@ export async function POST(request: Request) {
                     voice_preset: body.voicePreset || book.voice_preset || 'original'
                 });
                 recalculateAudiobookTotals(resolvedBookKey);
+            } else if (decodedPath && !chapter.file_path) {
+                chapter = upsertAudiobookChapterMeta({
+                    chapter_key: chapterKey,
+                    book_key: resolvedBookKey,
+                    file_path: decodedPath
+                });
             }
 
             const config = getAudiobookStudioConfig();

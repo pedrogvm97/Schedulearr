@@ -33,16 +33,18 @@ export default function IptvSettingsModal({
 }: IptvSettingsModalProps) {
     if (!isOpen || !library) return null;
 
-    const streamUrl = library.folders?.[0] || '';
+    const initialStreamUrl = library.folders?.[0] || '';
     const initialEpg = library.folders?.[1] || '';
     const initialInterval = library.folders?.[2] || '24';
     const lastSyncDate = library.folders?.[3] ? new Date(library.folders[3]) : null;
     const initialScope = library.folders?.[4] || 'shortlists_only';
 
-    const getSuggestedEpg = () => {
+    const [streamUrl, setStreamUrl] = useState(initialStreamUrl);
+
+    const getSuggestedEpg = (urlToCheck = streamUrl) => {
         try {
-            if (streamUrl.includes('username=') && streamUrl.includes('password=')) {
-                const u = new URL(streamUrl);
+            if (urlToCheck.includes('username=') && urlToCheck.includes('password=')) {
+                const u = new URL(urlToCheck);
                 const user = u.searchParams.get('username');
                 const pass = u.searchParams.get('password');
                 if (user && pass) {
@@ -55,10 +57,10 @@ export default function IptvSettingsModal({
         return '';
     };
 
-    const suggestedEpg = getSuggestedEpg();
+    const suggestedEpg = getSuggestedEpg(streamUrl);
 
     const [providerName, setProviderName] = useState(library.name);
-    const [epgUrl, setEpgUrl] = useState(initialEpg || suggestedEpg);
+    const [epgUrl, setEpgUrl] = useState(initialEpg || getSuggestedEpg(initialStreamUrl));
     const [intervalHours, setIntervalHours] = useState(initialInterval);
 
     // Channel / Shortlist Scope Selection for EPG Sync
@@ -179,6 +181,7 @@ export default function IptvSettingsModal({
         setIsSaving(true);
         try {
             const scopeStr = computeScopeConfigString();
+            const cleanStreamUrl = streamUrl.trim() || initialStreamUrl;
             const res = await fetch('/api/theater/libraries', {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
@@ -186,7 +189,7 @@ export default function IptvSettingsModal({
                     id: library.id,
                     name: providerName.trim() || library.name,
                     folders: [
-                        streamUrl,
+                        cleanStreamUrl,
                         (epgUrl.trim() || suggestedEpg),
                         intervalHours,
                         library.folders?.[3] || '',
@@ -197,7 +200,21 @@ export default function IptvSettingsModal({
 
             if (!res.ok) throw new Error('Failed to update provider settings');
 
-            toast.success('EPG schedule & channel scope saved!');
+            if (cleanStreamUrl && cleanStreamUrl !== initialStreamUrl) {
+                try {
+                    await fetch('/api/theater/iptv', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            libraryId: library.id,
+                            resyncChannels: true,
+                            streamUrl: cleanStreamUrl
+                        })
+                    });
+                } catch {}
+            }
+
+            toast.success('Provider settings, stream URL & EPG schedule saved!');
             onUpdated();
             onClose();
         } catch (err: any) {
@@ -355,7 +372,22 @@ export default function IptvSettingsModal({
                             type="text"
                             value={providerName}
                             onChange={e => setProviderName(e.target.value)}
-                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-xs text-white focus:border-amber-500 outline-none"
+                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-amber-500 outline-none"
+                        />
+                    </div>
+
+                    {/* M3U / Xtream Playlist Stream URL */}
+                    <div className="space-y-1.5">
+                        <label className="text-xs font-black uppercase text-zinc-400 tracking-wider flex items-center gap-1.5">
+                            <Tv2 size={14} className="text-amber-400" />
+                            M3U Playlist / Xtream Stream URL
+                        </label>
+                        <input
+                            type="text"
+                            placeholder="http://example.com/get.php?username=...&password=...&type=m3u_plus"
+                            value={streamUrl}
+                            onChange={e => setStreamUrl(e.target.value)}
+                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-zinc-200 font-mono focus:border-amber-500 outline-none"
                         />
                     </div>
 

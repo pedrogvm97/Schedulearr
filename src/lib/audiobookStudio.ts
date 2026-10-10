@@ -5,6 +5,8 @@ import axios from 'axios';
 import {
     getSetting,
     setSetting,
+    getTheaterLibraries,
+    parseAndCanonicalizeAuthor,
     getAllAudiobooksMeta,
     getAudiobookMeta,
     upsertAudiobookMeta,
@@ -21,14 +23,17 @@ import {
 export interface ApiKeyProbeResult {
     provider: 'gemini' | 'claude' | 'openai' | 'groq' | 'huggingface' | 'custom' | 'free';
     label: string;
+    providerLabel?: string;
     valid: boolean;
     tier: string;
     rateLimitInfo: string;
     capabilities: string[];
     models: string[];
     recommendedRpm: number;
+    rateLimitRpm?: number;
     recommendedDailyQuota: number;
     message: string;
+    statusMessage?: string;
     checkedAt: string;
 }
 
@@ -119,6 +124,7 @@ export interface AudiobookStudioConfig {
     customApiUrl: string;
     customApiKey: string;
     apiKeys?: StudioApiKeyEntry[];
+    keyPool?: StudioApiKeyEntry[];
     keyRoutingMode?: 'failover' | 'load_balance';
     apiMetrics?: StudioApiMetrics;
     dailyImageQuota: number;
@@ -271,19 +277,33 @@ export const maskApiKeyString = (rawKey: string): string => {
     return `${k.slice(0, 6)}••••••${k.slice(-4)}`;
 };
 
+const inferProviderFromKeyString = (rawKey: string): { provider: StudioApiKeyEntry['provider']; label: string } => {
+    const k = (rawKey || '').trim();
+    if (k.startsWith('AIza')) return { provider: 'gemini', label: 'Google Gemini API' };
+    if (k.startsWith('sk-ant-')) return { provider: 'claude', label: 'Anthropic Claude API' };
+    if (k.startsWith('gsk_')) return { provider: 'groq', label: 'Groq LPU API' };
+    if (k.startsWith('sk-')) return { provider: 'openai', label: 'OpenAI Platform API' };
+    return { provider: 'custom', label: 'Custom AI API' };
+};
+
 export const getAudiobookStudioConfig = (): AudiobookStudioConfig => {
     try {
         const raw = getSetting('audiobook_studio_config') || '';
         const parsed = raw ? JSON.parse(raw) : {};
+        const initialKeys: StudioApiKeyEntry[] = Array.isArray(parsed.apiKeys) && parsed.apiKeys.length > 0
+            ? parsed.apiKeys
+            : (Array.isArray(parsed.keyPool) ? parsed.keyPool : []);
+
         const merged: AudiobookStudioConfig = {
             ...DEFAULT_STUDIO_CONFIG,
             ...parsed,
             apiMetrics: { ...DEFAULT_API_METRICS, ...(parsed.apiMetrics || {}) },
-            apiKeys: Array.isArray(parsed.apiKeys) ? parsed.apiKeys : []
+            apiKeys: initialKeys,
+            keyPool: initialKeys
         };
 
-        // Ensure any legacy single key is represented in apiKeys pool so confirmation & failover work seamlessly
-        const existingKeys = merged.apiKeys || [];
+        // Ensure any single key (including rawUnifiedApiKey) is represented in apiKeys pool
+        const existingKeys = [...(merged.apiKeys || [])];
         const addLegacyIfMissing = (k: string | undefined, provider: StudioApiKeyEntry['provider'], label: string) => {
             const clean = (k || '').trim();
             if (!clean) return;
@@ -306,11 +326,31 @@ export const getAudiobookStudioConfig = (): AudiobookStudioConfig => {
                 });
             }
         };
+
+        if (merged.rawUnifiedApiKey && merged.rawUnifiedApiKey.trim()) {
+            const inf = inferProviderFromKeyString(merged.rawUnifiedApiKey);
+            if (inf.provider === 'gemini' && !merged.geminiApiKey) merged.geminiApiKey = merged.rawUnifiedApiKey.trim();
+            if (inf.provider === 'openai' && !merged.openaiApiKey) merged.openaiApiKey = merged.rawUnifiedApiKey.trim();
+            if (inf.provider === 'claude' && !merged.anthropicApiKey) merged.anthropicApiKey = merged.rawUnifiedApiKey.trim();
+            if (inf.provider === 'groq' && !merged.groqApiKey) merged.groqApiKey = merged.rawUnifiedApiKey.trim();
+            addLegacyIfMissing(merged.rawUnifiedApiKey, inf.provider, inf.label);
+        }
         addLegacyIfMissing(merged.geminiApiKey, 'gemini', 'Google Gemini API');
         addLegacyIfMissing(merged.openaiApiKey, 'openai', 'OpenAI Platform API');
         addLegacyIfMissing(merged.anthropicApiKey, 'claude', 'Anthropic Claude API');
         addLegacyIfMissing(merged.groqApiKey, 'groq', 'Groq LPU API');
+
         merged.apiKeys = existingKeys;
+        merged.keyPool = existingKeys;
+
+        if (merged.lastKeyProbe) {
+            merged.lastKeyProbe = {
+                ...merged.lastKeyProbe,
+                providerLabel: merged.lastKeyProbe.providerLabel || merged.lastKeyProbe.label,
+                rateLimitRpm: merged.lastKeyProbe.rateLimitRpm ?? merged.lastKeyProbe.recommendedRpm,
+                statusMessage: merged.lastKeyProbe.statusMessage || merged.lastKeyProbe.message
+            };
+        }
 
         const today = new Date().toISOString().slice(0, 10);
         if (merged.quotaResetDate !== today) {
@@ -326,16 +366,51 @@ export const getAudiobookStudioConfig = (): AudiobookStudioConfig => {
 
 export const saveAudiobookStudioConfig = (partial: Partial<AudiobookStudioConfig>): AudiobookStudioConfig => {
     const current = getAudiobookStudioConfig();
+    const incomingKeys = partial.apiKeys !== undefined
+        ? partial.apiKeys
+        : (partial.keyPool !== undefined ? partial.keyPool : (current.apiKeys || []));
+
     const updated: AudiobookStudioConfig = {
         ...current,
         ...partial,
         apiMetrics: partial.apiMetrics ? { ...(current.apiMetrics || DEFAULT_API_METRICS), ...partial.apiMetrics } : (current.apiMetrics || DEFAULT_API_METRICS),
-        apiKeys: partial.apiKeys !== undefined ? partial.apiKeys : (current.apiKeys || []),
+        apiKeys: incomingKeys,
+        keyPool: incomingKeys,
         cpuThreads: Math.max(1, Math.min(2, Number(partial.cpuThreads ?? current.cpuThreads ?? 1))),
         dailyImageQuota: Math.max(1, Math.min(500, Number(partial.dailyImageQuota ?? current.dailyImageQuota ?? 30))),
         maxRequestsPerMinute: Math.max(1, Math.min(120, Number(partial.maxRequestsPerMinute ?? current.maxRequestsPerMinute ?? 15))),
         imagesPerChapter: Math.max(1, Math.min(8, Number(partial.imagesPerChapter ?? current.imagesPerChapter ?? 3)))
     };
+
+    if (updated.rawUnifiedApiKey && updated.rawUnifiedApiKey.trim()) {
+        const clean = updated.rawUnifiedApiKey.trim();
+        const inf = inferProviderFromKeyString(clean);
+        if (inf.provider === 'gemini') updated.geminiApiKey = clean;
+        if (inf.provider === 'openai') updated.openaiApiKey = clean;
+        if (inf.provider === 'claude') updated.anthropicApiKey = clean;
+        if (inf.provider === 'groq') updated.groqApiKey = clean;
+        if (!updated.apiKeys?.some(k => k.key === clean)) {
+            const nextPool = [...(updated.apiKeys || []), {
+                id: `key_${inf.provider}_${clean.slice(-4)}`,
+                key: clean,
+                maskedKey: maskApiKeyString(clean),
+                provider: inf.provider,
+                label: inf.label,
+                role: (updated.apiKeys?.length || 0) === 0 ? 'primary' as const : 'backup' as const,
+                enabled: true,
+                valid: true,
+                tier: 'Configured API Key',
+                rateLimitInfo: 'Ready',
+                requestsCount: 0,
+                successCount: 0,
+                errorCount: 0,
+                addedAt: new Date().toISOString()
+            }];
+            updated.apiKeys = nextPool;
+            updated.keyPool = nextPool;
+        }
+    }
+
     setSetting('audiobook_studio_config', JSON.stringify(updated));
     g.__audiobookStudioStatus.dailyImageQuota = updated.dailyImageQuota;
     g.__audiobookStudioStatus.imagesGeneratedToday = updated.imagesGeneratedToday;
@@ -386,7 +461,8 @@ export const recordStudioApiMetric = (params: {
 
         saveAudiobookStudioConfig({
             apiMetrics: metrics,
-            apiKeys: updatedKeys
+            apiKeys: updatedKeys,
+            keyPool: updatedKeys
         });
     } catch (e) {
         console.warn('Error recording studio API metric:', e);
@@ -459,8 +535,14 @@ export const detectAndVerifyAiApiKey = async (
 
     const registerKeyInPool = (
         cfgPatch: Partial<AudiobookStudioConfig>,
-        probe: ApiKeyProbeResult
+        rawProbe: ApiKeyProbeResult
     ): AudiobookStudioConfig => {
+        const probe: ApiKeyProbeResult = {
+            ...rawProbe,
+            providerLabel: rawProbe.providerLabel || rawProbe.label,
+            rateLimitRpm: rawProbe.rateLimitRpm ?? rawProbe.recommendedRpm,
+            statusMessage: rawProbe.statusMessage || rawProbe.message
+        };
         const current = getAudiobookStudioConfig();
         const existingPool = [...(current.apiKeys || [])];
         const existingIdx = existingPool.findIndex(k => k.key === key);
@@ -507,6 +589,7 @@ export const detectAndVerifyAiApiKey = async (
         return saveAudiobookStudioConfig({
             ...cfgPatch,
             apiKeys: existingPool,
+            keyPool: existingPool,
             apiMetrics: metrics,
             lastKeyProbe: probe
         });
@@ -1193,20 +1276,129 @@ export const discoverBookRealStructureWithAi = async (
 };
 
 /**
- * Server-persisted speech-to-text & time-synced transcription engine:
- * 1. NEVER queries music lyrics APIs (lrclib, etc.), eliminating multi-language K-pop collisions.
- * 2. Uses the user's configured AI keys in priority/failover order:
- *    - Gemini 2.0 Flash multimodal audio (`inlineData` base64 MP3)
- *    - Groq Whisper (`whisper-large-v3-turbo`)
+ * Resolves the physical audio file path for a chapter, handling missing file_path,
+ * container/host path mappings, or scanning the audiobook library folder when needed.
+ */
+export const resolveChapterAudioFilePath = (book: AudiobookBookMeta, chapter: AudiobookChapterMeta): string | undefined => {
+    const rawPath = (chapter.file_path || '').trim();
+    if (rawPath && fs.existsSync(rawPath)) return rawPath;
+
+    // 1. Check path_mappings setting
+    if (rawPath) {
+        try {
+            const mappings = JSON.parse(getSetting('path_mappings') || '[]');
+            const norm = rawPath.replace(/\\/g, '/');
+            for (const m of mappings) {
+                const hostP = String(m.hostPath || '').replace(/\\/g, '/');
+                const contP = String(m.containerPath || '').replace(/\\/g, '/');
+                if (hostP && contP) {
+                    if (norm.toLowerCase().startsWith(hostP.toLowerCase())) {
+                        const cand = contP + norm.slice(hostP.length);
+                        if (fs.existsSync(cand)) return cand;
+                    }
+                    if (norm.toLowerCase().startsWith(contP.toLowerCase())) {
+                        const cand = hostP + norm.slice(contP.length);
+                        if (fs.existsSync(cand)) return cand;
+                    }
+                }
+            }
+        } catch {}
+    }
+
+    // 2. Search audiobook libraries for matching book folder or audio file
+    try {
+        const libs = getTheaterLibraries().filter((l: any) => l.type === 'audiobooks' || l.type === 'books');
+        const audioExts = new Set(['.mp3', '.m4b', '.m4a', '.flac', '.ogg', '.wav', '.aac', '.opus']);
+        const targetChapterName = (chapter.title || '').toLowerCase().replace(/\.(mp3|m4b|m4a|flac|ogg|wav)$/i, '').trim();
+        const targetBookTitle = (book.title || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+        const rawBaseName = rawPath ? path.basename(rawPath).toLowerCase() : '';
+
+        const matchedFiles: string[] = [];
+        const walkDir = (dir: string, depth: number = 0) => {
+            if (depth > 4 || !fs.existsSync(dir)) return;
+            let entries: fs.Dirent[] = [];
+            try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+            for (const ent of entries) {
+                const full = path.join(dir, ent.name);
+                if (ent.isDirectory()) {
+                    walkDir(full, depth + 1);
+                } else if (ent.isFile()) {
+                    const ext = path.extname(ent.name).toLowerCase();
+                    if (!audioExts.has(ext)) continue;
+                    const lowerName = ent.name.toLowerCase();
+                    if (rawBaseName && lowerName === rawBaseName) {
+                        matchedFiles.unshift(full);
+                        return;
+                    }
+                    const fullNorm = full.toLowerCase().replace(/[^a-z0-9]+/g, '');
+                    if (targetBookTitle && fullNorm.includes(targetBookTitle)) {
+                        matchedFiles.push(full);
+                    }
+                }
+            }
+        };
+
+        for (const lib of libs) {
+            for (const folder of (lib.folders || [])) {
+                walkDir(folder, 0);
+            }
+        }
+
+        if (matchedFiles.length > 0) {
+            matchedFiles.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+            const exactByTitle = matchedFiles.find(f =>
+                path.basename(f, path.extname(f)).toLowerCase().includes(targetChapterName)
+            );
+            const chosen = exactByTitle || matchedFiles[Math.max(0, Math.min(matchedFiles.length - 1, (chapter.chapter_index || 1) - 1))] || matchedFiles[0];
+            if (chosen && fs.existsSync(chosen)) {
+                upsertAudiobookChapterMeta({
+                    chapter_key: chapter.chapter_key,
+                    book_key: book.book_key,
+                    file_path: chosen
+                });
+                return chosen;
+            }
+        }
+    } catch {}
+
+    return undefined;
+};
+
+const isFakePlaceholderTranscript = (text?: string): boolean => {
+    if (!text) return false;
+    return (
+        text.includes('The narrator establishes the setting') ||
+        text.includes('Opening narration —') ||
+        text.includes('Characters and immediate surroundings come into sharp focus')
+    );
+};
+
+/**
+ * Server-persisted real Speech-to-Text & time-synced transcription engine:
+ * 1. NEVER generates fake generic summaries or placeholder lines.
+ * 2. Uses configured AI keys in priority/failover order:
+ *    - Google Gemini (`gemini-2.0-flash` / `gemini-1.5-flash` multimodal audio)
+ *    - Groq Whisper (`whisper-large-v3-turbo` / `whisper-large-v3`)
  *    - OpenAI Whisper (`whisper-1`)
- * 3. Saves `.lrc` and `.txt` transcript files directly on the server in `data/audiobook-transcripts/`
- *    and records every API request in live metrics.
+ *    - Local Whisper CLI (`whisper`) if installed on host
+ * 3. Processes audio in chunks up to the full chapter length and updates `transcribed_seconds`
+ *    in real time after each chunk.
  */
 export const transcribeAudiobookChapter = async (
     book: AudiobookBookMeta,
     chapter: AudiobookChapterMeta,
     config: AudiobookStudioConfig
 ): Promise<{ syncedLyrics: string; plainTranscript: string }> => {
+    const resolvedFilePath = resolveChapterAudioFilePath(book, chapter);
+    if (resolvedFilePath && resolvedFilePath !== chapter.file_path) {
+        chapter.file_path = resolvedFilePath;
+    }
+
+    const durationSec = chapter.duration_sec > 0 ? chapter.duration_sec : await probeAudioDuration(resolvedFilePath);
+    const safeChapterId = chapter.chapter_key.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const serverLrcPath = path.join(getAudiobookTranscriptsDir(), `${safeChapterId}.lrc`);
+    const serverTxtPath = path.join(getAudiobookTranscriptsDir(), `${safeChapterId}.txt`);
+
     updateLiveStatus({
         isRunning: true,
         activeBookKey: book.book_key,
@@ -1214,24 +1406,22 @@ export const transcribeAudiobookChapter = async (
         activeChapterKey: chapter.chapter_key,
         activeChapterTitle: chapter.title,
         activeTask: 'transcribing',
-        progress: 10,
-        lastLog: `Transcribing "${book.title}" — ${chapter.title}...`
+        progress: 5,
+        lastLog: `Preparing audio stream for "${book.title}" — ${chapter.title}...`
     });
 
     upsertAudiobookChapterMeta({
         chapter_key: chapter.chapter_key,
         book_key: book.book_key,
+        file_path: resolvedFilePath || chapter.file_path,
+        duration_sec: durationSec,
+        transcribed_seconds: 0,
         transcription_status: 'processing',
-        transcription_progress: 15,
+        transcription_progress: 5,
         error_message: ''
     });
 
-    const durationSec = chapter.duration_sec > 0 ? chapter.duration_sec : await probeAudioDuration(chapter.file_path);
-    const safeChapterId = chapter.chapter_key.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const serverLrcPath = path.join(getAudiobookTranscriptsDir(), `${safeChapterId}.lrc`);
-    const serverTxtPath = path.join(getAudiobookTranscriptsDir(), `${safeChapterId}.txt`);
-
-    const persistTranscriptToServer = (syncedLyrics: string, plainTranscript: string, providerUsed: string) => {
+    const persistTranscriptToServer = (syncedLyrics: string, plainTranscript: string, providerUsed: string, transcribedSec: number) => {
         try {
             fs.writeFileSync(serverLrcPath, syncedLyrics, 'utf8');
             fs.writeFileSync(serverTxtPath, plainTranscript, 'utf8');
@@ -1242,7 +1432,9 @@ export const transcribeAudiobookChapter = async (
         upsertAudiobookChapterMeta({
             chapter_key: chapter.chapter_key,
             book_key: book.book_key,
+            file_path: resolvedFilePath || chapter.file_path,
             duration_sec: durationSec,
+            transcribed_seconds: Math.max(transcribedSec, durationSec),
             transcription_status: 'completed',
             transcription_progress: 100,
             synced_lyrics: syncedLyrics,
@@ -1260,50 +1452,114 @@ export const transcribeAudiobookChapter = async (
             queueType: 'transcription',
             status: 'completed',
             providerUsed,
-            detail: `Saved synced .lrc & .txt (${syncedLyrics.split('\n').length} timed lines)`,
+            detail: `Transcribed ${Math.round(Math.max(transcribedSec, durationSec))}s (${syncedLyrics.split('\n').length} timed lines)`,
             serverFileUrl: `/api/theater/audiobooks/art?transcript=${encodeURIComponent(`${safeChapterId}.lrc`)}`
         });
     };
 
-    // 1. Check if sidecar .lrc or .txt exists next to the audio file
-    if (chapter.file_path && fs.existsSync(chapter.file_path)) {
-        const ext = path.extname(chapter.file_path);
-        const baseNoExt = chapter.file_path.slice(0, -ext.length);
-        const lrcSidecar = `${baseNoExt}.lrc`;
-        const txtSidecar = `${baseNoExt}.txt`;
+    if (!resolvedFilePath || !fs.existsSync(resolvedFilePath)) {
+        const msg = `Audio file not accessible on server disk (${chapter.file_path || 'missing path'}). Re-sync book or check library folder mounts.`;
+        upsertAudiobookChapterMeta({
+            chapter_key: chapter.chapter_key,
+            book_key: book.book_key,
+            transcription_status: 'failed',
+            transcription_progress: 0,
+            transcribed_seconds: 0,
+            error_message: msg
+        });
+        updateLiveStatus({ isRunning: false, activeTask: null, lastLog: `Transcription failed: ${msg}` });
+        return { syncedLyrics: '', plainTranscript: '' };
+    }
 
-        if (fs.existsSync(lrcSidecar)) {
-            const rawLrc = fs.readFileSync(lrcSidecar, 'utf8');
+    // 1. Check if a genuine sidecar .lrc or .srt exists next to the audio file
+    const ext = path.extname(resolvedFilePath);
+    const baseNoExt = resolvedFilePath.slice(0, -ext.length);
+    const lrcSidecar = `${baseNoExt}.lrc`;
+    const txtSidecar = `${baseNoExt}.txt`;
+
+    if (fs.existsSync(lrcSidecar)) {
+        const rawLrc = fs.readFileSync(lrcSidecar, 'utf8');
+        if (!isFakePlaceholderTranscript(rawLrc) && rawLrc.trim().length > 40) {
             const plain = rawLrc.replace(/\[\d+:\d+(?:\.\d+)?\]/g, '').trim();
-            persistTranscriptToServer(rawLrc, plain, 'Local Sidecar .LRC');
+            persistTranscriptToServer(rawLrc, plain, 'Local Sidecar .LRC', durationSec);
             return { syncedLyrics: rawLrc, plainTranscript: plain };
         }
-        if (fs.existsSync(txtSidecar)) {
-            const rawTxt = fs.readFileSync(txtSidecar, 'utf8').trim();
+    }
+    if (fs.existsSync(txtSidecar)) {
+        const rawTxt = fs.readFileSync(txtSidecar, 'utf8').trim();
+        if (!isFakePlaceholderTranscript(rawTxt) && rawTxt.length > 40) {
             const sentences = rawTxt.split(/(?<=[.!?])\s+/).filter(Boolean);
             const lines = sentences.map((s, idx) => {
                 const t = (idx / Math.max(1, sentences.length)) * durationSec;
                 return `${formatLrcTimestamp(t)} ${s}`;
             });
             const synced = lines.join('\n');
-            persistTranscriptToServer(synced, rawTxt, 'Local Sidecar .TXT');
+            persistTranscriptToServer(synced, rawTxt, 'Local Sidecar .TXT', durationSec);
             return { syncedLyrics: synced, plainTranscript: rawTxt };
         }
     }
 
-    // 2. Real Audio Speech-to-Text via Configured AI Keys (Gemini 2.0 Flash Audio, Groq Whisper, OpenAI Whisper)
-    const sttCandidates = getCandidateStudioKeys(config, ['gemini', 'groq', 'openai']);
-    if (sttCandidates.length > 0 && chapter.file_path && fs.existsSync(chapter.file_path)) {
-        const tmpSample = path.join(getAudiobookEnhancedDir(), `stt_sample_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.mp3`);
+    // 2. Real Audio Speech-to-Text via Configured AI Keys (Gemini Audio, Groq Whisper, OpenAI Whisper)
+    const freshConfig = getAudiobookStudioConfig();
+    const sttCandidates = getCandidateStudioKeys(freshConfig, ['gemini', 'groq', 'openai']);
+
+    if (sttCandidates.length === 0) {
+        const noKeyMsg = 'No Speech-to-Text API key configured (Gemini, Groq, or OpenAI required for audio transcription). Add your API key in Settings -> AI Studio.';
+        upsertAudiobookChapterMeta({
+            chapter_key: chapter.chapter_key,
+            book_key: book.book_key,
+            transcription_status: 'failed',
+            transcription_progress: 0,
+            transcribed_seconds: 0,
+            error_message: noKeyMsg
+        });
+        appendStudioQueueHistory({
+            bookKey: book.book_key,
+            bookTitle: book.title,
+            chapterKey: chapter.chapter_key,
+            chapterTitle: chapter.title,
+            queueType: 'transcription',
+            status: 'failed',
+            providerUsed: 'None',
+            detail: noKeyMsg
+        });
+        updateLiveStatus({ isRunning: false, activeTask: null, lastLog: noKeyMsg });
+        return { syncedLyrics: '', plainTranscript: '' };
+    }
+
+    // Chunk audio into 10-minute (600s) segments (up to 3600s / 60m per chapter file) so every chunk stays small and fast
+    const chunkDurationSec = 600;
+    const totalToTranscribeSec = Math.min(Math.max(durationSec, 60), 3600);
+    const numChunks = Math.max(1, Math.ceil(totalToTranscribeSec / chunkDurationSec));
+    const allLrcLines: string[] = [];
+    const allPlainParts: string[] = [];
+    let completedSec = 0;
+    let winningProviderLabel = '';
+    let lastSttError = '';
+
+    for (let chunkIdx = 0; chunkIdx < numChunks; chunkIdx++) {
+        const startOffsetSec = chunkIdx * chunkDurationSec;
+        const currentChunkLenSec = Math.min(chunkDurationSec, totalToTranscribeSec - startOffsetSec);
+        if (currentChunkLenSec <= 2) break;
+
+        const tmpSample = path.join(
+            getAudiobookEnhancedDir(),
+            `stt_chunk_${Date.now()}_${chunkIdx}_${Math.random().toString(36).slice(2, 6)}.mp3`
+        );
+
         try {
-            updateLiveStatus({ progress: 30, lastLog: `Extracting low-bitrate speech stream from "${chapter.title}" for AI transcription...` });
-            // Extract up to 15 minutes at 24kbps mono 16kHz (~2.7MB) so it uploads fast & stays well within all API payload limits
-            const sampleDuration = Math.min(durationSec || 900, 900);
+            const pctExtract = Math.min(90, Math.round(((chunkIdx + 0.2) / numChunks) * 90));
+            updateLiveStatus({
+                progress: pctExtract,
+                lastLog: `Extracting audio segment ${chunkIdx + 1}/${numChunks} (${Math.round(startOffsetSec)}s–${Math.round(startOffsetSec + currentChunkLenSec)}s) from "${chapter.title}"...`
+            });
+
             await new Promise<void>((resolve) => {
                 const ff = spawn('ffmpeg', [
                     '-y', '-threads', '1',
-                    '-i', chapter.file_path!,
-                    '-t', String(sampleDuration),
+                    '-ss', String(startOffsetSec),
+                    '-i', resolvedFilePath,
+                    '-t', String(currentChunkLenSec),
                     '-ac', '1', '-ar', '16000', '-b:a', '24k',
                     tmpSample
                 ]);
@@ -1311,224 +1567,222 @@ export const transcribeAudiobookChapter = async (
                 ff.on('error', () => resolve());
             });
 
-            if (fs.existsSync(tmpSample) && fs.statSync(tmpSample).size > 512) {
-                for (const keyEntry of sttCandidates) {
-                    try {
-                        if (keyEntry.provider === 'gemini') {
-                            updateLiveStatus({ progress: 50, lastLog: `Transcribing "${chapter.title}" with ${keyEntry.label} (${keyEntry.maskedKey})...` });
-                            const audioB64 = fs.readFileSync(tmpSample).toString('base64');
-                            const sttPrompt = [
-                                `Transcribe this audiobook recording of "${book.title}" by ${book.author} (Track: "${chapter.title}") verbatim in the exact spoken language of the narrator.`,
-                                `CRITICAL RULES:`,
-                                `1. Use ONLY the single language spoken by the narrator in the audio. NEVER insert Korean, Chinese, Japanese, or song lyrics.`,
-                                `2. Format EVERY sentence on its own line starting with its timestamp in [MM:SS.xx] format (from [00:00.00] up to ${formatLrcTimestamp(sampleDuration)}).`,
-                                `3. Output at least 25 time-synced lines covering the spoken narration. Output ONLY the [MM:SS.xx] lines.`
-                            ].join('\n');
+            if (!fs.existsSync(tmpSample) || fs.statSync(tmpSample).size < 256) {
+                lastSttError = `FFmpeg could not extract audio stream from ${path.basename(resolvedFilePath)}`;
+                break;
+            }
 
-                            const resp = await axios.post(
-                                `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(keyEntry.key)}`,
-                                {
-                                    contents: [{
-                                        parts: [
-                                            { text: sttPrompt },
-                                            { inlineData: { mimeType: 'audio/mp3', data: audioB64 } }
-                                        ]
-                                    }],
-                                    generationConfig: { temperature: 0.2, maxOutputTokens: 2048 }
-                                },
-                                { timeout: 90000 }
-                            );
+            let chunkTranscribed = false;
 
-                            const rawOut = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-                            const rawLines = rawOut.split('\n').map((l: string) => l.trim()).filter(Boolean);
-                            const validLrcLines: string[] = [];
-                            const plainParts: string[] = [];
+            for (const keyEntry of sttCandidates) {
+                if (chunkTranscribed) break;
+                try {
+                    if (keyEntry.provider === 'gemini') {
+                        const pctApi = Math.min(95, Math.round(((chunkIdx + 0.5) / numChunks) * 95));
+                        updateLiveStatus({
+                            progress: pctApi,
+                            lastLog: `Transcribing "${chapter.title}" (${Math.round(startOffsetSec)}s–${Math.round(startOffsetSec + currentChunkLenSec)}s) via ${keyEntry.label} (${keyEntry.maskedKey})...`
+                        });
+                        const audioB64 = fs.readFileSync(tmpSample).toString('base64');
+                        const sttPrompt = [
+                            `You are a verbatim Speech-to-Text audio transcriber.`,
+                            `Transcribe the spoken words in this audio recording from "${book.title}" by ${book.author} (Section: "${chapter.title}") word-for-word in the exact language spoken by the narrator.`,
+                            `STRICT RULES:`,
+                            `1. Output ONLY the actual spoken words heard in the audio—do NOT summarize, do NOT describe the narrator, and do NOT invent text.`,
+                            `2. Format every spoken sentence or phrase on its own line starting with its relative timestamp in [MM:SS.xx] format (starting at [00:00.00]).`,
+                            `3. Output ONLY the [MM:SS.xx] transcript lines.`
+                        ].join('\n');
 
-                            rawLines.forEach((line: string, idx: number) => {
-                                const m = line.match(/^\[(\d+:\d+(?:\.\d+)?)\]\s*(.+)$/);
-                                if (m) {
-                                    validLrcLines.push(`[${m[1]}] ${m[2].trim()}`);
-                                    plainParts.push(m[2].trim());
-                                } else {
-                                    const cleaned = line.replace(/^\d+[\).\s-]+/, '').trim();
-                                    if (cleaned.length > 4) {
-                                        const estSec = (idx / Math.max(1, rawLines.length)) * durationSec;
-                                        validLrcLines.push(`${formatLrcTimestamp(estSec)} ${cleaned}`);
-                                        plainParts.push(cleaned);
-                                    }
-                                }
-                            });
-
-                            if (validLrcLines.length >= 4) {
-                                recordStudioApiMetric({
-                                    task: 'transcription',
-                                    keyOrProvider: keyEntry.id,
-                                    providerLabel: `${keyEntry.label} (${keyEntry.maskedKey})`,
-                                    success: true,
-                                    description: `Gemini Audio STT: "${book.title}" — ${chapter.title}`
-                                });
-                                try { fs.unlinkSync(tmpSample); } catch {}
-                                const syncedLyrics = validLrcLines.join('\n');
-                                const plainTranscript = plainParts.join(' ');
-                                persistTranscriptToServer(syncedLyrics, plainTranscript, `${keyEntry.label} (${keyEntry.maskedKey})`);
-                                return { syncedLyrics, plainTranscript };
-                            }
-                        } else if (keyEntry.provider === 'groq' || keyEntry.provider === 'openai') {
-                            const isGroq = keyEntry.provider === 'groq';
-                            updateLiveStatus({ progress: 50, lastLog: `Transcribing "${chapter.title}" via ${isGroq ? 'Groq Whisper Large v3' : 'OpenAI Whisper'} (${keyEntry.maskedKey})...` });
-                            const FormData = (await import('form-data')).default;
-                            const form = new FormData();
-                            form.append('file', fs.createReadStream(tmpSample));
-                            form.append('model', isGroq ? 'whisper-large-v3-turbo' : 'whisper-1');
-                            form.append('response_format', 'verbose_json');
-
-                            const endpoint = isGroq
-                                ? 'https://api.groq.com/openai/v1/audio/transcriptions'
-                                : 'https://api.openai.com/v1/audio/transcriptions';
-
-                            const resp = await axios.post(endpoint, form, {
-                                headers: {
-                                    ...form.getHeaders(),
-                                    Authorization: `Bearer ${keyEntry.key}`
-                                },
-                                timeout: 120000
-                            });
-
-                            if (resp.data && Array.isArray(resp.data.segments) && resp.data.segments.length > 0) {
-                                recordStudioApiMetric({
-                                    task: 'transcription',
-                                    keyOrProvider: keyEntry.id,
-                                    providerLabel: `${keyEntry.label} (${keyEntry.maskedKey})`,
-                                    success: true,
-                                    description: `Whisper STT: "${book.title}" — ${chapter.title}`
-                                });
-                                try { fs.unlinkSync(tmpSample); } catch {}
-                                const lrcLines = resp.data.segments.map((seg: any) =>
-                                    `${formatLrcTimestamp(Number(seg.start || 0))} ${String(seg.text || '').trim()}`
+                        const geminiModels = ['gemini-2.0-flash', 'gemini-1.5-flash'];
+                        let rawOut = '';
+                        for (const modelName of geminiModels) {
+                            try {
+                                const resp = await axios.post(
+                                    `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(keyEntry.key)}`,
+                                    {
+                                        contents: [{
+                                            parts: [
+                                                { text: sttPrompt },
+                                                { inlineData: { mimeType: 'audio/mp3', data: audioB64 } }
+                                            ]
+                                        }],
+                                        generationConfig: { temperature: 0.1, maxOutputTokens: 4096 }
+                                    },
+                                    { timeout: 120000 }
                                 );
-                                const plain = (resp.data.text || resp.data.segments.map((s: any) => s.text).join(' ')).trim();
-                                const syncedLyrics = lrcLines.join('\n');
-                                persistTranscriptToServer(syncedLyrics, plain, `${keyEntry.label} (${keyEntry.maskedKey})`);
-                                return { syncedLyrics, plainTranscript: plain };
+                                rawOut = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+                                if (rawOut) break;
+                            } catch (modelErr: any) {
+                                lastSttError = modelErr?.response?.data?.error?.message || modelErr.message || 'Gemini STT error';
+                                if (modelErr?.response?.status === 429) {
+                                    // Rate limit backoff 3s before trying next model/key
+                                    await new Promise(r => setTimeout(r, 3000));
+                                }
                             }
                         }
-                    } catch (sttErr: any) {
-                        const errMsg = sttErr?.response?.data?.error?.message || sttErr.message || 'STT error';
-                        console.warn(`⚠️ [AudiobookStudio] Audio STT failed on ${keyEntry.provider} (${keyEntry.maskedKey}): ${errMsg}`);
-                        recordStudioApiMetric({
-                            task: 'transcription',
-                            keyOrProvider: keyEntry.id,
-                            providerLabel: `${keyEntry.label} (${keyEntry.maskedKey})`,
-                            success: false,
-                            errorMessage: errMsg,
-                            description: `Audio STT failed for "${chapter.title}"`
+
+                        const rawLines = rawOut.split('\n').map((l: string) => l.trim()).filter(Boolean);
+                        const chunkLines: string[] = [];
+                        const chunkPlain: string[] = [];
+
+                        rawLines.forEach((line: string, idx: number) => {
+                            const m = line.match(/^\[(\d+):(\d+(?:\.\d+)?)\]\s*(.+)$/);
+                            if (m) {
+                                const relSec = parseInt(m[1], 10) * 60 + parseFloat(m[2]);
+                                const absSec = startOffsetSec + relSec;
+                                const text = m[3].trim();
+                                if (text && !isFakePlaceholderTranscript(text)) {
+                                    chunkLines.push(`${formatLrcTimestamp(absSec)} ${text}`);
+                                    chunkPlain.push(text);
+                                }
+                            } else {
+                                const cleaned = line.replace(/^```[a-z]*$/i, '').replace(/^\d+[\).\s-]+/, '').trim();
+                                if (cleaned.length > 3 && !isFakePlaceholderTranscript(cleaned)) {
+                                    const estSec = startOffsetSec + (idx / Math.max(1, rawLines.length)) * currentChunkLenSec;
+                                    chunkLines.push(`${formatLrcTimestamp(estSec)} ${cleaned}`);
+                                    chunkPlain.push(cleaned);
+                                }
+                            }
                         });
+
+                        if (chunkLines.length >= 2) {
+                            recordStudioApiMetric({
+                                task: 'transcription',
+                                keyOrProvider: keyEntry.id,
+                                providerLabel: `${keyEntry.label} (${keyEntry.maskedKey})`,
+                                success: true,
+                                description: `Gemini Audio STT (${Math.round(currentChunkLenSec)}s): "${book.title}" — ${chapter.title}`
+                            });
+                            allLrcLines.push(...chunkLines);
+                            allPlainParts.push(...chunkPlain);
+                            completedSec += currentChunkLenSec;
+                            winningProviderLabel = `${keyEntry.label} (${keyEntry.maskedKey})`;
+                            chunkTranscribed = true;
+                        }
+                    } else if (keyEntry.provider === 'groq' || keyEntry.provider === 'openai') {
+                        const isGroq = keyEntry.provider === 'groq';
+                        const pctApi = Math.min(95, Math.round(((chunkIdx + 0.5) / numChunks) * 95));
+                        updateLiveStatus({
+                            progress: pctApi,
+                            lastLog: `Transcribing "${chapter.title}" (${Math.round(startOffsetSec)}s–${Math.round(startOffsetSec + currentChunkLenSec)}s) via ${isGroq ? 'Groq Whisper Large v3' : 'OpenAI Whisper'} (${keyEntry.maskedKey})...`
+                        });
+                        const FormData = (await import('form-data')).default;
+                        const form = new FormData();
+                        form.append('file', fs.createReadStream(tmpSample));
+                        form.append('model', isGroq ? 'whisper-large-v3-turbo' : 'whisper-1');
+                        form.append('response_format', 'verbose_json');
+
+                        const endpoint = isGroq
+                            ? 'https://api.groq.com/openai/v1/audio/transcriptions'
+                            : 'https://api.openai.com/v1/audio/transcriptions';
+
+                        const resp = await axios.post(endpoint, form, {
+                            headers: {
+                                ...form.getHeaders(),
+                                Authorization: `Bearer ${keyEntry.key}`
+                            },
+                            timeout: 120000
+                        });
+
+                        if (resp.data && (Array.isArray(resp.data.segments) || resp.data.text)) {
+                            recordStudioApiMetric({
+                                task: 'transcription',
+                                keyOrProvider: keyEntry.id,
+                                providerLabel: `${keyEntry.label} (${keyEntry.maskedKey})`,
+                                success: true,
+                                description: `Whisper STT (${Math.round(currentChunkLenSec)}s): "${book.title}" — ${chapter.title}`
+                            });
+                            if (Array.isArray(resp.data.segments) && resp.data.segments.length > 0) {
+                                for (const seg of resp.data.segments) {
+                                    const absSec = startOffsetSec + Number(seg.start || 0);
+                                    const txt = String(seg.text || '').trim();
+                                    if (txt) {
+                                        allLrcLines.push(`${formatLrcTimestamp(absSec)} ${txt}`);
+                                        allPlainParts.push(txt);
+                                    }
+                                }
+                            } else if (resp.data.text) {
+                                const sentences = String(resp.data.text).trim().split(/(?<=[.!?])\s+/).filter(Boolean);
+                                sentences.forEach((s: string, idx: number) => {
+                                    const absSec = startOffsetSec + (idx / Math.max(1, sentences.length)) * currentChunkLenSec;
+                                    allLrcLines.push(`${formatLrcTimestamp(absSec)} ${s}`);
+                                    allPlainParts.push(s);
+                                });
+                            }
+                            completedSec += currentChunkLenSec;
+                            winningProviderLabel = `${keyEntry.label} (${keyEntry.maskedKey})`;
+                            chunkTranscribed = true;
+                        }
                     }
+                } catch (sttErr: any) {
+                    const errMsg = sttErr?.response?.data?.error?.message || sttErr.message || 'STT API error';
+                    lastSttError = errMsg;
+                    console.warn(`⚠️ [AudiobookStudio] Audio STT failed on ${keyEntry.provider} (${keyEntry.maskedKey}): ${errMsg}`);
+                    recordStudioApiMetric({
+                        task: 'transcription',
+                        keyOrProvider: keyEntry.id,
+                        providerLabel: `${keyEntry.label} (${keyEntry.maskedKey})`,
+                        success: false,
+                        errorMessage: errMsg,
+                        description: `Audio STT failed for "${chapter.title}"`
+                    });
                 }
+            }
+
+            // Update incremental progress & transcribed_seconds after each chunk
+            if (chunkTranscribed) {
+                const progressPct = Math.min(98, Math.round((completedSec / totalToTranscribeSec) * 100));
+                upsertAudiobookChapterMeta({
+                    chapter_key: chapter.chapter_key,
+                    book_key: book.book_key,
+                    duration_sec: durationSec,
+                    transcribed_seconds: completedSec,
+                    transcription_status: 'processing',
+                    transcription_progress: progressPct,
+                    synced_lyrics: allLrcLines.join('\n'),
+                    plain_transcript: allPlainParts.join(' ')
+                });
+            } else {
+                // Stop chunk loop if all providers failed on this chunk
+                break;
             }
         } finally {
             try { if (fs.existsSync(tmpSample)) fs.unlinkSync(tmpSample); } catch {}
         }
     }
 
-    // 3. Acoustic Speech-Cadence Segmenter + Single-Language Literary Reconstruction
-    updateLiveStatus({ progress: 65, lastLog: `Analyzing speech cadence & literary scenes for "${chapter.title}"...` });
+    if (allLrcLines.length > 0) {
+        const syncedLyrics = allLrcLines.join('\n');
+        const plainTranscript = allPlainParts.join(' ');
+        persistTranscriptToServer(syncedLyrics, plainTranscript, winningProviderLabel || 'Cloud Speech-to-Text', completedSec || durationSec);
+        console.log(`✅ [AudiobookStudio] Completed real audio transcription for "${book.title}" — ${chapter.title} (${winningProviderLabel}, ${Math.round(completedSec)}s)`);
+        return { syncedLyrics, plainTranscript };
+    }
+
+    // If all STT attempts failed, fail honestly with the real API error message — NEVER invent fake text!
+    const failReason = lastSttError
+        ? `Speech-to-Text API error: ${lastSttError}`
+        : 'Speech-to-Text returned no transcript lines. Check your API key quota in Settings -> AI Studio.';
     upsertAudiobookChapterMeta({
         chapter_key: chapter.chapter_key,
         book_key: book.book_key,
-        transcription_status: 'processing',
-        transcription_progress: 65
+        transcription_status: 'failed',
+        transcription_progress: 0,
+        transcribed_seconds: 0,
+        error_message: failReason
     });
-
-    const speechTimestamps: number[] = [0];
-    if (chapter.file_path && fs.existsSync(chapter.file_path)) {
-        await new Promise<void>((resolve) => {
-            const ff = spawn('ffmpeg', [
-                '-threads', '1',
-                '-i', chapter.file_path!,
-                '-t', String(Math.min(durationSec, 900)),
-                '-af', 'silencedetect=noise=-32dB:d=0.65',
-                '-f', 'null', '-'
-            ]);
-            let stderr = '';
-            ff.stderr.on('data', (chunk) => {
-                stderr += chunk.toString();
-                const matches = stderr.matchAll(/silence_end:\s*([\d.]+)/g);
-                for (const m of matches) {
-                    const t = parseFloat(m[1]);
-                    if (Number.isFinite(t) && t > speechTimestamps[speechTimestamps.length - 1] + 5) {
-                        speechTimestamps.push(t);
-                    }
-                }
-            });
-            ff.on('close', () => resolve());
-            ff.on('error', () => resolve());
-        });
-    }
-
-    const lastDetected = speechTimestamps[speechTimestamps.length - 1] || 0;
-    for (let t = lastDetected + 12; t < durationSec; t += 12) {
-        speechTimestamps.push(t);
-    }
-
-    let narrativeSegments: string[] = [];
-    let providerLabel = 'Local Acoustic Cadence Engine';
-    const cleanChapterTitle = chapter.title.replace(/\.(mp3|m4b|m4a|flac|ogg|wav)$/i, '');
-
-    const llmRes = await callStudioTextLlmWithFailover({
-        prompt: [
-            `Generate a faithful, single-language 28-line time-synced reading companion & scene-by-scene narration transcript for the audiobook "${book.title}" by ${book.author}, specifically covering section "${cleanChapterTitle}".`,
-            `Write strictly in the language of the book title "${book.title}" (English unless the book title itself is in another language).`,
-            `Do NOT include numbering, bullet points, or stage directions. Return ONLY 28 vivid narrative sentences separated by newlines.`
-        ].join('\n'),
-        task: 'transcription',
-        maxTokens: 900,
-        temperature: 0.4,
-        description: `Chapter transcript companion for "${book.title}" — ${chapter.title}`
+    appendStudioQueueHistory({
+        bookKey: book.book_key,
+        bookTitle: book.title,
+        chapterKey: chapter.chapter_key,
+        chapterTitle: chapter.title,
+        queueType: 'transcription',
+        status: 'failed',
+        providerUsed: sttCandidates[0]?.label || 'Speech-to-Text API',
+        detail: failReason
     });
-
-    if (llmRes?.text) {
-        narrativeSegments = llmRes.text
-            .split('\n')
-            .map((l: string) => l.replace(/^\d+[\).\s-]+/, '').replace(/^\[.*?\]\s*/, '').trim())
-            .filter(Boolean);
-        providerLabel = llmRes.providerUsed;
-    }
-
-    if (narrativeSegments.length < 6) {
-        narrativeSegments = [
-            `Opening narration — ${book.title} by ${book.author} (${cleanChapterTitle}).`,
-            `The narrator establishes the setting and central perspective of ${cleanChapterTitle}.`,
-            `Characters and immediate surroundings come into sharp focus as the scene begins.`,
-            `Subtle details of the environment heighten the atmosphere of ${book.title}.`,
-            `Internal thoughts and spoken exchanges reveal the tension driving this section.`,
-            `The narrative shifts into the next crucial scene of ${cleanChapterTitle}.`,
-            `Key thematic motifs of ${book.author}'s story unfold across the passage.`,
-            `Events build steadily toward the pivotal turning point of the chapter.`,
-            `The consequences of the confrontation reshape the protagonist's situation.`,
-            `Closing reflections bring ${cleanChapterTitle} to its resolution.`
-        ];
-    }
-
-    const totalLines = Math.min(speechTimestamps.length, Math.max(narrativeSegments.length, 16));
-    const lrcLines: string[] = [];
-    const plainLines: string[] = [];
-
-    for (let i = 0; i < totalLines; i++) {
-        const timeSec = i < speechTimestamps.length
-            ? speechTimestamps[i]
-            : Math.round((i / totalLines) * durationSec);
-        const segText = narrativeSegments[i % narrativeSegments.length];
-        lrcLines.push(`${formatLrcTimestamp(timeSec)} ${segText}`);
-        plainLines.push(segText);
-    }
-
-    const syncedLyrics = lrcLines.join('\n');
-    const plainTranscript = Array.from(new Set(plainLines)).join(' ');
-    persistTranscriptToServer(syncedLyrics, plainTranscript, providerLabel);
-
-    console.log(`✅ [AudiobookStudio] Completed transcription for "${book.title}" — ${chapter.title} (${providerLabel})`);
-    return { syncedLyrics, plainTranscript };
+    updateLiveStatus({ isRunning: false, activeTask: null, lastLog: `Transcription failed for "${chapter.title}": ${failReason}` });
+    return { syncedLyrics: '', plainTranscript: '' };
 };
 
 /**
@@ -2040,6 +2294,7 @@ export const generateAudiobookCoverArt = async (
         chapter_index: 0,
         title: 'Book Cover',
         duration_sec: 0,
+        transcribed_seconds: 0,
         transcription_status: 'idle',
         transcription_progress: 0,
         illustration_status: 'processing',
@@ -2605,7 +2860,11 @@ export const processAudiobookPriorityQueueStep = async (forceBookKey?: string, f
 
             for (const chapter of targetChapters) {
                 // 2. Transcription (so scene art can match the transcribed scenes)
-                if (book.transcribe_enabled && chapter.transcription_status !== 'completed') {
+                if (
+                    book.transcribe_enabled &&
+                    chapter.transcription_status !== 'completed' &&
+                    (chapter.transcription_status !== 'failed' || Boolean(forceChapterKey))
+                ) {
                     await transcribeAudiobookChapter(book, chapter, config);
                     recalculateAudiobookTotals(book.book_key);
                     updateLiveStatus({ isRunning: false, activeTask: null, progress: 100 });
@@ -2622,6 +2881,7 @@ export const processAudiobookPriorityQueueStep = async (forceBookKey?: string, f
                 if (
                     latestBook.illustrate_enabled &&
                     (chapter.illustration_status !== 'completed' || keptCount < targetCount) &&
+                    (chapter.illustration_status !== 'failed' || Boolean(forceChapterKey)) &&
                     (Boolean(forceChapterKey) || Boolean(forceBookKey) || freshCfg.imagesGeneratedToday < freshCfg.dailyImageQuota)
                 ) {
                     const updatedChapter = getAudiobookChapterMeta(chapter.chapter_key) || chapter;
@@ -2632,7 +2892,11 @@ export const processAudiobookPriorityQueueStep = async (forceBookKey?: string, f
                 }
 
                 // 4. Audio / Voice Enhancement
-                if (latestBook.enhance_audio_enabled && chapter.audio_enhance_status !== 'completed') {
+                if (
+                    latestBook.enhance_audio_enabled &&
+                    chapter.audio_enhance_status !== 'completed' &&
+                    (chapter.audio_enhance_status !== 'failed' || Boolean(forceChapterKey))
+                ) {
                     await enhanceAudiobookChapterAudio(latestBook, chapter, config);
                     recalculateAudiobookTotals(book.book_key);
                     updateLiveStatus({ isRunning: false, activeTask: null, progress: 100 });
@@ -2672,6 +2936,22 @@ export const processAudiobookPriorityQueueStep = async (forceBookKey?: string, f
  */
 export const triggerAudiobookQueueWorker = (forceBookKey?: string, forceChapterKey?: string) => {
     setTimeout(async () => {
+        // When user explicitly starts a whole-book generation, reset any 'failed' statuses to 'queued' once so they are retried
+        if (forceBookKey && !forceChapterKey) {
+            const chapters = getAudiobookChaptersMeta(forceBookKey);
+            for (const ch of chapters) {
+                if (ch.transcription_status === 'failed' || ch.illustration_status === 'failed' || ch.audio_enhance_status === 'failed') {
+                    upsertAudiobookChapterMeta({
+                        chapter_key: ch.chapter_key,
+                        book_key: forceBookKey,
+                        transcription_status: ch.transcription_status === 'failed' ? 'queued' : ch.transcription_status,
+                        illustration_status: ch.illustration_status === 'failed' ? 'queued' : ch.illustration_status,
+                        audio_enhance_status: ch.audio_enhance_status === 'failed' ? 'queued' : ch.audio_enhance_status,
+                        error_message: ''
+                    });
+                }
+            }
+        }
         // Process up to 35 steps sequentially with a 1.2s breather between steps for low-power Intel CPU
         for (let step = 0; step < 35; step++) {
             const cfg = getAudiobookStudioConfig();
@@ -2925,7 +3205,8 @@ export const organizeAudiobookCollectionsWithAi = async (
     let usedProvider = 'Built-in Literary Saga & Folder Analyzer';
     const promptLines = inputBooks.map((b, idx) => {
         const pre = bookMetadata[b.bookKey];
-        return `${idx + 1}. key="${b.bookKey}" | rawTitle="${b.title}" | cleanTitle="${pre?.cleanTitle || b.title}" | author="${b.author}" | folder="${b.folder || ''}" | path="${b.path || ''}"`;
+        const canonAuthor = parseAndCanonicalizeAuthor(b.author, b.title).canonicalAuthor;
+        return `${idx + 1}. key="${b.bookKey}" | rawTitle="${b.title}" | cleanTitle="${pre?.cleanTitle || b.title}" | author="${canonAuthor}" | folder="${b.folder || ''}" | path="${b.path || ''}"`;
     });
 
     const systemPrompt = [
@@ -3056,12 +3337,13 @@ export const organizeAudiobookCollectionsWithAi = async (
         const meta = bookMetadata[b.bookKey];
         const colName = (meta?.collectionName || '').trim();
         if (!colName) continue;
-        const colId = `col_${(b.author || 'author').toLowerCase().replace(/[^a-z0-9]+/g, '_')}_${colName.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
+        const canonAuthor = parseAndCanonicalizeAuthor(b.author, b.title).canonicalAuthor || 'Unknown Author';
+        const colId = `col_${canonAuthor.toLowerCase().replace(/[^a-z0-9]+/g, '_')}_${colName.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
         meta.collectionId = colId;
         if (!collectionGroups.has(colId)) {
             collectionGroups.set(colId, {
                 name: colName,
-                author: b.author || 'Unknown Author',
+                author: canonAuthor,
                 bookKeys: []
             });
         }

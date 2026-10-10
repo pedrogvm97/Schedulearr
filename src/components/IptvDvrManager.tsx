@@ -805,21 +805,21 @@ export function IptvDvrManager() {
                         <Tv size={24} />
                     </div>
                     <div>
-                        <h2 className="text-lg font-black text-white flex items-center gap-2">
+                        <h2 className="text-xl font-black text-white flex items-center gap-2">
                             Live TV &amp; DVR Setup
                         </h2>
-                        <p className="text-xs text-zinc-400 mt-0.5">
+                        <p className="text-sm text-zinc-400 mt-0.5">
                             Manage IPTV providers, curated shortlists, stream quality groupings, storage folders, and recording rules.
                         </p>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-2 flex-wrap">
-                    {libraries.length > 1 && (
+                <div className="flex items-center gap-2.5 flex-wrap">
+                    {libraries.length > 0 && (
                         <select
                             value={selectedLibraryId}
                             onChange={e => handleSelectLibrary(e.target.value)}
-                            className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none focus:border-amber-500"
+                            className="bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-sm font-bold text-white outline-none focus:border-amber-500"
                         >
                             {libraries.map(l => (
                                 <option key={l.id} value={l.id}>{l.name}</option>
@@ -827,30 +827,116 @@ export function IptvDvrManager() {
                         </select>
                     )}
 
-                    <button
-                        onClick={() => setIsAddProviderOpen(true)}
-                        className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs transition-all shadow-lg shadow-amber-500/20 flex items-center gap-1.5 cursor-pointer"
-                    >
-                        <Plus size={14} /> Add Provider
-                    </button>
-
                     {activeLibrary && (
                         <button
                             onClick={() => setIsSettingsOpen(true)}
-                            className="px-3.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
-                            title="EPG Sync & Provider Settings"
+                            className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white border border-zinc-700 text-sm font-bold transition-all flex items-center gap-2 cursor-pointer"
+                            title="Edit Provider URL, EPG & Sync"
                         >
-                            <Settings size={14} /> Sync &amp; EPG
+                            <Edit3 size={15} className="text-amber-400" /> Edit Provider &amp; EPG
                         </button>
                     )}
+
+                    <button
+                        onClick={() => setIsAddProviderOpen(true)}
+                        className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-sm transition-all shadow-lg shadow-amber-500/20 flex items-center gap-1.5 cursor-pointer"
+                    >
+                        <Plus size={16} /> Add Provider
+                    </button>
                 </div>
+            </div>
+
+            {/* Always-Visible Connected Providers Strip */}
+            <div className="bg-zinc-950/80 border border-zinc-800/90 rounded-2xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                    <span className="text-xs font-black uppercase tracking-wider text-zinc-400 flex items-center gap-2">
+                        <Tv size={14} className="text-amber-400" />
+                        Connected Live TV Providers ({libraries.length})
+                    </span>
+                    <button
+                        onClick={() => setIsAddProviderOpen(true)}
+                        className="text-xs font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1 cursor-pointer"
+                    >
+                        <Plus size={13} /> Connect New Provider
+                    </button>
+                </div>
+                {libraries.length === 0 ? (
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 rounded-xl bg-zinc-900/50 border border-zinc-800/80">
+                        <div className="text-sm text-zinc-400">
+                            No Live TV providers connected yet. Add an M3U playlist or Xtream Codes server to start.
+                        </div>
+                        <button
+                            onClick={() => setIsAddProviderOpen(true)}
+                            className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs cursor-pointer shrink-0"
+                        >
+                            + Add Live TV Provider
+                        </button>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {libraries.map(lib => {
+                            const isSelected = lib.id === activeLibrary?.id;
+                            const streamSrc = lib.folders?.[0] || 'Local M3U Playlist';
+                            const epgSrc = lib.folders?.[1] || '';
+                            return (
+                                <div
+                                    key={lib.id}
+                                    onClick={() => handleSelectLibrary(lib.id)}
+                                    className={`p-3.5 rounded-xl border transition-all flex items-center justify-between gap-3 cursor-pointer ${
+                                        isSelected
+                                            ? 'bg-amber-500/10 border-amber-500/40'
+                                            : 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-700'
+                                    }`}
+                                >
+                                    <div className="min-w-0 flex-1 space-y-1">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <span className="text-sm font-black text-white truncate">{lib.name}</span>
+                                            {isSelected && (
+                                                <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 text-[10px] font-black uppercase">
+                                                    Active ({channels.length} ch)
+                                                </span>
+                                            )}
+                                            {epgSrc && (
+                                                <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 text-[10px] font-bold">
+                                                    EPG Linked
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="text-xs font-mono text-zinc-400 truncate" title={streamSrc}>
+                                            {streamSrc}
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
+                                        <button
+                                            onClick={() => {
+                                                setSelectedLibraryId(lib.id);
+                                                setIsSettingsOpen(true);
+                                            }}
+                                            className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold flex items-center gap-1.5 border border-zinc-700 cursor-pointer"
+                                            title="Edit Provider Name, M3U Stream URL & EPG"
+                                        >
+                                            <Edit3 size={13} className="text-amber-400" /> Edit
+                                        </button>
+                                        <button
+                                            onClick={() => handleDeleteProvider(lib.id, lib.name)}
+                                            className="p-1.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 cursor-pointer"
+                                            title="Delete Provider"
+                                        >
+                                            <Trash2 size={14} />
+                                        </button>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
             </div>
 
             <div className="flex items-center gap-2 border-b border-zinc-800/80 pb-3 overflow-x-auto custom-scrollbar">
                 {[
+                    { id: 'providers', label: 'Providers', count: libraries.length, icon: Tv },
                     { id: 'guide', label: 'Guide', count: totalGuidePrograms, icon: Calendar },
                     { id: 'shortlists', label: 'Shortlists', count: shortlists.length, icon: Bookmark },
-                    { id: 'providers', label: 'Providers', count: libraries.length, icon: Tv },
                     { id: 'storage', label: 'Storage', count: folders.length, icon: Folder },
                     { id: 'rules', label: 'Rules', count: rules.length, icon: Sparkles },
                     { id: 'recordings', label: 'Recordings', count: recordings.length, icon: Clock }
@@ -861,15 +947,15 @@ export function IptvDvrManager() {
                         <button
                             key={t.id}
                             onClick={() => setActiveTab(t.id as any)}
-                            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 ${
+                            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-black transition-all cursor-pointer shrink-0 ${
                                 isActive
                                     ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30 shadow-sm'
                                     : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'
                             }`}
                         >
-                            <Icon size={14} />
+                            <Icon size={15} />
                             <span>{t.label}</span>
-                            <span className={`px-1.5 py-0.2 rounded-md text-[10px] ${isActive ? 'bg-amber-500/20 text-amber-300' : 'bg-zinc-800 text-zinc-500'}`}>
+                            <span className={`px-1.5 py-0.5 rounded-md text-xs ${isActive ? 'bg-amber-500/20 text-amber-300' : 'bg-zinc-800 text-zinc-500'}`}>
                                 {t.count}
                             </span>
                         </button>

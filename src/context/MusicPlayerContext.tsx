@@ -571,8 +571,15 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         }
     };
 
-    // ── Curated Audiobook Listening States (Open Book Spread vs Plain Art, Multi-Scene Auto-Swap, Curation & Audio Enhancement) ──
+    // ── Curated Audiobook Listening States (Storyboard, Live Art, Gallery, Whole-Book Generation & Voice Options) ──
     const [audiobookArtMode, setAudiobookArtMode] = useState<'open_book' | 'plain_art'>('open_book');
+    const [audiobookLeftTab, setAudiobookLeftTab] = useState<'player' | 'generate'>('player');
+    const [audiobookStageMode, setAudiobookStageMode] = useState<'storyboard' | 'live_art' | 'gallery'>('storyboard');
+    const [showVoiceMenuPopup, setShowVoiceMenuPopup] = useState<boolean>(false);
+    const [editingChapterIdx, setEditingChapterIdx] = useState<number | null>(null);
+    const [editingSceneId, setEditingSceneId] = useState<string | null>(null);
+    const [isQueuingWholeBook, setIsQueuingWholeBook] = useState<boolean>(false);
+    const [audiobookAllChaptersMeta, setAudiobookAllChaptersMeta] = useState<any[]>([]);
     const [audiobookChapterMeta, setAudiobookChapterMeta] = useState<any | null>(null);
     const [audiobookBookMeta, setAudiobookBookMeta] = useState<any | null>(null);
     const [audiobookSubTab, setAudiobookSubTab] = useState<'transcript' | 'illustrations' | 'audio_enhance'>('transcript');
@@ -623,28 +630,35 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
     const fetchAudiobookChapterStudio = useCallback(async (item: MediaItem) => {
         if (!item) return;
         const cKey = item.chapterKey || item.id;
+        const bKey = item.bookKey || `${item.artist || 'Unknown Author'} - ${item.album || item.folder || item.title}`.toLowerCase().trim();
         try {
-            const res = await fetch(`/api/theater/audiobooks/studio?chapterKey=${encodeURIComponent(cKey)}`);
+            const res = await fetch(`/api/theater/audiobooks/studio?chapterKey=${encodeURIComponent(cKey)}&bookKey=${encodeURIComponent(bKey)}`);
             if (res.ok) {
                 const data = await res.json();
-                if (data.chapter) {
-                    setAudiobookChapterMeta(data.chapter);
-                    setAudiobookBookMeta(data.book || null);
-                    setSelectedVoicePreset(data.chapter.voice_preset || data.book?.voice_preset || 'original');
-                    const kept = (data.chapter.images || []).filter((img: any) => img.kept !== false);
-                    // Randomly order kept images for this playback session
-                    const randomized = [...kept].sort(() => Math.random() - 0.5);
-                    setShuffledSceneImages(randomized);
+                if (data.book) {
+                    setAudiobookBookMeta(data.book);
+                }
+                if (Array.isArray(data.chapters)) {
+                    setAudiobookAllChaptersMeta(data.chapters);
+                }
+                const ch = data.chapter || (Array.isArray(data.chapters) ? data.chapters.find((c: any) => c.chapter_key === cKey) : null);
+                if (ch) {
+                    setAudiobookChapterMeta(ch);
+                    setSelectedVoicePreset(ch.voice_preset || data.book?.voice_preset || 'original');
+                    const kept = (ch.images || [])
+                        .filter((img: any) => img.kept !== false)
+                        .sort((a: any, b: any) => (a.startSec ?? 0) - (b.startSec ?? 0));
+                    setShuffledSceneImages(kept);
 
-                    if (data.chapter.synced_lyrics) {
-                        const parsed = parseLrcStringToLines(data.chapter.synced_lyrics);
+                    if (ch.synced_lyrics) {
+                        const parsed = parseLrcStringToLines(ch.synced_lyrics);
                         if (parsed.length > 0) {
                             setLyricsData({
                                 trackKey: cKey,
                                 artist: item.artist,
                                 title: item.title,
-                                syncedLyrics: data.chapter.synced_lyrics,
-                                plainLyrics: data.chapter.plain_transcript || parsed.map(l => l.text).join('\n'),
+                                syncedLyrics: ch.synced_lyrics,
+                                plainLyrics: ch.plain_transcript || parsed.map(l => l.text).join('\n'),
                                 lines: parsed,
                                 isSynced: true,
                                 source: 'audiobook-studio'
@@ -655,13 +669,69 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                 }
             }
             setAudiobookChapterMeta(null);
-            setAudiobookBookMeta(null);
             setShuffledSceneImages([]);
         } catch {
             setAudiobookChapterMeta(null);
             setShuffledSceneImages([]);
         }
     }, [parseLrcStringToLines]);
+
+    // Live poll book & chapter progress while expanded audiobook player is open
+    useEffect(() => {
+        if (!isExpandedPlayerOpen || !isAudiobook || !playingAudio) return;
+        const timer = setInterval(() => {
+            fetchAudiobookChapterStudio(playingAudio);
+        }, 4000);
+        return () => clearInterval(timer);
+    }, [isExpandedPlayerOpen, isAudiobook, playingAudio, fetchAudiobookChapterStudio]);
+
+    const handleQueueWholeBookInPlayer = async () => {
+        if (!playingAudio) return;
+        const bKey = audiobookBookMeta?.book_key || playingAudio.bookKey || `${playingAudio.artist || 'Unknown Author'} - ${playingAudio.album || playingAudio.folder || playingAudio.title}`.toLowerCase().trim();
+        const bookTracks = audioQueue.length > 0 ? audioQueue : [playingAudio];
+        setIsQueuingWholeBook(true);
+        try {
+            await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'sync_book',
+                    bookKey: bKey,
+                    title: playingAudio.album || playingAudio.folder || playingAudio.title,
+                    author: playingAudio.artist || 'Unknown Author',
+                    thumb: playingAudio.posterUrl,
+                    tracks: bookTracks.map((t, idx) => ({
+                        id: t.id,
+                        chapterKey: t.chapterKey || t.id || `${bKey}::ch-${idx + 1}`,
+                        title: t.title,
+                        path: t.path,
+                        durationSec: t.durationMs ? Math.round(t.durationMs / 1000) : 300
+                    }))
+                })
+            });
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'set_priority',
+                    bookKey: bKey,
+                    priority: 2
+                })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                if (data.book) setAudiobookBookMeta(data.book);
+                toast.success('Started generating transcriptions & illustrations for the whole book!');
+                fetchAudiobookChapterStudio(playingAudio);
+            } else {
+                toast.error(data.error || 'Could not queue book generation');
+            }
+        } catch (err: any) {
+            toast.error(`Error starting generation: ${err.message}`);
+        } finally {
+            setIsQueuingWholeBook(false);
+        }
+    };
 
     const handleUpdateInPlayerBookSettings = async (patch: Record<string, any>) => {
         if (!playingAudio) return;
@@ -3607,6 +3677,24 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 />
                             </div>
 
+                            {/* Voice Option Symbol Button (Always visible on player bar for Audiobooks / Voice control) */}
+                            <button
+                                onClick={() => setShowVoiceMenuPopup(prev => !prev)}
+                                className={`p-2 sm:px-3 sm:py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                                    showVoiceMenuPopup || selectedVoicePreset !== 'original'
+                                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+                                }`}
+                                title="Narrator Voice Options & Audio Clarity Presets"
+                            >
+                                <Mic2 size={15} />
+                                {selectedVoicePreset !== 'original' && (
+                                    <span className="hidden md:inline text-[11px] font-bold capitalize">
+                                        {selectedVoicePreset.replace(/_/g, ' ')}
+                                    </span>
+                                )}
+                            </button>
+
                             {/* Cast Quick Button */}
                             <button
                                 onClick={() => openCastPicker(playingAudio)}
@@ -3617,8 +3705,6 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             >
                                 <Cast size={15} />
                             </button>
-
-
 
                             {/* Playback Queue */}
                             <button
@@ -3636,7 +3722,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             <button
                                 onClick={() => setIsExpandedPlayerOpen(true)}
                                 className="p-2 sm:p-2.5 rounded-xl bg-amber-500/15 hover:bg-amber-500 text-amber-400 hover:text-black border border-amber-500/30 text-xs font-bold transition-all"
-                                title="Open Full Turntable Studio"
+                                title={isAudiobook ? "Open Storyboard & Audiobook Studio" : "Open Full Turntable Studio"}
                             >
                                 <Maximize size={15} />
                             </button>
@@ -3650,6 +3736,71 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 <X size={16} />
                             </button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ══════════════════════════════════════════════════════════════
+               VOICE OPTIONS POPOVER DRAWER (ACCESSIBLE FROM PLAYER BAR)
+               ══════════════════════════════════════════════════════════════ */}
+            {showVoiceMenuPopup && playingAudio && (
+                <div className="fixed bottom-36 sm:bottom-24 right-3 sm:right-24 w-full max-w-sm z-[290] bg-zinc-950/98 border border-zinc-800 rounded-3xl p-5 shadow-2xl space-y-3.5 animate-in slide-in-from-bottom-5 duration-200">
+                    <div className="flex items-center justify-between pb-2.5 border-b border-zinc-900">
+                        <span className="text-sm font-black uppercase text-emerald-400 tracking-wider flex items-center gap-2">
+                            <Mic2 size={16} /> Voice &amp; Clarity Options
+                        </span>
+                        <button
+                            onClick={() => setShowVoiceMenuPopup(false)}
+                            className="p-1 text-zinc-500 hover:text-white cursor-pointer"
+                        >
+                            <X size={16} />
+                        </button>
+                    </div>
+
+                    <div className="space-y-1.5">
+                        {[
+                            { id: 'original', label: 'Original Narrator', desc: 'Unmodified voice timbre' },
+                            { id: 'deep_narrator', label: 'Deep Resonant Narrator', desc: 'Warmer baritone timbre (-8% pitch)' },
+                            { id: 'warm_storyteller', label: 'Warm Fireside Storyteller', desc: 'Rich chest resonance (-4% pitch)' },
+                            { id: 'crisp_clear', label: 'Crisp Articulation', desc: 'Boosted vocal clarity & presence' },
+                            { id: 'soft_velvet', label: 'Soft Velvet Reader', desc: 'Gentle smooth timbre (+5% pitch)' },
+                        ].map(preset => {
+                            const isActive = selectedVoicePreset === preset.id;
+                            return (
+                                <button
+                                    key={preset.id}
+                                    type="button"
+                                    onClick={() => {
+                                        handleSwitchProcessedVoice(preset.id);
+                                    }}
+                                    className={`w-full p-3 rounded-2xl border text-left transition-all flex items-center justify-between cursor-pointer ${
+                                        isActive
+                                            ? 'bg-emerald-500/15 border-emerald-500/50 text-white'
+                                            : 'bg-zinc-900/60 border-zinc-800/80 text-zinc-300 hover:border-zinc-700'
+                                    }`}
+                                >
+                                    <div>
+                                        <div className="text-sm font-bold text-white">{preset.label}</div>
+                                        <div className="text-xs text-zinc-400">{preset.desc}</div>
+                                    </div>
+                                    {isActive && <Check size={16} className="text-emerald-400 shrink-0" />}
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    <div className="pt-2 border-t border-zinc-900 flex items-center justify-between gap-2">
+                        <span className="text-xs text-zinc-400">
+                             Playback Speed: <strong className="text-white">{playbackSpeed}x</strong>
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => handleRunInPlayerChapterTask('enhance', selectedVoicePreset)}
+                            disabled={isRunningChapterStudioTask === 'enhance'}
+                            className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-black uppercase tracking-wider cursor-pointer disabled:opacity-50"
+                        >
+                            {isRunningChapterStudioTask === 'enhance' ? 'Processing...' : 'Process Chapter Voice'}
+                        </button>
                     </div>
                 </div>
             )}
@@ -3756,34 +3907,850 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                         </button>
                     </div>
 
-                    {/* Mobile Segmented Deck vs Studio Switch (< lg only) */}
-                    <div className="lg:hidden flex items-center gap-2 pt-2 px-1 shrink-0">
-                        <div className="flex-1 bg-zinc-950 p-1 rounded-2xl border border-zinc-800 flex items-center gap-1">
-                            <button
-                                onClick={() => setShowExpandedSidePanel(false)}
-                                className={`flex-1 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all ${
-                                    !showExpandedSidePanel
-                                        ? 'bg-amber-500 text-black shadow-md'
-                                        : 'text-zinc-400 hover:text-white'
-                                }`}
-                            >
-                                <Disc size={13} /> Turntable Deck
-                            </button>
-                            <button
-                                onClick={() => setShowExpandedSidePanel(true)}
-                                className={`flex-1 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all ${
-                                    showExpandedSidePanel
-                                        ? 'bg-amber-500 text-black shadow-md'
-                                        : 'text-zinc-400 hover:text-white'
-                                }`}
-                            >
-                                <Mic2 size={13} /> Lyrics &amp; Studio
-                            </button>
+                    {/* Mobile Segmented Deck vs Studio Switch (< lg only, Music mode) */}
+                    {!isAudiobook && (
+                        <div className="lg:hidden flex items-center gap-2 pt-2 px-1 shrink-0">
+                            <div className="flex-1 bg-zinc-950 p-1 rounded-2xl border border-zinc-800 flex items-center gap-1">
+                                <button
+                                    onClick={() => setShowExpandedSidePanel(false)}
+                                    className={`flex-1 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all ${
+                                        !showExpandedSidePanel
+                                            ? 'bg-amber-500 text-black shadow-md'
+                                            : 'text-zinc-400 hover:text-white'
+                                    }`}
+                                >
+                                    <Disc size={13} /> Turntable Deck
+                                </button>
+                                <button
+                                    onClick={() => setShowExpandedSidePanel(true)}
+                                    className={`flex-1 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all ${
+                                        showExpandedSidePanel
+                                            ? 'bg-amber-500 text-black shadow-md'
+                                            : 'text-zinc-400 hover:text-white'
+                                    }`}
+                                >
+                                    <Mic2 size={13} /> Lyrics &amp; Studio
+                                </button>
+                            </div>
                         </div>
-                    </div>
+                    )}
 
-                    {/* Main Stage: Minimalist Vinyl Platter Mode vs Full Dashboard Grid */}
-                    {isMinimalistVinylMode && !isAudiobook ? (
+                    {/* Main Stage: Dedicated Audiobook Storyboard & Generate Experience vs Music Player */}
+                    {isAudiobook ? (
+                        (() => {
+                            const totalScenes = shuffledSceneImages.length;
+                            let activeSceneIdx = -1;
+                            let activeSceneObj: any = null;
+                            if (totalScenes > 0) {
+                                const timeMatchedIdx = shuffledSceneImages.findIndex((img: any) =>
+                                    typeof img.startSec === 'number' && typeof img.endSec === 'number' &&
+                                    audioCurrentTime >= img.startSec && audioCurrentTime <= img.endSec
+                                );
+                                if (timeMatchedIdx >= 0) {
+                                    activeSceneIdx = timeMatchedIdx;
+                                } else {
+                                    const progressRatio = effectiveDuration > 0 ? Math.min(0.9999, Math.max(0, audioCurrentTime / effectiveDuration)) : 0;
+                                    activeSceneIdx = Math.floor(progressRatio * totalScenes);
+                                }
+                                activeSceneObj = shuffledSceneImages[activeSceneIdx] || shuffledSceneImages[0];
+                            }
+
+                            const prevSceneObj = activeSceneIdx > 0 ? shuffledSceneImages[activeSceneIdx - 1] : null;
+                            const nextSceneObj = activeSceneIdx >= 0 && activeSceneIdx < totalScenes - 1 ? shuffledSceneImages[activeSceneIdx + 1] : null;
+
+                            const customCoverActive = Boolean(audiobookBookMeta?.use_custom_cover && audiobookBookMeta?.custom_cover_url);
+                            const effectiveCoverUrl = customCoverActive ? audiobookBookMeta.custom_cover_url : playingAudio.posterUrl;
+                            const currentPrimaryArtUrl = activeSceneObj?.url || audiobookChapterMeta?.illustration_path || effectiveCoverUrl;
+                            const currentPrimaryArtBadge = activeSceneObj
+                                ? `Scene ${activeSceneIdx + 1} of ${totalScenes}`
+                                : audiobookChapterMeta?.illustration_path
+                                ? 'Chapter Art'
+                                : customCoverActive
+                                ? 'Custom Book Cover'
+                                : 'Book Cover';
+
+                            const totalChaps = Math.max(1, audiobookBookMeta?.total_chapters || audioQueue.length || 1);
+                            const transcribedChaps = audiobookBookMeta?.transcribed_chapters || 0;
+                            const illustratedChaps = audiobookBookMeta?.illustrated_chapters || 0;
+                            const enhancedChaps = audiobookBookMeta?.enhanced_chapters || 0;
+                            const transcribedSecs = audiobookBookMeta?.transcribed_seconds || audiobookChapterMeta?.transcribed_seconds || 0;
+                            const totalBookSecs = Math.max(
+                                transcribedSecs,
+                                audiobookBookMeta?.total_duration_sec ||
+                                audioQueue.reduce((acc, t) => acc + (t.durationMs ? Math.round(t.durationMs / 1000) : 300), 0) ||
+                                Math.round(effectiveDuration || 300)
+                            );
+                            const illustratedScenesCount = audiobookBookMeta?.illustrated_scenes || totalScenes;
+                            const transcribePct = Math.min(100, Math.round((transcribedSecs / Math.max(1, totalBookSecs)) * 100)) || Math.min(100, Math.round((transcribedChaps / totalChaps) * 100));
+                            const illustratePct = Math.min(100, Math.round((illustratedChaps / totalChaps) * 100));
+
+                            const formatDurationCounter = (secs: number) => {
+                                const h = Math.floor(secs / 3600);
+                                const m = Math.floor((secs % 3600) / 60);
+                                const s = Math.floor(secs % 60);
+                                if (h > 0) return `${h}h ${m}m ${s}s`;
+                                if (m > 0) return `${m}m ${s}s`;
+                                return `${s}s`;
+                            };
+
+                            return (
+                                <div className="relative z-10 flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch pt-2 overflow-hidden">
+                                    {/* ── LEFT PANEL: MAIN PLAYER & GENERATE TAB ── */}
+                                    <div className="col-span-1 lg:col-span-5 xl:col-span-4 h-full max-h-full flex flex-col bg-zinc-950/90 border border-zinc-800/90 rounded-[2rem] p-4 sm:p-5 shadow-2xl space-y-4 min-h-0 overflow-hidden">
+                                        {/* Top Tab Bar: Player vs Generate */}
+                                        <div className="flex items-center gap-1.5 p-1 bg-zinc-900 rounded-2xl border border-zinc-800 shrink-0 pr-24 lg:pr-1">
+                                            <button
+                                                type="button"
+                                                onClick={() => setAudiobookLeftTab('player')}
+                                                className={`flex-1 py-2.5 px-3 rounded-xl text-sm font-black tracking-wide flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                                                    audiobookLeftTab === 'player'
+                                                        ? 'bg-amber-500 text-black shadow-md'
+                                                        : 'text-zinc-400 hover:text-white'
+                                                }`}
+                                            >
+                                                <BookOpen size={15} /> Player &amp; Chapters
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setAudiobookLeftTab('generate')}
+                                                className={`flex-1 py-2.5 px-3 rounded-xl text-sm font-black tracking-wide flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                                                    audiobookLeftTab === 'generate'
+                                                        ? 'bg-amber-500 text-black shadow-md'
+                                                        : 'text-zinc-400 hover:text-white'
+                                                }`}
+                                            >
+                                                <Sparkles size={15} /> Generate
+                                            </button>
+                                        </div>
+
+                                        {audiobookLeftTab === 'player' ? (
+                                            /* ── LEFT TAB 1: MAIN AUDIOBOOK PLAYER & CHAPTER LIST ── */
+                                            <div className="flex-1 min-h-0 flex flex-col space-y-4 overflow-hidden">
+                                                {/* Book Header Card */}
+                                                <div className="flex items-center gap-4 p-3.5 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 shrink-0">
+                                                    <div className="w-20 h-28 rounded-xl bg-zinc-900 border border-amber-500/30 overflow-hidden shrink-0 relative shadow-lg">
+                                                        {effectiveCoverUrl ? (
+                                                            <img src={effectiveCoverUrl} alt="" className="w-full h-full object-cover" />
+                                                        ) : (
+                                                            <div className="w-full h-full flex items-center justify-center text-amber-400">
+                                                                <BookOpen size={28} />
+                                                            </div>
+                                                        )}
+                                                        <span className="absolute bottom-1 inset-x-1 px-1 py-0.5 rounded bg-black/80 text-[9px] font-bold text-amber-300 text-center truncate">
+                                                            {customCoverActive ? 'AI Cover' : 'Cover'}
+                                                        </span>
+                                                    </div>
+                                                    <div className="min-w-0 flex-1 space-y-1">
+                                                        <div className="text-xs font-bold uppercase tracking-wider text-amber-400 truncate">
+                                                            {playingAudio.album || playingAudio.folder || 'Audiobook'}
+                                                        </div>
+                                                        <h2 className="text-lg font-black text-white leading-snug line-clamp-2">
+                                                            {playingAudio.title}
+                                                        </h2>
+                                                        <p className="text-sm font-semibold text-zinc-300 truncate">
+                                                            {audiobookBookMeta?.canonical_author || playingAudio.artist || 'Unknown Author'}
+                                                        </p>
+                                                        {(audiobookBookMeta?.translator || (playingAudio as any).translator) && (
+                                                            <p className="text-xs text-zinc-400 truncate">
+                                                                Trans. {audiobookBookMeta?.translator || (playingAudio as any).translator}
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                {/* Seekbar */}
+                                                <div className="space-y-1.5 px-1 shrink-0">
+                                                    <input
+                                                        type="range"
+                                                        min={0}
+                                                        max={effectiveDuration || 100}
+                                                        value={audioCurrentTime}
+                                                        onChange={e => seekTo(Number(e.target.value))}
+                                                        className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                                                    />
+                                                    <div className="flex justify-between text-xs font-mono text-zinc-400 font-bold">
+                                                        <span>{formatTime(audioCurrentTime)}</span>
+                                                        <span>-{formatTime(Math.max(0, (effectiveDuration || 0) - audioCurrentTime))}</span>
+                                                    </div>
+                                                </div>
+
+                                                {/* Transport Controls */}
+                                                <div className="flex items-center justify-between gap-2 px-1 shrink-0">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => skipSeconds(-15)}
+                                                        className="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-amber-400 border border-zinc-800 text-xs font-mono font-bold flex items-center gap-1 cursor-pointer"
+                                                        title="Rewind 15 seconds"
+                                                    >
+                                                        <RotateCcw size={15} /> 15s
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={prevTrack}
+                                                        className="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 cursor-pointer"
+                                                        title="Previous Chapter"
+                                                    >
+                                                        <SkipBack size={18} />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={togglePlayPause}
+                                                        className="w-14 h-14 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black flex items-center justify-center shadow-lg shadow-amber-500/25 cursor-pointer transition-transform active:scale-95"
+                                                        title={isAudioPlaying ? 'Pause' : 'Play'}
+                                                    >
+                                                        {audioPlaybackStatus === 'loading' || audioPlaybackStatus === 'buffering' ? (
+                                                            <div className="w-6 h-6 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                                                        ) : isAudioPlaying ? (
+                                                            <Pause size={24} />
+                                                        ) : (
+                                                            <Play size={24} className="ml-0.5" />
+                                                        )}
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={nextTrack}
+                                                        className="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 cursor-pointer"
+                                                        title="Next Chapter"
+                                                    >
+                                                        <SkipForward size={18} />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => skipSeconds(30)}
+                                                        className="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-amber-400 border border-zinc-800 text-xs font-mono font-bold flex items-center gap-1 cursor-pointer"
+                                                        title="Forward 30 seconds"
+                                                    >
+                                                        30s <RotateCcw size={15} className="scale-x-[-1]" />
+                                                    </button>
+                                                </div>
+
+                                                {/* Secondary Controls: Speed, Voice Symbol, Volume */}
+                                                <div className="flex items-center justify-between gap-2 pt-2 border-t border-zinc-900 shrink-0 flex-wrap">
+                                                    <div className="flex items-center gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={cyclePlaybackSpeed}
+                                                            className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 text-xs font-mono font-black cursor-pointer"
+                                                            title="Playback Speed"
+                                                        >
+                                                            {playbackSpeed}x Speed
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setShowVoiceMenuPopup(prev => !prev)}
+                                                            className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all ${
+                                                                selectedVoicePreset !== 'original'
+                                                                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                                                    : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border-zinc-800'
+                                                            }`}
+                                                            title="Narrator Voice Options"
+                                                        >
+                                                            <Mic2 size={14} className="text-emerald-400" />
+                                                            <span className="capitalize">{selectedVoicePreset === 'original' ? 'Voice' : selectedVoicePreset.replace(/_/g, ' ')}</span>
+                                                        </button>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-2">
+                                                        <button type="button" onClick={toggleMute} className="text-zinc-400 hover:text-white cursor-pointer">
+                                                            {isAudioMuted || audioVolume === 0 ? <VolumeX size={16} className="text-rose-400" /> : <Volume2 size={16} />}
+                                                        </button>
+                                                        <input
+                                                            type="range"
+                                                            min={0}
+                                                            max={1}
+                                                            step={0.01}
+                                                            value={isAudioMuted ? 0 : audioVolume}
+                                                            onChange={e => handleVolumeChange(Number(e.target.value))}
+                                                            className="w-20 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                {/* Chapters List (With Individual Chapter Actions Tucked Behind Explicit Edit Button) */}
+                                                <div className="flex-1 min-h-0 flex flex-col space-y-2 pt-2 border-t border-zinc-900 overflow-hidden">
+                                                    <div className="flex items-center justify-between px-1 shrink-0">
+                                                        <span className="text-xs font-black uppercase tracking-wider text-zinc-400">
+                                                            Chapters ({audioQueue.length || 1})
+                                                        </span>
+                                                        <span className="text-xs text-zinc-500">
+                                                            Click chapter to play • Edit for options
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
+                                                        {(audioQueue.length > 0 ? audioQueue : [playingAudio]).map((chTrack, idx) => {
+                                                            const isCurrentChap = idx === queueIndex || chTrack.id === playingAudio.id;
+                                                            const isEditingThisChap = editingChapterIdx === idx;
+                                                            const chMeta = audiobookAllChaptersMeta.find((m: any) => m.chapter_key === (chTrack.chapterKey || chTrack.id));
+                                                            const hasTranscript = chMeta?.transcript_status === 'done' || (isCurrentChap && Boolean(lyricsData?.lines?.length));
+                                                            const hasArt = (chMeta?.images?.length || 0) > 0 || (isCurrentChap && totalScenes > 0);
+                                                            return (
+                                                                <div key={`${chTrack.id}-${idx}`} className="rounded-2xl border border-zinc-800/80 bg-zinc-900/40 overflow-hidden">
+                                                                    <div
+                                                                        onClick={() => {
+                                                                            setQueueIndex(idx);
+                                                                            setPlayingAudio(chTrack);
+                                                                            setIsAudioPlaying(true);
+                                                                        }}
+                                                                        className={`p-3 flex items-center justify-between gap-2 cursor-pointer transition-colors ${
+                                                                            isCurrentChap ? 'bg-amber-500/15 text-amber-300' : 'hover:bg-zinc-900 text-zinc-300'
+                                                                        }`}
+                                                                    >
+                                                                        <div className="min-w-0 flex-1">
+                                                                            <div className="text-sm font-bold truncate">
+                                                                                {idx + 1}. {chTrack.title}
+                                                                            </div>
+                                                                            <div className="flex items-center gap-2 mt-0.5 text-[11px] text-zinc-500">
+                                                                                {hasTranscript && <span className="text-emerald-400 font-semibold">Transcribed</span>}
+                                                                                {hasArt && <span className="text-purple-400 font-semibold">Illustrated</span>}
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => setEditingChapterIdx(isEditingThisChap ? null : idx)}
+                                                                                className={`px-2.5 py-1 rounded-xl border text-xs font-bold flex items-center gap-1 cursor-pointer transition-all ${
+                                                                                    isEditingThisChap
+                                                                                        ? 'bg-amber-500 text-black border-amber-400'
+                                                                                        : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border-zinc-800'
+                                                                                }`}
+                                                                                title="Edit individual chapter transcription or illustrations"
+                                                                            >
+                                                                                <Edit3 size={12} /> Edit
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    {isEditingThisChap && (
+                                                                        <div className="p-3 bg-zinc-950 border-t border-zinc-800/80 space-y-2.5 animate-in fade-in duration-150">
+                                                                            <div className="text-xs font-bold text-zinc-400">
+                                                                                Chapter #{idx + 1} Individual Actions
+                                                                            </div>
+                                                                            <div className="flex flex-wrap gap-2">
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => {
+                                                                                        if (!isCurrentChap) {
+                                                                                            setQueueIndex(idx);
+                                                                                            setPlayingAudio(chTrack);
+                                                                                        }
+                                                                                        setTimeout(() => handleRunInPlayerChapterTask('transcribe'), 100);
+                                                                                    }}
+                                                                                    disabled={Boolean(isRunningChapterStudioTask)}
+                                                                                    className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-amber-300 border border-amber-500/30 text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                                                                >
+                                                                                    <RefreshCw size={12} className={isRunningChapterStudioTask === 'transcribe' ? 'animate-spin' : ''} />
+                                                                                    {hasTranscript ? 'Re-Transcribe Chapter' : 'Transcribe Chapter'}
+                                                                                </button>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => {
+                                                                                        if (!isCurrentChap) {
+                                                                                            setQueueIndex(idx);
+                                                                                            setPlayingAudio(chTrack);
+                                                                                        }
+                                                                                        setTimeout(() => handleRunInPlayerChapterTask('illustrate'), 100);
+                                                                                    }}
+                                                                                    disabled={Boolean(isRunningChapterStudioTask)}
+                                                                                    className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-purple-300 border border-purple-500/30 text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                                                                >
+                                                                                    <ImageIcon size={12} /> Paint Chapter Scene
+                                                                                </button>
+                                                                                {isCurrentChap && (
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={() => {
+                                                                                            setLyricsSearchQuery(`${playingAudio.artist || ''} ${playingAudio.title || ''}`.trim());
+                                                                                            setCustomLrcText(lyricsData?.syncedLyrics || lyricsData?.plainLyrics || '');
+                                                                                            setIsLyricsEditorOpen(true);
+                                                                                        }}
+                                                                                        className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                                                                                    >
+                                                                                        <Edit3 size={12} /> Edit Transcript Text
+                                                                                    </button>
+                                                                                )}
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            /* ── LEFT TAB 2: GENERATE TAB (WHOLE-BOOK GENERATION & PROGRESS COUNTERS) ── */
+                                            <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar space-y-4 pr-1">
+                                                {/* Whole-Book Generation Action Card */}
+                                                <div className="p-4 rounded-2xl bg-zinc-900/70 border border-amber-500/30 space-y-3.5">
+                                                    <div className="space-y-1">
+                                                        <h3 className="text-base font-black text-white flex items-center gap-2">
+                                                            <Sparkles size={16} className="text-amber-400" />
+                                                            Generate Whole Book
+                                                        </h3>
+                                                        <p className="text-xs text-zinc-400 leading-relaxed">
+                                                            Transcribe all chapters with real Speech-to-Text and illustrate narrative scenes across the entire book in the background.
+                                                        </p>
+                                                    </div>
+
+                                                    {/* Book-Level Generation Settings */}
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                                        <div>
+                                                            <label className="block text-xs font-bold text-zinc-400 mb-1">Illustration Style</label>
+                                                            <select
+                                                                value={audiobookBookMeta?.art_style || ''}
+                                                                onChange={e => handleUpdateInPlayerBookSettings({ artStyle: e.target.value })}
+                                                                className="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white font-semibold"
+                                                            >
+                                                                <option value="">Shelf Default Style</option>
+                                                                <option value="Cinematic Concept Art">Cinematic Concept Art</option>
+                                                                <option value="Dark Fantasy Oil Painting">Dark Fantasy Oil Painting</option>
+                                                                <option value="Studio Ghibli Anime">Studio Ghibli Anime</option>
+                                                                <option value="Watercolor Book Illustration">Watercolor Book Illustration</option>
+                                                                <option value="Graphic Novel Ink & Wash">Graphic Novel Ink & Wash</option>
+                                                                <option value="Classic Golden Age Storybook">Classic Golden Age Storybook</option>
+                                                            </select>
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-xs font-bold text-zinc-400 mb-1">Scenes per Chapter</label>
+                                                            <select
+                                                                value={audiobookBookMeta?.images_per_chapter || 0}
+                                                                onChange={e => handleUpdateInPlayerBookSettings({ imagesPerChapter: Number(e.target.value) })}
+                                                                className="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white font-semibold"
+                                                            >
+                                                                <option value={0}>Shelf Default (2 Scenes)</option>
+                                                                <option value={1}>1 Scene / Chapter</option>
+                                                                <option value={2}>2 Scenes / Chapter</option>
+                                                                <option value={3}>3 Scenes / Chapter</option>
+                                                                <option value={4}>4 Scenes / Chapter</option>
+                                                                <option value={6}>6 Scenes / Chapter</option>
+                                                            </select>
+                                                        </div>
+                                                    </div>
+
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleQueueWholeBookInPlayer}
+                                                        disabled={isQueuingWholeBook}
+                                                        className="w-full py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 cursor-pointer disabled:opacity-50"
+                                                    >
+                                                        {isQueuingWholeBook ? (
+                                                            <RefreshCw size={16} className="animate-spin" />
+                                                        ) : (
+                                                            <Sparkles size={16} />
+                                                        )}
+                                                        <span>
+                                                            {audiobookBookMeta?.queue_status === 'processing'
+                                                                ? 'Generating Whole Book in Background...'
+                                                                : 'Start Generating Whole Book'}
+                                                        </span>
+                                                    </button>
+                                                </div>
+
+                                                {/* Live Whole-Book Progress Bars & Counters */}
+                                                <div className="p-4 rounded-2xl bg-zinc-900/50 border border-zinc-800 space-y-4">
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-xs font-black uppercase tracking-wider text-zinc-300">
+                                                            Whole-Book Progress &amp; Counters
+                                                        </span>
+                                                        <span className={`px-2 py-0.5 rounded-md text-[11px] font-bold uppercase ${
+                                                            audiobookBookMeta?.queue_status === 'processing'
+                                                                ? 'bg-amber-500/20 text-amber-300 animate-pulse'
+                                                                : audiobookBookMeta?.queue_status === 'completed'
+                                                                ? 'bg-emerald-500/20 text-emerald-300'
+                                                                : 'bg-zinc-800 text-zinc-400'
+                                                        }`}>
+                                                            {audiobookBookMeta?.queue_status || 'Idle'}
+                                                        </span>
+                                                    </div>
+
+                                                    {/* Counter 1: Audio Transcribed (Seconds + Chapters) */}
+                                                    <div className="space-y-1.5">
+                                                        <div className="flex items-center justify-between text-xs">
+                                                            <span className="font-bold text-white">Audio Transcribed</span>
+                                                            <span className="font-mono font-bold text-amber-300">
+                                                                {formatDurationCounter(transcribedSecs)} / {formatDurationCounter(totalBookSecs)} ({transcribedChaps}/{totalChaps} ch)
+                                                            </span>
+                                                        </div>
+                                                        <div className="w-full h-2.5 rounded-full bg-zinc-800 overflow-hidden">
+                                                            <div
+                                                                className="h-full bg-amber-500 transition-all duration-500"
+                                                                style={{ width: `${transcribePct}%` }}
+                                                            />
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Counter 2: Scenes Illustrated */}
+                                                    <div className="space-y-1.5">
+                                                        <div className="flex items-center justify-between text-xs">
+                                                            <span className="font-bold text-white">Scenes Illustrated</span>
+                                                            <span className="font-mono font-bold text-purple-300">
+                                                                {illustratedScenesCount} scenes • {illustratedChaps}/{totalChaps} chapters
+                                                            </span>
+                                                        </div>
+                                                        <div className="w-full h-2.5 rounded-full bg-zinc-800 overflow-hidden">
+                                                            <div
+                                                                className="h-full bg-purple-500 transition-all duration-500"
+                                                                style={{ width: `${illustratePct}%` }}
+                                                            />
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Counter 3: Voice & Audio Clarity */}
+                                                    <div className="space-y-1.5">
+                                                        <div className="flex items-center justify-between text-xs">
+                                                            <span className="font-bold text-white">Audio Clarity &amp; Voice</span>
+                                                            <span className="font-mono font-bold text-emerald-300">
+                                                                {enhancedChaps}/{totalChaps} chapters
+                                                            </span>
+                                                        </div>
+                                                        <div className="w-full h-2.5 rounded-full bg-zinc-800 overflow-hidden">
+                                                            <div
+                                                                className="h-full bg-emerald-500 transition-all duration-500"
+                                                                style={{ width: `${Math.min(100, Math.round((enhancedChaps / totalChaps) * 100))}%` }}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {/* Book Cover Art Control */}
+                                                <div className="p-4 rounded-2xl bg-zinc-900/50 border border-zinc-800 flex items-center justify-between gap-3">
+                                                    <div>
+                                                        <div className="text-sm font-bold text-white">Book Cover Artwork</div>
+                                                        <div className="text-xs text-zinc-400">
+                                                            {customCoverActive ? 'Using Custom AI Book Cover' : 'Using Original Book Cover'}
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleToggleCustomCover}
+                                                        className="px-3.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-amber-300 border border-zinc-700 text-xs font-bold cursor-pointer shrink-0"
+                                                    >
+                                                        {audiobookBookMeta?.custom_cover_url
+                                                            ? (customCoverActive ? 'Use Original Cover' : 'Use Custom Cover')
+                                                            : 'Generate Custom Cover'}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* ── RIGHT STAGE: STORYBOARD / PICTUREBOOK + LIVE CAPTIONS ── */}
+                                    <div className="col-span-1 lg:col-span-7 xl:col-span-8 h-full max-h-full flex flex-col bg-zinc-950/90 border border-zinc-800/90 rounded-[2rem] p-4 sm:p-6 shadow-2xl space-y-4 min-h-0 overflow-hidden">
+                                        {/* Top View Switcher: Storyboard (3-Card Carousel) | Live Art | Story Gallery */}
+                                        <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-zinc-900 shrink-0 pr-24">
+                                            <div className="flex items-center gap-1.5 bg-zinc-900 p-1 rounded-2xl border border-zinc-800">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setAudiobookStageMode('storyboard')}
+                                                    className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center gap-1.5 cursor-pointer ${
+                                                        audiobookStageMode === 'storyboard'
+                                                            ? 'bg-amber-500 text-black shadow-sm'
+                                                            : 'text-zinc-400 hover:text-white'
+                                                    }`}
+                                                >
+                                                    <Layers size={15} /> Storyboard
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setAudiobookStageMode('live_art')}
+                                                    className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center gap-1.5 cursor-pointer ${
+                                                        audiobookStageMode === 'live_art'
+                                                            ? 'bg-amber-500 text-black shadow-sm'
+                                                            : 'text-zinc-400 hover:text-white'
+                                                    }`}
+                                                >
+                                                    <ImageIcon size={15} /> Current Live Art
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setAudiobookStageMode('gallery')}
+                                                    className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center gap-1.5 cursor-pointer ${
+                                                        audiobookStageMode === 'gallery'
+                                                            ? 'bg-amber-500 text-black shadow-sm'
+                                                            : 'text-zinc-400 hover:text-white'
+                                                    }`}
+                                                >
+                                                    <BookOpen size={15} /> Story Gallery ({totalScenes})
+                                                </button>
+                                            </div>
+
+                                            <div className="flex items-center gap-2">
+                                                <span className="px-3 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-bold text-amber-300">
+                                                    {currentPrimaryArtBadge}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        {/* ── VISUAL STAGE AREA (STORYBOARD / LIVE ART / GALLERY) ── */}
+                                        <div className="flex-1 min-h-0 flex flex-col justify-center overflow-hidden">
+                                            {audiobookStageMode === 'storyboard' ? (
+                                                /* 1. STORYBOARD VIEW: Previous Scene (left, recessed) + Current Scene (center, prominent) + Upcoming Scene (right, recessed) */
+                                                <div className="w-full h-full flex items-center justify-center gap-3 sm:gap-5 px-2 py-1 overflow-hidden">
+                                                    {/* Previous Scene Card (Left, Slightly Smaller & Recessed) */}
+                                                    <div
+                                                        onClick={() => {
+                                                            if (prevSceneObj && typeof prevSceneObj.startSec === 'number') {
+                                                                seekTo(prevSceneObj.startSec);
+                                                            }
+                                                        }}
+                                                        className={`hidden sm:flex flex-col w-1/4 max-w-[210px] aspect-[4/3] rounded-2xl border border-zinc-800 bg-zinc-900/70 overflow-hidden relative transition-all duration-500 scale-90 opacity-60 hover:opacity-90 ${
+                                                            prevSceneObj ? 'cursor-pointer' : 'opacity-25 pointer-events-none'
+                                                        }`}
+                                                        title={prevSceneObj ? 'Click to jump to Previous Scene' : 'Start of Chapter'}
+                                                    >
+                                                        {prevSceneObj?.url ? (
+                                                            <img src={prevSceneObj.url} alt="" className="w-full h-full object-cover" />
+                                                        ) : (
+                                                            <div className="w-full h-full flex flex-col items-center justify-center text-zinc-600 p-3 text-center">
+                                                                <SkipBack size={22} className="mb-1" />
+                                                                <span className="text-xs font-bold">Previous Scene</span>
+                                                            </div>
+                                                        )}
+                                                        <div className="absolute top-2 left-2 px-2 py-0.5 rounded-lg bg-black/80 text-[10px] font-bold text-zinc-300">
+                                                            {prevSceneObj ? `Scene ${activeSceneIdx}` : 'Start'}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Current Scene Card (Center, Prominent & Emphasized) */}
+                                                    <div className="flex-1 max-w-xl h-full max-h-[36vh] aspect-[16/10] rounded-3xl border-2 border-amber-500/40 bg-zinc-900 overflow-hidden relative shadow-[0_20px_60px_rgba(0,0,0,0.85)] z-20 flex items-center justify-center group">
+                                                        {currentPrimaryArtUrl ? (
+                                                            <img
+                                                                src={currentPrimaryArtUrl}
+                                                                alt={playingAudio.title}
+                                                                className="w-full h-full object-cover transition-all duration-700"
+                                                            />
+                                                        ) : (
+                                                            <div className="flex flex-col items-center justify-center text-zinc-500 p-6 text-center">
+                                                                <BookOpen size={48} className="text-amber-500/50 mb-2" />
+                                                                <span className="text-sm font-bold text-zinc-300">{playingAudio.title}</span>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Clear Badge showing if this is Scene X of Y, Chapter Art, or Book Cover */}
+                                                        <div className="absolute top-3 left-3 px-3 py-1 rounded-xl bg-black/80 backdrop-blur-md border border-white/15 text-xs font-black text-amber-300">
+                                                            {currentPrimaryArtBadge}
+                                                        </div>
+
+                                                        {/* Explicit Edit Button for Current Scene (Hides raw prompt unless clicked) */}
+                                                        {activeSceneObj && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setEditingSceneId(editingSceneId === activeSceneObj.id ? null : activeSceneObj.id)}
+                                                                className="absolute top-3 right-3 px-3 py-1 rounded-xl bg-black/80 hover:bg-black text-zinc-200 border border-white/15 text-xs font-bold flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                                                            >
+                                                                <Edit3 size={12} /> Edit Scene
+                                                            </button>
+                                                        )}
+
+                                                        {/* Scene Edit Drawer Overlay (Only shown when user clicks Edit Scene) */}
+                                                        {activeSceneObj && editingSceneId === activeSceneObj.id && (
+                                                            <div className="absolute inset-x-3 bottom-3 p-3.5 rounded-2xl bg-zinc-950/95 border border-zinc-700 space-y-2 z-30">
+                                                                <div className="flex items-center justify-between">
+                                                                    <span className="text-xs font-black uppercase text-amber-400">
+                                                                        Edit {currentPrimaryArtBadge}
+                                                                    </span>
+                                                                    <div className="flex items-center gap-1.5">
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => handleDeleteSceneImage(activeSceneObj.id)}
+                                                                            className="px-2.5 py-1 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-300 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                                                                        >
+                                                                            <Trash2 size={12} /> Delete Scene
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => setEditingSceneId(null)}
+                                                                            className="px-2.5 py-1 rounded-lg bg-zinc-800 text-zinc-300 text-xs font-bold cursor-pointer"
+                                                                        >
+                                                                            Done
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                                {activeSceneObj.prompt && (
+                                                                    <p className="text-xs text-zinc-400 line-clamp-2 font-mono">
+                                                                        {activeSceneObj.prompt}
+                                                                    </p>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    {/* Upcoming Scene Card (Right, Slightly Smaller & Recessed) */}
+                                                    <div
+                                                        onClick={() => {
+                                                            if (nextSceneObj && typeof nextSceneObj.startSec === 'number') {
+                                                                seekTo(nextSceneObj.startSec);
+                                                            }
+                                                        }}
+                                                        className={`hidden sm:flex flex-col w-1/4 max-w-[210px] aspect-[4/3] rounded-2xl border border-zinc-800 bg-zinc-900/70 overflow-hidden relative transition-all duration-500 scale-90 opacity-60 hover:opacity-90 ${
+                                                            nextSceneObj ? 'cursor-pointer' : 'opacity-25 pointer-events-none'
+                                                        }`}
+                                                        title={nextSceneObj ? 'Click to jump to Upcoming Scene' : 'Next Scene'}
+                                                    >
+                                                        {nextSceneObj?.url ? (
+                                                            <img src={nextSceneObj.url} alt="" className="w-full h-full object-cover" />
+                                                        ) : (
+                                                            <div className="w-full h-full flex flex-col items-center justify-center text-zinc-600 p-3 text-center">
+                                                                <SkipForward size={22} className="mb-1" />
+                                                                <span className="text-xs font-bold">Upcoming Scene</span>
+                                                            </div>
+                                                        )}
+                                                        <div className="absolute top-2 right-2 px-2 py-0.5 rounded-lg bg-black/80 text-[10px] font-bold text-zinc-300">
+                                                            {nextSceneObj ? `Scene ${activeSceneIdx + 2}` : 'Upcoming'}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ) : audiobookStageMode === 'live_art' ? (
+                                                /* 2. CURRENT LIVE ART VIEW: Large Focused Artwork */
+                                                <div className="w-full h-full flex items-center justify-center p-2 overflow-hidden">
+                                                    <div className="relative h-full max-h-[42vh] aspect-[16/10] rounded-3xl border-2 border-amber-500/40 bg-zinc-900 overflow-hidden shadow-2xl group">
+                                                        {currentPrimaryArtUrl ? (
+                                                            <img src={currentPrimaryArtUrl} alt={playingAudio.title} className="w-full h-full object-cover" />
+                                                        ) : (
+                                                            <div className="w-full h-full flex items-center justify-center text-amber-400">
+                                                                <BookOpen size={56} />
+                                                            </div>
+                                                        )}
+                                                        <div className="absolute top-3 left-3 px-3 py-1 rounded-xl bg-black/80 backdrop-blur-md border border-white/15 text-xs font-black text-amber-300">
+                                                            {currentPrimaryArtBadge}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                /* 3. STORY GALLERY VIEW: Scrollable Picturebook while audio plays */
+                                                <div className="w-full h-full overflow-y-auto custom-scrollbar p-2">
+                                                    {totalScenes === 0 ? (
+                                                        <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-2">
+                                                            <ImageIcon size={36} className="text-zinc-600" />
+                                                            <p className="text-sm font-bold text-zinc-300">No Scene Illustrations Generated Yet</p>
+                                                            <p className="text-xs text-zinc-500 max-w-md">
+                                                                Open the Generate tab on the left to illustrate scenes for this book.
+                                                            </p>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3.5">
+                                                            {shuffledSceneImages.map((img: any, idx: number) => {
+                                                                const isCurrentScene = idx === activeSceneIdx;
+                                                                const isEditingImg = editingSceneId === img.id;
+                                                                return (
+                                                                    <div
+                                                                        key={img.id || idx}
+                                                                        onClick={() => {
+                                                                            if (typeof img.startSec === 'number') seekTo(img.startSec);
+                                                                        }}
+                                                                        className={`group relative aspect-[16/10] rounded-2xl overflow-hidden border-2 bg-zinc-900 cursor-pointer transition-all ${
+                                                                            isCurrentScene ? 'border-amber-500 shadow-lg shadow-amber-500/20' : 'border-zinc-800 hover:border-zinc-700'
+                                                                        }`}
+                                                                    >
+                                                                        <img src={img.url} alt={`Scene ${idx + 1}`} className="w-full h-full object-cover" />
+                                                                        <div className="absolute top-2 left-2 px-2.5 py-0.5 rounded-lg bg-black/80 text-xs font-black text-white">
+                                                                            Scene {idx + 1} of {totalScenes}
+                                                                        </div>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={e => {
+                                                                                e.stopPropagation();
+                                                                                setEditingSceneId(isEditingImg ? null : img.id);
+                                                                            }}
+                                                                            className="absolute top-2 right-2 px-2.5 py-1 rounded-lg bg-black/80 hover:bg-black text-zinc-200 text-xs font-bold flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                                                                        >
+                                                                            <Edit3 size={11} /> Edit
+                                                                        </button>
+                                                                        {isEditingImg && (
+                                                                            <div
+                                                                                onClick={e => e.stopPropagation()}
+                                                                                className="absolute inset-x-2 bottom-2 p-2.5 rounded-xl bg-zinc-950/95 border border-zinc-700 flex items-center justify-between gap-2"
+                                                                            >
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => handleToggleKeepSceneImage(img.id)}
+                                                                                    className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 text-xs font-bold cursor-pointer"
+                                                                                >
+                                                                                    {img.kept !== false ? 'Kept' : 'Hidden'}
+                                                                                </button>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => handleDeleteSceneImage(img.id)}
+                                                                                    className="px-2.5 py-1 rounded-lg bg-red-500/20 text-red-300 text-xs font-bold cursor-pointer"
+                                                                                >
+                                                                                    Delete
+                                                                                </button>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* ── LIVE CAPTIONS / SYNCED TRANSCRIPTION READER ── */}
+                                        <div className="h-[34%] min-h-[170px] bg-zinc-900/50 border border-zinc-800/90 rounded-2xl p-4 flex flex-col overflow-hidden shrink-0">
+                                            <div className="flex items-center justify-between pb-2 mb-2 border-b border-zinc-800/80 shrink-0">
+                                                <span className="text-xs font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                                                    <BookOpen size={14} /> Live Synced Transcription
+                                                </span>
+                                                {lyricsData?.lines?.length ? (
+                                                    <span className="text-xs text-zinc-400">
+                                                        Click any spoken line to jump to that moment
+                                                    </span>
+                                                ) : null}
+                                            </div>
+
+                                            <div
+                                                ref={expandedLyricsContainerRef}
+                                                className="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-2 space-y-2.5"
+                                            >
+                                                {isRunningChapterStudioTask === 'transcribe' ? (
+                                                    <div className="h-full flex flex-col items-center justify-center text-center gap-2">
+                                                        <div className="w-6 h-6 border-2 border-amber-500/20 border-t-amber-500 rounded-full animate-spin" />
+                                                        <p className="text-sm font-bold text-amber-300">
+                                                            Transcribing chapter audio with Speech-to-Text...
+                                                        </p>
+                                                    </div>
+                                                ) : lyricsData?.lines && lyricsData.lines.length > 0 ? (
+                                                    <div className="space-y-3 py-2">
+                                                        {lyricsData.lines.map((line, idx) => {
+                                                            const isActive = idx === currentLyricIndex;
+                                                            return (
+                                                                <p
+                                                                    key={idx}
+                                                                    ref={isActive ? expandedActiveLyricRef : null}
+                                                                    onClick={() => seekTo(line.time)}
+                                                                    className={`cursor-pointer transition-all duration-300 rounded-xl px-4 py-2 font-serif leading-relaxed ${
+                                                                        isActive
+                                                                            ? 'text-lg sm:text-xl font-bold text-amber-200 bg-amber-500/15 border border-amber-500/30 shadow-sm'
+                                                                            : 'text-base text-zinc-400 hover:text-zinc-200'
+                                                                    }`}
+                                                                >
+                                                                    {line.text}
+                                                                </p>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                ) : (
+                                                    <div className="h-full flex flex-col items-center justify-center text-center space-y-2.5">
+                                                        <p className="text-sm font-bold text-zinc-300">
+                                                            No speech transcription generated for this chapter yet.
+                                                        </p>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setAudiobookLeftTab('generate')}
+                                                            className="px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-xs font-black uppercase tracking-wider cursor-pointer"
+                                                        >
+                                                            Open Generate Tab
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })()
+                    ) : isMinimalistVinylMode ? (
                         <div className="relative z-10 flex-1 min-h-0 flex flex-col items-center justify-between max-w-lg mx-auto w-full py-2 sm:py-4 select-none">
                             {/* Minimalist Top Bar: Title + Return to Regular Player Button */}
                             <div className="w-full flex items-center justify-between px-3 py-1.5 bg-zinc-950/80 backdrop-blur-md rounded-2xl border border-zinc-800/80 shadow-inner shrink-0 mb-2">

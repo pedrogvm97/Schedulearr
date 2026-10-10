@@ -11,7 +11,7 @@ import {
     PlaySquare, Square, Trash2, MoveHorizontal, MoreVertical,
     CheckCircle2, Copy, ListOrdered, RefreshCw, Layers,
     Disc, Music, Radio, ArrowDownToLine, Play,
-    FolderPlus, AlertCircle
+    FolderPlus, AlertCircle, BookOpen
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import { CustomSelect } from '@/components/CustomSelect';
@@ -22,6 +22,7 @@ import { InteractiveSearchModal } from '@/components/InteractiveSearchModal';
 import { DeleteMediaModal } from '@/components/DeleteMediaModal';
 import { MusicInspectorModal } from '@/components/MusicInspectorModal';
 import { IptvDvrManager } from '@/components/IptvDvrManager';
+import { AudiobooksMediaManager } from '@/components/AudiobooksMediaManager';
 import { ManageLibrariesModal } from '@/components/ManageLibrariesModal';
 
 class IptvErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean; error: Error | null }> {
@@ -668,13 +669,15 @@ function UnifiedMediaCard({
 // ──────────────────────────────────────────────
 function DiscoverPageContent() {
     const searchParams = useSearchParams();
-    const [mediaType, setMediaType] = useState<'movie' | 'series' | 'music' | 'iptv_dvr'>('movie');
+    const [mediaType, setMediaType] = useState<'movie' | 'series' | 'music' | 'audiobooks' | 'iptv_dvr'>('movie');
     const [isManageLibrariesOpen, setIsManageLibrariesOpen] = useState(false);
 
     useEffect(() => {
         const tabParam = searchParams.get('tab') || searchParams.get('type');
         if (tabParam === 'iptv' || tabParam === 'live' || tabParam === 'dvr' || tabParam === 'iptv_dvr') {
             setMediaType('iptv_dvr');
+        } else if (tabParam === 'audiobooks' || tabParam === 'audiobook' || tabParam === 'books') {
+            setMediaType('audiobooks');
         } else if (tabParam === 'movie' || tabParam === 'movies') {
             setMediaType('movie');
         } else if (tabParam === 'tv' || tabParam === 'series' || tabParam === 'shows') {
@@ -1640,8 +1643,8 @@ function DiscoverPageContent() {
 
                             {/* Controls Pills Row with Wrapping (No clipping or truncation) */}
                             <div className="flex flex-wrap items-center gap-2.5">
-                                {/* Media Type Toggle: Movies | Series | Music */}
-                                <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner shrink-0">
+                                {/* Media Type Toggle: Movies | Series | Music | Audiobooks | Live TV & DVR */}
+                                <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner shrink-0 flex-wrap gap-1">
                                     <button 
                                         onClick={() => setMediaType('movie')} 
                                         className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 text-xs font-black rounded-xl transition-all whitespace-nowrap ${mediaType === 'movie' ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
@@ -1664,6 +1667,12 @@ function DiscoverPageContent() {
                                         <Disc size={15} /> Music
                                     </button>
                                     <button 
+                                        onClick={() => setMediaType('audiobooks')} 
+                                        className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 text-xs font-black rounded-xl transition-all whitespace-nowrap ${mediaType === 'audiobooks' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/40 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                    >
+                                        <BookOpen size={15} /> Audiobooks
+                                    </button>
+                                    <button 
                                         onClick={() => setMediaType('iptv_dvr')} 
                                         className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 text-xs font-black rounded-xl transition-all whitespace-nowrap ${mediaType === 'iptv_dvr' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
                                     >
@@ -1672,7 +1681,7 @@ function DiscoverPageContent() {
                                 </div>
 
                                 {/* Status Filter: All | In Library | Not in Library */}
-                                {mediaType !== 'iptv_dvr' && (
+                                {mediaType !== 'iptv_dvr' && mediaType !== 'audiobooks' && (
                                     <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner shrink-0">
                                         <button 
                                             onClick={() => setStatusFilter('all')} 
@@ -1699,7 +1708,7 @@ function DiscoverPageContent() {
 
                         {/* Search + Action Buttons */}
                         <div className="flex items-center gap-3 w-full xl:w-auto">
-                            {mediaType !== 'iptv_dvr' && (
+                            {mediaType !== 'iptv_dvr' && mediaType !== 'audiobooks' && (
                                 <>
                                     <div className="relative flex-1 xl:w-80 min-w-[200px]">
                                         <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
@@ -1736,7 +1745,7 @@ function DiscoverPageContent() {
                                 </>
                             )}
 
-                            {/* Libraries & Folders Management (Universal access across Movies, Series, Music, and Live TV) */}
+                            {/* Libraries & Folders Management (Universal access across Movies, Series, Music, Audiobooks, and Live TV) */}
                             <button
                                 onClick={() => setIsManageLibrariesOpen(true)}
                                 className="flex items-center gap-2 px-4 py-2.5 text-sm font-black rounded-2xl border transition-all shrink-0 whitespace-nowrap bg-zinc-950 text-zinc-300 border-zinc-800 hover:text-white hover:border-zinc-700 hover:bg-zinc-900 shadow-sm cursor-pointer"
@@ -1747,7 +1756,7 @@ function DiscoverPageContent() {
                             </button>
 
                             {/* Refresh Cache */}
-                            {mediaType !== 'iptv_dvr' && (
+                            {mediaType !== 'iptv_dvr' && mediaType !== 'audiobooks' && (
                                 <button
                                     onClick={() => loadLibrary()}
                                     title="Refresh Media Cache"
@@ -1760,7 +1769,7 @@ function DiscoverPageContent() {
                     </div>
 
                     {/* Instance Filter Pills (Dedicated Row below, consistent across both tabs) */}
-                    {mediaType !== 'iptv_dvr' && availableInstances.length > 1 && (
+                    {mediaType !== 'iptv_dvr' && mediaType !== 'audiobooks' && availableInstances.length > 1 && (
                         <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-zinc-900/60">
                             <span className="text-[11px] font-black text-zinc-500 uppercase tracking-widest mr-1">Instances:</span>
                             {availableInstances.map(inst => {
@@ -1788,8 +1797,8 @@ function DiscoverPageContent() {
                     )}
                 </div>
 
-                {/* ── Collapsible Filters Bar (Hidden on Live TV & DVR) ── */}
-                {showFilters && mediaType !== 'iptv_dvr' && (
+                {/* ── Collapsible Filters Bar (Hidden on Live TV & DVR and Audiobooks) ── */}
+                {showFilters && mediaType !== 'iptv_dvr' && mediaType !== 'audiobooks' && (
                     <div className="p-6 bg-zinc-950/60 border border-zinc-900 rounded-[2rem] space-y-5 animate-in fade-in duration-200">
                         {mediaType === 'music' ? (
                             <>
@@ -1950,7 +1959,7 @@ function DiscoverPageContent() {
                 )}
 
                 {/* ── Sub-bar: Sort & Views ── */}
-                {mediaType !== 'iptv_dvr' && (
+                {mediaType !== 'iptv_dvr' && mediaType !== 'audiobooks' && (
                     <div className="flex flex-wrap items-center justify-between gap-4 px-2">
                         <div className="flex items-center gap-2">
                             <span className="text-base font-bold text-white">
@@ -2029,6 +2038,8 @@ function DiscoverPageContent() {
                     <IptvErrorBoundary>
                         <IptvDvrManager />
                     </IptvErrorBoundary>
+                ) : mediaType === 'audiobooks' ? (
+                    <AudiobooksMediaManager />
                 ) : mediaType === 'music' ? (
                     musicLoading || libraryLoading ? (
                         <div className="flex flex-col items-center justify-center py-40 gap-3">

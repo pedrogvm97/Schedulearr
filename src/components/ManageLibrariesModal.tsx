@@ -1037,59 +1037,103 @@ export function ManageLibrariesModal({ isOpen, onClose, onLibrariesChanged }: Ma
                                                 />
                                             </div>
 
-                                            <div className="space-y-2">
-                                                <label className="text-xs font-black text-zinc-300 uppercase tracking-wider block">
-                                                    Folder Paths ({editLibFolders.length}):
-                                                </label>
-                                                {editLibFolders.map((f, i) => (
-                                                    <div key={i} className="p-3 bg-zinc-900 rounded-2xl border border-zinc-800 flex items-center justify-between gap-3 text-xs font-mono text-zinc-300">
-                                                        <div className="flex items-center gap-2 truncate">
-                                                            <Folder size={14} className="text-amber-400 shrink-0" />
-                                                            <span className="truncate">{f}</span>
+                                            {lib.type === 'live' ? (
+                                                <div className="space-y-3">
+                                                    <div className="space-y-1.5">
+                                                        <label className="text-xs font-black text-zinc-300 uppercase tracking-wider block">
+                                                            M3U Playlist / Xtream Stream URL:
+                                                        </label>
+                                                        <input
+                                                            type="text"
+                                                            placeholder="http://example.com/get.php?username=...&password=...&type=m3u_plus"
+                                                            value={editLibFolders[0] || ''}
+                                                            onChange={e => {
+                                                                const val = e.target.value;
+                                                                setEditLibFolders(prev => {
+                                                                    const next = [...prev];
+                                                                    next[0] = val;
+                                                                    return next;
+                                                                });
+                                                            }}
+                                                            className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-2.5 text-xs text-white font-mono outline-none focus:border-red-500"
+                                                        />
+                                                    </div>
+                                                    <div className="space-y-1.5">
+                                                        <label className="text-xs font-black text-zinc-300 uppercase tracking-wider block">
+                                                            XMLTV EPG Guide URL:
+                                                        </label>
+                                                        <input
+                                                            type="text"
+                                                            placeholder="http://example.com/xmltv.php?username=...&password=..."
+                                                            value={editLibFolders[1] || ''}
+                                                            onChange={e => {
+                                                                const val = e.target.value;
+                                                                setEditLibFolders(prev => {
+                                                                    const next = [...prev];
+                                                                    if (!next[0]) next[0] = '';
+                                                                    next[1] = val;
+                                                                    return next;
+                                                                });
+                                                            }}
+                                                            className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-2.5 text-xs text-white font-mono outline-none focus:border-amber-500"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-2">
+                                                    <label className="text-xs font-black text-zinc-300 uppercase tracking-wider block">
+                                                        Folder Paths ({editLibFolders.length}):
+                                                    </label>
+                                                    {editLibFolders.map((f, i) => (
+                                                        <div key={i} className="p-3 bg-zinc-900 rounded-2xl border border-zinc-800 flex items-center justify-between gap-3 text-xs font-mono text-zinc-300">
+                                                            <div className="flex items-center gap-2 truncate">
+                                                                <Folder size={14} className="text-amber-400 shrink-0" />
+                                                                <span className="truncate">{f}</span>
+                                                            </div>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setEditLibFolders(prev => prev.filter((_, idx) => idx !== i))}
+                                                                className="p-1 rounded-xl text-zinc-500 hover:text-red-400 hover:bg-red-500/10 cursor-pointer"
+                                                            >
+                                                                <Trash2 size={14} />
+                                                            </button>
                                                         </div>
+                                                    ))}
+
+                                                    <div className="flex gap-2 pt-1">
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Add another folder path..."
+                                                            value={editFolderInput}
+                                                            onChange={e => setEditFolderInput(e.target.value)}
+                                                            onKeyDown={e => {
+                                                                if (e.key === 'Enter') {
+                                                                    e.preventDefault();
+                                                                    const val = editFolderInput.trim();
+                                                                    if (val && !editLibFolders.includes(val)) {
+                                                                        setEditLibFolders(prev => [...prev, val]);
+                                                                        setEditFolderInput('');
+                                                                    }
+                                                                }
+                                                            }}
+                                                            className="flex-1 bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-2.5 text-xs text-white font-mono placeholder-zinc-500 outline-none focus:border-indigo-500"
+                                                        />
                                                         <button
                                                             type="button"
-                                                            onClick={() => setEditLibFolders(prev => prev.filter((_, idx) => idx !== i))}
-                                                            className="p-1 rounded-xl text-zinc-500 hover:text-red-400 hover:bg-red-500/10 cursor-pointer"
-                                                        >
-                                                            <Trash2 size={14} />
-                                                        </button>
-                                                    </div>
-                                                ))}
-
-                                                <div className="flex gap-2 pt-1">
-                                                    <input
-                                                        type="text"
-                                                        placeholder="Add another folder path..."
-                                                        value={editFolderInput}
-                                                        onChange={e => setEditFolderInput(e.target.value)}
-                                                        onKeyDown={e => {
-                                                            if (e.key === 'Enter') {
-                                                                e.preventDefault();
+                                                            onClick={() => {
                                                                 const val = editFolderInput.trim();
                                                                 if (val && !editLibFolders.includes(val)) {
                                                                     setEditLibFolders(prev => [...prev, val]);
                                                                     setEditFolderInput('');
                                                                 }
-                                                            }
-                                                        }}
-                                                        className="flex-1 bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-2.5 text-xs text-white font-mono placeholder-zinc-500 outline-none focus:border-indigo-500"
-                                                    />
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            const val = editFolderInput.trim();
-                                                            if (val && !editLibFolders.includes(val)) {
-                                                                setEditLibFolders(prev => [...prev, val]);
-                                                                setEditFolderInput('');
-                                                            }
-                                                        }}
-                                                        className="px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs uppercase rounded-2xl cursor-pointer"
-                                                    >
-                                                        Add
-                                                    </button>
+                                                            }}
+                                                            className="px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs uppercase rounded-2xl cursor-pointer"
+                                                        >
+                                                            Add
+                                                        </button>
+                                                    </div>
                                                 </div>
-                                            </div>
+                                            )}
 
                                             <div className="flex items-center justify-between pt-3 border-t border-zinc-900">
                                                 <button
