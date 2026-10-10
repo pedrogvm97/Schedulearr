@@ -20,6 +20,12 @@ import {
     transcribeAudiobookChapter,
     enhanceAudiobookChapterAudio,
     generateAudiobookChapterIllustrations,
+    generateAudiobookCoverArt,
+    discoverBookRealStructureWithAi,
+    resetAndRedoAudiobookAssets,
+    getQueueBreakdownAndHistory,
+    getStudioQueueHistory,
+    removeStudioApiKey,
     triggerAudiobookQueueWorker,
     getAudiobookArtDir,
     detectAndVerifyAiApiKey,
@@ -42,6 +48,8 @@ export async function GET(request: Request) {
         const status = getAudiobookStudioStatus();
         const books = getAllAudiobooksMeta();
         const collectionsState = getAudiobookCollectionsState();
+        const queueBreakdown = getQueueBreakdownAndHistory();
+        const queueHistory = getStudioQueueHistory();
 
         if (chapterKey) {
             const chapter = getAudiobookChapterMeta(chapterKey);
@@ -52,7 +60,9 @@ export async function GET(request: Request) {
                 status,
                 book,
                 chapter,
-                collectionsState
+                collectionsState,
+                queueBreakdown,
+                queueHistory
             });
         }
 
@@ -66,7 +76,9 @@ export async function GET(request: Request) {
                 book,
                 chapters,
                 books,
-                collectionsState
+                collectionsState,
+                queueBreakdown,
+                queueHistory
             });
         }
 
@@ -75,7 +87,9 @@ export async function GET(request: Request) {
             config,
             status,
             books,
-            collectionsState
+            collectionsState,
+            queueBreakdown,
+            queueHistory
         });
     } catch (e: any) {
         console.error('Error in GET /api/theater/audiobooks/studio:', e);
@@ -89,12 +103,142 @@ export async function POST(request: Request) {
         const { action } = body;
 
         if (action === 'detect_api_key') {
-            const { apiKey } = body;
-            const { probe, config } = await detectAndVerifyAiApiKey(apiKey || '');
+            const { apiKey, role } = body;
+            const { probe, config } = await detectAndVerifyAiApiKey(apiKey || '', role || 'primary');
             return NextResponse.json({
                 success: true,
                 probe,
                 config,
+                status: getAudiobookStudioStatus()
+            });
+        }
+
+        if (action === 'add_backup_api_key') {
+            const { apiKey, role } = body;
+            const { probe, config } = await detectAndVerifyAiApiKey(apiKey || '', role || 'backup');
+            return NextResponse.json({
+                success: true,
+                probe,
+                config,
+                status: getAudiobookStudioStatus()
+            });
+        }
+
+        if (action === 'remove_api_key') {
+            const { keyId } = body;
+            const config = removeStudioApiKey(keyId);
+            return NextResponse.json({
+                success: true,
+                config,
+                status: getAudiobookStudioStatus()
+            });
+        }
+
+        if (action === 'set_key_routing_mode') {
+            const { mode } = body;
+            const config = saveAudiobookStudioConfig({
+                keyRoutingMode: mode === 'load_balance' ? 'load_balance' : 'failover'
+            });
+            return NextResponse.json({
+                success: true,
+                config,
+                status: getAudiobookStudioStatus()
+            });
+        }
+
+        if (action === 'toggle_custom_cover') {
+            const { bookKey, useCustomCover } = body;
+            if (!bookKey) {
+                return NextResponse.json({ success: false, error: 'Missing bookKey' }, { status: 400 });
+            }
+            upsertAudiobookMeta({
+                book_key: bookKey,
+                use_custom_cover: Boolean(useCustomCover)
+            });
+            return NextResponse.json({
+                success: true,
+                book: getAudiobookMeta(bookKey),
+                books: getAllAudiobooksMeta()
+            });
+        }
+
+        if (action === 'generate_book_cover') {
+            const { bookKey, activateImmediately } = body;
+            const book = getAudiobookMeta(bookKey);
+            if (!book) {
+                return NextResponse.json({ success: false, error: 'Book not found' }, { status: 404 });
+            }
+            const updated = await generateAudiobookCoverArt(book, Boolean(activateImmediately));
+            return NextResponse.json({
+                success: true,
+                book: updated,
+                books: getAllAudiobooksMeta()
+            });
+        }
+
+        if (action === 'discover_book_structure') {
+            const { bookKey } = body;
+            const book = getAudiobookMeta(bookKey);
+            if (!book) {
+                return NextResponse.json({ success: false, error: 'Book not found' }, { status: 404 });
+            }
+            const structure = await discoverBookRealStructureWithAi(book);
+            return NextResponse.json({
+                success: true,
+                structure,
+                book: getAudiobookMeta(bookKey)
+            });
+        }
+
+        if (action === 'reset_and_redo') {
+            const { bookKey, chapterKey, target, redoNow } = body;
+            if (!bookKey) {
+                return NextResponse.json({ success: false, error: 'Missing bookKey' }, { status: 400 });
+            }
+            await resetAndRedoAudiobookAssets({
+                bookKey,
+                chapterKey,
+                target: target || 'all',
+                redoNow: redoNow !== false
+            });
+            return NextResponse.json({
+                success: true,
+                book: getAudiobookMeta(bookKey),
+                chapter: chapterKey ? getAudiobookChapterMeta(chapterKey) : null,
+                chapters: getAudiobookChaptersMeta(bookKey),
+                books: getAllAudiobooksMeta(),
+                status: getAudiobookStudioStatus(),
+                queueBreakdown: getQueueBreakdownAndHistory()
+            });
+        }
+
+        if (action === 'queue_whole_book') {
+            const { bookKey } = body;
+            if (!bookKey) {
+                return NextResponse.json({ success: false, error: 'Missing bookKey' }, { status: 400 });
+            }
+            upsertAudiobookMeta({
+                book_key: bookKey,
+                queue_enabled: true,
+                transcribe_enabled: true,
+                illustrate_enabled: true,
+                status: 'queued'
+            });
+            triggerAudiobookQueueWorker(bookKey);
+            return NextResponse.json({
+                success: true,
+                book: getAudiobookMeta(bookKey),
+                books: getAllAudiobooksMeta(),
+                status: getAudiobookStudioStatus(),
+                queueBreakdown: getQueueBreakdownAndHistory()
+            });
+        }
+
+        if (action === 'get_queue_breakdown') {
+            return NextResponse.json({
+                success: true,
+                queueBreakdown: getQueueBreakdownAndHistory(),
+                history: getStudioQueueHistory(),
                 status: getAudiobookStudioStatus()
             });
         }
@@ -347,11 +491,8 @@ export async function POST(request: Request) {
                 const freshChapter = getAudiobookChapterMeta(chapterKey) || chapter;
                 await generateAudiobookChapterIllustrations(book, freshChapter, config, true);
             } else if (taskType === 'enhance') {
-                if (body.voicePreset) {
-                    upsertAudiobookChapterMeta({ chapter_key: chapterKey, book_key: resolvedBookKey, voice_preset: body.voicePreset });
-                }
                 const freshChapter = getAudiobookChapterMeta(chapterKey) || chapter;
-                await enhanceAudiobookChapterAudio(book, freshChapter, config);
+                await enhanceAudiobookChapterAudio(book, freshChapter, config, body.voicePreset);
             } else {
                 triggerAudiobookQueueWorker(resolvedBookKey, chapterKey);
             }

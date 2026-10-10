@@ -132,7 +132,7 @@ const db = {
 };
 
 function initializeSchema(d: any) {
-    const CURRENT_SCHEMA_VER = 9;
+    const CURRENT_SCHEMA_VER = 10;
     try {
         const v = d.pragma('user_version', { simple: true });
         if (typeof v === 'number' && v >= CURRENT_SCHEMA_VER) {
@@ -397,6 +397,9 @@ function initializeSchema(d: any) {
         art_focus TEXT,
         dynamic_prompt_enabled INTEGER,
         custom_prompt TEXT,
+        custom_cover_url TEXT,
+        use_custom_cover INTEGER DEFAULT 0,
+        real_structure_json TEXT DEFAULT '',
         status TEXT DEFAULT 'idle',
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
@@ -414,6 +417,8 @@ function initializeSchema(d: any) {
         synced_lyrics TEXT,
         synced_transcript TEXT,
         plain_transcript TEXT,
+        transcript_lrc_path TEXT,
+        transcript_txt_path TEXT,
         illustration_status TEXT DEFAULT 'idle',
         illustration_progress INTEGER DEFAULT 0,
         images_json TEXT DEFAULT '[]',
@@ -425,6 +430,7 @@ function initializeSchema(d: any) {
         voice_preset TEXT DEFAULT 'original',
         enhanced_audio_path TEXT,
         enhanced_file_path TEXT,
+        processed_voices_json TEXT DEFAULT '{}',
         error_message TEXT,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
@@ -455,12 +461,20 @@ function initializeSchema(d: any) {
     try { d.exec("ALTER TABLE audiobook_books_meta ADD COLUMN art_focus TEXT;"); } catch (e) { }
     try { d.exec("ALTER TABLE audiobook_books_meta ADD COLUMN dynamic_prompt_enabled INTEGER;"); } catch (e) { }
     try { d.exec("ALTER TABLE audiobook_books_meta ADD COLUMN custom_prompt TEXT;"); } catch (e) { }
+    try { d.exec("ALTER TABLE audiobook_books_meta ADD COLUMN custom_cover_url TEXT;"); } catch (e) { }
+    try { d.exec("ALTER TABLE audiobook_books_meta ADD COLUMN use_custom_cover INTEGER DEFAULT 0;"); } catch (e) { }
+    try { d.exec("ALTER TABLE audiobook_books_meta ADD COLUMN real_structure_json TEXT DEFAULT '';"); } catch (e) { }
     try { d.exec("ALTER TABLE audiobook_chapters_meta ADD COLUMN duration_sec INTEGER DEFAULT 0;"); } catch (e) { }
     try { d.exec("ALTER TABLE audiobook_chapters_meta ADD COLUMN synced_lyrics TEXT;"); } catch (e) { }
+    try { d.exec("ALTER TABLE audiobook_chapters_meta ADD COLUMN transcript_lrc_path TEXT;"); } catch (e) { }
+    try { d.exec("ALTER TABLE audiobook_chapters_meta ADD COLUMN transcript_txt_path TEXT;"); } catch (e) { }
     try { d.exec("ALTER TABLE audiobook_chapters_meta ADD COLUMN audio_enhance_status TEXT DEFAULT 'idle';"); } catch (e) { }
     try { d.exec("ALTER TABLE audiobook_chapters_meta ADD COLUMN audio_enhance_progress INTEGER DEFAULT 0;"); } catch (e) { }
     try { d.exec("ALTER TABLE audiobook_chapters_meta ADD COLUMN enhanced_audio_path TEXT;"); } catch (e) { }
+    try { d.exec("ALTER TABLE audiobook_chapters_meta ADD COLUMN processed_voices_json TEXT DEFAULT '{}';"); } catch (e) { }
     try { d.exec("ALTER TABLE audiobook_chapters_meta ADD COLUMN error_message TEXT;"); } catch (e) { }
+    // Purge any polluted music_lyrics entries that belong to audiobook files
+    try { d.exec("DELETE FROM music_lyrics WHERE file_path IN (SELECT file_path FROM audiobook_chapters_meta WHERE file_path IS NOT NULL);"); } catch (e) { }
     try { d.pragma(`user_version = ${CURRENT_SCHEMA_VER}`); } catch (e) { }
 }
 
@@ -2003,6 +2017,9 @@ export interface AudiobookBookMeta {
     author: string;
     thumb?: string;
     poster_url?: string;
+    custom_cover_url?: string;
+    use_custom_cover?: boolean;
+    real_structure_json?: string;
     library_id?: string;
     queue_priority: number;
     queue_order?: number;
@@ -2032,6 +2049,11 @@ export interface AudiobookChapterSceneImage {
     prompt: string;
     kept: boolean;
     sceneIndex: number;
+    artType?: 'cover' | 'chapter' | 'scene';
+    startSec?: number;
+    endSec?: number;
+    sceneTitle?: string;
+    chapterTitle?: string;
     createdAt: string;
 }
 
@@ -2046,6 +2068,8 @@ export interface AudiobookChapterMeta {
     transcription_progress: number;
     synced_lyrics?: string;
     plain_transcript?: string;
+    transcript_lrc_path?: string;
+    transcript_txt_path?: string;
     illustration_status: 'idle' | 'queued' | 'processing' | 'completed' | 'failed';
     illustration_progress: number;
     images: AudiobookChapterSceneImage[];
@@ -2053,6 +2077,7 @@ export interface AudiobookChapterMeta {
     audio_enhance_progress: number;
     enhanced_audio_path?: string;
     voice_preset: string;
+    processed_voices?: Record<string, string>;
     error_message?: string;
     updated_at: string;
 }
@@ -2067,6 +2092,9 @@ const mapBookRow = (r: any): AudiobookBookMeta => {
         author: r.author || 'Unknown Author',
         thumb: thumbVal,
         poster_url: thumbVal,
+        custom_cover_url: r.custom_cover_url || undefined,
+        use_custom_cover: Boolean(r.use_custom_cover),
+        real_structure_json: r.real_structure_json || '',
         library_id: r.library_id || undefined,
         queue_priority: queuePriority,
         queue_order: queuePriority,
@@ -2098,6 +2126,17 @@ const mapChapterRow = (r: any): AudiobookChapterMeta => {
     } catch {
         parsedImages = [];
     }
+    let parsedVoices: Record<string, string> = {};
+    try {
+        parsedVoices = JSON.parse(r.processed_voices_json || '{}') || {};
+    } catch {
+        parsedVoices = {};
+    }
+    const enhancedPath = r.enhanced_audio_path || r.enhanced_file_path || undefined;
+    const vPreset = r.voice_preset || 'original';
+    if (enhancedPath && vPreset && vPreset !== 'original' && !parsedVoices[vPreset]) {
+        parsedVoices[vPreset] = enhancedPath;
+    }
     return {
         chapter_key: r.chapter_key,
         book_key: r.book_key,
@@ -2109,13 +2148,16 @@ const mapChapterRow = (r: any): AudiobookChapterMeta => {
         transcription_progress: Number(r.transcription_progress ?? 0),
         synced_lyrics: r.synced_lyrics || r.synced_transcript || undefined,
         plain_transcript: r.plain_transcript || undefined,
+        transcript_lrc_path: r.transcript_lrc_path || undefined,
+        transcript_txt_path: r.transcript_txt_path || undefined,
         illustration_status: r.illustration_status || 'idle',
         illustration_progress: Number(r.illustration_progress ?? 0),
         images: parsedImages,
         audio_enhance_status: r.audio_enhance_status || r.enhance_status || 'idle',
         audio_enhance_progress: Number(r.audio_enhance_progress ?? 0),
-        enhanced_audio_path: r.enhanced_audio_path || r.enhanced_file_path || undefined,
-        voice_preset: r.voice_preset || 'original',
+        enhanced_audio_path: enhancedPath,
+        voice_preset: vPreset,
+        processed_voices: parsedVoices,
         error_message: r.error_message || undefined,
         updated_at: r.updated_at || new Date().toISOString()
     };
@@ -2152,6 +2194,9 @@ export const upsertAudiobookMeta = (meta: Partial<AudiobookBookMeta> & { book_ke
         author: meta.author ?? existing?.author ?? 'Unknown Author',
         thumb: thumbVal,
         poster_url: thumbVal,
+        custom_cover_url: meta.custom_cover_url !== undefined ? meta.custom_cover_url : existing?.custom_cover_url,
+        use_custom_cover: meta.use_custom_cover !== undefined ? meta.use_custom_cover : (existing?.use_custom_cover ?? false),
+        real_structure_json: meta.real_structure_json !== undefined ? meta.real_structure_json : (existing?.real_structure_json ?? ''),
         library_id: meta.library_id ?? existing?.library_id,
         queue_priority: queuePriority,
         queue_order: queuePriority,
@@ -2177,16 +2222,20 @@ export const upsertAudiobookMeta = (meta: Partial<AudiobookBookMeta> & { book_ke
 
     db.prepare(`
         INSERT INTO audiobook_books_meta (
-            book_key, title, author, thumb, library_id, queue_priority, queue_enabled,
+            book_key, title, author, thumb, custom_cover_url, use_custom_cover, real_structure_json,
+            library_id, queue_priority, queue_enabled,
             transcribe_enabled, illustrate_enabled, enhance_audio_enabled, voice_preset,
             enhance_preset, art_style, images_per_chapter, art_focus, dynamic_prompt_enabled, custom_prompt,
             total_chapters, transcribed_chapters, illustrated_chapters, enhanced_chapters,
             status, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(book_key) DO UPDATE SET
             title = excluded.title,
             author = excluded.author,
             thumb = COALESCE(excluded.thumb, audiobook_books_meta.thumb),
+            custom_cover_url = excluded.custom_cover_url,
+            use_custom_cover = excluded.use_custom_cover,
+            real_structure_json = excluded.real_structure_json,
             library_id = COALESCE(excluded.library_id, audiobook_books_meta.library_id),
             queue_priority = excluded.queue_priority,
             queue_enabled = excluded.queue_enabled,
@@ -2211,6 +2260,9 @@ export const upsertAudiobookMeta = (meta: Partial<AudiobookBookMeta> & { book_ke
         merged.title,
         merged.author,
         merged.thumb || null,
+        merged.custom_cover_url || null,
+        merged.use_custom_cover ? 1 : 0,
+        merged.real_structure_json || '',
         merged.library_id || null,
         merged.queue_priority,
         merged.queue_enabled ? 1 : 0,
@@ -2274,6 +2326,16 @@ export const getAudiobookChapterMeta = (chapterKey: string): AudiobookChapterMet
 
 export const upsertAudiobookChapterMeta = (meta: Partial<AudiobookChapterMeta> & { chapter_key: string; book_key: string }): AudiobookChapterMeta => {
     const existing = getAudiobookChapterMeta(meta.chapter_key);
+    const mergedVoices: Record<string, string> = {
+        ...(existing?.processed_voices || {}),
+        ...(meta.processed_voices || {})
+    };
+    const mergedVoicePreset = meta.voice_preset ?? existing?.voice_preset ?? 'original';
+    const mergedEnhancedPath = meta.enhanced_audio_path !== undefined ? meta.enhanced_audio_path : existing?.enhanced_audio_path;
+    if (mergedEnhancedPath && mergedVoicePreset && mergedVoicePreset !== 'original') {
+        mergedVoices[mergedVoicePreset] = mergedEnhancedPath;
+    }
+
     const merged: AudiobookChapterMeta = {
         chapter_key: meta.chapter_key,
         book_key: meta.book_key,
@@ -2283,15 +2345,18 @@ export const upsertAudiobookChapterMeta = (meta: Partial<AudiobookChapterMeta> &
         duration_sec: meta.duration_sec ?? existing?.duration_sec ?? 0,
         transcription_status: meta.transcription_status ?? existing?.transcription_status ?? 'idle',
         transcription_progress: meta.transcription_progress ?? existing?.transcription_progress ?? 0,
-        synced_lyrics: meta.synced_lyrics ?? existing?.synced_lyrics,
-        plain_transcript: meta.plain_transcript ?? existing?.plain_transcript,
+        synced_lyrics: meta.synced_lyrics !== undefined ? meta.synced_lyrics : existing?.synced_lyrics,
+        plain_transcript: meta.plain_transcript !== undefined ? meta.plain_transcript : existing?.plain_transcript,
+        transcript_lrc_path: meta.transcript_lrc_path !== undefined ? meta.transcript_lrc_path : existing?.transcript_lrc_path,
+        transcript_txt_path: meta.transcript_txt_path !== undefined ? meta.transcript_txt_path : existing?.transcript_txt_path,
         illustration_status: meta.illustration_status ?? existing?.illustration_status ?? 'idle',
         illustration_progress: meta.illustration_progress ?? existing?.illustration_progress ?? 0,
         images: meta.images ?? existing?.images ?? [],
         audio_enhance_status: meta.audio_enhance_status ?? existing?.audio_enhance_status ?? 'idle',
         audio_enhance_progress: meta.audio_enhance_progress ?? existing?.audio_enhance_progress ?? 0,
-        enhanced_audio_path: meta.enhanced_audio_path ?? existing?.enhanced_audio_path,
-        voice_preset: meta.voice_preset ?? existing?.voice_preset ?? 'original',
+        enhanced_audio_path: mergedEnhancedPath,
+        voice_preset: mergedVoicePreset,
+        processed_voices: mergedVoices,
         error_message: meta.error_message !== undefined ? meta.error_message : existing?.error_message,
         updated_at: new Date().toISOString()
     };
@@ -2300,10 +2365,11 @@ export const upsertAudiobookChapterMeta = (meta: Partial<AudiobookChapterMeta> &
         INSERT INTO audiobook_chapters_meta (
             chapter_key, book_key, chapter_index, title, file_path, duration_sec,
             transcription_status, transcription_progress, synced_lyrics, plain_transcript,
+            transcript_lrc_path, transcript_txt_path,
             illustration_status, illustration_progress, images_json,
             audio_enhance_status, audio_enhance_progress, enhanced_audio_path,
-            voice_preset, error_message, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            voice_preset, processed_voices_json, error_message, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(chapter_key) DO UPDATE SET
             book_key = excluded.book_key,
             chapter_index = excluded.chapter_index,
@@ -2312,15 +2378,18 @@ export const upsertAudiobookChapterMeta = (meta: Partial<AudiobookChapterMeta> &
             duration_sec = CASE WHEN excluded.duration_sec > 0 THEN excluded.duration_sec ELSE audiobook_chapters_meta.duration_sec END,
             transcription_status = excluded.transcription_status,
             transcription_progress = excluded.transcription_progress,
-            synced_lyrics = COALESCE(excluded.synced_lyrics, audiobook_chapters_meta.synced_lyrics),
-            plain_transcript = COALESCE(excluded.plain_transcript, audiobook_chapters_meta.plain_transcript),
+            synced_lyrics = excluded.synced_lyrics,
+            plain_transcript = excluded.plain_transcript,
+            transcript_lrc_path = excluded.transcript_lrc_path,
+            transcript_txt_path = excluded.transcript_txt_path,
             illustration_status = excluded.illustration_status,
             illustration_progress = excluded.illustration_progress,
             images_json = excluded.images_json,
             audio_enhance_status = excluded.audio_enhance_status,
             audio_enhance_progress = excluded.audio_enhance_progress,
-            enhanced_audio_path = COALESCE(excluded.enhanced_audio_path, audiobook_chapters_meta.enhanced_audio_path),
+            enhanced_audio_path = excluded.enhanced_audio_path,
             voice_preset = excluded.voice_preset,
+            processed_voices_json = excluded.processed_voices_json,
             error_message = excluded.error_message,
             updated_at = excluded.updated_at
     `).run(
@@ -2334,6 +2403,8 @@ export const upsertAudiobookChapterMeta = (meta: Partial<AudiobookChapterMeta> &
         merged.transcription_progress,
         merged.synced_lyrics || null,
         merged.plain_transcript || null,
+        merged.transcript_lrc_path || null,
+        merged.transcript_txt_path || null,
         merged.illustration_status,
         merged.illustration_progress,
         JSON.stringify(merged.images || []),
@@ -2341,12 +2412,88 @@ export const upsertAudiobookChapterMeta = (meta: Partial<AudiobookChapterMeta> &
         merged.audio_enhance_progress,
         merged.enhanced_audio_path || null,
         merged.voice_preset,
+        JSON.stringify(merged.processed_voices || {}),
         merged.error_message || null,
         merged.updated_at
     );
 
     recalculateAudiobookTotals(merged.book_key);
     return merged;
+};
+
+export const resetAudiobookAssetsInDb = (
+    bookKey: string,
+    chapterKey?: string,
+    target: 'transcriptions' | 'art' | 'voices' | 'all' = 'all'
+) => {
+    try {
+        const chapters = chapterKey
+            ? [getAudiobookChapterMeta(chapterKey)].filter((c): c is AudiobookChapterMeta => Boolean(c))
+            : getAudiobookChaptersMeta(bookKey);
+
+        const now = new Date().toISOString();
+        for (const ch of chapters) {
+            if (target === 'transcriptions' || target === 'all') {
+                db.prepare(`
+                    UPDATE audiobook_chapters_meta SET
+                        transcription_status = 'idle',
+                        transcription_progress = 0,
+                        synced_lyrics = NULL,
+                        synced_transcript = NULL,
+                        plain_transcript = NULL,
+                        transcript_lrc_path = NULL,
+                        transcript_txt_path = NULL,
+                        error_message = NULL,
+                        updated_at = ?
+                    WHERE chapter_key = ?
+                `).run(now, ch.chapter_key);
+                if (ch.file_path) {
+                    try { db.prepare('DELETE FROM music_lyrics WHERE file_path = ?').run(ch.file_path); } catch {}
+                }
+            }
+            if (target === 'art' || target === 'all') {
+                db.prepare(`
+                    UPDATE audiobook_chapters_meta SET
+                        illustration_status = 'idle',
+                        illustration_progress = 0,
+                        images_json = '[]',
+                        error_message = NULL,
+                        updated_at = ?
+                    WHERE chapter_key = ?
+                `).run(now, ch.chapter_key);
+            }
+            if (target === 'voices' || target === 'all') {
+                db.prepare(`
+                    UPDATE audiobook_chapters_meta SET
+                        audio_enhance_status = 'idle',
+                        audio_enhance_progress = 0,
+                        enhanced_audio_path = NULL,
+                        enhanced_file_path = NULL,
+                        voice_preset = 'original',
+                        processed_voices_json = '{}',
+                        error_message = NULL,
+                        updated_at = ?
+                    WHERE chapter_key = ?
+                `).run(now, ch.chapter_key);
+            }
+        }
+
+        if (!chapterKey && (target === 'art' || target === 'all')) {
+            db.prepare(`
+                UPDATE audiobook_books_meta SET
+                    custom_cover_url = NULL,
+                    use_custom_cover = 0,
+                    updated_at = ?
+                WHERE book_key = ?
+            `).run(now, bookKey);
+        }
+
+        recalculateAudiobookTotals(bookKey);
+        return chapters;
+    } catch (e) {
+        console.error('Error resetting audiobook assets in db:', e);
+        return [];
+    }
 };
 
 export const recalculateAudiobookTotals = (bookKey: string) => {
@@ -2406,7 +2553,7 @@ export const recalculateAudiobookTotals = (bookKey: string) => {
 export const getRecentAudiobookActivity = (limit: number = 100) => {
     try {
         const rows = db.prepare(`
-            SELECT c.*, b.title as book_title, b.author as book_author, b.thumb as book_thumb
+            SELECT c.*, b.title as book_title, b.author as book_author, b.thumb as book_thumb, b.custom_cover_url as book_custom_cover_url, b.use_custom_cover as book_use_custom_cover
             FROM audiobook_chapters_meta c
             LEFT JOIN audiobook_books_meta b ON c.book_key = b.book_key
             WHERE c.transcription_status = 'completed'
@@ -2425,4 +2572,5 @@ export const getRecentAudiobookActivity = (limit: number = 100) => {
 };
 
 export default db;
+
 

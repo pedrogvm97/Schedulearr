@@ -278,6 +278,37 @@ export default function Settings() {
         passTranscriptionContext: boolean;
         dynamicPromptEnabled?: boolean;
         customPromptTemplate: string;
+        keyRoutingMode?: 'failover' | 'round_robin';
+        keyPool?: Array<{
+            id: string;
+            key: string;
+            maskedKey: string;
+            provider: string;
+            label: string;
+            role: 'primary' | 'backup';
+            enabled: boolean;
+            valid: boolean;
+            tier: string;
+            rateLimitInfo: string;
+            requestsCount: number;
+            successCount: number;
+            errorCount: number;
+            lastUsedAt?: string;
+            lastError?: string;
+            addedAt: string;
+        }>;
+        apiMetrics?: {
+            totalRequests: number;
+            totalSuccess: number;
+            totalErrors: number;
+            transcriptionRequests: number;
+            artPromptRequests: number;
+            imagePaintRequests: number;
+            structureSearchRequests: number;
+            lastRequestAt?: string;
+            lastProviderUsed?: string;
+            lastTaskDescription?: string;
+        };
         lastKeyProbe?: {
             provider: string;
             providerLabel: string;
@@ -317,12 +348,28 @@ export default function Settings() {
         passTranscriptionContext: true,
         dynamicPromptEnabled: true,
         customPromptTemplate: 'Rich atmospheric book illustration, detailed lighting, no text or watermarks.',
+        keyRoutingMode: 'failover',
+        keyPool: [],
+        apiMetrics: {
+            totalRequests: 0,
+            totalSuccess: 0,
+            totalErrors: 0,
+            transcriptionRequests: 0,
+            artPromptRequests: 0,
+            imagePaintRequests: 0,
+            structureSearchRequests: 0
+        },
         lastKeyProbe: null
     });
     const [savingStudioConfig, setSavingStudioConfig] = useState(false);
     const [probingApiKey, setProbingApiKey] = useState(false);
     const [showApiFinderHelper, setShowApiFinderHelper] = useState(false);
     const [selectedHelperProvider, setSelectedHelperProvider] = useState<'gemini' | 'claude' | 'openai' | 'groq'>('gemini');
+    const [isEditingKey, setIsEditingKey] = useState(false);
+    const [isAddingBackupKey, setIsAddingBackupKey] = useState(false);
+    const [backupKeyInput, setBackupKeyInput] = useState('');
+    const [backupKeyLabel, setBackupKeyLabel] = useState('');
+    const [submittingBackupKey, setSubmittingBackupKey] = useState(false);
 
     const saveAudiobookStudioConfig = async (updates?: Partial<typeof audiobookStudioConfig>) => {
         const next = updates ? { ...audiobookStudioConfig, ...updates } : audiobookStudioConfig;
@@ -361,6 +408,7 @@ export default function Settings() {
                     setAudiobookStudioConfig(prev => ({ ...prev, ...data.config }));
                 }
                 if (data.probe.valid) {
+                    setIsEditingKey(false);
                     toast.success(`${data.probe.providerLabel} detected! (${data.probe.tier})`);
                 } else {
                     toast.error(data.probe.statusMessage || 'API Key could not be verified');
@@ -373,6 +421,97 @@ export default function Settings() {
         } finally {
             setProbingApiKey(false);
         }
+    };
+
+    const handleAddBackupKey = async () => {
+        if (!backupKeyInput.trim()) {
+            toast.error('Please enter an API key to add to the pool');
+            return;
+        }
+        setSubmittingBackupKey(true);
+        try {
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'add_backup_api_key',
+                    apiKey: backupKeyInput.trim(),
+                    label: backupKeyLabel.trim() || undefined
+                })
+            });
+            const data = await res.json();
+            if (res.ok && data.config) {
+                setAudiobookStudioConfig(prev => ({ ...prev, ...data.config }));
+                setBackupKeyInput('');
+                setBackupKeyLabel('');
+                setIsAddingBackupKey(false);
+                toast.success('Backup API key verified and added to load-balancing pool!');
+            } else {
+                toast.error(data.error || 'Failed to verify and add API key');
+            }
+        } catch {
+            toast.error('Network error adding backup key');
+        } finally {
+            setSubmittingBackupKey(false);
+        }
+    };
+
+    const handleRemoveKey = async (keyId: string) => {
+        try {
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'remove_api_key',
+                    keyId
+                })
+            });
+            const data = await res.json();
+            if (res.ok && data.config) {
+                setAudiobookStudioConfig(prev => ({ ...prev, ...data.config }));
+                toast.success('API key removed from pool');
+            } else {
+                toast.error(data.error || 'Failed to remove API key');
+            }
+        } catch {
+            toast.error('Network error removing API key');
+        }
+    };
+
+    const handleSetKeyRoutingMode = async (mode: 'failover' | 'round_robin') => {
+        try {
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'set_key_routing_mode',
+                    mode
+                })
+            });
+            const data = await res.json();
+            if (res.ok && data.config) {
+                setAudiobookStudioConfig(prev => ({ ...prev, ...data.config }));
+                toast.success(mode === 'round_robin' ? 'Round-Robin load balancing enabled across all pool keys' : 'Failover mode enabled (Primary key first)');
+            }
+        } catch {
+            toast.error('Failed to change key routing mode');
+        }
+    };
+
+    const handleDisconnectKey = async () => {
+        await saveAudiobookStudioConfig({
+            rawUnifiedApiKey: '',
+            geminiApiKey: '',
+            openaiApiKey: '',
+            anthropicApiKey: '',
+            groqApiKey: '',
+            detectedProvider: 'free_builtin',
+            artProvider: 'pollinations_flux',
+            lastKeyProbe: null,
+            keyPool: []
+        });
+        setIsEditingKey(false);
+        toast.success('Disconnected API key. Switched to Free Built-In Flux.');
     };
 
     const formatBytes = (bytes: number): string => {
@@ -1463,241 +1602,595 @@ export default function Settings() {
                             </div>
                         </div>
 
-                        {/* 1. Single Paste & Auto-Detect API Key Box + Quick API Finder Helper */}
-                        <div className="p-5 bg-zinc-950/85 rounded-2xl border border-zinc-800 space-y-4">
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                                <div>
-                                    <label className="text-sm font-black text-white flex items-center gap-2">
-                                        1. Paste Your AI API Key (Auto-Detects Provider, Tier &amp; Rate Limits)
-                                    </label>
-                                    <p className="text-xs text-zinc-400 mt-0.5">
-                                        Supports Google Gemini (<code className="text-amber-300">AIza...</code>), Anthropic Claude (<code className="text-amber-300">sk-ant-...</code>), OpenAI (<code className="text-amber-300">sk-...</code>), Groq (<code className="text-amber-300">gsk_...</code>), or leave empty for Free Built-In Flux.
-                                    </p>
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={() => setShowApiFinderHelper(prev => !prev)}
-                                    className={`px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider border transition-all cursor-pointer shrink-0 ${
-                                        showApiFinderHelper
-                                            ? 'bg-sky-500 text-black border-sky-400'
-                                            : 'bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border-sky-500/35'
-                                    }`}
-                                >
-                                    {showApiFinderHelper ? 'Hide API Key Finder' : '❓ Quick API Key Finder Helper'}
-                                </button>
-                            </div>
+                        {/* 1. Verified Key Green Confirmation State OR Key Input / Editor */}
+                        {(() => {
+                            const hasActiveKey = Boolean(
+                                audiobookStudioConfig.lastKeyProbe?.valid ||
+                                (audiobookStudioConfig.keyPool && audiobookStudioConfig.keyPool.length > 0) ||
+                                audiobookStudioConfig.rawUnifiedApiKey ||
+                                audiobookStudioConfig.geminiApiKey ||
+                                audiobookStudioConfig.openaiApiKey ||
+                                audiobookStudioConfig.anthropicApiKey ||
+                                audiobookStudioConfig.groqApiKey
+                            );
 
-                            {/* Paste Box + Auto-Detect Trigger */}
-                            <div className="flex flex-col sm:flex-row gap-2.5">
-                                <input
-                                    type="password"
-                                    placeholder="Paste any API key here (AIza..., sk-ant-..., sk-..., gsk_..., or http://...) — auto-detects everything!"
-                                    value={
-                                        audiobookStudioConfig.rawUnifiedApiKey ||
-                                        audiobookStudioConfig.geminiApiKey ||
-                                        audiobookStudioConfig.anthropicApiKey ||
-                                        audiobookStudioConfig.openaiApiKey ||
-                                        audiobookStudioConfig.groqApiKey ||
-                                        ''
-                                    }
-                                    onChange={(e) => {
-                                        const val = e.target.value;
-                                        setAudiobookStudioConfig(prev => ({ ...prev, rawUnifiedApiKey: val }));
-                                    }}
-                                    onPaste={(e) => {
-                                        const pasted = e.clipboardData.getData('text');
-                                        if (pasted && pasted.trim().length > 6) {
-                                            setAudiobookStudioConfig(prev => ({ ...prev, rawUnifiedApiKey: pasted.trim() }));
-                                            setTimeout(() => handleAutoDetectApiKey(pasted.trim()), 80);
-                                        }
-                                    }}
-                                    className="flex-1 bg-zinc-900 border border-zinc-700 focus:border-amber-400 rounded-xl px-4 py-3 text-xs sm:text-sm font-mono text-white outline-none"
-                                />
-                                <button
-                                    type="button"
-                                    disabled={probingApiKey}
-                                    onClick={() => handleAutoDetectApiKey()}
-                                    className="px-5 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider shrink-0 transition-all cursor-pointer shadow-lg shadow-amber-500/20 disabled:opacity-50"
-                                >
-                                    {probingApiKey ? 'Detecting & Probing Key...' : '🔍 Auto-Detect & Verify Key'}
-                                </button>
-                            </div>
+                            const activeProviderLabel =
+                                audiobookStudioConfig.lastKeyProbe?.providerLabel ||
+                                (audiobookStudioConfig.keyPool && audiobookStudioConfig.keyPool[0]?.label) ||
+                                (audiobookStudioConfig.geminiApiKey ? 'Google Gemini' :
+                                 audiobookStudioConfig.openaiApiKey ? 'OpenAI' :
+                                 audiobookStudioConfig.anthropicApiKey ? 'Anthropic Claude' :
+                                 audiobookStudioConfig.groqApiKey ? 'Groq Cloud' : 'Active AI Engine');
 
-                            {/* Live Auto-Detection Result Banner */}
-                            {audiobookStudioConfig.lastKeyProbe && (
-                                <div className={`p-4 rounded-xl border space-y-2.5 ${
-                                    audiobookStudioConfig.lastKeyProbe.valid
-                                        ? 'bg-emerald-950/25 border-emerald-500/35'
-                                        : 'bg-red-950/25 border-red-500/35'
-                                }`}>
-                                    <div className="flex flex-wrap items-center justify-between gap-2">
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                            <span className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase ${
-                                                audiobookStudioConfig.lastKeyProbe.valid
-                                                    ? 'bg-emerald-500 text-black'
-                                                    : 'bg-red-500 text-white'
-                                            }`}>
-                                                {audiobookStudioConfig.lastKeyProbe.valid ? 'Verified' : 'Invalid Key'}
-                                            </span>
-                                            <span className="text-sm font-black text-white">
-                                                {audiobookStudioConfig.lastKeyProbe.providerLabel}
-                                            </span>
-                                            <span className="px-2 py-0.5 rounded-md bg-zinc-900 border border-zinc-700 text-[10px] font-mono font-bold text-amber-300">
-                                                Tier: {audiobookStudioConfig.lastKeyProbe.tier}
-                                            </span>
-                                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-bold border ${
-                                                audiobookStudioConfig.lastKeyProbe.isRateLimited
-                                                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                                                    : 'bg-zinc-900 text-emerald-300 border-zinc-800'
-                                            }`}>
-                                                {audiobookStudioConfig.lastKeyProbe.isRateLimited
-                                                    ? '⚠️ Currently Rate-Limited (Auto-Throttling Active)'
-                                                    : `Rate Limit: ~${audiobookStudioConfig.lastKeyProbe.rateLimitRpm} req/min`}
-                                            </span>
+                            const activeTier =
+                                audiobookStudioConfig.lastKeyProbe?.tier ||
+                                (audiobookStudioConfig.keyPool && audiobookStudioConfig.keyPool[0]?.tier) ||
+                                'Standard';
+
+                            const activeRpm =
+                                audiobookStudioConfig.lastKeyProbe?.rateLimitRpm ||
+                                (audiobookStudioConfig.maxRequestsPerMinute || 15);
+
+                            const maskedKeyStr =
+                                (audiobookStudioConfig.keyPool && audiobookStudioConfig.keyPool.length > 0 && audiobookStudioConfig.keyPool[0].maskedKey) ||
+                                (() => {
+                                    const raw = (audiobookStudioConfig.rawUnifiedApiKey || audiobookStudioConfig.geminiApiKey || audiobookStudioConfig.openaiApiKey || audiobookStudioConfig.anthropicApiKey || audiobookStudioConfig.groqApiKey || '').trim();
+                                    if (!raw) return '••••••••';
+                                    if (raw.length <= 8) return raw.slice(0, 3) + '••••';
+                                    return raw.slice(0, 6) + '••••' + raw.slice(-4);
+                                })();
+
+                            const metrics = audiobookStudioConfig.apiMetrics || {
+                                totalRequests: 0,
+                                totalSuccess: 0,
+                                totalErrors: 0,
+                                transcriptionRequests: 0,
+                                artPromptRequests: 0,
+                                imagePaintRequests: 0,
+                                structureSearchRequests: 0
+                            };
+
+                            if (hasActiveKey && !isEditingKey) {
+                                return (
+                                    <div className="space-y-4">
+                                        {/* Green Confirmation State Card */}
+                                        <div className="p-6 bg-gradient-to-br from-emerald-950/45 via-zinc-950 to-zinc-950 rounded-2xl border-2 border-emerald-500/50 space-y-5 shadow-2xl shadow-emerald-950/30">
+                                            {/* Header Row: Provider, Tier, Masked Key & Action Buttons */}
+                                            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                                                <div className="space-y-2">
+                                                    <div className="flex items-center gap-2.5 flex-wrap">
+                                                        <span className="px-3 py-1 rounded-xl bg-emerald-500 text-black font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-md shadow-emerald-500/30">
+                                                            <span>✓</span> Connected &amp; Active
+                                                        </span>
+                                                        <h3 className="text-base sm:text-lg font-black text-white flex items-center gap-2">
+                                                            {activeProviderLabel}
+                                                        </h3>
+                                                        <span className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-700 text-xs font-mono font-bold text-amber-300">
+                                                            Tier: {activeTier}
+                                                        </span>
+                                                        <span className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold border ${
+                                                            audiobookStudioConfig.lastKeyProbe?.isRateLimited
+                                                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                                                : 'bg-zinc-900 text-emerald-300 border-emerald-500/30'
+                                                        }`}>
+                                                            {audiobookStudioConfig.lastKeyProbe?.isRateLimited
+                                                                ? '⚠️ Rate-Limited (Throttling Active)'
+                                                                : `Rate Limit: ~${activeRpm} req/min`}
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <code className="text-xs font-mono text-zinc-300 bg-black/70 px-3 py-1.5 rounded-lg border border-zinc-800">
+                                                            Key: {maskedKeyStr}
+                                                        </code>
+                                                        {Array.isArray(audiobookStudioConfig.lastKeyProbe?.capabilities) && audiobookStudioConfig.lastKeyProbe!.capabilities.length > 0 && (
+                                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                                {audiobookStudioConfig.lastKeyProbe!.capabilities.map((cap, idx) => (
+                                                                    <span key={idx} className="px-2 py-0.5 rounded-md bg-emerald-950/40 border border-emerald-500/30 text-[11px] font-semibold text-emerald-200">
+                                                                        ✓ {cap}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                {/* Header Action Buttons */}
+                                                <div className="flex items-center gap-2 flex-wrap shrink-0">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setIsEditingKey(true)}
+                                                        className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-black text-xs uppercase tracking-wider border border-zinc-700 transition-all cursor-pointer shadow-sm hover:border-zinc-500"
+                                                    >
+                                                        ✏️ Change / Edit Key
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        disabled={probingApiKey}
+                                                        onClick={() => handleAutoDetectApiKey()}
+                                                        className="px-4 py-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 font-black text-xs uppercase tracking-wider transition-all cursor-pointer disabled:opacity-50"
+                                                    >
+                                                        {probingApiKey ? 'Verifying...' : '🔄 Re-Verify'}
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setIsAddingBackupKey(prev => !prev)}
+                                                        className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider transition-all cursor-pointer shadow-lg shadow-amber-500/20"
+                                                    >
+                                                        {isAddingBackupKey ? '✕ Close Backup Form' : '＋ Add Backup Key'}
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            {/* Live API Request Metrics Counter */}
+                                            <div className="pt-4 border-t border-emerald-500/20 space-y-3">
+                                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                                                    <span className="text-xs font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                                                        <span>📊</span> Live API Request Activity &amp; Live Counters
+                                                    </span>
+                                                    <span className="text-xs text-zinc-400 font-mono">
+                                                        Last activity: {metrics.lastRequestAt ? new Date(metrics.lastRequestAt).toLocaleTimeString() : 'None recorded yet'}
+                                                    </span>
+                                                </div>
+
+                                                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                                                    {/* Total Calls */}
+                                                    <div className="p-3.5 bg-black/50 border border-zinc-800 rounded-xl space-y-1">
+                                                        <div className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1">
+                                                            <span>📈</span> Total Requests
+                                                        </div>
+                                                        <div className="text-2xl sm:text-3xl font-black text-white">
+                                                            {metrics.totalRequests}
+                                                        </div>
+                                                        <div className="text-[10px] text-zinc-500">
+                                                            Success: {metrics.totalSuccess} • Errors: {metrics.totalErrors}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Multimodal STT */}
+                                                    <div className="p-3.5 bg-black/50 border border-zinc-800 rounded-xl space-y-1">
+                                                        <div className="text-[11px] font-bold uppercase tracking-wider text-sky-400 flex items-center gap-1">
+                                                            <span>🎙️</span> Transcription STT
+                                                        </div>
+                                                        <div className="text-2xl sm:text-3xl font-black text-sky-200">
+                                                            {metrics.transcriptionRequests}
+                                                        </div>
+                                                        <div className="text-[10px] text-zinc-500">
+                                                            Gemini Flash &amp; Whisper calls
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Dynamic Scene Prompts */}
+                                                    <div className="p-3.5 bg-black/50 border border-zinc-800 rounded-xl space-y-1">
+                                                        <div className="text-[11px] font-bold uppercase tracking-wider text-purple-400 flex items-center gap-1">
+                                                            <span>🧠</span> Scene AI Prompts
+                                                        </div>
+                                                        <div className="text-2xl sm:text-3xl font-black text-purple-200">
+                                                            {metrics.artPromptRequests}
+                                                        </div>
+                                                        <div className="text-[10px] text-zinc-500">
+                                                            Context &amp; continuity analysis
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Art Painting */}
+                                                    <div className="p-3.5 bg-black/50 border border-zinc-800 rounded-xl space-y-1">
+                                                        <div className="text-[11px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1">
+                                                            <span>🎨</span> Art Generations
+                                                        </div>
+                                                        <div className="text-2xl sm:text-3xl font-black text-amber-200">
+                                                            {metrics.imagePaintRequests}
+                                                        </div>
+                                                        <div className="text-[10px] text-zinc-500">
+                                                            Flux, Imagen 3 &amp; DALL·E
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Structure Discovery */}
+                                                    <div className="p-3.5 bg-black/50 border border-zinc-800 rounded-xl space-y-1">
+                                                        <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1">
+                                                            <span>📖</span> Literary Structure
+                                                        </div>
+                                                        <div className="text-2xl sm:text-3xl font-black text-emerald-200">
+                                                            {metrics.structureSearchRequests || 0}
+                                                        </div>
+                                                        <div className="text-[10px] text-zinc-500">
+                                                            Chapters &amp; scene discovery
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {metrics.lastTaskDescription && (
+                                                    <div className="text-xs text-zinc-400 bg-black/40 rounded-xl px-3.5 py-2 border border-zinc-800/80 flex items-center justify-between gap-2">
+                                                        <div className="truncate">
+                                                            Latest Completed: <span className="text-white font-medium">{metrics.lastTaskDescription}</span>
+                                                        </div>
+                                                        {metrics.lastProviderUsed && (
+                                                            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-900 border border-zinc-700 text-zinc-300 shrink-0">
+                                                                {metrics.lastProviderUsed}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
-                                        {audiobookStudioConfig.lastKeyProbe.rateLimitRemaining && (
-                                            <span className="text-[11px] font-mono text-zinc-400">
-                                                Remaining: {audiobookStudioConfig.lastKeyProbe.rateLimitRemaining}
-                                            </span>
-                                        )}
+
+                                        {/* Backup API Keys & Load-Balancing Pool Card */}
+                                        <div className="p-5 bg-zinc-950/85 rounded-2xl border border-zinc-800 space-y-4">
+                                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-3">
+                                                <div>
+                                                    <h4 className="text-sm font-black text-white flex items-center gap-2">
+                                                        <span>🛡️</span> Backup API Keys &amp; Load-Balancing Pool
+                                                    </h4>
+                                                    <p className="text-xs text-zinc-400 mt-0.5">
+                                                        Add secondary keys (Gemini, Groq, OpenAI) to prevent hourly rate limits from stalling whole-book jobs.
+                                                    </p>
+                                                </div>
+
+                                                {/* Key Routing Mode Switch */}
+                                                <div className="flex items-center gap-1.5 bg-zinc-900 p-1 rounded-xl border border-zinc-800">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleSetKeyRoutingMode('failover')}
+                                                        className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                                            (audiobookStudioConfig.keyRoutingMode || 'failover') === 'failover'
+                                                                ? 'bg-amber-500 text-black shadow-md'
+                                                                : 'text-zinc-400 hover:text-white'
+                                                        }`}
+                                                    >
+                                                        🛡️ Failover
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleSetKeyRoutingMode('round_robin')}
+                                                        className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                                            audiobookStudioConfig.keyRoutingMode === 'round_robin'
+                                                                ? 'bg-sky-500 text-black shadow-md'
+                                                                : 'text-zinc-400 hover:text-white'
+                                                        }`}
+                                                    >
+                                                        ⚖️ Round-Robin
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            {/* Key Pool Items */}
+                                            {audiobookStudioConfig.keyPool && audiobookStudioConfig.keyPool.length > 0 ? (
+                                                <div className="space-y-2">
+                                                    {audiobookStudioConfig.keyPool.map((k) => (
+                                                        <div
+                                                            key={k.id}
+                                                            className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 p-3 rounded-xl bg-zinc-900/60 border border-zinc-800 text-xs"
+                                                        >
+                                                            <div className="flex items-center gap-2.5 flex-wrap">
+                                                                <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase ${
+                                                                    k.role === 'primary' ? 'bg-amber-500 text-black' : 'bg-sky-500 text-black'
+                                                                }`}>
+                                                                    {k.role === 'primary' ? 'Primary' : 'Backup'}
+                                                                </span>
+                                                                <span className="font-black text-white">{k.label}</span>
+                                                                <code className="font-mono text-zinc-400 bg-black/60 px-2 py-0.5 rounded border border-zinc-800">
+                                                                    {k.maskedKey}
+                                                                </code>
+                                                                <span className="text-zinc-500 font-mono">Tier: {k.tier}</span>
+                                                                <span className="text-zinc-400 font-mono">({k.requestsCount} reqs)</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-2 shrink-0">
+                                                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                                                    k.valid ? 'text-emerald-400 bg-emerald-950/40 border border-emerald-500/20' : 'text-red-400 bg-red-950/40 border border-red-500/20'
+                                                                }`}>
+                                                                    {k.valid ? 'Active' : 'Error'}
+                                                                </span>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleRemoveKey(k.id)}
+                                                                    className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-red-500/20 hover:text-red-300 text-zinc-400 font-bold border border-zinc-700 text-xs transition-colors cursor-pointer"
+                                                                >
+                                                                    ✕ Remove
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <p className="text-xs text-zinc-400 italic">
+                                                    No backup keys registered. Using primary API key for all book tasks. Add secondary keys below to load-balance across providers.
+                                                </p>
+                                            )}
+
+                                            {/* Add Backup Key Subform */}
+                                            {isAddingBackupKey && (
+                                                <div className="p-4 rounded-xl bg-zinc-900 border border-amber-500/30 space-y-3 animate-in fade-in duration-200">
+                                                    <div className="text-xs font-black text-amber-300 uppercase tracking-wider">
+                                                        Add New API Key to Load-Balancing Pool
+                                                    </div>
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                                        <input
+                                                            type="password"
+                                                            placeholder="Paste backup API key (AIza..., gsk_..., sk-..., etc.)"
+                                                            value={backupKeyInput}
+                                                            onChange={e => setBackupKeyInput(e.target.value)}
+                                                            className="bg-black/60 border border-zinc-700 focus:border-amber-400 rounded-xl px-3.5 py-2.5 text-xs font-mono text-white outline-none"
+                                                        />
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Key label e.g. 'Secondary Gemini Key' or 'Free Groq'"
+                                                            value={backupKeyLabel}
+                                                            onChange={e => setBackupKeyLabel(e.target.value)}
+                                                            className="bg-black/60 border border-zinc-700 focus:border-amber-400 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
+                                                        />
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <button
+                                                            type="button"
+                                                            disabled={submittingBackupKey || !backupKeyInput.trim()}
+                                                            onClick={handleAddBackupKey}
+                                                            className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider transition-all cursor-pointer disabled:opacity-50"
+                                                        >
+                                                            {submittingBackupKey ? 'Probing & Adding...' : 'Verify & Add to Pool'}
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setIsAddingBackupKey(false)}
+                                                            className="px-3 py-2 rounded-xl bg-zinc-800 text-zinc-300 font-bold text-xs cursor-pointer"
+                                                        >
+                                                            Cancel
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
-                                    <p className="text-xs text-zinc-300">
-                                        {audiobookStudioConfig.lastKeyProbe.statusMessage}
-                                    </p>
-                                    {Array.isArray(audiobookStudioConfig.lastKeyProbe.capabilities) && audiobookStudioConfig.lastKeyProbe.capabilities.length > 0 && (
-                                        <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-                                            <span className="text-[10px] font-bold uppercase text-zinc-500 mr-1">Unlocked:</span>
-                                            {audiobookStudioConfig.lastKeyProbe.capabilities.map((cap, idx) => (
-                                                <span key={idx} className="px-2 py-0.5 rounded-md bg-black/50 border border-zinc-800 text-[10px] font-semibold text-zinc-300">
-                                                    ✓ {cap}
-                                                </span>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                            )}
+                                );
+                            }
 
-                            {/* Interactive Quick API Key Finder Helper */}
-                            {showApiFinderHelper && (
-                                <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-b from-sky-950/30 to-zinc-950 border border-sky-500/35 space-y-4 animate-in fade-in duration-200">
-                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800 pb-3">
+                            {/* Fallback / Editing Input Box */}
+                            return (
+                                <div className="p-5 bg-zinc-950/85 rounded-2xl border border-zinc-800 space-y-4">
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                                         <div>
-                                            <h4 className="text-sm font-black text-white">
-                                                Quick API Key Finder — Pick a Provider to Get Your Key in 30 Seconds
-                                            </h4>
-                                            <p className="text-xs text-zinc-400">
-                                                Don&apos;t know where to find an API key? Choose which AI service you want to use below and follow the direct link:
+                                            <label className="text-sm sm:text-base font-black text-white flex items-center gap-2">
+                                                {isEditingKey ? 'Update or Replace Your AI API Key' : '1. Paste Your AI API Key (Auto-Detects Provider, Tier & Rate Limits)'}
+                                            </label>
+                                            <p className="text-xs text-zinc-400 mt-0.5">
+                                                Supports Google Gemini (<code className="text-amber-300">AIza...</code>), Anthropic Claude (<code className="text-amber-300">sk-ant-...</code>), OpenAI (<code className="text-amber-300">sk-...</code>), Groq (<code className="text-amber-300">gsk_...</code>), or leave empty for Free Built-In Flux.
                                             </p>
                                         </div>
-                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                            {([
-                                                { id: 'gemini', label: '✨ Google Gemini (Free Tier)' },
-                                                { id: 'claude', label: '🧠 Anthropic Claude' },
-                                                { id: 'openai', label: '🎨 OpenAI / ChatGPT' },
-                                                { id: 'groq', label: '⚡ Groq (Free Fast Tier)' }
-                                            ] as const).map(p => (
-                                                <button
-                                                    key={p.id}
-                                                    type="button"
-                                                    onClick={() => setSelectedHelperProvider(p.id)}
-                                                    className={`px-3 py-1.5 rounded-xl text-xs font-black border cursor-pointer transition-all ${
-                                                        selectedHelperProvider === p.id
-                                                            ? 'bg-sky-500 text-black border-sky-400'
-                                                            : 'bg-zinc-900 text-zinc-300 border-zinc-800 hover:bg-zinc-800'
-                                                    }`}
-                                                >
-                                                    {p.label}
-                                                </button>
-                                            ))}
+                                        <div className="flex items-center gap-2">
+                                            {isEditingKey && (
+                                                <>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setIsEditingKey(false)}
+                                                        className="px-3.5 py-2 rounded-xl text-xs font-bold bg-zinc-800 text-zinc-300 border border-zinc-700 cursor-pointer hover:text-white"
+                                                    >
+                                                        Cancel Edit
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleDisconnectKey}
+                                                        className="px-3.5 py-2 rounded-xl text-xs font-bold bg-red-950/40 text-red-300 border border-red-500/30 cursor-pointer hover:bg-red-900/50"
+                                                    >
+                                                        Disconnect Key
+                                                    </button>
+                                                </>
+                                            )}
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowApiFinderHelper(prev => !prev)}
+                                                className={`px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider border transition-all cursor-pointer shrink-0 ${
+                                                    showApiFinderHelper
+                                                        ? 'bg-sky-500 text-black border-sky-400'
+                                                        : 'bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border-sky-500/35'
+                                                }`}
+                                            >
+                                                {showApiFinderHelper ? 'Hide API Key Finder' : '❓ Quick API Key Finder Helper'}
+                                            </button>
                                         </div>
                                     </div>
 
-                                    {selectedHelperProvider === 'gemini' && (
-                                        <div className="space-y-2.5 text-xs text-zinc-300">
-                                            <p className="font-bold text-sky-300">Google Gemini API Key (Starts with <code className="text-white">AIza...</code> — Free Tier Available!)</p>
-                                            <ol className="list-decimal list-inside space-y-1 text-zinc-300">
-                                                <li>Click the button below to open <strong>Google AI Studio</strong> and sign in with your Google account.</li>
-                                                <li>Click the blue <strong>&ldquo;Create API key&rdquo;</strong> button on the top right.</li>
-                                                <li>Copy the key starting with <code className="text-amber-300">AIza...</code> and paste it into the box above — ScheduleArr will auto-detect Gemini 2.0 Flash &amp; Imagen 3!</li>
-                                            </ol>
-                                            <div className="pt-1">
-                                                <a
-                                                    href="https://aistudio.google.com/app/apikey"
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-black font-black text-xs uppercase tracking-wider shadow-lg"
-                                                >
-                                                    ↗ Open Google AI Studio Key Page (aistudio.google.com/app/apikey)
-                                                </a>
+                                    {/* Paste Box + Auto-Detect Trigger */}
+                                    <div className="flex flex-col sm:flex-row gap-2.5">
+                                        <input
+                                            type="password"
+                                            placeholder="Paste any API key here (AIza..., sk-ant-..., sk-..., gsk_..., or http://...) — auto-detects everything!"
+                                            value={
+                                                audiobookStudioConfig.rawUnifiedApiKey ||
+                                                audiobookStudioConfig.geminiApiKey ||
+                                                audiobookStudioConfig.anthropicApiKey ||
+                                                audiobookStudioConfig.openaiApiKey ||
+                                                audiobookStudioConfig.groqApiKey ||
+                                                ''
+                                            }
+                                            onChange={(e) => {
+                                                const val = e.target.value;
+                                                setAudiobookStudioConfig(prev => ({ ...prev, rawUnifiedApiKey: val }));
+                                            }}
+                                            onPaste={(e) => {
+                                                const pasted = e.clipboardData.getData('text');
+                                                if (pasted && pasted.trim().length > 6) {
+                                                    setAudiobookStudioConfig(prev => ({ ...prev, rawUnifiedApiKey: pasted.trim() }));
+                                                    setTimeout(() => handleAutoDetectApiKey(pasted.trim()), 80);
+                                                }
+                                            }}
+                                            className="flex-1 bg-zinc-900 border border-zinc-700 focus:border-amber-400 rounded-xl px-4 py-3 text-xs sm:text-sm font-mono text-white outline-none"
+                                        />
+                                        <button
+                                            type="button"
+                                            disabled={probingApiKey}
+                                            onClick={() => handleAutoDetectApiKey()}
+                                            className="px-5 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider shrink-0 transition-all cursor-pointer shadow-lg shadow-amber-500/20 disabled:opacity-50"
+                                        >
+                                            {probingApiKey ? 'Detecting & Probing Key...' : '🔍 Auto-Detect & Verify Key'}
+                                        </button>
+                                    </div>
+
+                                    {/* Live Auto-Detection Result Banner */}
+                                    {audiobookStudioConfig.lastKeyProbe && (
+                                        <div className={`p-4 rounded-xl border space-y-2.5 ${
+                                            audiobookStudioConfig.lastKeyProbe.valid
+                                                ? 'bg-emerald-950/25 border-emerald-500/35'
+                                                : 'bg-red-950/25 border-red-500/35'
+                                        }`}>
+                                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <span className={`px-2.5 py-0.5 rounded-lg text-xs font-black uppercase ${
+                                                        audiobookStudioConfig.lastKeyProbe.valid
+                                                            ? 'bg-emerald-500 text-black'
+                                                            : 'bg-red-500 text-white'
+                                                    }`}>
+                                                        {audiobookStudioConfig.lastKeyProbe.valid ? 'Verified' : 'Invalid Key'}
+                                                    </span>
+                                                    <span className="text-sm font-black text-white">
+                                                        {audiobookStudioConfig.lastKeyProbe.providerLabel}
+                                                    </span>
+                                                    <span className="px-2 py-0.5 rounded-md bg-zinc-900 border border-zinc-700 text-xs font-mono font-bold text-amber-300">
+                                                        Tier: {audiobookStudioConfig.lastKeyProbe.tier}
+                                                    </span>
+                                                    <span className={`px-2 py-0.5 rounded-md text-xs font-mono font-bold border ${
+                                                        audiobookStudioConfig.lastKeyProbe.isRateLimited
+                                                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                                            : 'bg-zinc-900 text-emerald-300 border-zinc-800'
+                                                    }`}>
+                                                        {audiobookStudioConfig.lastKeyProbe.isRateLimited
+                                                            ? '⚠️ Currently Rate-Limited (Auto-Throttling Active)'
+                                                            : `Rate Limit: ~${audiobookStudioConfig.lastKeyProbe.rateLimitRpm} req/min`}
+                                                    </span>
+                                                </div>
+                                                {audiobookStudioConfig.lastKeyProbe.rateLimitRemaining && (
+                                                    <span className="text-xs font-mono text-zinc-400">
+                                                        Remaining: {audiobookStudioConfig.lastKeyProbe.rateLimitRemaining}
+                                                    </span>
+                                                )}
                                             </div>
+                                            <p className="text-xs text-zinc-300">
+                                                {audiobookStudioConfig.lastKeyProbe.statusMessage}
+                                            </p>
                                         </div>
                                     )}
 
-                                    {selectedHelperProvider === 'claude' && (
-                                        <div className="space-y-2.5 text-xs text-zinc-300">
-                                            <p className="font-bold text-sky-300">Anthropic Claude API Key (Starts with <code className="text-white">sk-ant-...</code>)</p>
-                                            <ol className="list-decimal list-inside space-y-1 text-zinc-300">
-                                                <li>Click the button below to open the <strong>Anthropic Console Keys</strong> page.</li>
-                                                <li>Click <strong>&ldquo;Create Key&rdquo;</strong>, name it <em>ScheduleArr</em>, and copy the key starting with <code className="text-amber-300">sk-ant-...</code>.</li>
-                                                <li>Paste it into the box above to unlock Claude 3.5 Dynamic Scene Prompting (paired with Flux artwork).</li>
-                                            </ol>
-                                            <div className="pt-1">
-                                                <a
-                                                    href="https://console.anthropic.com/settings/keys"
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-black font-black text-xs uppercase tracking-wider shadow-lg"
-                                                >
-                                                    ↗ Open Anthropic Claude Keys Page (console.anthropic.com/settings/keys)
-                                                </a>
+                                    {/* Interactive Quick API Key Finder Helper */}
+                                    {showApiFinderHelper && (
+                                        <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-b from-sky-950/30 to-zinc-950 border border-sky-500/35 space-y-4 animate-in fade-in duration-200">
+                                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800 pb-3">
+                                                <div>
+                                                    <h4 className="text-sm font-black text-white">
+                                                        Quick API Key Finder — Pick a Provider to Get Your Key in 30 Seconds
+                                                    </h4>
+                                                    <p className="text-xs text-zinc-400">
+                                                        Don&apos;t know where to find an API key? Choose which AI service you want to use below and follow the direct link:
+                                                    </p>
+                                                </div>
+                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                    {([
+                                                        { id: 'gemini', label: '✨ Google Gemini (Free Tier)' },
+                                                        { id: 'claude', label: '🧠 Anthropic Claude' },
+                                                        { id: 'openai', label: '🎨 OpenAI / ChatGPT' },
+                                                        { id: 'groq', label: '⚡ Groq (Free Fast Tier)' }
+                                                    ] as const).map(p => (
+                                                        <button
+                                                            key={p.id}
+                                                            type="button"
+                                                            onClick={() => setSelectedHelperProvider(p.id)}
+                                                            className={`px-3 py-1.5 rounded-xl text-xs font-black border cursor-pointer transition-all ${
+                                                                selectedHelperProvider === p.id
+                                                                 ? 'bg-sky-500 text-black border-sky-400'
+                                                                    : 'bg-zinc-900 text-zinc-300 border-zinc-800 hover:bg-zinc-800'
+                                                            }`}
+                                                        >
+                                                            {p.label}
+                                                        </button>
+                                                    ))}
+                                                </div>
                                             </div>
-                                        </div>
-                                    )}
 
-                                    {selectedHelperProvider === 'openai' && (
-                                        <div className="space-y-2.5 text-xs text-zinc-300">
-                                            <p className="font-bold text-sky-300">OpenAI / ChatGPT API Key (Starts with <code className="text-white">sk-...</code>)</p>
-                                            <ol className="list-decimal list-inside space-y-1 text-zinc-300">
-                                                <li>Click the button below to open the <strong>OpenAI Platform API Keys</strong> page.</li>
-                                                <li>Click <strong>&ldquo;Create new secret key&rdquo;</strong> and copy the key starting with <code className="text-amber-300">sk-...</code>.</li>
-                                                <li>Paste it above to unlock GPT-4o-mini Dynamic Scene Prompts, DALL·E 3 artwork, and Whisper Cloud transcription.</li>
-                                            </ol>
-                                            <div className="pt-1">
-                                                <a
-                                                    href="https://platform.openai.com/api-keys"
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-black font-black text-xs uppercase tracking-wider shadow-lg"
-                                                >
-                                                    ↗ Open OpenAI API Keys Page (platform.openai.com/api-keys)
-                                                </a>
-                                            </div>
-                                        </div>
-                                    )}
+                                            {selectedHelperProvider === 'gemini' && (
+                                                <div className="space-y-2.5 text-xs text-zinc-300">
+                                                    <p className="font-bold text-sky-300">Google Gemini API Key (Starts with <code className="text-white">AIza...</code> — Free Tier Available!)</p>
+                                                    <ol className="list-decimal list-inside space-y-1 text-zinc-300">
+                                                        <li>Click the button below to open <strong>Google AI Studio</strong> and sign in with your Google account.</li>
+                                                        <li>Click the blue <strong>&ldquo;Create API key&rdquo;</strong> button on the top right.</li>
+                                                        <li>Copy the key starting with <code className="text-amber-300">AIza...</code> and paste it into the box above — ScheduleArr will auto-detect Gemini 2.0 Flash &amp; Imagen 3!</li>
+                                                    </ol>
+                                                    <div className="pt-1">
+                                                        <a
+                                                            href="https://aistudio.google.com/app/apikey"
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-black font-black text-xs uppercase tracking-wider shadow-lg"
+                                                        >
+                                                            ↗ Open Google AI Studio Key Page (aistudio.google.com/app/apikey)
+                                                        </a>
+                                                    </div>
+                                                </div>
+                                            )}
 
-                                    {selectedHelperProvider === 'groq' && (
-                                        <div className="space-y-2.5 text-xs text-zinc-300">
-                                            <p className="font-bold text-sky-300">Groq Cloud API Key (Starts with <code className="text-white">gsk_...</code> — Free Tier Available!)</p>
-                                            <ol className="list-decimal list-inside space-y-1 text-zinc-300">
-                                                <li>Click the button below to open <strong>GroqCloud Console</strong> and sign in for free.</li>
-                                                <li>Click <strong>&ldquo;Create API Key&rdquo;</strong> and copy the key starting with <code className="text-amber-300">gsk_...</code>.</li>
-                                                <li>Paste it above for ultra-fast Llama 3.3 70B Dynamic Scene Prompting &amp; Whisper Large v3 Turbo transcription!</li>
-                                            </ol>
-                                            <div className="pt-1">
-                                                <a
-                                                    href="https://console.groq.com/keys"
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-black font-black text-xs uppercase tracking-wider shadow-lg"
-                                                >
-                                                    ↗ Open Groq Console Keys Page (console.groq.com/keys)
-                                                </a>
-                                            </div>
+                                            {selectedHelperProvider === 'claude' && (
+                                                <div className="space-y-2.5 text-xs text-zinc-300">
+                                                    <p className="font-bold text-sky-300">Anthropic Claude API Key (Starts with <code className="text-white">sk-ant-...</code>)</p>
+                                                    <ol className="list-decimal list-inside space-y-1 text-zinc-300">
+                                                        <li>Click the button below to open the <strong>Anthropic Console Keys</strong> page.</li>
+                                                        <li>Click <strong>&ldquo;Create Key&rdquo;</strong>, name it <em>ScheduleArr</em>, and copy the key starting with <code className="text-amber-300">sk-ant-...</code>.</li>
+                                                        <li>Paste it into the box above to unlock Claude 3.5 Dynamic Scene Prompting (paired with Flux artwork).</li>
+                                                    </ol>
+                                                    <div className="pt-1">
+                                                        <a
+                                                            href="https://console.anthropic.com/settings/keys"
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-black font-black text-xs uppercase tracking-wider shadow-lg"
+                                                        >
+                                                            ↗ Open Anthropic Claude Keys Page (console.anthropic.com/settings/keys)
+                                                        </a>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {selectedHelperProvider === 'openai' && (
+                                                <div className="space-y-2.5 text-xs text-zinc-300">
+                                                    <p className="font-bold text-sky-300">OpenAI / ChatGPT API Key (Starts with <code className="text-white">sk-...</code>)</p>
+                                                    <ol className="list-decimal list-inside space-y-1 text-zinc-300">
+                                                        <li>Click the button below to open the <strong>OpenAI Platform API Keys</strong> page.</li>
+                                                        <li>Click <strong>&ldquo;Create new secret key&rdquo;</strong> and copy the key starting with <code className="text-amber-300">sk-...</code>.</li>
+                                                        <li>Paste it above to unlock GPT-4o-mini Dynamic Scene Prompts, DALL·E 3 artwork, and Whisper Cloud transcription.</li>
+                                                    </ol>
+                                                    <div className="pt-1">
+                                                        <a
+                                                            href="https://platform.openai.com/api-keys"
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-black font-black text-xs uppercase tracking-wider shadow-lg"
+                                                        >
+                                                            ↗ Open OpenAI API Keys Page (platform.openai.com/api-keys)
+                                                        </a>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {selectedHelperProvider === 'groq' && (
+                                                <div className="space-y-2.5 text-xs text-zinc-300">
+                                                    <p className="font-bold text-sky-300">Groq Cloud API Key (Starts with <code className="text-white">gsk_...</code> — Free Tier Available!)</p>
+                                                    <ol className="list-decimal list-inside space-y-1 text-zinc-300">
+                                                        <li>Click the button below to open <strong>GroqCloud Console</strong> and sign in for free.</li>
+                                                        <li>Click <strong>&ldquo;Create API Key&rdquo;</strong> and copy the key starting with <code className="text-amber-300">gsk_...</code>.</li>
+                                                        <li>Paste it above for ultra-fast Llama 3.3 70B Dynamic Scene Prompting &amp; Whisper Large v3 Turbo transcription!</li>
+                                                    </ol>
+                                                    <div className="pt-1">
+                                                        <a
+                                                            href="https://console.groq.com/keys"
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-black font-black text-xs uppercase tracking-wider shadow-lg"
+                                                        >
+                                                            ↗ Open Groq Console Keys Page (console.groq.com/keys)
+                                                        </a>
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>
-                            )}
-                        </div>
+                            );
+                        })()}
 
                         {/* 2. API Usage Limits, Rate Limits & Background Schedules */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

@@ -797,8 +797,91 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                 }
             }
         } catch {
-            toast.error('Failed to remove image');
+            toast.error('Failed to delete image');
         }
+    };
+
+    const handleToggleCustomCover = async () => {
+        if (!playingAudio) return;
+        const bKey = audiobookBookMeta?.book_key || playingAudio.bookKey || `${playingAudio.artist || 'Unknown Author'} - ${playingAudio.album || playingAudio.folder || playingAudio.title}`.toLowerCase().trim();
+        if (!audiobookBookMeta?.custom_cover_url) {
+            toast.info('Painting bespoke AI cover for this book...');
+            try {
+                const res = await fetch('/api/theater/audiobooks/studio', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'generate_book_cover', bookKey: bKey, activateImmediately: true })
+                });
+                const data = await res.json();
+                if (data.success && data.book) {
+                    setAudiobookBookMeta(data.book);
+                    toast.success('Custom AI cover generated & activated!');
+                } else {
+                    toast.error(data.error || 'Failed to generate cover');
+                }
+            } catch (e: any) {
+                toast.error(`Error: ${e.message}`);
+            }
+            return;
+        }
+        const nextVal = !audiobookBookMeta.use_custom_cover;
+        try {
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'toggle_custom_cover', bookKey: bKey, useCustomCover: nextVal })
+            });
+            const data = await res.json();
+            if (data.success && data.book) {
+                setAudiobookBookMeta(data.book);
+                toast.success(nextVal ? 'Switched to Custom AI Cover' : 'Switched to Original Cover');
+            }
+        } catch {
+            toast.error('Failed to toggle cover');
+        }
+    };
+
+    const handleResetAndRedoAssets = async (target: 'transcriptions' | 'art' | 'voices' | 'all' = 'all') => {
+        if (!playingAudio) return;
+        const bKey = audiobookBookMeta?.book_key || playingAudio.bookKey || `${playingAudio.artist || 'Unknown Author'} - ${playingAudio.album || playingAudio.folder || playingAudio.title}`.toLowerCase().trim();
+        const cKey = audiobookChapterMeta?.chapter_key || playingAudio.chapterKey || playingAudio.id;
+        try {
+            toast.info(`Resetting and re-processing ${target}...`);
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'reset_and_redo', bookKey: bKey, chapterKey: cKey, target, redoNow: true })
+            });
+            const data = await res.json();
+            if (data.success) {
+                if (data.chapter) setAudiobookChapterMeta(data.chapter);
+                if (data.book) setAudiobookBookMeta(data.book);
+                if (target === 'transcriptions' || target === 'all') setLyricsData(null);
+                if (target === 'art' || target === 'all') setShuffledSceneImages([]);
+                toast.success(`Cleared old ${target} & queued clean re-processing!`);
+            }
+        } catch {
+            toast.error('Failed to reset and redo assets');
+        }
+    };
+
+    const handleSwitchProcessedVoice = (presetKey: string) => {
+        setSelectedVoicePreset(presetKey);
+        handleUpdateInPlayerBookSettings({ voicePreset: presetKey });
+        if (!audioRef.current || !playingAudio) return;
+        const curTime = audioRef.current.currentTime;
+        const wasPlaying = !audioRef.current.paused;
+        const enhancedPath = audiobookChapterMeta?.processed_voices?.[presetKey] || (presetKey === audiobookChapterMeta?.voice_preset ? audiobookChapterMeta?.enhanced_audio_path : null);
+        if (presetKey !== 'original' && enhancedPath) {
+            audioRef.current.src = `/api/theater/audiobooks/art?audio=${encodeURIComponent(enhancedPath)}`;
+            setUseEnhancedAudioStream(true);
+        } else {
+            audioRef.current.src = `/api/theater/stream?path=${encodeURIComponent(playingAudio.path)}`;
+            setUseEnhancedAudioStream(false);
+        }
+        audioRef.current.currentTime = curTime;
+        if (wasPlaying) audioRef.current.play().catch(() => {});
+        toast.success(`Switched voice to: ${presetKey.replace(/_/g, ' ')}`);
     };
 
     // In-Player Playlist States & Handlers
@@ -1508,8 +1591,21 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         };
     }, [playingAudio?.id, isAudioPlaying]);
 
-    // Handle Fetching Lyrics
+    // Handle Fetching Lyrics (Guarded against Audiobooks to prevent pop song collisions)
     const fetchLyrics = async (item: MediaItem) => {
+        if (!item) return;
+        const isBook = Boolean(
+            item.isAudiobook ||
+            item.bookKey ||
+            item.chapterKey ||
+            ['m4b', 'aax', 'aa'].includes((item.extension || '').toLowerCase()) ||
+            /\b(audiobooks?|audio\s*books?|unabridged|abridged|narrated\s+by)\b/i.test([item.libraryName, item.folder, item.path, item.album, item.genre].filter(Boolean).join(' '))
+        );
+        if (isBook) {
+            // Never query music lyrics services for audiobooks
+            return;
+        }
+
         setLyricsLoading(true);
         try {
             const params = new URLSearchParams({
@@ -1535,6 +1631,19 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
     // Handle Fetching Chords
     const fetchChords = async (item: MediaItem) => {
+        if (!item) return;
+        const isBook = Boolean(
+            item.isAudiobook ||
+            item.bookKey ||
+            item.chapterKey ||
+            ['m4b', 'aax', 'aa'].includes((item.extension || '').toLowerCase()) ||
+            /\b(audiobooks?|audio\s*books?|unabridged|abridged|narrated\s+by)\b/i.test([item.libraryName, item.folder, item.path, item.album, item.genre].filter(Boolean).join(' '))
+        );
+        if (isBook) {
+            setChordsData(null);
+            return;
+        }
+
         setChordsLoading(true);
         try {
             const params = new URLSearchParams({
@@ -2719,8 +2828,20 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         hasAttemptedFallbackRef.current = false;
         setAudioPlaybackStatus('loading');
         setAudioPlaybackError(null);
-        fetchLyrics(playingAudio);
-        fetchChords(playingAudio);
+        const isBookTrack = Boolean(
+            playingAudio.isAudiobook ||
+            playingAudio.bookKey ||
+            playingAudio.chapterKey ||
+            ['m4b', 'aax', 'aa'].includes((playingAudio.extension || '').toLowerCase()) ||
+            /\b(audiobooks?|audio\s*books?|unabridged|abridged|narrated\s+by)\b/i.test([playingAudio.libraryName, playingAudio.folder, playingAudio.path, playingAudio.album, playingAudio.genre].filter(Boolean).join(' '))
+        );
+        if (!isBookTrack) {
+            fetchLyrics(playingAudio);
+            fetchChords(playingAudio);
+        } else {
+            setLyricsData(null);
+            setChordsData(null);
+        }
         fetchAudiobookChapterStudio(playingAudio);
 
         if (audioRef.current) {
@@ -3971,10 +4092,28 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                 {isAudiobook ? (
                                     (() => {
                                         const totalScenes = shuffledSceneImages.length;
-                                        const progressRatio = effectiveDuration > 0 ? Math.min(0.9999, Math.max(0, audioCurrentTime / effectiveDuration)) : 0;
-                                        const activeSceneIdx = totalScenes > 0 ? Math.floor(progressRatio * totalScenes) : 0;
-                                        const activeSceneObj = totalScenes > 0 ? shuffledSceneImages[activeSceneIdx] : null;
-                                        const activeArtworkUrl = activeSceneObj?.url || playingAudio.posterUrl;
+                                        // Priority 3: Scene Art matched to transcribed [startSec, endSec] or time-slice fallback
+                                        let activeSceneObj = totalScenes > 0
+                                            ? (shuffledSceneImages.find((img: any) => typeof img.startSec === 'number' && typeof img.endSec === 'number' && audioCurrentTime >= img.startSec && audioCurrentTime <= img.endSec) || null)
+                                            : null;
+                                        let activeSceneIdx = -1;
+                                        if (activeSceneObj) {
+                                            activeSceneIdx = shuffledSceneImages.findIndex((img: any) => img.id === activeSceneObj.id);
+                                        } else if (totalScenes > 0) {
+                                            const progressRatio = effectiveDuration > 0 ? Math.min(0.9999, Math.max(0, audioCurrentTime / effectiveDuration)) : 0;
+                                            activeSceneIdx = Math.floor(progressRatio * totalScenes);
+                                            activeSceneObj = shuffledSceneImages[activeSceneIdx] || null;
+                                        }
+
+                                        // Priority 2: Chapter Art
+                                        const chapterArtObj = (audiobookChapterMeta?.images || []).find((img: any) => img.type === 'chapter' && img.kept !== false) || (audiobookChapterMeta?.illustration_path ? { url: audiobookChapterMeta.illustration_path, focus: 'Chapter Header Art' } : null);
+
+                                        // Priority 1: Book Cover (keep original unless custom is toggled)
+                                        const customCoverActive = Boolean(audiobookBookMeta?.use_custom_cover && audiobookBookMeta?.custom_cover_url);
+                                        const effectiveCoverUrl = customCoverActive ? audiobookBookMeta.custom_cover_url : playingAudio.posterUrl;
+
+                                        // Hierarchy fallback: Scene Art -> Chapter Art -> Cover Art
+                                        const activeArtworkUrl = activeSceneObj?.url || chapterArtObj?.url || effectiveCoverUrl;
                                         const activeLineText = (currentLyricIndex >= 0 && lyricsData?.lines?.[currentLyricIndex]?.text)
                                             ? lyricsData.lines[currentLyricIndex].text
                                             : (audiobookChapterMeta?.plain_transcript ? audiobookChapterMeta.plain_transcript.slice(0, 220) : '');
@@ -4023,10 +4162,11 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                         <div className="flex items-center justify-between text-[10px] font-mono text-stone-400 pt-1">
                                                             {totalScenes > 1 ? (
                                                                 <span className="px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 font-bold">
-                                                                    Scene {activeSceneIdx + 1}/{totalScenes} ({Math.round(100 / totalScenes)}% swap)
+                                                                    Scene {Math.max(1, activeSceneIdx + 1)}/{totalScenes}
+                                                                    {activeSceneObj?.startSec !== undefined ? ` [${Math.floor(activeSceneObj.startSec)}s]` : ` (${Math.round(100 / totalScenes)}%)`}
                                                                 </span>
                                                             ) : (
-                                                                <span>{activeSceneObj ? 'Illustrated Scene' : 'Cover Plate'}</span>
+                                                                <span>{activeSceneObj ? 'Illustrated Scene' : chapterArtObj ? 'Chapter Art' : 'Cover Plate'}</span>
                                                             )}
                                                             <span className="text-amber-400/80 font-bold group-hover:underline">
                                                                 Plain Art ↗
@@ -4034,7 +4174,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                         </div>
                                                     </div>
 
-                                                    {/* Right Page: Scene Illustration Plate */}
+                                                    {/* Right Page: Scene / Chapter / Cover Illustration Plate */}
                                                     <div className="relative w-full h-full bg-zinc-950 flex items-center justify-center overflow-hidden">
                                                         {activeArtworkUrl && !normalCoverError ? (
                                                             <img
@@ -4053,14 +4193,24 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                         {/* Subtle inner spine shadow on the left edge of the right page */}
                                                         <div className="absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-black/75 to-transparent pointer-events-none" />
 
+                                                        {/* Custom Cover Swap / Update Badge */}
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); handleToggleCustomCover(); }}
+                                                            className="absolute top-2 right-2 px-2 py-1 rounded-xl bg-black/80 hover:bg-black text-amber-300 border border-amber-500/40 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-lg cursor-pointer z-20 backdrop-blur-md transition-all hover:scale-105"
+                                                            title={audiobookBookMeta?.custom_cover_url ? (customCoverActive ? 'Custom AI Cover Active (Click to switch to Original)' : 'Original Cover Active (Click to switch to Custom AI)') : 'Generate Custom AI Cover'}
+                                                        >
+                                                            <Sparkles size={11} className={customCoverActive ? 'text-emerald-400' : 'text-amber-400'} />
+                                                            <span>{audiobookBookMeta?.custom_cover_url ? (customCoverActive ? 'Custom Cover' : 'Original Cover') : '+ AI Cover'}</span>
+                                                        </button>
+
                                                         {/* Scene badge & prompt overlay */}
-                                                        {activeSceneObj && (
+                                                        {(activeSceneObj || chapterArtObj) && (
                                                             <div className="absolute bottom-2 left-2 right-2 px-2.5 py-1 rounded-lg bg-black/75 backdrop-blur-md border border-white/10 flex items-center justify-between text-[10px] text-amber-200">
                                                                 <span className="font-bold truncate">
                                                                     <Sparkles size={10} className="inline mr-1 text-amber-400" />
-                                                                    {activeSceneObj.focus || 'Scene Illustration'}
+                                                                    {activeSceneObj?.focus || chapterArtObj?.focus || 'Scene Illustration'}
                                                                 </span>
-                                                                {totalScenes > 1 && (
+                                                                {totalScenes > 1 && activeSceneIdx >= 0 && (
                                                                     <span className="font-mono font-black text-amber-400 shrink-0 ml-1">
                                                                         {activeSceneIdx + 1}/{totalScenes}
                                                                     </span>
@@ -4094,11 +4244,22 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                 ) : (
                                                     <BookOpen size={72} className="text-amber-400" />
                                                 )}
+
+                                                {/* Custom Cover Swap / Update Badge in Plain Art */}
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); handleToggleCustomCover(); }}
+                                                    className="absolute top-3 right-3 px-2 py-1 rounded-xl bg-black/80 hover:bg-black text-amber-300 border border-amber-500/40 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-lg cursor-pointer z-20 backdrop-blur-md"
+                                                    title={audiobookBookMeta?.custom_cover_url ? (customCoverActive ? 'Custom AI Cover Active (Click to switch to Original)' : 'Original Cover Active (Click to switch to Custom AI)') : 'Generate Custom AI Cover'}
+                                                >
+                                                    <Sparkles size={11} className={customCoverActive ? 'text-emerald-400' : 'text-amber-400'} />
+                                                    <span>{audiobookBookMeta?.custom_cover_url ? (customCoverActive ? 'Custom Cover' : 'Original Cover') : '+ AI Cover'}</span>
+                                                </button>
+
                                                 <div className="absolute bottom-3 inset-x-3 px-3 py-1.5 rounded-xl bg-black/75 backdrop-blur-md border border-white/10 flex items-center justify-between text-xs text-white opacity-90 group-hover:opacity-100 transition-opacity">
                                                     <span className="font-bold flex items-center gap-1.5">
                                                         <BookOpen size={13} className="text-amber-400" /> Click for Open Book View
                                                     </span>
-                                                    {totalScenes > 1 && (
+                                                    {totalScenes > 1 && activeSceneIdx >= 0 && (
                                                         <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[10px] font-black">
                                                             Scene {activeSceneIdx + 1}/{totalScenes}
                                                         </span>
@@ -4663,7 +4824,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                     </div>
 
                                                     {audiobookSubTab === 'transcript' && (
-                                                        <div className="flex items-center gap-1.5 shrink-0 pr-1">
+                                                        <div className="flex items-center gap-1.5 shrink-0 pr-1 flex-wrap justify-end">
                                                             {lyricsData?.isSynced && (
                                                                 <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[9px] font-black uppercase flex items-center gap-1">
                                                                     <Sparkles size={10} /> Synced
@@ -4673,10 +4834,17 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                 onClick={() => handleRunInPlayerChapterTask('transcribe')}
                                                                 disabled={isRunningChapterStudioTask === 'transcribe'}
                                                                 className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer disabled:opacity-50"
-                                                                title="Run lightweight single-threaded transcription for this chapter"
+                                                                title="Run speech transcription for this chapter"
                                                             >
                                                                 <RefreshCw size={11} className={isRunningChapterStudioTask === 'transcribe' ? 'animate-spin' : ''} />
-                                                                {lyricsData?.lines?.length ? 'Re-Transcribe' : 'Transcribe'}
+                                                                {lyricsData?.lines?.length ? 'Transcribe' : 'Transcribe'}
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleResetAndRedoAssets('transcriptions')}
+                                                                className="px-2 py-1 rounded-lg bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30 text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer"
+                                                                title="Delete existing transcriptions and redo clean speech transcription"
+                                                            >
+                                                                <RotateCcw size={11} /> Redo STT
                                                             </button>
                                                             <button
                                                                 onClick={() => {
@@ -4791,14 +4959,23 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                     )}
                                                                 </p>
                                                             </div>
-                                                            <button
-                                                                onClick={() => handleRunInPlayerChapterTask('illustrate')}
-                                                                disabled={isRunningChapterStudioTask === 'illustrate'}
-                                                                className="px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-lg shadow-purple-600/20"
-                                                            >
-                                                                <RefreshCw size={13} className={isRunningChapterStudioTask === 'illustrate' ? 'animate-spin' : ''} />
-                                                                {isRunningChapterStudioTask === 'illustrate' ? 'Painting Scene...' : 'Paint New Scene Art'}
-                                                            </button>
+                                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                                <button
+                                                                    onClick={() => handleRunInPlayerChapterTask('illustrate')}
+                                                                    disabled={isRunningChapterStudioTask === 'illustrate'}
+                                                                    className="px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-lg shadow-purple-600/20"
+                                                                >
+                                                                    <RefreshCw size={13} className={isRunningChapterStudioTask === 'illustrate' ? 'animate-spin' : ''} />
+                                                                    {isRunningChapterStudioTask === 'illustrate' ? 'Painting Scene...' : 'Paint Scene Art'}
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => handleResetAndRedoAssets('art')}
+                                                                    className="px-3 py-2 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                                                                    title="Delete existing generated scene images and paint fresh ones"
+                                                                >
+                                                                    <RotateCcw size={13} /> Redo Art
+                                                                </button>
+                                                            </div>
                                                         </div>
 
                                                         {/* Per-Book Creative Overrides Card inside Open Book */}
@@ -4988,19 +5165,76 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                                 ))}
                                                             </div>
 
-                                                            <div className="flex items-center justify-between gap-2 pt-2">
-                                                                <button
-                                                                    onClick={() => handleRunInPlayerChapterTask('enhance', selectedVoicePreset)}
-                                                                    disabled={isRunningChapterStudioTask === 'enhance'}
-                                                                    className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-lg shadow-emerald-500/20"
-                                                                >
-                                                                    <Wand2 size={14} className={isRunningChapterStudioTask === 'enhance' ? 'animate-spin' : ''} />
-                                                                    {isRunningChapterStudioTask === 'enhance'
-                                                                        ? 'Enhancing Audio (1 CPU Thread)...'
-                                                                        : ['completed', 'done'].includes(audiobookChapterMeta?.audio_enhance_status)
-                                                                        ? 'Re-Process Chapter Audio'
-                                                                        : 'Enhance Chapter Audio Now'}
-                                                                </button>
+                                                            {/* Processed Voices on Server (Instant In-Player Switcher) */}
+                                                            {audiobookChapterMeta?.processed_voices && Object.keys(audiobookChapterMeta.processed_voices).length > 0 && (
+                                                                <div className="p-3 bg-zinc-950/80 rounded-2xl border border-emerald-500/30 space-y-2">
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-xs font-black uppercase text-emerald-400 flex items-center gap-1.5">
+                                                                            <Mic2 size={13} /> Processed Voices on Server (Instant Swap)
+                                                                        </span>
+                                                                        <span className="text-[10px] font-mono text-zinc-400">
+                                                                            {Object.keys(audiobookChapterMeta.processed_voices).length} Ready
+                                                                        </span>
+                                                                    </div>
+                                                                    <p className="text-[11px] text-zinc-400">
+                                                                        Switch audio stream instantly between processed narrator voices:
+                                                                    </p>
+                                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => handleSwitchProcessedVoice('original')}
+                                                                            className={`px-3 py-2 rounded-xl text-left border text-xs font-bold transition-all cursor-pointer flex items-center justify-between ${
+                                                                                !useEnhancedAudioStream
+                                                                                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
+                                                                                    : 'bg-zinc-900/80 text-zinc-400 border-zinc-800 hover:border-zinc-700'
+                                                                            }`}
+                                                                        >
+                                                                            <span>Original Audio</span>
+                                                                            {!useEnhancedAudioStream && <Check size={12} className="text-emerald-400" />}
+                                                                        </button>
+                                                                        {Object.entries(audiobookChapterMeta.processed_voices).map(([vKey]) => (
+                                                                            <button
+                                                                                key={vKey}
+                                                                                type="button"
+                                                                                onClick={() => handleSwitchProcessedVoice(vKey)}
+                                                                                className={`px-3 py-2 rounded-xl text-left border text-xs font-bold transition-all cursor-pointer flex items-center justify-between ${
+                                                                                    useEnhancedAudioStream && (selectedVoicePreset === vKey || audiobookChapterMeta.voice_preset === vKey)
+                                                                                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
+                                                                                        : 'bg-zinc-900/80 text-zinc-400 border-zinc-800 hover:border-zinc-700'
+                                                                                }`}
+                                                                            >
+                                                                                <span className="capitalize">{vKey.replace(/_/g, ' ')}</span>
+                                                                                {useEnhancedAudioStream && (selectedVoicePreset === vKey || audiobookChapterMeta.voice_preset === vKey) && (
+                                                                                    <Check size={12} className="text-emerald-400" />
+                                                                                )}
+                                                                            </button>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+
+                                                            <div className="flex items-center justify-between gap-2 pt-2 flex-wrap">
+                                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                                    <button
+                                                                        onClick={() => handleRunInPlayerChapterTask('enhance', selectedVoicePreset)}
+                                                                        disabled={isRunningChapterStudioTask === 'enhance'}
+                                                                        className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-lg shadow-emerald-500/20"
+                                                                    >
+                                                                        <Wand2 size={14} className={isRunningChapterStudioTask === 'enhance' ? 'animate-spin' : ''} />
+                                                                        {isRunningChapterStudioTask === 'enhance'
+                                                                            ? 'Enhancing Audio (1 CPU Thread)...'
+                                                                            : ['completed', 'done'].includes(audiobookChapterMeta?.audio_enhance_status)
+                                                                            ? 'Re-Process Chapter Audio'
+                                                                            : 'Enhance Chapter Audio Now'}
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => handleResetAndRedoAssets('voices')}
+                                                                        className="px-3 py-2 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                                                                        title="Delete all processed voice files and redo audio processing"
+                                                                    >
+                                                                        <RotateCcw size={13} /> Redo Voices
+                                                                    </button>
+                                                                </div>
 
                                                                 {audiobookChapterMeta?.enhanced_audio_path && (
                                                                     <button

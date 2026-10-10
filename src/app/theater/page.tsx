@@ -16,7 +16,7 @@ import {
     ListPlus, Copy, Download, Shuffle, Repeat, SkipForward, SkipBack,
     Disc, User, ListMusic, Youtube, Globe, Heart, PlaySquare, ArrowDownToLine,
     Headphones, RadioTower, Info, Mic2, FileText, Edit3, ChevronDown,
-    Terminal, AlertTriangle, Bug, Code, Cpu, Monitor, RefreshCcw, CheckCheck, Zap,
+    Terminal, AlertTriangle, Bug, Code, Cpu, Monitor, RefreshCcw, RotateCcw, CheckCheck, Zap,
     UploadCloud, Clapperboard, AlertCircle, GripVertical,
     BookOpen, BookMarked, BookText
 } from 'lucide-react';
@@ -2040,8 +2040,10 @@ function TheaterPageContent() {
     const [runningBookModalTask, setRunningBookModalTask] = useState<string | null>(null);
     const [curatingChapterModal, setCuratingChapterModal] = useState<any | null>(null);
 
-    // ── Audiobook Shelf View Switcher (Books & Collections vs. Authors), Collections & File Renamer States ──
-    const [audiobookShelfViewMode, setAudiobookShelfViewMode] = useState<'books' | 'authors'>('books');
+    // ── Audiobook Shelf View Switcher (Books & Collections vs. Authors vs. Processing Queue), Collections & File Renamer States ──
+    const [audiobookShelfViewMode, setAudiobookShelfViewMode] = useState<'books' | 'authors' | 'queue'>('books');
+    const [audiobookQueueBreakdown, setAudiobookQueueBreakdown] = useState<any>(null);
+    const [audiobookQueueHistory, setAudiobookQueueHistory] = useState<any[]>([]);
     const [selectedShelfAuthor, setSelectedShelfAuthor] = useState<string | null>(null);
     const [audiobookCollectionsState, setAudiobookCollectionsState] = useState<{
         collections: Array<{ id: string; name: string; author: string; description?: string; bookKeys: string[]; source: string }>;
@@ -2122,6 +2124,12 @@ function TheaterPageContent() {
                 setAudiobooksStudioMap(map);
                 setAudiobookStudioStatus(data.status || null);
                 setAudiobookStudioConfig(data.config || null);
+                if (data.queueBreakdown) {
+                    setAudiobookQueueBreakdown(data.queueBreakdown);
+                }
+                if (data.queueHistory) {
+                    setAudiobookQueueHistory(data.queueHistory);
+                }
                 if (data.collectionsState) {
                     setAudiobookCollectionsState(data.collectionsState);
                 }
@@ -2366,6 +2374,115 @@ function TheaterPageContent() {
             toast.error(`Error: ${e.message}`);
         } finally {
             setRunningBookModalTask(null);
+        }
+    };
+
+    const handleToggleCustomCoverForBook = async (book: any) => {
+        if (!book) return;
+        const bKey = book.bookKey || `${book.author || 'Unknown Author'} - ${book.title}`.toLowerCase().trim();
+        const bMeta = audiobooksStudioMap[bKey];
+        if (!bMeta?.custom_cover_url) {
+            toast.info(`Painting bespoke AI cover for "${book.cleanTitle || book.title}"...`);
+            try {
+                const res = await fetch('/api/theater/audiobooks/studio', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'generate_book_cover', bookKey: bKey, activateImmediately: true })
+                });
+                const data = await res.json();
+                if (data.success && data.book) {
+                    setAudiobooksStudioMap(prev => ({ ...prev, [bKey]: data.book }));
+                    toast.success('Custom AI cover generated & set active!');
+                } else {
+                    toast.error(data.error || 'Failed to generate cover');
+                }
+            } catch {
+                toast.error('Failed to generate cover');
+            }
+            return;
+        }
+        const nextVal = !bMeta.use_custom_cover;
+        try {
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'toggle_custom_cover', bookKey: bKey, useCustomCover: nextVal })
+            });
+            const data = await res.json();
+            if (data.success && data.book) {
+                setAudiobooksStudioMap(prev => ({ ...prev, [bKey]: data.book }));
+                toast.success(nextVal ? 'Switched to Custom AI Cover' : 'Switched to Original Cover');
+            }
+        } catch {
+            toast.error('Failed to toggle cover');
+        }
+    };
+
+    const handleQueueWholeBook = async (book: any) => {
+        if (!book) return;
+        const bKey = book.bookKey || `${book.author || 'Unknown Author'} - ${book.title}`.toLowerCase().trim();
+        try {
+            toast.info(`Queueing whole book "${book.cleanTitle || book.title}" (Structure → Cover → Transcriptions → Scene Art → Voices)...`);
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'queue_whole_book',
+                    bookKey: bKey,
+                    title: book.title || book.cleanTitle,
+                    author: book.author,
+                    folder: book.folder,
+                    posterUrl: book.posterUrl,
+                    chapters: (book.chapters || []).map((c: any, idx: number) => ({
+                        id: c.id,
+                        chapterKey: c.chapterKey || c.id,
+                        title: c.title || c.name,
+                        path: c.path,
+                        trackNumber: c.trackNumber || idx + 1,
+                        durationSec: (c.durationMs || 0) / 1000
+                    }))
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                toast.success(`"${book.cleanTitle || book.title}" queued for whole-book processing!`);
+                fetchAudiobooksStudioOverview();
+            } else {
+                toast.error(data.error || 'Failed to queue book');
+            }
+        } catch {
+            toast.error('Failed to queue book');
+        }
+    };
+
+    const handleResetAndRedoBookAssets = async (book: any, target: 'transcriptions' | 'art' | 'voices' | 'all' = 'all', chapterKey?: string) => {
+        if (!book) return;
+        const bKey = book.bookKey || `${book.author || 'Unknown Author'} - ${book.title}`.toLowerCase().trim();
+        try {
+            toast.info(`Resetting & re-processing ${target} for "${book.cleanTitle || book.title}"...`);
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'reset_and_redo',
+                    bookKey: bKey,
+                    chapterKey,
+                    target,
+                    redoNow: true
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                toast.success(`Cleared old ${target} & queued fresh re-processing!`);
+                fetchAudiobooksStudioOverview();
+                if (selectedAudiobook) {
+                    loadBookStudioChapters(book);
+                }
+            } else {
+                toast.error(data.error || 'Failed to reset and redo');
+            }
+        } catch {
+            toast.error('Failed to reset and redo assets');
         }
     };
 
@@ -5243,8 +5360,8 @@ function TheaterPageContent() {
                                     </div>
                                 </div>
 
-                                {/* ── Swap Between "Books & Collections" and "Authors" Views ── */}
-                                <div className="flex items-center gap-2 bg-black/60 p-1.5 rounded-2xl border border-amber-800/40 self-stretch sm:self-auto">
+                                {/* ── Swap Between "Books & Collections", "Authors" and "Processing Queue & History" Views ── */}
+                                <div className="flex items-center gap-2 bg-black/60 p-1.5 rounded-2xl border border-amber-800/40 self-stretch sm:self-auto flex-wrap sm:flex-nowrap">
                                     <button
                                         onClick={() => setAudiobookShelfViewMode('books')}
                                         className={`flex-1 sm:flex-initial px-4 py-2.5 rounded-xl font-black text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${
@@ -5266,6 +5383,17 @@ function TheaterPageContent() {
                                     >
                                         <User size={15} />
                                         Authors ({audiobookShelfData.authorsList.length})
+                                    </button>
+                                    <button
+                                        onClick={() => setAudiobookShelfViewMode('queue')}
+                                        className={`flex-1 sm:flex-initial px-4 py-2.5 rounded-xl font-black text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                                            audiobookShelfViewMode === 'queue'
+                                                ? 'bg-amber-400 text-black shadow-lg shadow-amber-500/25'
+                                                : 'text-amber-200/70 hover:text-white hover:bg-white/5'
+                                        }`}
+                                    >
+                                        <ArrowUpDown size={15} />
+                                        Processing Queue &amp; History
                                     </button>
                                 </div>
                             </div>
@@ -5497,6 +5625,9 @@ function TheaterPageContent() {
                                 const hasCustomBookSettings = Boolean(bMeta?.art_style || bMeta?.voice_preset || bMeta?.images_per_chapter);
                                 const isOptimized = Boolean(book.hasOptimizedAudio || enhCh > 0);
 
+                                const customCoverActive = Boolean(bMeta?.use_custom_cover && bMeta?.custom_cover_url);
+                                const effectiveCoverUrl = customCoverActive ? bMeta.custom_cover_url : book.posterUrl;
+
                                 return (
                                     <div
                                         key={book.bookKey}
@@ -5507,9 +5638,9 @@ function TheaterPageContent() {
                                         <div className="absolute inset-y-0 left-0 w-3 bg-gradient-to-r from-white/20 via-black/40 to-transparent z-20 pointer-events-none" />
 
                                         <div className="relative aspect-[4/5] bg-zinc-900 overflow-hidden flex items-center justify-center border-b border-amber-950/70">
-                                            {book.posterUrl ? (
+                                            {effectiveCoverUrl ? (
                                                 <img
-                                                    src={book.posterUrl}
+                                                    src={effectiveCoverUrl}
                                                     alt={book.cleanTitle}
                                                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                                                     loading="lazy"
@@ -5521,6 +5652,19 @@ function TheaterPageContent() {
                                                     <span className="text-[11px] text-amber-300/60 line-clamp-1">{book.author}</span>
                                                 </div>
                                             )}
+
+                                            {/* Top Right Custom Cover Toggle Symbol / Badge */}
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleToggleCustomCoverForBook(book);
+                                                }}
+                                                className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-lg bg-black/85 backdrop-blur-md border border-amber-500/40 text-amber-300 text-[10px] font-black uppercase shadow z-20 flex items-center gap-1 hover:scale-105 transition-all cursor-pointer"
+                                                title={bMeta?.custom_cover_url ? (customCoverActive ? 'Custom Cover Active (Click to switch to Original)' : 'Original Cover Active (Click to switch to Custom)') : 'Generate Bespoke AI Cover'}
+                                            >
+                                                <Sparkles size={10} className={customCoverActive ? 'text-emerald-400' : 'text-amber-400'} />
+                                                <span>{bMeta?.custom_cover_url ? (customCoverActive ? 'Custom' : 'Original') : '+ AI Cover'}</span>
+                                            </button>
 
                                             {/* Hover Action Overlay */}
                                             <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent opacity-0 group-hover:opacity-100 flex items-center justify-center gap-2 transition-all duration-300 z-30">
@@ -5536,6 +5680,16 @@ function TheaterPageContent() {
                                                     title="Open & Listen in Book Player"
                                                 >
                                                     <Play size={19} className="ml-0.5 fill-black" />
+                                                </button>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleQueueWholeBook(book);
+                                                    }}
+                                                    className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-orange-500 text-black flex items-center justify-center hover:from-amber-400 hover:to-orange-400 transition-all cursor-pointer shadow-lg"
+                                                    title="Queue Whole Book (Structure → Cover → Transcriptions → Scene Art → Voices)"
+                                                >
+                                                    <BookOpen size={16} />
                                                 </button>
                                                 <button
                                                     onClick={(e) => {
@@ -5843,6 +5997,270 @@ function TheaterPageContent() {
                                     })}
                                 </div>
                             );
+
+                            if (audiobookShelfViewMode === 'queue') {
+                                const artQueue = audiobookQueueBreakdown?.artQueue || [];
+                                const transcriptionQueue = audiobookQueueBreakdown?.transcriptionQueue || [];
+                                const voiceQueue = audiobookQueueBreakdown?.voiceQueue || [];
+                                const historyList = audiobookQueueHistory || [];
+
+                                return (
+                                    <div className="space-y-6 animate-in fade-in duration-200">
+                                        {/* ── Live Worker Progress Banner & Quick Queue Actions ── */}
+                                        <div className="p-5 sm:p-6 rounded-3xl bg-gradient-to-r from-[#18110a] via-[#120c08] to-[#18110a] border border-amber-500/30 shadow-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                                            <div className="flex items-start sm:items-center gap-3.5">
+                                                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 border ${
+                                                    audiobookStudioStatus?.isRunning
+                                                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse'
+                                                        : 'bg-zinc-900 text-zinc-400 border-zinc-800'
+                                                }`}>
+                                                    <Activity size={24} className={audiobookStudioStatus?.isRunning ? 'animate-spin' : ''} />
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <h4 className="text-base sm:text-lg font-black text-white">
+                                                            {audiobookStudioStatus?.isRunning ? 'Studio Background Worker Active' : 'Studio Queue Ready (Idle)'}
+                                                        </h4>
+                                                        {audiobookStudioStatus?.isRunning && (
+                                                            <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-mono font-black uppercase">
+                                                                Live Processing
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <p className="text-xs sm:text-sm text-amber-200/70">
+                                                        {audiobookStudioStatus?.isRunning
+                                                            ? `Working on "${audiobookStudioStatus.currentBookTitle}" • ${audiobookStudioStatus.currentChapterTitle} (${audiobookStudioStatus.currentStage})`
+                                                            : (audiobookStudioStatus?.lastMessage || 'All background queue items are organized and processed using Unraid-friendly single CPU threads.')}
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex items-center gap-2 flex-wrap self-stretch sm:self-auto">
+                                                <button
+                                                    onClick={async () => {
+                                                        await fetch('/api/theater/audiobooks/studio', {
+                                                            method: 'POST',
+                                                            headers: { 'Content-Type': 'application/json' },
+                                                            body: JSON.stringify({ action: 'trigger_worker' })
+                                                        });
+                                                        toast.success('Triggered background queue worker');
+                                                        fetchAudiobooksStudioOverview();
+                                                    }}
+                                                    className="px-4 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer shadow-lg shadow-amber-500/20"
+                                                >
+                                                    <RefreshCw size={14} /> Process Queue Now
+                                                </button>
+                                                <button
+                                                    onClick={() => setShowAudiobookQueueModal(true)}
+                                                    className="px-4 py-2.5 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 font-bold text-xs sm:text-sm flex items-center gap-2 transition-all cursor-pointer"
+                                                >
+                                                    <ArrowUpDown size={14} className="text-amber-400" /> Manage Priority Order
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* ── Upcoming Items in Dedicated Queues (Art, Transcriptions, Voices) ── */}
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                                            {/* 1. Art Queue (Priority: Cover -> Chapters -> Scenes) */}
+                                            <div className="p-5 rounded-3xl bg-zinc-950/80 border border-purple-500/30 space-y-3.5 shadow-xl flex flex-col">
+                                                <div className="flex items-center justify-between border-b border-purple-900/40 pb-3">
+                                                    <div className="flex items-center gap-2">
+                                                        <Sparkles size={16} className="text-purple-400" />
+                                                        <h4 className="text-sm font-black uppercase tracking-wider text-purple-200">
+                                                            Art Queue
+                                                        </h4>
+                                                    </div>
+                                                    <span className="px-2.5 py-0.5 rounded-lg bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[10px] font-mono font-black">
+                                                        {artQueue.length} Upcoming
+                                                    </span>
+                                                </div>
+                                                <p className="text-[11px] text-zinc-400 leading-snug">
+                                                    Strict Priority: <span className="text-amber-300 font-bold">1. Cover</span> → <span className="text-purple-300 font-bold">2. Chapter</span> → <span className="text-emerald-300 font-bold">3. Narrative Scenes</span>.
+                                                </p>
+                                                <div className="flex-1 space-y-2 overflow-y-auto max-h-72 custom-scrollbar pr-1">
+                                                    {artQueue.length === 0 ? (
+                                                        <div className="py-10 text-center text-xs text-zinc-600">
+                                                            No pending art items in queue.
+                                                        </div>
+                                                    ) : (
+                                                        artQueue.map((item: any, idx: number) => (
+                                                            <div key={idx} className="p-3 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 space-y-1">
+                                                                <div className="flex items-center justify-between text-[10px]">
+                                                                    <span className={`px-2 py-0.5 rounded font-black uppercase ${
+                                                                        item.priority === 1
+                                                                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                                                            : item.priority === 2
+                                                                            ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40'
+                                                                            : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                                                    }`}>
+                                                                        {item.priority === 1 ? 'Priority #1 Cover' : item.priority === 2 ? 'Priority #2 Chapter' : 'Priority #3 Scene'}
+                                                                    </span>
+                                                                    <span className="text-zinc-500 font-mono">#{idx + 1}</span>
+                                                                </div>
+                                                                <div className="text-xs font-black text-white truncate">{item.bookTitle}</div>
+                                                                <div className="text-[11px] text-zinc-400 truncate">{item.chapterTitle || 'Book Cover Illustration'}</div>
+                                                            </div>
+                                                        ))
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* 2. Transcription Queue */}
+                                            <div className="p-5 rounded-3xl bg-zinc-950/80 border border-amber-500/30 space-y-3.5 shadow-xl flex flex-col">
+                                                <div className="flex items-center justify-between border-b border-amber-900/40 pb-3">
+                                                    <div className="flex items-center gap-2">
+                                                        <FileText size={16} className="text-amber-400" />
+                                                        <h4 className="text-sm font-black uppercase tracking-wider text-amber-200">
+                                                            Transcription Queue
+                                                        </h4>
+                                                    </div>
+                                                    <span className="px-2.5 py-0.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-mono font-black">
+                                                        {transcriptionQueue.length} Upcoming
+                                                    </span>
+                                                </div>
+                                                <p className="text-[11px] text-zinc-400 leading-snug">
+                                                    Multimodal STT via Gemini 2.0 Flash / Groq / OpenAI Whisper with physical LRC/TXT storage on server.
+                                                </p>
+                                                <div className="flex-1 space-y-2 overflow-y-auto max-h-72 custom-scrollbar pr-1">
+                                                    {transcriptionQueue.length === 0 ? (
+                                                        <div className="py-10 text-center text-xs text-zinc-600">
+                                                            No pending transcription jobs in queue.
+                                                        </div>
+                                                    ) : (
+                                                        transcriptionQueue.map((item: any, idx: number) => (
+                                                            <div key={idx} className="p-3 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 space-y-1">
+                                                                <div className="flex items-center justify-between text-[10px]">
+                                                                    <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 font-black uppercase">
+                                                                        Speech STT
+                                                                    </span>
+                                                                    <span className="text-zinc-500 font-mono">#{idx + 1}</span>
+                                                                </div>
+                                                                <div className="text-xs font-black text-white truncate">{item.bookTitle}</div>
+                                                                <div className="text-[11px] text-zinc-400 truncate">{item.chapterTitle}</div>
+                                                            </div>
+                                                        ))
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* 3. Voice & Audio Clarity Queue */}
+                                            <div className="p-5 rounded-3xl bg-zinc-950/80 border border-emerald-500/30 space-y-3.5 shadow-xl flex flex-col">
+                                                <div className="flex items-center justify-between border-b border-emerald-900/40 pb-3">
+                                                    <div className="flex items-center gap-2">
+                                                        <Headphones size={16} className="text-emerald-400" />
+                                                        <h4 className="text-sm font-black uppercase tracking-wider text-emerald-200">
+                                                            Voice & Audio Queue
+                                                        </h4>
+                                                    </div>
+                                                    <span className="px-2.5 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-mono font-black">
+                                                        {voiceQueue.length} Upcoming
+                                                    </span>
+                                                </div>
+                                                <p className="text-[11px] text-zinc-400 leading-snug">
+                                                    Spectral noise reduction (<code className="text-emerald-300">afftdn</code>) and multi-timbre narrator transformation.
+                                                </p>
+                                                <div className="flex-1 space-y-2 overflow-y-auto max-h-72 custom-scrollbar pr-1">
+                                                    {voiceQueue.length === 0 ? (
+                                                        <div className="py-10 text-center text-xs text-zinc-600">
+                                                            No pending audio enhance jobs in queue.
+                                                        </div>
+                                                    ) : (
+                                                        voiceQueue.map((item: any, idx: number) => (
+                                                            <div key={idx} className="p-3 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 space-y-1">
+                                                                <div className="flex items-center justify-between text-[10px]">
+                                                                    <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-black uppercase">
+                                                                        {item.voicePreset || 'Enhance'}
+                                                                    </span>
+                                                                    <span className="text-zinc-500 font-mono">#{idx + 1}</span>
+                                                                </div>
+                                                                <div className="text-xs font-black text-white truncate">{item.bookTitle}</div>
+                                                                <div className="text-[11px] text-zinc-400 truncate">{item.chapterTitle}</div>
+                                                            </div>
+                                                        ))
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* ── Completed Processing History Log with 1-Click Redo ── */}
+                                        <div className="p-5 sm:p-6 rounded-3xl bg-[#0f0c09] border border-amber-900/35 space-y-4 shadow-2xl">
+                                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-amber-900/30 pb-4">
+                                                <div>
+                                                    <h4 className="text-base sm:text-lg font-black text-white flex items-center gap-2">
+                                                        <RotateCcw size={16} className="text-amber-400" />
+                                                        Completed Processing History &amp; Redo Tool
+                                                    </h4>
+                                                    <p className="text-xs text-zinc-400 mt-0.5">
+                                                        Detailed log of completed assets stored on the server disk with timestamps, providers, and clean 1-click redo actions.
+                                                    </p>
+                                                </div>
+                                                <span className="px-3 py-1 rounded-xl bg-black/60 border border-amber-900/40 text-xs font-mono font-bold text-amber-300 self-start sm:self-auto">
+                                                    {historyList.length} Logged Runs
+                                                </span>
+                                            </div>
+
+                                            {historyList.length === 0 ? (
+                                                <div className="py-16 text-center text-xs text-zinc-600">
+                                                    No completed jobs logged yet. Queue a book to see real-time history and providers.
+                                                </div>
+                                            ) : (
+                                                <div className="divide-y divide-zinc-900/80 bg-black/40 rounded-2xl border border-zinc-900 overflow-hidden">
+                                                    {historyList.map((entry: any) => (
+                                                        <div key={entry.id} className="p-3.5 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 hover:bg-white/[0.02] transition-colors">
+                                                            <div className="space-y-1 min-w-0">
+                                                                <div className="flex items-center gap-2 flex-wrap">
+                                                                    <span className="text-[11px] font-mono text-zinc-500">
+                                                                        {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                                                    </span>
+                                                                    <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                                                                        entry.target === 'cover'
+                                                                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                                                            : entry.target === 'scene' || entry.target === 'chapter'
+                                                                            ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                                                                            : entry.target === 'transcript'
+                                                                            ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                                                                            : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                                                    }`}>
+                                                                        {entry.target || entry.taskType}
+                                                                    </span>
+                                                                    <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 text-[10px] font-mono">
+                                                                        {entry.provider}
+                                                                    </span>
+                                                                    <span className="text-xs font-bold text-white truncate max-w-xs">
+                                                                        {entry.bookTitle}
+                                                                    </span>
+                                                                </div>
+                                                                <div className="text-xs text-zinc-400 truncate flex items-center gap-2">
+                                                                    <span>{entry.chapterTitle || 'Book Level Asset'}</span>
+                                                                    {entry.filePath && (
+                                                                        <span className="font-mono text-[10px] text-zinc-600 truncate max-w-md" title={entry.filePath}>
+                                                                            • {entry.filePath}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+
+                                                            <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+                                                                <button
+                                                                    onClick={() => handleResetAndRedoBookAssets(
+                                                                        { bookKey: entry.bookKey, cleanTitle: entry.bookTitle },
+                                                                        entry.target === 'cover' || entry.target === 'chapter' || entry.target === 'scene' ? 'art' : entry.target === 'transcript' ? 'transcriptions' : 'voices',
+                                                                        entry.chapterKey
+                                                                    )}
+                                                                    className="px-3 py-1.5 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+                                                                    title="Delete this asset and redo clean processing"
+                                                                >
+                                                                    <RotateCcw size={12} /> Redo
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            }
 
                             if (audiobookShelfViewMode === 'authors') {
                                 const visibleAuthors = selectedShelfAuthor
@@ -7260,18 +7678,37 @@ function TheaterPageContent() {
                             {/* Left Column: Main Book Artwork + Total Progress Directly Below It */}
                             <div className="w-44 sm:w-52 shrink-0 space-y-3">
                                 <div className="w-full aspect-square rounded-3xl bg-zinc-900 border border-zinc-800 overflow-hidden flex items-center justify-center text-orange-400 shadow-2xl relative">
-                                    {audiobookDetails?.coverUrl || selectedAudiobook.posterUrl ? (
-                                        <img
-                                            src={audiobookDetails?.coverUrl || selectedAudiobook.posterUrl}
-                                            alt={selectedAudiobook.title}
-                                            className="w-full h-full object-cover"
-                                        />
-                                    ) : (
-                                        <div className="flex flex-col items-center gap-2 text-zinc-600">
-                                            <BookOpen size={64} className="text-orange-500/40" />
-                                            <span className="text-[10px] font-mono text-zinc-500">Audiobook</span>
-                                        </div>
-                                    )}
+                                    {(() => {
+                                        const customCoverActive = Boolean(bMeta?.use_custom_cover && bMeta?.custom_cover_url);
+                                        const effectiveCoverUrl = customCoverActive ? bMeta.custom_cover_url : (audiobookDetails?.coverUrl || selectedAudiobook.posterUrl);
+
+                                        return effectiveCoverUrl ? (
+                                            <>
+                                                <img
+                                                    src={effectiveCoverUrl}
+                                                    alt={selectedAudiobook.title}
+                                                    className="w-full h-full object-cover"
+                                                />
+                                                {/* Top Right Custom Cover Toggle Symbol / Badge */}
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleToggleCustomCoverForBook(selectedAudiobook);
+                                                    }}
+                                                    className="absolute top-2.5 right-2.5 px-2.5 py-1 rounded-xl bg-black/85 hover:bg-black text-amber-300 border border-amber-500/40 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-lg cursor-pointer z-20 backdrop-blur-md transition-all hover:scale-105"
+                                                    title={bMeta?.custom_cover_url ? (customCoverActive ? 'Custom AI Cover Active (Click to switch to Original)' : 'Original Cover Active (Click to switch to Custom AI)') : 'Generate Bespoke AI Cover'}
+                                                >
+                                                    <Sparkles size={11} className={customCoverActive ? 'text-emerald-400' : 'text-amber-400'} />
+                                                    <span>{bMeta?.custom_cover_url ? (customCoverActive ? 'Custom Cover' : 'Original Cover') : '+ AI Cover'}</span>
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <div className="flex flex-col items-center gap-2 text-zinc-600">
+                                                <BookOpen size={64} className="text-orange-500/40" />
+                                                <span className="text-[10px] font-mono text-zinc-500">Audiobook</span>
+                                            </div>
+                                        );
+                                    })()}
                                     {isBookQueued && (
                                         <div className="absolute top-2.5 left-2.5 px-2.5 py-0.5 rounded-lg bg-amber-500 text-black text-[10px] font-black uppercase shadow">
                                             Queue #{bMeta?.queue_order || 1}
@@ -7377,6 +7814,46 @@ function TheaterPageContent() {
                                     </button>
 
                                     <button
+                                        onClick={() => handleQueueWholeBook(selectedAudiobook)}
+                                        className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-xs uppercase tracking-wider transition-all flex items-center gap-2 shadow-lg shadow-orange-500/20 cursor-pointer"
+                                        title="Queue all stages for this book: Real Literary Structure → Cover Art → Transcriptions → Chapter Art → Scene Art → Voices"
+                                    >
+                                        <BookOpen size={15} /> Queue Whole Book
+                                    </button>
+
+                                    {/* Delete & Redo Toolset for Whole Book */}
+                                    <div className="flex items-center gap-1 bg-black/60 p-1 rounded-2xl border border-red-500/30 flex-wrap">
+                                        <button
+                                            onClick={() => handleResetAndRedoBookAssets(selectedAudiobook, 'transcriptions')}
+                                            className="px-2.5 py-1.5 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-300 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all"
+                                            title="Delete existing transcriptions and redo speech STT for all chapters of this book"
+                                        >
+                                            <RotateCcw size={11} /> Redo STT
+                                        </button>
+                                        <button
+                                            onClick={() => handleResetAndRedoBookAssets(selectedAudiobook, 'art')}
+                                            className="px-2.5 py-1.5 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-300 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all"
+                                            title="Delete existing cover & scene art and repaint for this book"
+                                        >
+                                            <RotateCcw size={11} /> Redo Art
+                                        </button>
+                                        <button
+                                            onClick={() => handleResetAndRedoBookAssets(selectedAudiobook, 'voices')}
+                                            className="px-2.5 py-1.5 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-300 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all"
+                                            title="Delete all processed voice files and redo audio processing"
+                                        >
+                                            <RotateCcw size={11} /> Redo Voices
+                                        </button>
+                                        <button
+                                            onClick={() => handleResetAndRedoBookAssets(selectedAudiobook, 'all')}
+                                            className="px-2.5 py-1.5 rounded-xl bg-red-500/25 hover:bg-red-500/40 text-red-200 text-[11px] font-black flex items-center gap-1 cursor-pointer transition-all"
+                                            title="Wipe all chapter assets (transcripts, images, voices) and re-process from scratch"
+                                        >
+                                            <Trash2 size={11} /> Reset All
+                                        </button>
+                                    </div>
+
+                                    <button
                                         onClick={() => setShowBookStudioSettings(prev => !prev)}
                                         className={`px-4 py-2.5 rounded-2xl font-black text-xs uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer border ${
                                             showBookStudioSettings
@@ -7385,7 +7862,7 @@ function TheaterPageContent() {
                                         }`}
                                         title="Edit Art Style, Narrator Voice, Scene Count & Dynamic Prompt settings specifically for this book"
                                     >
-                                        <Sliders size={14} /> Book Settings (This Book)
+                                        <Sliders size={14} /> Book Settings
                                     </button>
 
                                     <button
