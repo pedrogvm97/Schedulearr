@@ -1,2 +1,2 @@
 // Application-wide constants
-export const APP_VERSION = "v0.1.44";
+export const APP_VERSION = "v0.6.1";
