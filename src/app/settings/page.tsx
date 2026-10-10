@@ -551,7 +551,7 @@ export default function Settings() {
         }
     };
 
-    const [availableReleases, setAvailableReleases] = useState<{ tag: string; name: string; publishedAt: string }[]>([]);
+    const [availableReleases, setAvailableReleases] = useState<{ tag: string; name: string; publishedAt: string; changelog?: string }[]>([]);
     const [selectedReleaseTag, setSelectedReleaseTag] = useState<string>('');
 
     const fetchVersionInfo = async () => {
@@ -2757,26 +2757,39 @@ export default function Settings() {
                         )}
 
                         {/* Changelog & Patch Notes panel */}
-                        {versionInfo?.changelog && (
-                            <div className="px-6 pb-6 pt-3 border-t border-zinc-800/60 bg-zinc-950/40 rounded-b-2xl">
-                                <div className="flex items-center justify-between mb-2">
-                                    <span className="text-[11px] text-emerald-400 font-black uppercase tracking-wider flex items-center gap-1.5">
-                                        {versionInfo.updateAvailable ? 'New Update Patch Notes' : `What's New in v${versionInfo.currentVersion}`}
-                                    </span>
-                                    <a
-                                        href="https://github.com/pedrogvm97/Schedulearr/commits/main"
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="text-[10px] text-zinc-500 hover:text-zinc-300 font-bold underline"
-                                    >
-                                        GitHub Commits
-                                    </a>
-                                </div>
-                                <div className="text-xs text-zinc-300 font-mono whitespace-pre-wrap max-h-44 overflow-y-auto leading-relaxed border border-zinc-800/80 p-4 rounded-xl bg-zinc-950/80 shadow-inner custom-scrollbar">
-                                    {versionInfo.changelog}
-                                </div>
+                        <div className="px-6 pb-6 pt-4 border-t border-zinc-800/60 bg-zinc-950/40 rounded-b-2xl space-y-3">
+                            <div className="flex items-center justify-between flex-wrap gap-2">
+                                <span className="text-xs text-emerald-400 font-black uppercase tracking-wider flex items-center gap-1.5">
+                                    <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                                    {versionInfo?.updateAvailable
+                                        ? `New Update Patch Notes (v${versionInfo.latestVersion})`
+                                        : `Recent Git Commit & Update Notes (v${versionInfo?.currentVersion || '0.6.3'})`}
+                                </span>
+                                <a
+                                    href="https://github.com/pedrogvm97/Schedulearr/commits/main"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-xs text-zinc-400 hover:text-white font-bold underline"
+                                >
+                                    View Full GitHub Commit Log ↗
+                                </a>
                             </div>
-                        )}
+
+                            {(() => {
+                                const selectedRel = availableReleases.find(r => r.tag === selectedReleaseTag);
+                                const selectedNotes = selectedRel?.changelog?.trim();
+                                const mainNotes = versionInfo?.changelog?.trim();
+                                const combinedNotes = (selectedNotes && mainNotes && !mainNotes.includes(selectedNotes))
+                                    ? `[Selected Version ${selectedReleaseTag}]\n${selectedNotes}\n\n[Recent Git Commits on main]\n${mainNotes}`
+                                    : (mainNotes || selectedNotes || 'Fetching latest commit notes from GitHub...');
+
+                                return (
+                                    <div className="text-xs sm:text-sm text-zinc-200 font-mono whitespace-pre-wrap max-h-64 overflow-y-auto leading-relaxed border border-zinc-800/80 p-4 rounded-xl bg-zinc-950/90 shadow-inner custom-scrollbar">
+                                        {combinedNotes}
+                                    </div>
+                                );
+                            })()}
+                        </div>
                     </div>
                 ) : (
                     <div className="p-6 space-y-6 animate-in fade-in duration-300">
@@ -3009,7 +3022,7 @@ export default function Settings() {
                 </div>
                 <div className="text-zinc-600 text-xs text-center md:text-right">
                     &copy; {new Date().getFullYear()} Schedulearr<br />
-                    <span className="opacity-50 mt-1 inline-block">v0.2.2</span>
+                    <span className="opacity-50 mt-1 inline-block">v{versionInfo?.currentVersion || '0.6.3'}</span>
                 </div>
             </div>
                 </div>

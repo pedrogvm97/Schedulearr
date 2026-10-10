@@ -10,6 +10,104 @@ const VIDEO_EXTS = new Set(['.mp4', '.mkv', '.avi', '.mov', '.webm', '.m4v', '.t
 const AUDIO_EXTS = new Set(['.mp3', '.flac', '.wav', '.m4a', '.aac', '.ogg', '.opus', '.wma', '.m4b']);
 const PHOTO_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.svg']);
 
+const GENERIC_FOLDER_OR_TAG_REGEX = /^(\[?unknown(\s+(album|artist|author|book|title))?\]?|various(\s+artists)?|audiobooks?|books?|spoken(\s+word)?|literature|music|audio|media|downloads?|torrents?|mnt|user|data|app|share|storage|library|root|singles?)$/i;
+
+function isGenericOrUnknown(val?: string, libName?: string): boolean {
+    if (!val) return true;
+    const trimmed = val.trim();
+    if (!trimmed || trimmed.length <= 1) return true;
+    if (GENERIC_FOLDER_OR_TAG_REGEX.test(trimmed)) return true;
+    if (libName && trimmed.toLowerCase() === libName.trim().toLowerCase()) return true;
+    return false;
+}
+
+function stripChapterOrPartSuffix(raw: string): string {
+    return raw
+        .replace(/^(\d{1,3}[\s.\-_]+)+/, '')
+        .replace(/[\s.\-_]*\b(chapter|ch|part|pt|track|trk|disc|cd|disk|book|vol|volume|section|episode|ep)\.?\s*\d+(\s*of\s*\d+)?\b.*$/i, '')
+        .replace(/[\s.\-_]*\(\s*(unabridged|abridged|audiobook|part\s*\d+|ch\s*\d+)\s*\)/gi, '')
+        .replace(/[\s.\-_]*\[\s*(unabridged|abridged|audiobook|part\s*\d+|ch\s*\d+)\s*\]/gi, '')
+        .replace(/\s+\d{1,3}$/, '')
+        .trim();
+}
+
+function deriveBookAndAuthor(
+    cleanTitle: string,
+    fullPath: string,
+    libName?: string,
+    rawArtist?: string,
+    rawAlbum?: string
+): { artist: string; album: string; chapterNumber?: number } {
+    const normPath = (fullPath || '').replace(/\\/g, '/');
+    const parts = normPath.split('/').filter(Boolean);
+    // parts[parts.length - 1] is filename, parts[parts.length - 2] is parent dir, parts[parts.length - 3] is grandparent dir
+    const parentDirName = parts.length >= 2 ? parts[parts.length - 2] : '';
+    const grandParentDirName = parts.length >= 3 ? parts[parts.length - 3] : '';
+
+    let artist = !isGenericOrUnknown(rawArtist, libName) ? rawArtist!.trim() : '';
+    let album = !isGenericOrUnknown(rawAlbum, libName) ? rawAlbum!.trim() : '';
+
+    // Check if parent folder is a chapter/CD subfolder (e.g. "CD 1", "Part 1")
+    const isParentDiscFolder = /^(cd|disc|disk|part|pt|book)\s*\d+$/i.test(parentDirName.trim());
+    const effectiveBookDir = isParentDiscFolder ? grandParentDirName : parentDirName;
+    const effectiveAuthorDir = isParentDiscFolder ? (parts.length >= 4 ? parts[parts.length - 4] : '') : grandParentDirName;
+
+    if (!album && !isGenericOrUnknown(effectiveBookDir, libName)) {
+        album = effectiveBookDir.replace(/[._]/g, ' ').trim();
+    }
+    if (!artist && !isGenericOrUnknown(effectiveAuthorDir, libName)) {
+        artist = effectiveAuthorDir.replace(/[._]/g, ' ').trim();
+    }
+
+    // Parse "Author - Book Title" from folder name if folder contains " - "
+    if (album && album.includes(' - ') && (!artist || artist.toLowerCase() === album.toLowerCase())) {
+        const segs = album.split(/\s+[-–—]\s+/);
+        if (segs.length >= 2) {
+            artist = segs[0].trim();
+            album = stripChapterOrPartSuffix(segs.slice(1).join(' - ').trim()) || segs[1].trim();
+        }
+    }
+
+    // Parse "Book Title by Author" from folder or title
+    const byMatch = (album || cleanTitle).match(/^(.+?)\s+by\s+([A-Z][a-zA-Z.\s'-]{2,40})$/i);
+    if (byMatch) {
+        if (!album || isGenericOrUnknown(album, libName)) album = stripChapterOrPartSuffix(byMatch[1].trim());
+        if (!artist) artist = byMatch[2].trim();
+    }
+
+    // If album or artist is still missing, parse from filename / cleanTitle (e.g., "Franz Kafka - The Trial - 01")
+    if (!album || !artist) {
+        const titleWithoutLeadingNum = cleanTitle.replace(/^(\d{1,3}[\s.\-_]+)/, '').trim();
+        const dashSegs = titleWithoutLeadingNum.split(/\s+[-–—]\s+/).filter(Boolean);
+        if (dashSegs.length >= 2) {
+            if (!artist && isNaN(Number(dashSegs[0]))) {
+                artist = dashSegs[0].trim();
+            }
+            if (!album) {
+                const candidateBook = stripChapterOrPartSuffix(dashSegs[1].trim());
+                album = candidateBook || dashSegs[1].trim();
+            }
+        }
+    }
+
+    if (!album) {
+        const stripped = stripChapterOrPartSuffix(cleanTitle);
+        album = stripped || cleanTitle || 'Audiobook';
+    }
+    if (!artist) {
+        artist = 'Unknown Author';
+    }
+
+    // Extract track/chapter number if present
+    let chapterNumber: number | undefined = undefined;
+    const chMatch = cleanTitle.match(/(?:chapter|ch|part|pt|track)\s*(\d{1,3})/i) || cleanTitle.match(/^(\d{1,3})\b/);
+    if (chMatch) {
+        chapterNumber = parseInt(chMatch[1], 10);
+    }
+
+    return { artist, album, chapterNumber };
+}
+
 function scanDirectory(dirPath: string, maxDepth = 8, currentDepth = 0, lib?: any): any[] {
     if (currentDepth > maxDepth || !fs.existsSync(dirPath)) return [];
 
@@ -42,13 +140,25 @@ function scanDirectory(dirPath: string, maxDepth = 8, currentDepth = 0, lib?: an
                         let posterUrl: string | undefined = undefined;
                         let artist: string | undefined = undefined;
                         let album: string | undefined = undefined;
+                        let trackNumber: number | undefined = undefined;
+                        const isAudiobookItem = lib?.type === 'audiobooks' || ext === '.m4b';
 
                         if (mediaCategory === 'audio') {
-                            album = path.basename(dirPath);
+                            const rawDirAlbum = path.basename(dirPath);
                             const parentDir = path.dirname(dirPath);
-                            artist = path.basename(parentDir);
+                            const rawDirArtist = path.basename(parentDir);
 
-                            // Auto-detect local companion album cover
+                            if (isAudiobookItem) {
+                                const derived = deriveBookAndAuthor(cleanTitle, fullPath, lib?.name, rawDirArtist, rawDirAlbum);
+                                artist = derived.artist;
+                                album = derived.album;
+                                trackNumber = derived.chapterNumber;
+                            } else {
+                                album = !isGenericOrUnknown(rawDirAlbum, lib?.name) ? rawDirAlbum : cleanTitle;
+                                artist = !isGenericOrUnknown(rawDirArtist, lib?.name) ? rawDirArtist : 'Unknown Artist';
+                            }
+
+                            // Auto-detect local companion album/book cover
                             for (const coverName of ['cover.jpg', 'cover.png', 'folder.jpg', 'folder.png', 'front.jpg', 'album.jpg', 'albumart.jpg']) {
                                 const coverPath = path.join(dirPath, coverName);
                                 if (fs.existsSync(coverPath)) {
@@ -66,6 +176,8 @@ function scanDirectory(dirPath: string, maxDepth = 8, currentDepth = 0, lib?: an
                             folder: path.basename(dirPath),
                             artist,
                             album,
+                            trackNumber,
+                            isAudiobook: isAudiobookItem,
                             category: mediaCategory,
                             extension: ext.replace('.', '').toUpperCase(),
                             sizeBytes: stat.size,
@@ -197,17 +309,26 @@ export async function GET(req: Request) {
             return NextResponse.json({ error: 'Library not found' }, { status: 404 });
         }
 
+        const isAudiobooksLib = lib.type === 'audiobooks' || /\b(audiobooks?|spoken\s*word)\b/i.test(lib.name || '');
+
         // Check local SQLite cache first for instant (<5ms) responses
         if (!refresh) {
             const cached = getCachedTheaterItems(libraryId);
             if (cached && cached.items && cached.items.length > 0) {
-                return NextResponse.json({
-                    library: lib,
-                    items: cached.items,
-                    total: cached.items.length,
-                    cached: true,
-                    cachedAt: cached.updatedAt
-                });
+                const hasStaleAudiobookCache = isAudiobooksLib && cached.items.some((it: any) =>
+                    !it.isAudiobook ||
+                    isGenericOrUnknown(it.album, lib.name) ||
+                    !it.streamUrl
+                );
+                if (!hasStaleAudiobookCache) {
+                    return NextResponse.json({
+                        library: lib,
+                        items: cached.items,
+                        total: cached.items.length,
+                        cached: true,
+                        cachedAt: cached.updatedAt
+                    });
+                }
             }
         }
 
@@ -261,7 +382,14 @@ export async function GET(req: Request) {
 
                         // Fallback matching by library type if not matched by name/path
                         if (!match) {
-                            if (lib.type === 'music') {
+                            if (isAudiobooksLib) {
+                                const audioDirs = dirs.filter((d: any) => d.type === 'artist');
+                                match = audioDirs.find((d: any) =>
+                                    /\b(audiobooks?|books?|spoken)\b/i.test(d.title || '') ||
+                                    d.title?.toLowerCase().includes(lib.name.toLowerCase()) ||
+                                    lib.name.toLowerCase().includes(d.title?.toLowerCase())
+                                );
+                            } else if (lib.type === 'music') {
                                 const musicDirs = dirs.filter((d: any) => d.type === 'artist');
                                 if (musicDirs.length === 1) {
                                     match = musicDirs[0];
@@ -286,10 +414,10 @@ export async function GET(req: Request) {
                     }
 
                     if (targetSectionId) {
-                        const isMusic = lib.type === 'music';
+                        const isAudioSection = lib.type === 'music' || isAudiobooksLib;
                         let metadata: any[] = [];
 
-                        if (isMusic) {
+                        if (isAudioSection) {
                             // Try tracks query (?type=10) with generous timeout
                             try {
                                 const res = await axios.get(`${plexUrl}/library/sections/${targetSectionId}/all?type=10`, {
@@ -311,6 +439,40 @@ export async function GET(req: Request) {
                                     metadata = fallbackRes.data?.MediaContainer?.Metadata || [];
                                 } catch {}
                             }
+
+                            // If Plex returned artist/album containers without Media[0].Part[0], expand leaf tracks via /allLeaves
+                            const needsLeafExpansion = metadata.length > 0 && metadata.every((m: any) => !m.Media?.[0]?.Part?.[0] && (m.type === 'artist' || m.type === 'album'));
+                            if (needsLeafExpansion) {
+                                const expandedLeaves: any[] = [];
+                                for (const container of metadata.slice(0, 60)) {
+                                    const rKey = container.ratingKey;
+                                    if (!rKey) continue;
+                                    try {
+                                        const leafRes = await axios.get(`${plexUrl}/library/metadata/${rKey}/allLeaves`, {
+                                            headers: { 'X-Plex-Token': plex.api_key, 'Accept': 'application/json' },
+                                            timeout: 8000
+                                        });
+                                        const leaves = leafRes.data?.MediaContainer?.Metadata || [];
+                                        if (Array.isArray(leaves) && leaves.length > 0) {
+                                            for (const lf of leaves) {
+                                                expandedLeaves.push({
+                                                    ...lf,
+                                                    grandparentTitle: lf.grandparentTitle || (container.type === 'artist' ? container.title : container.parentTitle),
+                                                    parentTitle: lf.parentTitle || (container.type === 'album' ? container.title : undefined),
+                                                    grandparentThumb: lf.grandparentThumb || container.thumb
+                                                });
+                                            }
+                                        } else {
+                                            expandedLeaves.push(container);
+                                        }
+                                    } catch {
+                                        expandedLeaves.push(container);
+                                    }
+                                }
+                                if (expandedLeaves.length > 0) {
+                                    metadata = expandedLeaves;
+                                }
+                            }
                         } else {
                             const res = await axios.get(`${plexUrl}/library/sections/${targetSectionId}/all`, {
                                 headers: { 'X-Plex-Token': plex.api_key, 'Accept': 'application/json' },
@@ -327,7 +489,7 @@ export async function GET(req: Request) {
                             const posterUrl = thumb ? `/api/proxy?url=${encodeURIComponent(`${plexUrl}${thumb}?X-Plex-Token=${plex.api_key}`)}` : undefined;
 
                             let mediaCategory: 'video' | 'audio' | 'photo' = 'video';
-                            if (lib.type === 'music' || item.type === 'artist' || item.type === 'track' || item.type === 'album') mediaCategory = 'audio';
+                            if (lib.type === 'music' || isAudiobooksLib || item.type === 'artist' || item.type === 'track' || item.type === 'album') mediaCategory = 'audio';
                             else if (lib.type === 'photo' || item.type === 'photo') mediaCategory = 'photo';
 
                             const isShow = item.type === 'show' || lib.type === 'show';
@@ -339,6 +501,39 @@ export async function GET(req: Request) {
                                 ? part.container.toUpperCase() 
                                 : (part?.file ? path.extname(part.file).replace('.', '').toUpperCase() : defaultExt);
 
+                            const isAudiobookItem = isAudiobooksLib || fileExt === 'M4B' || /\b(audiobooks?|spoken\s*word)\b/i.test(localFilePath);
+
+                            let finalArtist: string | undefined = undefined;
+                            let finalAlbum: string | undefined = undefined;
+                            let finalTrackNum: number | undefined = item.index;
+
+                            if (mediaCategory === 'audio') {
+                                const rawPlexArtist = item.grandparentTitle || item.originalTitle || (item.type === 'artist' ? item.title : undefined);
+                                const rawPlexAlbum = item.parentTitle || (item.type === 'album' ? item.title : undefined);
+
+                                if (isAudiobookItem || isGenericOrUnknown(rawPlexAlbum, lib.name) || isGenericOrUnknown(rawPlexArtist, lib.name)) {
+                                    const derived = deriveBookAndAuthor(
+                                        item.title || '',
+                                        localFilePath,
+                                        lib.name,
+                                        rawPlexArtist,
+                                        rawPlexAlbum
+                                    );
+                                    finalArtist = derived.artist;
+                                    finalAlbum = derived.album;
+                                    if (!finalTrackNum && derived.chapterNumber) {
+                                        finalTrackNum = derived.chapterNumber;
+                                    }
+                                } else {
+                                    finalArtist = rawPlexArtist || 'Unknown Artist';
+                                    finalAlbum = rawPlexAlbum || 'Unknown Album';
+                                }
+                            }
+
+                            const effectiveStreamUrl = partKey
+                                ? `/api/theater/stream?plexPart=${encodeURIComponent(partKey)}&instanceId=${plex.id}&ratingKey=${encodeURIComponent(ratingKey)}&localPath=${encodeURIComponent(localFilePath)}`
+                                : (ratingKey ? `/api/theater/stream?ratingKey=${encodeURIComponent(ratingKey)}&instanceId=${plex.id}&localPath=${encodeURIComponent(localFilePath)}` : '');
+
                             plexItems.push({
                                 id: `plex-${item.ratingKey || item.key}`,
                                 name: item.title,
@@ -349,23 +544,24 @@ export async function GET(req: Request) {
                                 isSeries: isShow,
                                 seasonCount: item.childCount || 1,
                                 episodeCount: item.leafCount || 0,
-                                artist: mediaCategory === 'audio' ? (item.grandparentTitle || item.originalTitle || item.parentTitle || 'Unknown Artist') : undefined,
-                                album: mediaCategory === 'audio' ? (item.parentTitle || 'Unknown Album') : undefined,
-                                trackNumber: item.index,
+                                artist: finalArtist,
+                                album: finalAlbum,
+                                trackNumber: finalTrackNum,
+                                isAudiobook: isAudiobookItem,
                                 durationMs: item.duration,
-                                path: part?.file || item.title,
-                                folder: isShow ? item.title : (item.parentTitle || lib.name),
+                                path: localFilePath,
+                                folder: isShow ? item.title : (finalAlbum || item.parentTitle || lib.name),
                                 category: mediaCategory,
                                 extension: fileExt,
                                 sizeBytes: part?.size || 0,
                                 modifiedAt: item.updatedAt ? new Date(item.updatedAt * 1000).toISOString() : new Date().toISOString(),
                                 addedAt: item.addedAt ? new Date(item.addedAt * 1000).toISOString() : (item.updatedAt ? new Date(item.updatedAt * 1000).toISOString() : new Date().toISOString()),
                                 posterUrl,
-                                streamUrl: partKey ? `/api/theater/stream?plexPart=${encodeURIComponent(partKey)}&instanceId=${plex.id}&ratingKey=${encodeURIComponent(ratingKey)}&localPath=${encodeURIComponent(localFilePath)}` : '',
+                                streamUrl: effectiveStreamUrl,
                                 instanceId: plex.id,
                                 instanceName: plex.name || 'Plex',
                                 libraryId: lib.id,
-                                libraryName: lib.name || 'Music',
+                                libraryName: lib.name || (isAudiobookItem ? 'Audiobooks' : 'Music'),
                                 source: `Plex (${plex.name || 'Plex'})`
                             });
                         }
@@ -413,8 +609,12 @@ export async function GET(req: Request) {
                             const lItem = localItems[matchIdx];
                             mergedItems.push({
                                 ...lItem,
+                                artist: !isGenericOrUnknown(lItem.artist, lib.name) ? lItem.artist : (pItem.artist || lItem.artist),
+                                album: !isGenericOrUnknown(lItem.album, lib.name) ? lItem.album : (pItem.album || lItem.album),
+                                isAudiobook: Boolean(lItem.isAudiobook || pItem.isAudiobook || isAudiobooksLib),
                                 ratingKey: pItem.ratingKey,
                                 posterUrl: lItem.posterUrl || pItem.posterUrl,
+                                streamUrl: lItem.streamUrl || pItem.streamUrl,
                                 instanceId: pItem.instanceId,
                                 instanceName: pItem.instanceName,
                                 isLocal: true

@@ -153,7 +153,8 @@ function getMimeType(filePath: string): string {
         case '.mp3': return 'audio/mpeg';
         case '.flac': return 'audio/flac';
         case '.wav': return 'audio/wav';
-        case '.m4a': return 'audio/mp4';
+        case '.m4a':
+        case '.m4b': return 'audio/mp4';
         case '.aac': return 'audio/aac';
         case '.ogg': return 'audio/ogg';
         case '.opus': return 'audio/opus';
@@ -172,7 +173,7 @@ export async function GET(req: NextRequest) {
     try {
         const { searchParams } = new URL(req.url);
         const filePath = searchParams.get('path');
-        const plexPart = searchParams.get('plexPart');
+        let plexPart = searchParams.get('plexPart');
         const instanceId = searchParams.get('instanceId');
         const m3u = searchParams.get('m3u');
         const transcode = searchParams.get('transcode');
@@ -224,7 +225,38 @@ export async function GET(req: NextRequest) {
         const localPath = searchParams.get('localPath');
 
         // Check if local file is directly accessible on the host / container filesystem
-        const effectiveLocalPath = (localPath && resolveLocalPath(localPath)) || (filePath && resolveLocalPath(filePath)) || null;
+        let effectiveLocalPath = (localPath && resolveLocalPath(localPath)) || (filePath && resolveLocalPath(filePath)) || null;
+
+        // If ratingKey is provided without plexPart (e.g. cached audiobook item), resolve part key from Plex metadata
+        if (!plexPart && !effectiveLocalPath && ratingKey) {
+            const plexInstances = getInstances().filter(i => i.type === 'plex' && i.enabled);
+            const plex = instanceId ? plexInstances.find(i => i.id === instanceId) : plexInstances[0];
+            if (plex) {
+                try {
+                    const plexUrlBase = plex.url.replace(/\/$/, '');
+                    const metaRes = await axios.get(`${plexUrlBase}/library/metadata/${encodeURIComponent(ratingKey)}`, {
+                        headers: { 'X-Plex-Token': plex.api_key, 'Accept': 'application/json' },
+                        timeout: 6000
+                    });
+                    let metaItem = metaRes.data?.MediaContainer?.Metadata?.[0];
+                    let part = metaItem?.Media?.[0]?.Part?.[0];
+                    if (!part?.key) {
+                        const leavesRes = await axios.get(`${plexUrlBase}/library/metadata/${encodeURIComponent(ratingKey)}/allLeaves`, {
+                            headers: { 'X-Plex-Token': plex.api_key, 'Accept': 'application/json' },
+                            timeout: 6000
+                        });
+                        metaItem = leavesRes.data?.MediaContainer?.Metadata?.[0];
+                        part = metaItem?.Media?.[0]?.Part?.[0];
+                    }
+                    if (part?.key) {
+                        plexPart = part.key;
+                    }
+                    if (part?.file && !effectiveLocalPath) {
+                        effectiveLocalPath = resolveLocalPath(part.file);
+                    }
+                } catch {}
+            }
+        }
 
         // 1. Plex Stream or Server-Side Transcode Proxy
         if (plexPart && !effectiveLocalPath) {
@@ -239,7 +271,7 @@ export async function GET(req: NextRequest) {
             const normalizedPlexPart = plexPart.startsWith('/') ? plexPart : `/${plexPart}`;
             const sep = normalizedPlexPart.includes('?') ? '&' : '?';
             const fileExt = path.extname(normalizedPlexPart.split('?')[0]).toLowerCase();
-            const isAudioFile = ['.mp3', '.flac', '.wav', '.m4a', '.aac', '.ogg', '.opus', '.ape', '.dsf', '.wma', '.aiff', '.alac'].includes(fileExt);
+            const isAudioFile = ['.mp3', '.flac', '.wav', '.m4a', '.m4b', '.aac', '.ogg', '.opus', '.ape', '.dsf', '.wma', '.aiff', '.alac'].includes(fileExt);
 
             const directPlexUrl = `${plexUrlBase}${normalizedPlexPart}${sep}X-Plex-Token=${plex.api_key}`;
 

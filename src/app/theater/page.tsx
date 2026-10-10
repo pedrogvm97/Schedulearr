@@ -536,6 +536,7 @@ function TheaterPageContent() {
         handleDownloadAlbum,
         openArtistDetails,
         openAlbumDetails,
+        openExpandedPlayer,
         closePlayer
     } = useMusicPlayer();
 
@@ -2870,6 +2871,8 @@ function TheaterPageContent() {
 
         for (const item of filteredItems) {
             if (item.category !== 'audio') continue;
+            const isAudiobookLib = libraries.find(l => l.id === item.libraryId)?.type === 'audiobooks';
+            if ((item as any).isAudiobook || isAudiobookLib || item.extension?.toLowerCase() === 'm4b') continue;
             const albumName = item.album || 'Single / Unknown Album';
             const artistName = item.artist || 'Various Artists';
             const key = `${artistName} - ${albumName}`;
@@ -2900,7 +2903,7 @@ function TheaterPageContent() {
             return albumsList.filter(a => a.score > 0).sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
         }
         return albumsList.sort((a, b) => a.name.localeCompare(b.name));
-    }, [filteredItems, searchQuery]);
+    }, [filteredItems, libraries, searchQuery]);
 
     // Music: Derived Artists with Track-Aware Search Relevance Ranking
     const musicArtists = useMemo(() => {
@@ -2909,6 +2912,8 @@ function TheaterPageContent() {
 
         for (const item of filteredItems) {
             if (item.category !== 'audio') continue;
+            const isAudiobookLib = libraries.find(l => l.id === item.libraryId)?.type === 'audiobooks';
+            if ((item as any).isAudiobook || isAudiobookLib || item.extension?.toLowerCase() === 'm4b') continue;
             const artistName = item.artist || 'Unknown Artist';
             if (!map.has(artistName)) {
                 const score = q ? smartMatchScore(q, artistName) : 0;
@@ -2936,9 +2941,9 @@ function TheaterPageContent() {
             return artistsList.filter(a => a.score > 0).sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
         }
         return artistsList.sort((a, b) => a.name.localeCompare(b.name));
-    }, [filteredItems, searchQuery]);
+    }, [filteredItems, libraries, searchQuery]);
 
-    // Audiobooks: Derived Audiobook Groups (by book title / folder / album)
+    // Audiobooks: Derived Audiobook Groups (by book title / folder / album, with smart fallback for untagged items)
     const audiobooks = useMemo(() => {
         const map = new Map<string, {
             id: string;
@@ -2954,13 +2959,67 @@ function TheaterPageContent() {
         }>();
         const q = searchQuery.trim();
 
-        for (const item of filteredItems) {
-            const isAudiobookLib = libraries.find(l => l.id === item.libraryId)?.type === 'audiobooks';
-            const isM4b = item.extension?.toLowerCase() === 'm4b';
-            if (!isAudiobookLib && !isM4b && activeContentTab !== 'audiobooks') continue;
+        const isGenericMeta = (val: string | undefined | null, libName?: string): boolean => {
+            if (!val) return true;
+            const v = val.trim();
+            if (!v) return true;
+            if (libName && v.toLowerCase() === libName.trim().toLowerCase()) return true;
+            return /^(\[?\s*unknown(\s+(album|artist|author|book|track))?\s*\]?|various(\s+artists)?|audiobooks?|audio\s*books?|books?|spoken\s*word|podcasts?|music|media|library|root|single|untagged|default)$/i.test(v);
+        };
 
-            const bookTitle = item.album || item.folder || item.title;
-            const author = item.artist || 'Unknown Author';
+        const stripPartSuffix = (str: string): string => {
+            const cleaned = str
+                .replace(/\s*[-–—:|]\s*(?:chapter|ch\.?|part|pt\.?|track|disc|cd|vol\.?|volume|book)\s*\d+(?:\s*of\s*\d+)?.*$/i, '')
+                .replace(/\s*[\(\[]\s*(?:chapter|ch\.?|part|pt\.?|track|disc|cd|unabridged|abridged|audiobook)\s*\d*[^\)\]]*[\)\]]\s*$/i, '')
+                .replace(/\s+(?:chapter|ch\.?|part|pt\.?)\s+\d+(?:\s*of\s*\d+)?$/i, '')
+                .trim();
+            return cleaned.length >= 2 ? cleaned : str.trim();
+        };
+
+        for (const item of filteredItems) {
+            const lib = libraries.find(l => l.id === item.libraryId);
+            const isAudiobookLib = lib?.type === 'audiobooks';
+            const isM4b = item.extension?.toLowerCase() === 'm4b';
+            if (!(item as any).isAudiobook && !isAudiobookLib && !isM4b && activeContentTab !== 'audiobooks') continue;
+
+            const libName = lib?.name || item.libraryName;
+            let bookTitle = !isGenericMeta(item.album, libName) ? item.album!.trim() : '';
+            let author = !isGenericMeta(item.artist, libName) ? item.artist!.trim() : '';
+
+            // Check folder if non-generic
+            if (!bookTitle && !isGenericMeta(item.folder, libName)) {
+                const folderClean = item.folder.trim();
+                const folderDash = folderClean.match(/^([^-–—]+?)\s+[-–—]\s+(.+)$/);
+                if (folderDash) {
+                    if (!author) author = folderDash[1].trim();
+                    bookTitle = stripPartSuffix(folderDash[2].trim());
+                } else {
+                    bookTitle = stripPartSuffix(folderClean);
+                }
+            }
+
+            // Fallback to parsing item.title / item.name (e.g. "Franz Kafka - THE TRIAL")
+            const rawTitle = (item.title || item.name || '')
+                .replace(/\.(mp3|flac|m4a|m4b|wav|aac|ogg|opus|mp4)$/i, '')
+                .replace(/^\d{1,3}\s*[-._)\]]\s*/, '')
+                .trim();
+            const titleDash = rawTitle.match(/^([^-–—]+?)\s+[-–—]\s+(.+)$/);
+            if (titleDash) {
+                const left = titleDash[1].trim();
+                const right = titleDash[2].trim();
+                if (!/^(chapter|ch\.?|part|pt\.?|track|disc|cd|book|vol)/i.test(left)) {
+                    if (!author) author = left;
+                    if (!bookTitle) bookTitle = stripPartSuffix(right);
+                } else if (!bookTitle) {
+                    bookTitle = stripPartSuffix(rawTitle);
+                }
+            } else if (!bookTitle) {
+                bookTitle = stripPartSuffix(rawTitle) || 'Untitled Audiobook';
+            }
+
+            if (!bookTitle) bookTitle = rawTitle || 'Untitled Audiobook';
+            if (!author) author = 'Unknown Author';
+
             const key = `${author} - ${bookTitle}`.toLowerCase().trim();
 
             if (!map.has(key)) {
@@ -4522,6 +4581,7 @@ function TheaterPageContent() {
                                                             e.stopPropagation();
                                                             if (book.chapters.length > 0) {
                                                                 handlePlayAlbum(book.chapters);
+                                                                openExpandedPlayer();
                                                             }
                                                         }}
                                                         className="w-12 h-12 rounded-2xl bg-orange-500 text-black flex items-center justify-center shadow-2xl scale-90 group-hover:scale-100 hover:bg-orange-400 transition-all cursor-pointer"
@@ -6014,6 +6074,8 @@ function TheaterPageContent() {
                                         onClick={() => {
                                             if (selectedAudiobook.chapters.length > 0) {
                                                 handlePlayAlbum(selectedAudiobook.chapters);
+                                                closeAudiobookModal();
+                                                openExpandedPlayer();
                                             }
                                         }}
                                         className="px-5 py-2.5 rounded-2xl bg-orange-500 hover:bg-orange-400 text-black font-black text-xs uppercase tracking-wider transition-all flex items-center gap-2 shadow-lg cursor-pointer disabled:opacity-40"
@@ -6110,7 +6172,11 @@ function TheaterPageContent() {
                                     return (
                                         <div
                                             key={ch.id || idx}
-                                            onClick={() => playAlbum(selectedAudiobook.chapters, idx)}
+                                            onClick={() => {
+                                                playAlbum(selectedAudiobook.chapters, idx);
+                                                closeAudiobookModal();
+                                                openExpandedPlayer();
+                                            }}
                                             className="p-3.5 sm:p-4 flex flex-col gap-2.5 hover:bg-zinc-900/45 transition-colors cursor-pointer group"
                                         >
                                             <div className="flex items-center justify-between gap-3">

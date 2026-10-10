@@ -12,7 +12,7 @@ export function sanitizeSongMetadata(rawTitle: string, rawArtist?: string): Sani
     let title = (rawTitle || '').trim();
 
     // 1. Remove file extensions if present
-    title = title.replace(/\.(mp3|flac|m4a|wav|aac|ogg|opus|webm|mp4)$/i, '');
+    title = title.replace(/\.(mp3|flac|m4a|m4b|wav|aac|ogg|opus|webm|mp4)$/i, '');
 
     // 2. Remove common YouTube and audio tag noise
     const noisePatterns = [
@@ -36,7 +36,7 @@ export function sanitizeSongMetadata(rawTitle: string, rawArtist?: string): Sani
             const possibleArtist = parts[0].trim();
             const possibleTitle = parts.slice(1).join(' - ').trim();
             if (possibleArtist && possibleTitle) {
-                if (!artist || artist === 'Artist' || /vevo|topic|records|music/i.test(artist)) {
+                if (!artist || artist === 'Artist' || /^\[?unknown/i.test(artist) || /^various/i.test(artist) || /vevo|topic|records|music/i.test(artist)) {
                     artist = possibleArtist;
                 }
                 sanitizedTitle = possibleTitle;

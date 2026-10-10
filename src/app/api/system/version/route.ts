@@ -1,10 +1,36 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
+import { execSync } from 'child_process';
 import axios from 'axios';
 import { initAutoUpdater } from '@/lib/autoUpdater';
 
 export const dynamic = 'force-dynamic';
+
+const FALLBACK_GIT_NOTES = [
+  '• [v0.6.3] Fix vinyl spinner 1:1 circular geometry on tall/desktop screens, fix Plex & untagged audiobook grouping ("Unknown Album") & streaming, and surface full Git commit patch notes in System & Updates',
+  '  - Fixed Spinning Disk, Turntable Platter, and Minimalist Vinyl aspect-ratio distortion so records always spin as true circles',
+  '  - Fixed audiobook detection & grouping so untagged or Plex-cached tracks derive Author & Book Title instead of collapsing into "Unknown Album"',
+  '  - Added on-the-fly Plex ratingKey part resolution and .m4b streaming support so audiobooks play directly in the Open Book Spread UI without falling back to Deezer',
+  '• [v0.6.2] Fix IPTV Guide EPG auto-matching, Add Library folder browser & Audiobook AI Studio',
+  '  - Multi-index normalized channel matching and automatic background EPG sync for IPTV Guide',
+  '  - Added interactive Server Folder Browser modal when adding or editing Media Center libraries',
+  '  - Added Curated Audiobook Open Book Spread player, Chapter Studio transcription, scene illustrations & FFmpeg vocal clarity DSP',
+  '• [v0.6.1] Fix Plex remote library discovery, audio transcoding fallback & Docker self-update stream',
+  '• [v0.6.0] Media Center & Theater overhaul, Live IPTV engine, Subtitles search & Music Vinyl Turntable player'
+].join('\n');
+
+function semverCompare(v1: string, v2: string): number {
+  const p1 = v1.replace(/^v/i, '').trim().split('.').map(n => parseInt(n, 10) || 0);
+  const p2 = v2.replace(/^v/i, '').trim().split('.').map(n => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
+    const num1 = p1[i] || 0;
+    const num2 = p2[i] || 0;
+    if (num1 > num2) return 1;
+    if (num1 < num2) return -1;
+  }
+  return 0;
+}
 
 export async function GET() {
   // Ensure the auto-updater background singleton is running
@@ -12,7 +38,7 @@ export async function GET() {
 
   try {
     // 1. Get current version from package.json or system fallback
-    let currentVersion = '0.6.2';
+    let currentVersion = '0.6.3';
     const possiblePaths = [
       path.join(process.cwd(), 'package.json'),
       path.join(process.cwd(), '..', 'package.json'),
@@ -32,94 +58,175 @@ export async function GET() {
       }
     }
 
-    // 2. Get latest version from GitHub (checking Releases API first, falling back to Tags API)
+    // 2. Get latest version and recent Git commit notes from GitHub
     let latestVersion = currentVersion;
     let updateAvailable = false;
     let changelog = '';
+    let recentCommits: Array<{ sha: string; date: string; title: string; body: string; author: string }> = [];
+
+    const ghHeaders = {
+      'Accept': 'application/vnd.github.v3+json',
+      'User-Agent': 'Schedulearr-Update-Checker'
+    };
 
     try {
-      let fetchedVersion = '';
-      try {
-        const response = await axios.get('https://api.github.com/repos/pedrogvm97/Schedulearr/releases/latest', {
-          headers: {
-            'Accept': 'application/vnd.github.v3+json',
-            'User-Agent': 'Schedulearr-Update-Checker'
-          },
+      const [commitsSettled, pkgSettled, relSettled, tagsSettled] = await Promise.allSettled([
+        axios.get('https://api.github.com/repos/pedrogvm97/Schedulearr/commits?per_page=20', {
+          headers: ghHeaders,
+          timeout: 6000
+        }),
+        axios.get('https://raw.githubusercontent.com/pedrogvm97/Schedulearr/main/package.json', {
           timeout: 5000
-        });
+        }),
+        axios.get('https://api.github.com/repos/pedrogvm97/Schedulearr/releases/latest', {
+          headers: ghHeaders,
+          timeout: 5000
+        }),
+        axios.get('https://api.github.com/repos/pedrogvm97/Schedulearr/tags?per_page=20', {
+          headers: ghHeaders,
+          timeout: 5000
+        })
+      ]);
 
-        if (response.data && response.data.tag_name) {
-          fetchedVersion = response.data.tag_name.replace(/^v/, '');
-          changelog = response.data.body || '';
-        }
-      } catch (relErr) {
-        // Fallback to tags endpoint if no official release draft is published
-      }
+      const candidateVersions: string[] = [currentVersion];
 
-      if (!fetchedVersion) {
-        try {
-          const tagsRes = await axios.get('https://api.github.com/repos/pedrogvm97/Schedulearr/tags', {
-            headers: {
-              'Accept': 'application/vnd.github.v3+json',
-              'User-Agent': 'Schedulearr-Update-Checker'
-            },
-            timeout: 5000
-          });
-          if (Array.isArray(tagsRes.data) && tagsRes.data.length > 0) {
-            // Find the highest release tag (filtering out test or future v1 tags if in v0.x line)
-            const validTags = tagsRes.data
-              .map((t: any) => t.name.replace(/^v/, ''))
-              .filter((v: string) => /^\d+\.\d+\.\d+$/.test(v));
-            if (validTags.length > 0) {
-              fetchedVersion = validTags[0];
-            }
-          }
-        } catch (tagErr) {}
-      }
-
-      if (fetchedVersion) {
-        latestVersion = fetchedVersion;
-        // Semver comparison: only show updateAvailable if latestVersion is strictly greater than currentVersion
-        const semverCompare = (v1: string, v2: string) => {
-          const p1 = v1.replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
-          const p2 = v2.replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
-          for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
-            const num1 = p1[i] || 0;
-            const num2 = p2[i] || 0;
-            if (num1 > num2) return 1;
-            if (num1 < num2) return -1;
-          }
-          return 0;
-        };
-
-        if (semverCompare(latestVersion, currentVersion) > 0) {
-          updateAvailable = true;
+      // Check remote package.json on main branch
+      if (pkgSettled.status === 'fulfilled' && pkgSettled.value.data?.version) {
+        const remotePkgVer = String(pkgSettled.value.data.version).replace(/^v/i, '').trim();
+        if (/^\d+\.\d+\.\d+$/.test(remotePkgVer)) {
+          candidateVersions.push(remotePkgVer);
         }
       }
 
-      // If changelog body is empty, automatically pull recent commit patch notes from the repository!
-      if (!changelog.trim()) {
-        try {
-          const commitsRes = await axios.get('https://api.github.com/repos/pedrogvm97/Schedulearr/commits?per_page=15', {
-            headers: {
-              'Accept': 'application/vnd.github.v3+json',
-              'User-Agent': 'Schedulearr-Update-Checker'
-            },
-            timeout: 5000
-          });
-          if (Array.isArray(commitsRes.data)) {
-            const notes = commitsRes.data
-              .map((c: any) => c.commit?.message?.split('\n')[0])
-              .filter((msg: string) => msg && !msg.startsWith('Merge branch') && !msg.includes('Merge pull request'))
-              .slice(0, 8);
-            if (notes.length > 0) {
-              changelog = notes.map((n: string) => `• ${n}`).join('\n');
-            }
+      // Check latest GitHub release
+      let releaseNotesBody = '';
+      if (relSettled.status === 'fulfilled' && relSettled.value.data?.tag_name) {
+        const relVer = String(relSettled.value.data.tag_name).replace(/^v/i, '').trim();
+        if (/^\d+\.\d+\.\d+$/.test(relVer)) {
+          candidateVersions.push(relVer);
+        }
+        releaseNotesBody = (relSettled.value.data.body || '').trim();
+      }
+
+      // Check GitHub tags
+      if (tagsSettled.status === 'fulfilled' && Array.isArray(tagsSettled.value.data)) {
+        for (const t of tagsSettled.value.data) {
+          const tv = String(t?.name || '').replace(/^v/i, '').trim();
+          if (/^\d+\.\d+\.\d+$/.test(tv)) {
+            candidateVersions.push(tv);
           }
-        } catch (commitErr) {}
+        }
+      }
+
+      // Parse recent GitHub commits for both version tags and detailed commit patch notes
+      if (commitsSettled.status === 'fulfilled' && Array.isArray(commitsSettled.value.data)) {
+        const formattedCommitEntries: string[] = [];
+        for (const c of commitsSettled.value.data) {
+          const rawMsg: string = c?.commit?.message || '';
+          if (!rawMsg) continue;
+          const lines = rawMsg.split(/\r?\n/).map((l: string) => l.trim()).filter(Boolean);
+          const subject = lines[0] || '';
+          if (!subject || subject.startsWith('Merge branch') || subject.includes('Merge pull request')) continue;
+
+          // Extract version from commit message if present (e.g. "v0.6.3" or "(v0.6.2)")
+          const verMatch = subject.match(/\bv?(\d+\.\d+\.\d+)\b/);
+          if (verMatch && verMatch[1]) {
+            candidateVersions.push(verMatch[1]);
+          }
+
+          const sha = String(c?.sha || '').slice(0, 7);
+          const rawDate = c?.commit?.author?.date || c?.commit?.committer?.date || '';
+          const dateStr = rawDate ? new Date(rawDate).toISOString().slice(0, 10) : '';
+          const author = c?.commit?.author?.name || c?.author?.login || 'Git';
+          const bodyLines = lines.slice(1).filter((l: string) => !l.startsWith('Co-authored-by:'));
+
+          recentCommits.push({
+            sha,
+            date: dateStr,
+            title: subject,
+            body: bodyLines.join('\n'),
+            author
+          });
+
+          if (formattedCommitEntries.length < 12) {
+            const prefix = [dateStr, sha ? `#${sha}` : ''].filter(Boolean).join(' · ');
+            let entry = `• ${prefix ? `[${prefix}] ` : ''}${subject}`;
+            if (bodyLines.length > 0) {
+              const formattedBody = bodyLines
+                .slice(0, 6)
+                .map((b: string) => `   ${b.startsWith('-') || b.startsWith('*') || b.startsWith('•') ? b : `- ${b}`}`)
+                .join('\n');
+              entry += `\n${formattedBody}`;
+            }
+            formattedCommitEntries.push(entry);
+          }
+        }
+
+        if (formattedCommitEntries.length > 0) {
+          changelog = formattedCommitEntries.join('\n\n');
+        }
+      }
+
+      // Pick the highest semantic version discovered across remote package.json, commits, tags, and releases
+      for (const cand of candidateVersions) {
+        if (semverCompare(cand, latestVersion) > 0) {
+          latestVersion = cand;
+        }
+      }
+
+      if (semverCompare(latestVersion, currentVersion) > 0) {
+        updateAvailable = true;
+      }
+
+      if (!changelog && releaseNotesBody) {
+        changelog = releaseNotesBody;
       }
     } catch (githubError: any) {
       console.error('Failed to fetch latest version from GitHub:', githubError.message);
+    }
+
+    // 3. Fallback to local git log if GitHub API was unreachable or rate-limited
+    if (!changelog.trim()) {
+      try {
+        const gitOut = execSync('git log -n 10 --date=short --pretty=format:"%ad|%h|%s|%b===END==="', {
+          cwd: process.cwd(),
+          timeout: 3000,
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore']
+        });
+        if (gitOut && gitOut.trim()) {
+          const entries = gitOut
+            .split('===END===')
+            .map(s => s.trim())
+            .filter(Boolean)
+            .map(block => {
+              const [dateStr, sha, subject, ...bodyParts] = block.split('|');
+              if (!subject || subject.startsWith('Merge branch')) return '';
+              const body = bodyParts.join('|').trim();
+              let entry = `• [${dateStr} · #${sha}] ${subject.trim()}`;
+              if (body) {
+                const bLines = body
+                  .split(/\r?\n/)
+                  .map(l => l.trim())
+                  .filter(Boolean)
+                  .slice(0, 5)
+                  .map(l => `   ${l.startsWith('-') || l.startsWith('*') ? l : `- ${l}`}`)
+                  .join('\n');
+                if (bLines) entry += `\n${bLines}`;
+              }
+              return entry;
+            })
+            .filter(Boolean);
+          if (entries.length > 0) {
+            changelog = entries.join('\n\n');
+          }
+        }
+      } catch {}
+    }
+
+    // 4. Built-in fallback so update notes are never blank in Docker containers without .git
+    if (!changelog.trim()) {
+      changelog = FALLBACK_GIT_NOTES;
     }
 
     return NextResponse.json({
@@ -127,6 +234,7 @@ export async function GET() {
       latestVersion,
       updateAvailable,
       changelog,
+      recentCommits,
       dockerSocketAvailable: fs.existsSync('/var/run/docker.sock')
     });
   } catch (error: any) {

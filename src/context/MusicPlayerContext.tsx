@@ -583,14 +583,27 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
     const isAudiobook = useMemo(() => {
         if (!playingAudio) return false;
+        const ext = (playingAudio.extension || '').toLowerCase();
+        const combinedText = [
+            playingAudio.libraryName,
+            playingAudio.folder,
+            playingAudio.path,
+            playingAudio.album,
+            playingAudio.title,
+            playingAudio.genre
+        ].filter(Boolean).join(' ').toLowerCase();
+
         return Boolean(
             playingAudio.isAudiobook ||
-            playingAudio.extension?.toLowerCase() === 'm4b' ||
-            playingAudio.libraryName?.toLowerCase().includes('audiobook') ||
-            playingAudio.folder?.toLowerCase().includes('audiobook') ||
+            playingAudio.bookKey ||
+            playingAudio.chapterKey ||
+            ['m4b', 'aax', 'aa'].includes(ext) ||
+            /\b(audiobooks?|audio\s*books?|unabridged|abridged|narrated\s+by|chapter\s+\d+)\b/i.test(combinedText) ||
+            (playingAudio.durationMs && playingAudio.durationMs > 25 * 60 * 1000) ||
+            (audioDuration > 1500) ||
             audiobookChapterMeta
         );
-    }, [playingAudio, audiobookChapterMeta]);
+    }, [playingAudio, audiobookChapterMeta, audioDuration]);
 
     const parseLrcStringToLines = useCallback((rawLrc: string): Array<{ time: number; text: string }> => {
         if (!rawLrc) return [];
@@ -2045,10 +2058,20 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         const fallbackCover = getCoverFallbackUrl(cleanArtist || rawArtist, track.album, cleanTitle || rawTitle);
         const effectiveCover = (track.posterUrl && !track.posterUrl.includes('default')) ? track.posterUrl : fallbackCover;
         const ytId = getYtId(track);
+        const hasRealFilePath = Boolean(track.path && (track.path.includes('/') || track.path.includes('\\')));
+        const trackIsAudiobook = Boolean(
+            track.isAudiobook ||
+            track.bookKey ||
+            track.chapterKey ||
+            track.extension?.toLowerCase() === 'm4b' ||
+            track.libraryName?.toLowerCase().includes('audiobook') ||
+            track.folder?.toLowerCase().includes('audiobook')
+        );
+
         let effectiveStream = track.streamUrl || '';
         if (ytId && (!effectiveStream || effectiveStream.includes('youtube.com') || effectiveStream.includes('youtu.be'))) {
             effectiveStream = `/api/theater/music/stream?ytId=${encodeURIComponent(ytId)}&format=mp3`;
-        } else if (track.path && (!effectiveStream || effectiveStream.startsWith('/api/theater/stream?path='))) {
+        } else if (hasRealFilePath && (!effectiveStream || effectiveStream.startsWith('/api/theater/stream?path='))) {
             effectiveStream = `/api/theater/stream?path=${encodeURIComponent(track.path)}`;
         } else if (!effectiveStream) {
             const q = `${cleanArtist || rawArtist} ${cleanTitle || rawTitle}`.trim();
@@ -2056,8 +2079,12 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         }
         const cleanTrack: MediaItem = {
             ...track,
+            isAudiobook: trackIsAudiobook || track.isAudiobook,
             title: cleanTitle || rawTitle || 'Track',
-            artist: cleanArtist || rawArtist || 'Artist',
+            artist: cleanArtist || rawArtist || (trackIsAudiobook ? 'Unknown Author' : 'Artist'),
+            album: (track.album && !/^\[?\s*unknown(\s+album)?\s*\]?$/i.test(track.album))
+                ? track.album
+                : (trackIsAudiobook ? (cleanTitle || rawTitle) : track.album),
             posterUrl: effectiveCover,
             streamUrl: effectiveStream,
             uploader: track.artist !== cleanArtist ? track.artist : (track as any).uploader
@@ -2090,8 +2117,8 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             setQueueIndex(0);
         }
 
-        // Automatic background album & metadata enrichment for YouTube and online tracks
-        const isYtOrOnline = Boolean(
+        // Automatic background album & metadata enrichment for YouTube and online music tracks (skip for audiobooks)
+        const isYtOrOnline = !trackIsAudiobook && Boolean(
             !cleanTrack.album ||
             cleanTrack.album === 'YouTube Music' ||
             cleanTrack.album === 'Singles' ||
@@ -2533,11 +2560,40 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             audioStallWatchdogRef.current = null;
         }
 
+        // If this is a Plex item whose cached streamUrl lacked plexPart, resolve via ratingKey first
+        if (track.id?.startsWith('plex-') && (!track.streamUrl || !track.streamUrl.includes('ratingKey='))) {
+            const parts = track.id.split('-');
+            const ratingKey = parts[parts.length - 1];
+            const instanceId = parts.slice(1, parts.length - 1).join('-');
+            if (ratingKey && /^\d+$/.test(ratingKey)) {
+                const plexRatingStreamUrl = `/api/theater/stream?ratingKey=${encodeURIComponent(ratingKey)}&instanceId=${encodeURIComponent(instanceId)}&transcode=audio`;
+                addAudioNerdLog('info', `Retrying Plex metadata stream for ratingKey ${ratingKey}`);
+                setPlayingAudio(prev => {
+                    if (!prev || prev.id !== track.id) return prev;
+                    return {
+                        ...prev,
+                        streamUrl: plexRatingStreamUrl
+                    };
+                });
+                return;
+            }
+        }
+
+        const isBookTrack = Boolean(
+            track.isAudiobook ||
+            track.bookKey ||
+            track.chapterKey ||
+            track.extension?.toLowerCase() === 'm4b' ||
+            track.libraryName?.toLowerCase().includes('audiobook') ||
+            track.folder?.toLowerCase().includes('audiobook')
+        );
+
         toast.info(`Local file unavailable, auto-playing online stream for "${track.title}"...`, {
             id: `audio-fallback-${track.id || track.title}`
         });
 
-        const q = `${track.artist || ''} ${track.title || track.name || ''}`.trim();
+        const baseQ = `${track.artist || ''} ${track.title || track.name || ''}`.trim();
+        const q = isBookTrack && !/audiobook/i.test(baseQ) ? `${baseQ} audiobook` : baseQ;
         if (!q) {
             setIsAudioPlaying(false);
             setAudioPlaybackStatus('error');
@@ -2560,6 +2616,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                             if (!prev || prev.id !== track.id) return prev;
                             return {
                                 ...prev,
+                                isAudiobook: prev.isAudiobook || isBookTrack,
                                 youtubeId: ytId,
                                 streamUrl: `/api/theater/music/stream?ytId=${encodeURIComponent(ytId)}&format=mp3`,
                                 posterUrl: prev.posterUrl || onlineItem.posterUrl
@@ -3536,7 +3593,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                     </div>
 
                     {/* Main Stage: Minimalist Vinyl Platter Mode vs Full Dashboard Grid */}
-                    {isMinimalistVinylMode ? (
+                    {isMinimalistVinylMode && !isAudiobook ? (
                         <div className="relative z-10 flex-1 min-h-0 flex flex-col items-center justify-between max-w-lg mx-auto w-full py-2 sm:py-4 select-none">
                             {/* Minimalist Top Bar: Title + Return to Regular Player Button */}
                             <div className="w-full flex items-center justify-between px-3 py-1.5 bg-zinc-950/80 backdrop-blur-md rounded-2xl border border-zinc-800/80 shadow-inner shrink-0 mb-2">
@@ -3560,7 +3617,8 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                     e.stopPropagation();
                                     togglePlayPause();
                                 }}
-                                className="relative w-60 h-60 sm:w-80 sm:h-80 my-auto flex items-center justify-center cursor-pointer select-none group/disc"
+                                style={{ width: 'min(280px, 38vh, 74vw)', height: 'min(280px, 38vh, 74vw)' }}
+                                className="relative aspect-square shrink-0 rounded-full overflow-hidden my-auto flex items-center justify-center cursor-pointer select-none group/disc"
                                 title={isAudioPlaying ? "Click Vinyl Record to Pause" : "Click Vinyl Record to Play"}
                             >
                                 <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-zinc-700 via-zinc-800 to-zinc-600 p-1.5 shadow-2xl flex items-center justify-center border border-zinc-600/50 pointer-events-none group-hover/disc:border-amber-500/50 transition-colors">
@@ -3953,7 +4011,8 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                             /* ── Curated Audiobook Plain Art View (Click to return to Open Book) ── */
                                             <div
                                                 onClick={() => setAudiobookArtMode('open_book')}
-                                                className="relative max-h-[34vh] sm:max-h-[38vh] md:max-h-[42vh] aspect-square w-auto h-full rounded-[2rem] bg-zinc-900 border-2 border-amber-500/40 overflow-hidden shadow-2xl flex items-center justify-center cursor-pointer group transition-transform hover:scale-[1.02]"
+                                                style={{ width: 'min(300px, 38vh, 76vw)', height: 'min(300px, 38vh, 76vw)' }}
+                                                className="relative aspect-square shrink-0 rounded-[2rem] bg-zinc-900 border-2 border-amber-500/40 overflow-hidden shadow-2xl flex items-center justify-center cursor-pointer group transition-transform hover:scale-[1.02]"
                                                 title="Click Artwork to return to Open Book view"
                                             >
                                                 {activeArtworkUrl && !normalCoverError ? (
@@ -3981,7 +4040,10 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                     })()
                                 ) : playerAnimationMode === 'turntable' ? (
                                     /* ── 1. Vinyl Turntable Player Representation ── */
-                                    <div className="relative max-h-[28vh] sm:max-h-[32vh] md:max-h-[36vh] aspect-[1.12/1] w-auto h-full max-w-[320px] sm:max-w-[360px] md:max-w-[380px] rounded-[1.75rem] sm:rounded-[2rem] bg-gradient-to-b from-zinc-800 via-zinc-900 to-[#09090b] border-2 border-zinc-700/80 p-2 sm:p-3 shadow-2xl flex items-center justify-center select-none overflow-hidden group">
+                                    <div
+                                        style={{ width: 'min(315px, 35vh, 80vw)', height: 'min(280px, 31vh, 71vw)' }}
+                                        className="relative shrink-0 rounded-[1.75rem] sm:rounded-[2rem] bg-gradient-to-b from-zinc-800 via-zinc-900 to-[#09090b] border-2 border-zinc-700/80 p-2 sm:p-3 shadow-2xl flex items-center justify-center select-none overflow-hidden group"
+                                    >
                                         {/* Turntable Plinth Inset */}
                                         <div className="absolute inset-2 rounded-[1.5rem] bg-gradient-to-b from-[#18181b] to-[#0c0c0e] border border-white/5 pointer-events-none shadow-inner" />
 
@@ -4013,13 +4075,14 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                 e.stopPropagation();
                                                 togglePlayPause();
                                             }}
-                                            className="relative w-[70%] h-[70%] max-w-[230px] max-h-[230px] aspect-square -translate-x-2 flex items-center justify-center cursor-pointer select-none group/disc"
+                                            style={{ width: 'min(200px, 22.5vh, 52vw)', height: 'min(200px, 22.5vh, 52vw)' }}
+                                            className="relative aspect-square shrink-0 rounded-full overflow-hidden -translate-x-2 flex items-center justify-center cursor-pointer select-none group/disc"
                                             title={isActivelyPlaying ? "Click Vinyl Record to Pause" : "Click Vinyl Record to Play"}
                                         >
                                             <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-zinc-700 via-zinc-800 to-zinc-600 p-1 shadow-2xl flex items-center justify-center border border-zinc-600/50 pointer-events-none group-hover/disc:border-amber-500/40 transition-colors">
                                                 <div className="w-full h-full rounded-full bg-zinc-950 flex items-center justify-center shadow-inner">
                                                     <div
-                                                        className="relative w-[96%] h-[96%] rounded-full bg-black shadow-2xl flex items-center justify-center overflow-hidden"
+                                                        className="relative w-[96%] h-[96%] aspect-square rounded-full bg-black shadow-2xl flex items-center justify-center overflow-hidden"
                                                         style={{
                                                             animation: 'vinyl-spin 8s linear infinite',
                                                             animationPlayState: isActivelyPlaying ? 'running' : 'paused'
@@ -4029,7 +4092,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                         <div className="absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,transparent_0deg,rgba(255,255,255,0.08)_45deg,transparent_90deg,transparent_180deg,rgba(255,255,255,0.08)_225deg,transparent_270deg)] pointer-events-none" />
 
                                                         {/* Center Label (Enlarged Artwork - 78% of Vinyl Record) */}
-                                                        <div className="relative w-[78%] h-[78%] rounded-full overflow-hidden border-2 border-amber-500/60 shadow-2xl flex items-center justify-center z-10 pointer-events-none">
+                                                        <div className="relative w-[78%] h-[78%] aspect-square rounded-full overflow-hidden border-2 border-amber-500/60 shadow-2xl flex items-center justify-center z-10 pointer-events-none">
                                                             {playingAudio.posterUrl && !vinylCoverError ? (
                                                                 <img
                                                                     src={playingAudio.posterUrl}
@@ -4096,13 +4159,14 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                             e.stopPropagation();
                                             togglePlayPause();
                                         }}
-                                        className="relative max-h-[28vh] sm:max-h-[32vh] md:max-h-[36vh] aspect-square w-auto h-full max-w-[280px] sm:max-w-[320px] flex items-center justify-center cursor-pointer select-none group/disc transition-transform hover:scale-105 active:scale-95"
+                                        style={{ width: 'min(265px, 32vh, 72vw)', height: 'min(265px, 32vh, 72vw)' }}
+                                        className="relative aspect-square shrink-0 rounded-full overflow-hidden flex items-center justify-center cursor-pointer select-none group/disc transition-transform hover:scale-105 active:scale-95"
                                         title={isActivelyPlaying ? "Click Spinning Disk to Pause" : "Click Spinning Disk to Play"}
                                     >
                                         <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-zinc-700 via-zinc-800 to-zinc-600 p-2 shadow-2xl flex items-center justify-center border-2 border-zinc-600/50 pointer-events-none group-hover/disc:border-amber-500/50 transition-colors">
                                             <div className="w-full h-full rounded-full bg-zinc-950 flex items-center justify-center shadow-inner">
                                                 <div
-                                                    className="relative w-[96%] h-[96%] rounded-full bg-black shadow-2xl flex items-center justify-center overflow-hidden"
+                                                    className="relative w-[96%] h-[96%] aspect-square rounded-full bg-black shadow-2xl flex items-center justify-center overflow-hidden"
                                                     style={{
                                                         animation: 'vinyl-spin 8s linear infinite',
                                                         animationPlayState: isActivelyPlaying ? 'running' : 'paused'
@@ -4112,7 +4176,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                     <div className="absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,transparent_0deg,rgba(255,255,255,0.08)_45deg,transparent_90deg,transparent_180deg,rgba(255,255,255,0.08)_225deg,transparent_270deg)] pointer-events-none" />
 
                                                     {/* Center Label (Enlarged Artwork - 78% of Disc) */}
-                                                    <div className="relative w-[78%] h-[78%] rounded-full overflow-hidden border-2 border-amber-500/60 shadow-2xl flex items-center justify-center z-10 pointer-events-none">
+                                                    <div className="relative w-[78%] h-[78%] aspect-square rounded-full overflow-hidden border-2 border-amber-500/60 shadow-2xl flex items-center justify-center z-10 pointer-events-none">
                                                         {playingAudio.posterUrl && !vinylCoverError ? (
                                                             <img
                                                                 src={playingAudio.posterUrl}
@@ -4142,7 +4206,10 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                     </div>
                                 ) : (
                                     /* ── 3. Normal High-Res Cover Artwork View ── */
-                                    <div className="relative max-h-[30vh] sm:max-h-[34vh] md:max-h-[38vh] aspect-square w-auto h-full rounded-[2rem] bg-zinc-900 border-2 border-zinc-800/80 overflow-hidden shadow-2xl flex items-center justify-center">
+                                    <div
+                                        style={{ width: 'min(280px, 34vh, 74vw)', height: 'min(280px, 34vh, 74vw)' }}
+                                        className="relative aspect-square shrink-0 rounded-[2rem] bg-zinc-900 border-2 border-zinc-800/80 overflow-hidden shadow-2xl flex items-center justify-center"
+                                    >
                                         {playingAudio.posterUrl && !normalCoverError ? (
                                             <img
                                                 src={playingAudio.posterUrl}
