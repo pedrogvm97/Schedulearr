@@ -177,13 +177,14 @@ export async function GET(req: NextRequest) {
         const instanceId = searchParams.get('instanceId');
         const m3u = searchParams.get('m3u');
         const transcode = searchParams.get('transcode');
+        const voicePreset = (searchParams.get('voicePreset') || '').trim();
         const quality = (searchParams.get('quality') || 'auto') as QualityPreset;
         const startTime = searchParams.get('ss') || '0';
         const title = searchParams.get('title') || 'media';
         const ffmpegBin = getFFmpegPath();
         const rangeHeader = req.headers.get('range');
         if (!rangeHeader || rangeHeader.startsWith('bytes=0-')) {
-            console.log(`[${new Date().toISOString()}] 🎬 [PLAYBACK-STREAM] Request: title="${title}" mode="${transcode || 'direct'}" path="${filePath || plexPart || searchParams.get('ratingKey') || 'unknown'}"`);
+            console.log(`[${new Date().toISOString()}] 🎬 [PLAYBACK-STREAM] Request: title="${title}" mode="${transcode || 'direct'}" voice="${voicePreset || 'original'}" path="${filePath || plexPart || searchParams.get('ratingKey') || 'unknown'}"`);
         }
 
         // 0. Generate .M3U playlist file for VLC / External Players
@@ -604,15 +605,30 @@ export async function GET(req: NextRequest) {
             }
         }
 
-        // 2B. Audio Transcoding for Music & Audiobook Files (FLAC / WAV / M4B / M4A / ALAC / DSF -> High-Res MP3)
+        // 2B. Audio Transcoding for Music & Audiobook Files (FLAC / WAV / M4B / M4A / ALAC / DSF -> High-Res MP3 + Live Voice DSP)
         const isAudio = ['.flac', '.wav', '.m4a', '.m4b', '.aac', '.ogg', '.opus', '.ape', '.dsf', '.wma', '.mp3', '.aiff'].includes(ext);
-        if (isAudio && (ext !== '.mp3' || parseFloat(startTime) > 0) && (transcode === 'audio' || transcode === 'aac' || transcode === 'mp3' || transcode === 'true')) {
+        const hasVoiceFilter = Boolean(voicePreset && voicePreset !== 'original');
+        if (isAudio && (hasVoiceFilter || ((ext !== '.mp3' || parseFloat(startTime) > 0) && (transcode === 'audio' || transcode === 'aac' || transcode === 'mp3' || transcode === 'true')))) {
             try {
                 const { ffmpegPath } = ensureFfmpegBinaries();
+                let voiceFilter = '';
+                if (voicePreset === 'deep_narrator' || voicePreset === 'deep_cinema') {
+                    voiceFilter = 'highpass=f=70,lowpass=f=13500,asetrate=44100*0.90,aresample=44100,atempo=1.1111,equalizer=f=150:width_type=h:width=100:g=4.5,dynaudnorm=f=150:g=13';
+                } else if (voicePreset === 'warm_storyteller') {
+                    voiceFilter = 'highpass=f=75,lowpass=f=14000,asetrate=44100*0.95,aresample=44100,atempo=1.0526,equalizer=f=210:width_type=h:width=120:g=3.5,dynaudnorm=f=150:g=13';
+                } else if (voicePreset === 'crisp_clear' || voicePreset === 'crisp_modern') {
+                    voiceFilter = 'highpass=f=85,lowpass=f=15500,asetrate=44100*1.03,aresample=44100,atempo=0.9709,equalizer=f=3400:width_type=h:width=1200:g=4.5,acompressor=threshold=-18dB:ratio=2.5:attack=15:release=180,dynaudnorm=f=150:g=13';
+                } else if (voicePreset === 'soft_velvet' || voicePreset === 'velvet_narrator') {
+                    voiceFilter = 'highpass=f=80,lowpass=f=11000,asetrate=44100*1.05,aresample=44100,atempo=0.9524,equalizer=f=240:width_type=h:width=120:g=3,dynaudnorm=f=150:g=13';
+                } else if (voicePreset === 'late_night_radio') {
+                    voiceFilter = 'highpass=f=70,lowpass=f=11500,asetrate=44100*0.93,aresample=44100,atempo=1.0753,equalizer=f=160:width_type=h:width=110:g=4,acompressor=threshold=-16dB:ratio=3:attack=10:release=150,dynaudnorm=f=150:g=13';
+                }
+
                 const ffmpegArgs = [
                     ...(parseFloat(startTime) > 0 ? ['-ss', startTime] : []),
                     '-i', targetLocalFile,
                     '-vn',
+                    ...(voiceFilter ? ['-af', voiceFilter] : []),
                     '-c:a', 'libmp3lame',
                     '-b:a', '192k',
                     '-ar', '44100',

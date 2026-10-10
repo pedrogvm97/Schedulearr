@@ -75,7 +75,10 @@ function formatSec(sec: number): string {
 export function AudiobooksMediaManager() {
     const [activeSubTab, setActiveSubTab] = useState<'books' | 'collections' | 'renamer' | 'queue_settings'>('books');
     const [loading, setLoading] = useState(true);
+    const [rescanning, setRescanning] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
+    const [audiobookLibraries, setAudiobookLibraries] = useState<any[]>([]);
+    const [selectedLibraryFilter, setSelectedLibraryFilter] = useState<string>('all');
     const [rawItems, setRawItems] = useState<any[]>([]);
     const [studioBooksMap, setStudioBooksMap] = useState<Record<string, any>>({});
     const [studioChaptersMap, setStudioChaptersMap] = useState<Record<string, any>>({});
@@ -109,17 +112,64 @@ export function AudiobooksMediaManager() {
     const [apiKeyInput, setApiKeyInput] = useState('');
     const [savingConfig, setSavingConfig] = useState(false);
 
-    const fetchAll = useCallback(async () => {
+    const fetchAll = useCallback(async (forceRefresh = false) => {
+        if (forceRefresh) setRescanning(true);
         try {
-            const [itemsRes, studioRes] = await Promise.all([
-                fetch('/api/theater/items?type=audiobooks'),
+            const [libsRes, studioRes] = await Promise.all([
+                fetch('/api/theater/libraries'),
                 fetch('/api/theater/audiobooks/studio')
             ]);
-            if (itemsRes.ok) {
-                const itemsData = await itemsRes.json();
-                const allItems = Array.isArray(itemsData?.items) ? itemsData.items : [];
-                setRawItems(allItems.filter((i: any) => i.isAudiobook || i.type === 'audiobook' || i.libraryType === 'audiobooks'));
+
+            let discoveredLibs: any[] = [];
+            if (libsRes.ok) {
+                const libsData = await libsRes.json();
+                const allLibs = Array.isArray(libsData?.libraries) ? libsData.libraries : [];
+                discoveredLibs = allLibs.filter((l: any) =>
+                    l.type === 'audiobooks' ||
+                    l.type === 'audiobook' ||
+                    /\b(audiobooks?|spoken\s*word)\b/i.test(l.name || '')
+                );
+                setAudiobookLibraries(discoveredLibs);
             }
+
+            // Fetch items for each discovered audiobook library (exact same flow as Theater tab)
+            // plus fallback to ?type=audiobooks aggregation
+            const itemPromises: Promise<Response>[] = discoveredLibs.map((lib: any) =>
+                fetch(`/api/theater/items?libraryId=${encodeURIComponent(lib.id)}${forceRefresh ? '&refresh=true' : ''}`)
+            );
+            if (itemPromises.length === 0) {
+                itemPromises.push(fetch(`/api/theater/items?type=audiobooks${forceRefresh ? '&refresh=true' : ''}`));
+            }
+
+            const itemResponses = await Promise.all(itemPromises);
+            const mergedItems: any[] = [];
+            const seenItemIds = new Set<string>();
+
+            for (let i = 0; i < itemResponses.length; i++) {
+                const res = itemResponses[i];
+                const sourceLib = discoveredLibs[i];
+                if (!res.ok) continue;
+                const data = await res.json();
+                if (Array.isArray(data?.libraries) && discoveredLibs.length === 0 && data.libraries.length > 0) {
+                    setAudiobookLibraries(data.libraries);
+                }
+                const list = Array.isArray(data?.items) ? data.items : [];
+                for (const item of list) {
+                    const uniqueKey = item.id || `${item.path || ''}::${item.title || ''}`;
+                    if (seenItemIds.has(uniqueKey)) continue;
+                    seenItemIds.add(uniqueKey);
+                    mergedItems.push({
+                        ...item,
+                        libraryId: item.libraryId || sourceLib?.id,
+                        libraryName: item.libraryName || sourceLib?.name || 'Audiobooks',
+                        libraryType: item.libraryType || sourceLib?.type || 'audiobooks',
+                        isAudiobook: true,
+                    });
+                }
+            }
+
+            setRawItems(mergedItems);
+
             if (studioRes.ok) {
                 const sData = await studioRes.json();
                 const bMap: Record<string, any> = {};
@@ -132,9 +182,9 @@ export function AudiobooksMediaManager() {
                 });
                 setStudioBooksMap(bMap);
                 setStudioChaptersMap(cMap);
-                setCollections(sData.collections || []);
+                setCollections(sData.collectionsState?.collections || sData.collections || []);
                 setStudioConfig(sData.config || {});
-                setWorkerState(sData.worker || {});
+                setWorkerState(sData.status || sData.worker || {});
                 if (sData.config?.rawUnifiedApiKey && !apiKeyInput) {
                     setApiKeyInput(sData.config.rawUnifiedApiKey);
                 }
@@ -143,18 +193,27 @@ export function AudiobooksMediaManager() {
             console.error('Failed to load audiobooks studio data:', err);
         } finally {
             setLoading(false);
+            if (forceRefresh) setRescanning(false);
         }
     }, [apiKeyInput]);
 
     useEffect(() => {
-        fetchAll();
-        const timer = setInterval(fetchAll, 6000);
-        return () => clearInterval(timer);
+        fetchAll(false);
+        const timer = setInterval(() => fetchAll(false), 8000);
+        const onLibrariesUpdated = () => fetchAll(true);
+        window.addEventListener('theater-libraries-updated', onLibrariesUpdated);
+        return () => {
+            clearInterval(timer);
+            window.removeEventListener('theater-libraries-updated', onLibrariesUpdated);
+        };
     }, [fetchAll]);
 
     const groupedBooks = useMemo(() => {
         const map = new Map<string, any>();
         for (const item of rawItems) {
+            if (selectedLibraryFilter !== 'all' && item.libraryId && item.libraryId !== selectedLibraryFilter) {
+                continue;
+            }
             const bookTitle = (item.bookTitle || item.album || item.title || 'Untitled Audiobook').trim();
             const parsed = canonicalizeAuthorClient(item.canonicalAuthor || item.author || item.artist);
             const key = `${parsed.canonicalAuthor}:::${bookTitle}`.toLowerCase();
@@ -168,6 +227,8 @@ export function AudiobooksMediaManager() {
                     translator: item.translator || parsed.translator || null,
                     narrator: item.narrator || parsed.narrator || null,
                     posterUrl: item.posterUrl || null,
+                    libraryId: item.libraryId || null,
+                    libraryName: item.libraryName || 'Audiobooks',
                     chapters: [],
                     totalDurationMs: 0,
                     sizeBytes: 0
@@ -181,26 +242,30 @@ export function AudiobooksMediaManager() {
         }
 
         // Also include any books saved in SQLite studioBooksMap that weren't in rawItems
-        for (const meta of Object.values(studioBooksMap)) {
-            if (!meta?.title) continue;
-            const parsed = canonicalizeAuthorClient(meta.canonical_author || meta.author);
-            const key = `${parsed.canonicalAuthor}:::${meta.title.trim()}`.toLowerCase();
-            const alreadyMatched = Array.from(map.values()).some(
-                b => b.bookKey === meta.book_key || b.title.toLowerCase() === String(meta.title).trim().toLowerCase()
-            );
-            if (!alreadyMatched && !map.has(key)) {
-                map.set(key, {
-                    id: `ab-${key}`,
-                    bookKey: meta.book_key,
-                    title: String(meta.title).trim(),
-                    author: parsed.canonicalAuthor,
-                    translator: meta.translator || parsed.translator || null,
-                    narrator: meta.narrator || parsed.narrator || null,
-                    posterUrl: meta.cover_url || null,
-                    chapters: [],
-                    totalDurationMs: Number(meta.total_duration_sec || 0) * 1000,
-                    sizeBytes: 0
-                });
+        if (selectedLibraryFilter === 'all') {
+            for (const meta of Object.values(studioBooksMap)) {
+                if (!meta?.title) continue;
+                const parsed = canonicalizeAuthorClient(meta.canonical_author || meta.author);
+                const key = `${parsed.canonicalAuthor}:::${meta.title.trim()}`.toLowerCase();
+                const alreadyMatched = Array.from(map.values()).some(
+                    b => b.bookKey === meta.book_key || b.title.toLowerCase() === String(meta.title).trim().toLowerCase()
+                );
+                if (!alreadyMatched && !map.has(key)) {
+                    map.set(key, {
+                        id: `ab-${key}`,
+                        bookKey: meta.book_key,
+                        title: String(meta.title).trim(),
+                        author: parsed.canonicalAuthor,
+                        translator: meta.translator || parsed.translator || null,
+                        narrator: meta.narrator || parsed.narrator || null,
+                        posterUrl: meta.cover_url || null,
+                        libraryId: null,
+                        libraryName: 'Audiobook Studio',
+                        chapters: [],
+                        totalDurationMs: Number(meta.total_duration_sec || 0) * 1000,
+                        sizeBytes: 0
+                    });
+                }
             }
         }
 
@@ -236,8 +301,8 @@ export function AudiobooksMediaManager() {
                 transcribedSec: Number(meta?.transcribed_seconds || 0),
                 totalDurSec: Number(meta?.total_duration_sec || (book.totalDurationMs ? Math.round(book.totalDurationMs / 1000) : 0)),
                 illustratedScenes: Number(meta?.illustrated_scenes || 0),
-                isQueued: meta?.is_queued === 1,
-                queueOrder: meta?.queue_order || 0
+                isQueued: Boolean(meta?.queue_enabled || meta?.is_queued === 1),
+                queueOrder: Number(meta?.queue_priority || meta?.queue_order || 0)
             };
         });
 
@@ -252,7 +317,7 @@ export function AudiobooksMediaManager() {
                 (b.genre && b.genre.toLowerCase().includes(q))
             )
             .sort((a, b) => a.title.localeCompare(b.title));
-    }, [rawItems, studioBooksMap, searchQuery]);
+    }, [rawItems, studioBooksMap, searchQuery, selectedLibraryFilter]);
 
     const handleSyncAndQueueBook = async (book: any, prioritize = false) => {
         try {
@@ -344,12 +409,21 @@ export function AudiobooksMediaManager() {
             const res = await fetch('/api/theater/audiobooks/studio', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'ai_create_collections' })
+                body: JSON.stringify({
+                    action: 'ai_organize_collections',
+                    books: groupedBooks.map(b => ({
+                        bookKey: b.bookKey,
+                        title: b.title,
+                        author: b.author,
+                        chapterCount: b.totalCh
+                    }))
+                })
             });
             if (res.ok) {
                 const data = await res.json();
-                setCollections(data.collections || []);
-                toast.success(`Created/updated ${(data.collections || []).length} collections`);
+                const updatedCols = data.collectionsState?.collections || data.collections || [];
+                setCollections(updatedCols);
+                toast.success(`Created/updated ${updatedCols.length} collections`);
             }
         } catch {
             toast.error('Failed to auto-group collections');
@@ -368,15 +442,17 @@ export function AudiobooksMediaManager() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 action: 'save_collection',
-                id: editingCollectionId || undefined,
-                name: collectionName.trim(),
-                description: collectionDesc.trim(),
-                bookKeys: collectionBookKeys
+                collection: {
+                    id: editingCollectionId || undefined,
+                    name: collectionName.trim(),
+                    description: collectionDesc.trim(),
+                    bookKeys: collectionBookKeys
+                }
             })
         });
         if (res.ok) {
             const data = await res.json();
-            setCollections(data.collections || []);
+            setCollections(data.collectionsState?.collections || data.collections || []);
             setEditingCollectionId(null);
             setCollectionName('');
             setCollectionDesc('');
@@ -389,27 +465,38 @@ export function AudiobooksMediaManager() {
         const res = await fetch('/api/theater/audiobooks/studio', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'delete_collection', id })
+            body: JSON.stringify({ action: 'explode_collection', collectionId: id })
         });
         if (res.ok) {
             const data = await res.json();
-            setCollections(data.collections || []);
+            setCollections(data.collectionsState?.collections || data.collections || []);
             toast.success('Collection deleted');
         }
     };
 
     const handlePreviewRename = async (bookKey: string) => {
         if (!bookKey) return;
+        const targetBook = groupedBooks.find(b => b.bookKey === bookKey);
         setRenamingBusy(true);
         try {
             const res = await fetch('/api/theater/audiobooks/studio', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'rename_book_files', bookKey, dryRun: true })
+                body: JSON.stringify({
+                    action: 'preview_rename_books',
+                    books: targetBook ? [{
+                        bookKey: targetBook.bookKey,
+                        title: targetBook.title,
+                        author: targetBook.author,
+                        translator: targetBook.translator,
+                        narrator: targetBook.narrator,
+                        samplePath: targetBook.chapters?.[0]?.path || ''
+                    }] : []
+                })
             });
             if (res.ok) {
                 const data = await res.json();
-                setRenamePreview(data.renamed || []);
+                setRenamePreview(data.previews || data.renamed || []);
             }
         } finally {
             setRenamingBusy(false);
@@ -417,19 +504,26 @@ export function AudiobooksMediaManager() {
     };
 
     const handleExecuteRename = async () => {
-        if (!selectedRenameBookKey) return;
+        if (!selectedRenameBookKey || renamePreview.length === 0) return;
         setRenamingBusy(true);
         try {
             const res = await fetch('/api/theater/audiobooks/studio', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'rename_book_files', bookKey: selectedRenameBookKey, dryRun: false })
+                body: JSON.stringify({
+                    action: 'execute_rename_books',
+                    renames: renamePreview.map((r: any) => ({
+                        oldPath: r.currentFolder || r.oldPath,
+                        newPath: r.proposedFolder || r.newPath
+                    }))
+                })
             });
             if (res.ok) {
                 const data = await res.json();
-                setRenamePreview(data.renamed || []);
-                toast.success(`Renamed ${(data.renamed || []).filter((r: any) => r.status === 'renamed').length} chapter files`);
-                fetchAll();
+                const results = data.results || data.renamed || [];
+                setRenamePreview(results);
+                toast.success(`Renamed ${results.filter((r: any) => r.ok || r.status === 'renamed').length} audiobook folders/files`);
+                fetchAll(true);
             }
         } finally {
             setRenamingBusy(false);
@@ -463,22 +557,25 @@ export function AudiobooksMediaManager() {
     const queuedBooks = useMemo(() => {
         return groupedBooks
             .filter(b => b.isQueued)
-            .sort((a, b) => (a.queueOrder || 999) - (b.queueOrder || 999));
+            .sort((a, b) => (b.queueOrder || 0) - (a.queueOrder || 0));
     }, [groupedBooks]);
 
     return (
         <div className="space-y-6">
             {/* Top Management Navigation Strip */}
             <div className="p-5 rounded-[2rem] bg-zinc-950/90 border border-zinc-800/80 flex flex-col xl:flex-row xl:items-center justify-between gap-4 shadow-xl">
-                <div className="space-y-1 min-w-0">
+                <div className="space-y-1.5 min-w-0">
                     <div className="flex items-center gap-2.5 flex-wrap">
                         <span className="px-2.5 py-1 rounded-xl bg-orange-500/15 text-orange-400 border border-orange-500/30 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shrink-0">
                             <BookOpen size={14} /> Audiobook Studio &amp; Library Manager
                         </span>
-                        {workerState?.running && (
+                        <span className="px-2.5 py-1 rounded-xl bg-zinc-900 text-zinc-300 border border-zinc-800 text-xs font-bold flex items-center gap-1.5 shrink-0">
+                            {audiobookLibraries.length} {audiobookLibraries.length === 1 ? 'Library' : 'Libraries'} • {groupedBooks.length} {groupedBooks.length === 1 ? 'Book' : 'Books'}
+                        </span>
+                        {(workerState?.isRunning || workerState?.running) && (
                             <span className="px-2.5 py-1 rounded-xl bg-amber-500/15 text-amber-300 border border-amber-500/30 text-xs font-mono font-bold flex items-center gap-1.5 animate-pulse shrink-0">
                                 <RefreshCw size={12} className="animate-spin" />
-                                {workerState.currentTask || 'Processing queue...'}
+                                {workerState.activeBookTitle || workerState.currentTask || workerState.lastLog || 'Processing queue...'}
                             </span>
                         )}
                     </div>
@@ -523,6 +620,75 @@ export function AudiobooksMediaManager() {
                 </div>
             </div>
 
+            {/* Connected Audiobook Libraries Strip */}
+            <div className="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800/80 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[11px] font-black uppercase tracking-wider text-zinc-400 mr-1">
+                        Audiobook Libraries:
+                    </span>
+                    <button
+                        onClick={() => setSelectedLibraryFilter('all')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                            selectedLibraryFilter === 'all'
+                                ? 'bg-orange-500/20 text-orange-300 border-orange-500/40'
+                                : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
+                        }`}
+                    >
+                        All Libraries ({audiobookLibraries.length})
+                    </button>
+                    {audiobookLibraries.map((lib: any) => {
+                        let folderPaths: string[] = [];
+                        try {
+                            folderPaths = typeof lib.folders === 'string' ? JSON.parse(lib.folders) : (Array.isArray(lib.folders) ? lib.folders : []);
+                        } catch {
+                            folderPaths = [];
+                        }
+                        return (
+                            <button
+                                key={lib.id}
+                                onClick={() => setSelectedLibraryFilter(lib.id)}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border flex items-center gap-2 ${
+                                    selectedLibraryFilter === lib.id
+                                        ? 'bg-orange-500/20 text-orange-300 border-orange-500/40'
+                                        : 'bg-zinc-900 text-zinc-300 border-zinc-800 hover:text-white'
+                                }`}
+                                title={folderPaths.join(', ') || lib.name}
+                            >
+                                <BookOpen size={12} className="text-orange-400" />
+                                <span>{lib.name}</span>
+                                {folderPaths[0] && (
+                                    <span className="text-[10px] font-mono text-zinc-500 max-w-[180px] truncate">
+                                        ({folderPaths[0]})
+                                    </span>
+                                )}
+                            </button>
+                        );
+                    })}
+                    {audiobookLibraries.length === 0 && !loading && (
+                        <span className="text-xs text-zinc-500 italic">
+                            No Audiobook library linked yet — click &ldquo;Libraries &amp; Folders&rdquo; above to add one.
+                        </span>
+                    )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => fetchAll(true)}
+                        disabled={rescanning}
+                        className="px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+                    >
+                        <RefreshCw size={13} className={rescanning ? 'animate-spin text-orange-400' : 'text-orange-400'} />
+                        {rescanning ? 'Rescanning...' : 'Rescan Libraries'}
+                    </button>
+                    <a
+                        href="/theater?tab=audiobooks"
+                        className="px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 text-xs font-bold flex items-center gap-1.5 transition-all"
+                    >
+                        <Play size={13} className="text-orange-400" /> Open Bookshelf in Theater
+                    </a>
+                </div>
+            </div>
+
             {/* SUB-TAB 1: BOOKS & METADATA EDITOR */}
             {activeSubTab === 'books' && (
                 <div className="space-y-4">
@@ -537,23 +703,23 @@ export function AudiobooksMediaManager() {
                                 className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-zinc-950 border border-zinc-800 text-xs text-white placeholder:text-zinc-500 focus:outline-none focus:border-orange-500"
                             />
                         </div>
-                        <div className="flex items-center gap-2">
-                            <a
-                                href="/theater?tab=audiobooks"
-                                className="px-4 py-2.5 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 text-xs font-bold flex items-center gap-1.5 transition-all"
-                            >
-                                <Play size={13} className="text-orange-400" /> Open Bookshelf in Theater
-                            </a>
-                        </div>
                     </div>
 
                     {loading ? (
                         <div className="p-16 text-center text-zinc-500 text-xs font-bold">Loading audiobooks...</div>
                     ) : groupedBooks.length === 0 ? (
-                        <div className="p-16 rounded-3xl bg-zinc-950/60 border border-zinc-900 text-center space-y-2">
+                        <div className="p-16 rounded-3xl bg-zinc-950/60 border border-zinc-900 text-center space-y-3">
                             <BookOpen size={36} className="mx-auto text-zinc-700" />
-                            <p className="text-sm font-bold text-white">No Audiobooks Found</p>
-                            <p className="text-xs text-zinc-500">Add an Audiobooks folder via &ldquo;Libraries &amp; Folders&rdquo; above.</p>
+                            <p className="text-sm font-bold text-white">
+                                {audiobookLibraries.length > 0
+                                    ? `Connected to ${audiobookLibraries.map((l: any) => l.name).join(', ')}, but no audio chapters were returned yet`
+                                    : 'No Audiobook Libraries Found'}
+                            </p>
+                            <p className="text-xs text-zinc-500 max-w-md mx-auto">
+                                {audiobookLibraries.length > 0
+                                    ? 'Click "Rescan Libraries" above to refresh from Plex and Unraid disk folders.'
+                                    : 'Add an Audiobooks library or folder via "Libraries & Folders" above.'}
+                            </p>
                         </div>
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -573,6 +739,11 @@ export function AudiobooksMediaManager() {
                                         <div className="min-w-0 flex-1 space-y-1.5">
                                             <div className="flex items-center gap-2 flex-wrap">
                                                 <h3 className="text-sm sm:text-base font-black text-white truncate">{book.title}</h3>
+                                                {book.libraryName && (
+                                                    <span className="px-2 py-0.5 rounded-md bg-zinc-900 text-zinc-400 border border-zinc-800 text-[10px] font-bold">
+                                                        {book.libraryName}
+                                                    </span>
+                                                )}
                                                 {book.publishedYear && (
                                                     <span className="px-2 py-0.5 rounded-md bg-zinc-900 text-zinc-400 text-[10px] font-mono font-bold">
                                                         {book.publishedYear}
@@ -717,7 +888,7 @@ export function AudiobooksMediaManager() {
                                     <div>
                                         <h4 className="text-sm font-black text-white">{col.name}</h4>
                                         {col.description && <p className="text-xs text-zinc-400 mt-0.5">{col.description}</p>}
-                                        <p className="text-[11px] text-orange-400 font-mono mt-1">{(col.book_keys || []).length} books</p>
+                                        <p className="text-[11px] text-orange-400 font-mono mt-1">{(col.bookKeys || col.book_keys || []).length} books</p>
                                     </div>
                                     <div className="flex items-center gap-2">
                                         <button
@@ -725,7 +896,7 @@ export function AudiobooksMediaManager() {
                                                 setEditingCollectionId(col.id);
                                                 setCollectionName(col.name || '');
                                                 setCollectionDesc(col.description || '');
-                                                setCollectionBookKeys(col.book_keys || []);
+                                                setCollectionBookKeys(col.bookKeys || col.book_keys || []);
                                             }}
                                             className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 text-xs font-bold cursor-pointer"
                                         >
@@ -751,10 +922,10 @@ export function AudiobooksMediaManager() {
                     <div>
                         <h3 className="text-base font-black text-white flex items-center gap-2">
                             <Wrench size={16} className="text-orange-400" />
-                            Standardize &amp; Rename Audiobook Chapter Files
+                            Standardize &amp; Rename Audiobook Folders &amp; Chapter Files
                         </h3>
                         <p className="text-xs text-zinc-400 mt-0.5">
-                            Preview and safely rename chapter files on disk to clean sequential numbering (<code className="text-orange-300">01 - Chapter Title.mp3</code>).
+                            Preview and safely rename audiobook folders/chapter files on disk to clean canonical naming.
                         </p>
                     </div>
 
@@ -785,8 +956,8 @@ export function AudiobooksMediaManager() {
                         <div className="divide-y divide-zinc-900 rounded-2xl border border-zinc-800 bg-zinc-900/40 max-h-96 overflow-y-auto custom-scrollbar">
                             {renamePreview.map((r, i) => (
                                 <div key={i} className="p-3 text-xs font-mono flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                                    <span className="text-zinc-400 truncate">{r.oldPath}</span>
-                                    <span className="text-emerald-400 font-bold truncate">→ {r.newPath} ({r.status})</span>
+                                    <span className="text-zinc-400 truncate">{r.currentFolder || r.oldPath}</span>
+                                    <span className="text-emerald-400 font-bold truncate">→ {r.proposedFolder || r.newPath} ({r.status || (r.alreadyClean ? 'already clean' : r.canRename ? 'ready' : 'pending')})</span>
                                 </div>
                             ))}
                         </div>
@@ -905,7 +1076,7 @@ export function AudiobooksMediaManager() {
                                                 await fetch('/api/theater/audiobooks/studio', {
                                                     method: 'POST',
                                                     headers: { 'Content-Type': 'application/json' },
-                                                    body: JSON.stringify({ action: 'unqueue_book', bookKey: b.bookKey })
+                                                    body: JSON.stringify({ action: 'toggle_queue', bookKey: b.bookKey, isQueued: false })
                                                 });
                                                 fetchAll();
                                             }}

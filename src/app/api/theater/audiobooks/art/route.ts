@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
+import { Readable } from 'stream';
 import {
     getAudiobookArtDir,
     getAudiobookEnhancedDir,
     getAudiobookTranscriptsDir,
-    isValidImageBuffer,
-    createAtmosphericSvgBookplate
+    isValidImageBuffer
 } from '@/lib/audiobookStudio';
 
 export const dynamic = 'force-dynamic';
@@ -20,57 +20,31 @@ export async function GET(request: Request) {
 
         if (file) {
             const safeName = path.basename(file);
+            const ext = path.extname(safeName).toLowerCase();
+            if (ext === '.svg') {
+                const svgPath = path.join(getAudiobookArtDir(), safeName);
+                try {
+                    if (fs.existsSync(svgPath)) fs.unlinkSync(svgPath);
+                } catch {}
+                return new NextResponse('SVG placeholder rejected', { status: 404 });
+            }
+
             const fullPath = path.join(getAudiobookArtDir(), safeName);
             if (!fs.existsSync(fullPath)) {
-                const fallbackBuf = createAtmosphericSvgBookplate(
-                    fullPath,
-                    'Audiobook Studio',
-                    '',
-                    'Scene Illustration',
-                    1,
-                    'Cinematic Concept Art',
-                    1280,
-                    720
-                );
-                return new NextResponse(fallbackBuf as any, {
-                    headers: {
-                        'Content-Type': 'image/svg+xml',
-                        'Cache-Control': 'no-cache',
-                        'Access-Control-Allow-Origin': '*'
-                    }
-                });
+                return new NextResponse('Illustration file not found', { status: 404 });
             }
             const buf = fs.readFileSync(fullPath);
             if (!isValidImageBuffer(buf)) {
-                // Auto-repair previously saved HTML/corrupted image files on the server
-                const repairedSvg = createAtmosphericSvgBookplate(
-                    fullPath,
-                    'Audiobook Studio',
-                    '',
-                    'Restored Scene Bookplate',
-                    1,
-                    'Atmospheric Edition',
-                    1280,
-                    720
-                );
-                return new NextResponse(repairedSvg as any, {
-                    headers: {
-                        'Content-Type': 'image/svg+xml',
-                        'Cache-Control': 'no-cache',
-                        'Access-Control-Allow-Origin': '*'
-                    }
-                });
+                try { fs.unlinkSync(fullPath); } catch {}
+                return new NextResponse('Invalid raster image file', { status: 404 });
             }
 
-            const ext = path.extname(safeName).toLowerCase();
-            const headStr = buf.slice(0, 120).toString('utf8').trim().toLowerCase();
-            const isSvg = ext === '.svg' || headStr.startsWith('<svg') || headStr.includes('<svg');
-            const contentType = isSvg
-                ? 'image/svg+xml'
-                : ext === '.png'
+            const contentType = ext === '.png'
                 ? 'image/png'
                 : ext === '.webp'
                 ? 'image/webp'
+                : ext === '.gif'
+                ? 'image/gif'
                 : 'image/jpeg';
             return new NextResponse(buf as any, {
                 headers: {
@@ -104,29 +78,43 @@ export async function GET(request: Request) {
                 return new NextResponse('Enhanced audio not found', { status: 404 });
             }
             const stat = fs.statSync(fullPath);
+            const ext = path.extname(safeName).toLowerCase();
+            const contentType = ext === '.mp3' ? 'audio/mpeg' : 'audio/mp4';
             const range = request.headers.get('range');
             if (range) {
                 const parts = range.replace(/bytes=/, '').split('-');
                 const start = parseInt(parts[0], 10);
                 const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+                if (start >= stat.size || end >= stat.size) {
+                    return new NextResponse('Requested range not satisfiable', {
+                        status: 416,
+                        headers: { 'Content-Range': `bytes */${stat.size}` }
+                    });
+                }
                 const chunkSize = end - start + 1;
                 const stream = fs.createReadStream(fullPath, { start, end });
-                return new NextResponse(stream as any, {
+                const webStream = Readable.toWeb(stream);
+                return new Response(webStream as any, {
                     status: 206,
                     headers: {
                         'Content-Range': `bytes ${start}-${end}/${stat.size}`,
                         'Accept-Ranges': 'bytes',
                         'Content-Length': String(chunkSize),
-                        'Content-Type': 'audio/mp4'
+                        'Content-Type': contentType,
+                        'Cache-Control': 'no-cache',
+                        'Access-Control-Allow-Origin': '*'
                     }
                 });
             }
             const stream = fs.createReadStream(fullPath);
-            return new NextResponse(stream as any, {
+            const webStream = Readable.toWeb(stream);
+            return new Response(webStream as any, {
                 headers: {
                     'Content-Length': String(stat.size),
                     'Accept-Ranges': 'bytes',
-                    'Content-Type': 'audio/mp4'
+                    'Content-Type': contentType,
+                    'Cache-Control': 'no-cache',
+                    'Access-Control-Allow-Origin': '*'
                 }
             });
         }
@@ -136,4 +124,3 @@ export async function GET(request: Request) {
         return new NextResponse(e.message || 'Server error', { status: 500 });
     }
 }
-

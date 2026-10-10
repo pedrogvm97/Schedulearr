@@ -257,17 +257,36 @@ export async function recreateSelfContainer(docker: any, containerInfo: any, tar
   const timestamp = Date.now();
   const helperName = `schedulearr_updater_${timestamp}`;
 
-  const binds: string[] = containerInfo.HostConfig?.Binds || [
-    '/var/run/docker.sock:/var/run/docker.sock',
-    '/mnt/user/appdata/schedulearr/data:/app/data'
-  ];
+  const existingBinds: string[] = Array.from(new Set(
+    containerInfo.HostConfig?.Binds || [
+      '/var/run/docker.sock:/var/run/docker.sock',
+      '/mnt/user/appdata/schedulearr/data:/app/data'
+    ]
+  ));
+
+  // Automatically propagate Unraid Plex / Media volume mounts so Schedulearr can always navigate the Unraid Plex folder
+  try {
+    const discovered = await discoverUnraidPlexMountsAndRoot(docker);
+    for (const bind of discovered.extraBinds) {
+      const [hostSrc, contDst] = bind.split(':');
+      const alreadyHas = existingBinds.some((b: string) => {
+        const [bSrc, bDst] = b.split(':');
+        return bSrc === hostSrc || bDst === contDst;
+      });
+      if (!alreadyHas && hostSrc && contDst) {
+        existingBinds.push(bind);
+      }
+    }
+  } catch {}
+
+  const binds: string[] = existingBinds;
 
   const rawHostConfig = containerInfo.HostConfig || {};
   const isHostNetwork = rawHostConfig.NetworkMode === 'host';
 
   const cleanHostConfig: any = {
     RestartPolicy: rawHostConfig.RestartPolicy || { Name: 'unless-stopped' },
-    Binds: rawHostConfig.Binds || binds,
+    Binds: binds,
     NetworkMode: rawHostConfig.NetworkMode || (isHostNetwork ? 'host' : 'bridge'),
     Privileged: !!rawHostConfig.Privileged
   };
@@ -403,3 +422,144 @@ setTimeout(() => {
 
   return true;
 }
+
+export interface UnraidMountDiscovery {
+  extraBinds: string[];
+  plexRootCandidates: string[];
+  mountMappings: Array<{
+    hostPath: string;
+    containerPath: string;
+    sourceContainer: string;
+  }>;
+}
+
+/**
+ * Inspects Docker containers on Unraid (Plex, Radarr, Sonarr, Lidarr, and Schedulearr)
+ * to discover the Unraid host/container media mounts and the parent Plex Media Folder.
+ */
+export async function discoverUnraidPlexMountsAndRoot(dockerClient?: any): Promise<UnraidMountDiscovery> {
+  const extraBinds: string[] = [];
+  const plexRootCandidates = new Set<string>();
+  const mountMappings: Array<{ hostPath: string; containerPath: string; sourceContainer: string }> = [];
+
+  try {
+    if (fs.existsSync('/var/run/docker.sock')) {
+      const client = dockerClient || getDockerClient();
+      const listRes = await client.get('/containers/json?all=true');
+      const containers = listRes.data || [];
+
+      for (const c of containers) {
+        const names: string[] = (c.Names || []).map((n: string) => n.replace(/^\//, ''));
+        const image = String(c.Image || '').toLowerCase();
+        const isMediaContainer = names.some((n) =>
+          /\b(plex|radarr|sonarr|lidarr|jellyfin|emby|schedulearr)\b/i.test(n)
+        ) || /\b(plex|radarr|sonarr|lidarr|schedulearr)\b/i.test(image);
+
+        if (!isMediaContainer) continue;
+
+        const mounts = Array.isArray(c.Mounts) ? c.Mounts : [];
+        for (const m of mounts) {
+          const src = String(m.Source || '').replace(/\/+$/, '');
+          const dst = String(m.Destination || '').replace(/\/+$/, '');
+          if (!src || !dst) continue;
+          if (
+            dst === '/config' ||
+            dst === '/app/data' ||
+            dst === '/var/run/docker.sock' ||
+            dst.startsWith('/transcode') ||
+            src.includes('/appdata/')
+          ) {
+            continue;
+          }
+
+          if (src.startsWith('/mnt/') || dst.startsWith('/data') || dst.startsWith('/media') || dst.startsWith('/mnt')) {
+            mountMappings.push({
+              hostPath: src,
+              containerPath: dst,
+              sourceContainer: names[0] || 'media'
+            });
+            extraBinds.push(`${src}:${dst}:rw`);
+            extraBinds.push(`${src}:${src}:rw`);
+            if (fs.existsSync(dst)) plexRootCandidates.add(dst);
+            if (fs.existsSync(src)) plexRootCandidates.add(src);
+          }
+        }
+      }
+    }
+  } catch {}
+
+  const standardCandidates = [
+    '/mnt/user/data/media',
+    '/mnt/user/media',
+    '/mnt/user/Media',
+    '/mnt/user/Plex',
+    '/mnt/user/plex',
+    '/data/media',
+    '/media',
+    '/data'
+  ];
+  for (const cand of standardCandidates) {
+    if (fs.existsSync(cand)) {
+      plexRootCandidates.add(cand);
+    }
+  }
+
+  return {
+    extraBinds: Array.from(new Set(extraBinds)),
+    plexRootCandidates: Array.from(plexRootCandidates),
+    mountMappings
+  };
+}
+
+/**
+ * Automated Unraid permission fixer (runs automatically like the auto-updater commands).
+ * Ensures directories are 0777 and files are 0666 with Unraid `nobody:users` (99:100) ownership.
+ * Falls back to a lightweight ephemeral Docker container over `/var/run/docker.sock` if local chown/chmod is restricted.
+ */
+export async function ensureUnraidPathPermissions(targetPath: string): Promise<{ ok: boolean; method: string }> {
+  if (!targetPath) return { ok: false, method: 'none' };
+
+  let localSuccess = false;
+  try {
+    if (fs.existsSync(targetPath)) {
+      const stat = fs.statSync(targetPath);
+      const mode = stat.isDirectory() ? 0o777 : 0o666;
+      try { fs.chmodSync(targetPath, mode); } catch {}
+      try { fs.chownSync(targetPath, 99, 100); } catch {}
+      localSuccess = true;
+    }
+  } catch {}
+
+  // If on Linux/Unraid with Docker socket available, also ensure host-level 99:100 (nobody:users) & 777 permissions
+  if (process.platform === 'linux' && fs.existsSync('/var/run/docker.sock')) {
+    try {
+      const docker = getDockerClient();
+      const hostname = process.env.HOSTNAME || '';
+      const selfInfo = await findSelfContainer(docker, hostname);
+      const image = selfInfo?.Image || 'pedrogvm97/schedulearr:latest';
+      const binds: string[] = selfInfo?.HostConfig?.Binds || [];
+
+      if (binds.length > 0) {
+        const permHelperName = `schedulearr_perm_${Date.now()}`;
+        const safePath = targetPath.replace(/'/g, "'\\''");
+        const cmdScript = `chmod -R 777 '${safePath}' 2>/dev/null || true; chown -R 99:100 '${safePath}' 2>/dev/null || true`;
+        const createRes = await docker.post(`/containers/create?name=${permHelperName}`, {
+          Image: image,
+          User: '0:0',
+          Cmd: ['sh', '-c', cmdScript],
+          HostConfig: {
+            AutoRemove: true,
+            Binds: binds
+          }
+        });
+        if (createRes.data?.Id) {
+          await docker.post(`/containers/${createRes.data.Id}/start`);
+          return { ok: true, method: 'docker_helper' };
+        }
+      }
+    } catch {}
+  }
+
+  return { ok: localSuccess, method: localSuccess ? 'local_fs' : 'none' };
+}
+

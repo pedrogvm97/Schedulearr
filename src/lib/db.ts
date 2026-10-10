@@ -519,6 +519,15 @@ function initializeSchema(d: any) {
                OR synced_lyrics LIKE '%Opening narration —%';
         `);
     } catch (e) { }
+    try { d.exec("ALTER TABLE dvr_recordings ADD COLUMN format TEXT DEFAULT 'mp4';"); } catch (e) { }
+    try {
+        d.exec(`
+            DELETE FROM dvr_storage_folders
+            WHERE path LIKE '%/app/recordings%'
+               OR path LIKE '%/app/data/recordings%'
+               OR path LIKE '%\\recordings';
+        `);
+    } catch (e) { }
     try { d.pragma(`user_version = ${CURRENT_SCHEMA_VER}`); } catch (e) { }
 }
 
@@ -2080,6 +2089,7 @@ export interface DvrRecording {
     destination_path: string;
     file_path?: string;
     file_size?: number;
+    format?: 'mp4' | 'mkv' | 'mp3';
     status: 'scheduled' | 'recording' | 'completed' | 'failed' | 'cancelled';
     error_message?: string;
     created_at: string;
@@ -2097,12 +2107,13 @@ export const getDvrRecordings = (limit: number = 200): DvrRecording[] => {
 
 export const scheduleDvrRecording = (rec: Omit<DvrRecording, 'id' | 'created_at'>): DvrRecording => {
     const id = `rec_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const fmt = (rec.format === 'mkv' || rec.format === 'mp3') ? rec.format : 'mp4';
     db.prepare(`
         INSERT INTO dvr_recordings (
             id, rule_id, channel_id, channel_name, channel_logo, stream_url,
             program_title, program_description, start_time, end_time,
-            destination_path, file_path, file_size, status, error_message
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            destination_path, file_path, file_size, format, status, error_message
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
         id,
         rec.rule_id || null,
@@ -2117,12 +2128,14 @@ export const scheduleDvrRecording = (rec: Omit<DvrRecording, 'id' | 'created_at'
         rec.destination_path,
         rec.file_path || null,
         rec.file_size || 0,
+        fmt,
         rec.status || 'scheduled',
         rec.error_message || null
     );
 
     return {
         ...rec,
+        format: fmt,
         id,
         created_at: new Date().toISOString()
     };
@@ -2994,6 +3007,55 @@ export const getRecentAudiobookActivity = (limit: number = 100) => {
     }
 };
 
+export interface SystemLogEntry {
+    id: string;
+    timestamp: string;
+    category: string;
+    level: 'info' | 'warn' | 'error';
+    message: string;
+}
+
+const gLogs = globalThis as unknown as {
+    __schedulearrSystemLogs?: SystemLogEntry[];
+};
+
+export const logSystemEvent = (
+    category: string,
+    message: string,
+    level: 'info' | 'warn' | 'error' = 'info'
+) => {
+    try {
+        if (!gLogs.__schedulearrSystemLogs) {
+            gLogs.__schedulearrSystemLogs = [];
+        }
+        const entry: SystemLogEntry = {
+            id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            timestamp: new Date().toISOString(),
+            category,
+            level,
+            message
+        };
+        gLogs.__schedulearrSystemLogs.unshift(entry);
+        if (gLogs.__schedulearrSystemLogs.length > 250) {
+            gLogs.__schedulearrSystemLogs.length = 250;
+        }
+        const prefix = `[${entry.timestamp}] [${category}]`;
+        if (level === 'error') {
+            console.error(`${prefix} ❌ ${message}`);
+        } else if (level === 'warn') {
+            console.warn(`${prefix} ⚠️ ${message}`);
+        } else {
+            console.log(`${prefix} ℹ️ ${message}`);
+        }
+    } catch {}
+};
+
+export const getSystemLogs = (limit: number = 50): SystemLogEntry[] => {
+    if (!gLogs.__schedulearrSystemLogs) return [];
+    return gLogs.__schedulearrSystemLogs.slice(0, limit);
+};
+
 export default db;
+
 
 

@@ -243,8 +243,8 @@ export const getAudiobookTranscriptsDir = () => {
  * and NOT an HTML error page, Cloudflare challenge, or JSON error payload.
  */
 export const isValidImageBuffer = (buf?: Buffer | null): boolean => {
-    if (!buf || buf.length < 64) return false;
-    // Check magic bytes for binary formats first
+    if (!buf || buf.length < 128) return false;
+    // Strictly accept ONLY genuine binary raster formats (JPEG, PNG, GIF, WebP) — NEVER SVG/HTML/XML
     // JPEG: FF D8 FF
     if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return true;
     // PNG: 89 50 4E 47 0D 0A 1A 0A
@@ -256,15 +256,6 @@ export const isValidImageBuffer = (buf?: Buffer | null): boolean => {
         buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
         buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50
     ) {
-        return true;
-    }
-    // Check text prefix for SVG vs HTML/JSON error
-    const head = buf.slice(0, Math.min(buf.length, 512)).toString('utf8').trim();
-    const lower = head.toLowerCase();
-    if (lower.startsWith('<!doctype html') || lower.startsWith('<html') || lower.startsWith('<head') || lower.startsWith('{')) {
-        return false;
-    }
-    if (lower.startsWith('<svg') || (lower.startsWith('<?xml') && lower.includes('<svg'))) {
         return true;
     }
     return false;
@@ -1165,25 +1156,78 @@ export const discoverBookRealStructureWithAi = async (
     const audioFileCount = Math.max(1, audioChapters.length || book.total_chapters || 1);
 
     let openLibSubjects = '';
+    let wikiPlotSummary = '';
+    let wikiCharacters: string[] = [];
+
     try {
         const q = encodeURIComponent(`${book.title} ${book.author !== 'Unknown Author' ? book.author : ''}`.trim());
         const olResp = await axios.get(`https://openlibrary.org/search.json?q=${q}&limit=1`, { timeout: 7000 });
         const doc = olResp.data?.docs?.[0];
         if (doc) {
-            const subs = Array.isArray(doc.subject) ? doc.subject.slice(0, 8).join(', ') : '';
+            const subs = Array.isArray(doc.subject) ? doc.subject.slice(0, 10).join(', ') : '';
+            const personSubs = Array.isArray(doc.person) ? doc.person.slice(0, 8) : [];
+            const placeSubs = Array.isArray(doc.place) ? doc.place.slice(0, 6).join(', ') : '';
+            if (personSubs.length > 0) wikiCharacters.push(...personSubs);
             const firstSentence = Array.isArray(doc.first_sentence) ? doc.first_sentence[0] : (doc.first_sentence || '');
-            openLibSubjects = [subs ? `Subjects: ${subs}` : '', firstSentence ? `Opening: ${firstSentence}` : ''].filter(Boolean).join('. ');
+            openLibSubjects = [
+                subs ? `Themes: ${subs}` : '',
+                placeSubs ? `Locations: ${placeSubs}` : '',
+                firstSentence ? `Opening: ${firstSentence}` : ''
+            ].filter(Boolean).join('. ');
         }
     } catch {}
+
+    // Query Wikipedia API for the actual novel's plot, characters, and locations
+    try {
+        const cleanQuery = `${book.title} ${book.author !== 'Unknown Author' ? book.author : ''} novel`.trim();
+        const searchResp = await axios.get(
+            `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(cleanQuery)}&format=json&srlimit=2`,
+            { timeout: 7000, headers: { 'User-Agent': 'SchedulearrAudiobookStudio/1.0' } }
+        );
+        const pageTitle = searchResp.data?.query?.search?.[0]?.title;
+        if (pageTitle) {
+            const extractResp = await axios.get(
+                `https://en.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&titles=${encodeURIComponent(pageTitle)}&format=json`,
+                { timeout: 8000, headers: { 'User-Agent': 'SchedulearrAudiobookStudio/1.0' } }
+            );
+            const pages = extractResp.data?.query?.pages || {};
+            const firstPage: any = Object.values(pages)[0];
+            const extractText = String(firstPage?.extract || '').trim();
+            if (extractText.length > 80) {
+                wikiPlotSummary = extractText.slice(0, 2600).replace(/\s+/g, ' ');
+                const matches = extractText.match(/\b[A-Z][a-z]{2,14}(?:\s+[A-Z][a-z]{2,14})?\b/g) || [];
+                const stopWords = new Set(['The', 'And', 'But', 'When', 'After', 'Before', 'While', 'During', 'Plot', 'Summary', 'Novel', 'Book', 'History', 'Earth', 'Series', 'Chapter', 'Part', 'Volume', 'Published', 'Science', 'Fiction', 'Author', 'Awards', 'Reception']);
+                for (const m of matches) {
+                    if (!stopWords.has(m) && !m.includes(book.author.split(' ')[0] || '___') && wikiCharacters.length < 12 && !wikiCharacters.includes(m)) {
+                        wikiCharacters.push(m);
+                    }
+                }
+            }
+        }
+    } catch {}
+
+    // Also query Google Books API for book synopsis if Wikipedia was brief
+    if (wikiPlotSummary.length < 250) {
+        try {
+            const gbQ = encodeURIComponent(`intitle:${book.title} ${book.author !== 'Unknown Author' ? `inauthor:${book.author}` : ''}`.trim());
+            const gbResp = await axios.get(`https://www.googleapis.com/books/v1/volumes?q=${gbQ}&maxResults=1`, { timeout: 6000 });
+            const desc = gbResp.data?.items?.[0]?.volumeInfo?.description;
+            if (desc && typeof desc === 'string') {
+                wikiPlotSummary = `${wikiPlotSummary} ${desc.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')}`.trim().slice(0, 2600);
+            }
+        } catch {}
+    }
 
     const prompt = [
         `You are a literary scholar and audiobook scene director.`,
         `Analyze the real-world published book "${book.title}" by ${book.author}.`,
         openLibSubjects ? `Bibliographic context: ${openLibSubjects}` : '',
+        wikiPlotSummary ? `Verified Plot & Story Synopsis: ${wikiPlotSummary.slice(0, 1600)}` : '',
+        wikiCharacters.length > 0 ? `Key Characters & Entities: ${wikiCharacters.slice(0, 10).join(', ')}` : '',
         `This audiobook edition has ${audioFileCount} audio track(s)/section(s): ${audioChapters.slice(0, 12).map(c => `"${c.title}"`).join(', ')}.`,
-        `Determine how many real-life chapters or major parts this book has, and break each down into 2 to 4 iconic visual scenes in chronological order.`,
+        `Break the story down into chapters/parts with 2 to 4 concrete visual scenes in chronological order featuring the EXACT characters, events, and locations from "${book.title}".`,
         `Return ONLY valid JSON matching this exact structure (no markdown fences):`,
-        `{"totalRealChapters": 3, "totalKeyScenes": 9, "chapters": [{"chapterNumber": 1, "title": "Part I", "summary": "...", "scenes": [{"sceneNumber": 1, "title": "Awakening in the Bedroom", "summary": "...", "visualSetting": "...", "characters": ["Gregor Samsa"]}]}]}`
+        `{"totalRealChapters": 3, "totalKeyScenes": 9, "chapters": [{"chapterNumber": 1, "title": "Part I", "summary": "...", "scenes": [{"sceneNumber": 1, "title": "...", "summary": "...", "visualSetting": "...", "characters": ["..."]}]}]}`
     ].filter(Boolean).join('\n');
 
     const llmRes = await callStudioTextLlmWithFailover({
@@ -1213,12 +1257,12 @@ export const discoverBookRealStructureWithAi = async (
                                 title: String(sc.title || `Scene ${sIdx + 1}`),
                                 summary: String(sc.summary || ''),
                                 visualSetting: String(sc.visualSetting || ''),
-                                characters: Array.isArray(sc.characters) ? sc.characters.map(String) : []
+                                characters: Array.isArray(sc.characters) ? sc.characters.map(String) : wikiCharacters.slice(0, 4)
                             }))
                             : [
-                                { sceneNumber: 1, title: 'Opening Scene', summary: String(ch.summary || ''), visualSetting: 'Opening setting', characters: [] },
-                                { sceneNumber: 2, title: 'Turning Point', summary: String(ch.summary || ''), visualSetting: 'Mid-chapter setting', characters: [] },
-                                { sceneNumber: 3, title: 'Climax & Resolution', summary: String(ch.summary || ''), visualSetting: 'Closing setting', characters: [] }
+                                { sceneNumber: 1, title: `${String(ch.title || `Chapter ${idx + 1}`)} — Part I`, summary: String(ch.summary || wikiPlotSummary.slice(0, 240)), visualSetting: openLibSubjects || `${book.title} world setting`, characters: wikiCharacters.slice(0, 4) },
+                                { sceneNumber: 2, title: `${String(ch.title || `Chapter ${idx + 1}`)} — Part II`, summary: String(ch.summary || wikiPlotSummary.slice(240, 480)), visualSetting: openLibSubjects || `${book.title} key location`, characters: wikiCharacters.slice(0, 4) },
+                                { sceneNumber: 3, title: `${String(ch.title || `Chapter ${idx + 1}`)} — Part III`, summary: String(ch.summary || wikiPlotSummary.slice(480, 720)), visualSetting: openLibSubjects || `${book.title} climactic setting`, characters: wikiCharacters.slice(0, 4) }
                             ]
                     }));
                     const totalScenes = chapters.reduce((acc, c) => acc + c.scenes.length, 0);
@@ -1233,21 +1277,30 @@ export const discoverBookRealStructureWithAi = async (
                 }
             }
         } catch (e) {
-            console.warn('⚠️ [AudiobookStudio] Failed parsing real structure JSON from LLM, using structured fallback.');
+            console.warn('⚠️ [AudiobookStudio] Failed parsing real structure JSON from LLM, using Wikipedia/OpenLibrary plot segments.');
         }
     }
 
     if (!structure) {
-        const fallbackChapters: BookRealChapterInfo[] = (audioChapters.length > 0 ? audioChapters : [{ title: 'Chapter 1', chapter_index: 0 } as any]).map((ch, idx) => ({
-            chapterNumber: idx + 1,
-            title: ch.title.replace(/\.(mp3|m4b|m4a|flac|ogg|wav)$/i, ''),
-            summary: `Narrative progression of ${book.title} by ${book.author} (${ch.title})`,
-            scenes: [
-                { sceneNumber: 1, title: `Opening of ${ch.title}`, summary: `Introduction and setting of ${ch.title}`, visualSetting: `Opening environment of ${book.title}`, characters: [] },
-                { sceneNumber: 2, title: `Confrontation in ${ch.title}`, summary: `Central dramatic development in ${ch.title}`, visualSetting: `Key interior or exterior location in ${book.title}`, characters: [] },
-                { sceneNumber: 3, title: `Culmination of ${ch.title}`, summary: `Climactic moment and transition in ${ch.title}`, visualSetting: `Atmospheric closing setting of ${ch.title}`, characters: [] }
-            ]
-        }));
+        const plotSentences = wikiPlotSummary
+            ? wikiPlotSummary.split(/(?<=[.!?])\s+/).filter(s => s.length > 25)
+            : [];
+        const fallbackChapters: BookRealChapterInfo[] = (audioChapters.length > 0 ? audioChapters : [{ title: 'Chapter 1', chapter_index: 0 } as any]).map((ch, idx) => {
+            const cleanChapTitle = ch.title.replace(/\.(mp3|m4b|m4a|flac|ogg|wav)$/i, '');
+            const s1 = plotSentences[(idx * 3) % Math.max(1, plotSentences.length)] || openLibSubjects || `Story events in ${cleanChapTitle} of ${book.title} by ${book.author}`;
+            const s2 = plotSentences[(idx * 3 + 1) % Math.max(1, plotSentences.length)] || s1;
+            const s3 = plotSentences[(idx * 3 + 2) % Math.max(1, plotSentences.length)] || s2;
+            return {
+                chapterNumber: idx + 1,
+                title: cleanChapTitle,
+                summary: `${s1} ${s2}`.slice(0, 360),
+                scenes: [
+                    { sceneNumber: 1, title: `${cleanChapTitle} — Scene 1`, summary: s1, visualSetting: `${book.title} (${openLibSubjects.slice(0, 120) || 'story environment'})`, characters: wikiCharacters.slice(0, 4) },
+                    { sceneNumber: 2, title: `${cleanChapTitle} — Scene 2`, summary: s2, visualSetting: `${book.title} (${openLibSubjects.slice(0, 120) || 'central location'})`, characters: wikiCharacters.slice(0, 4) },
+                    { sceneNumber: 3, title: `${cleanChapTitle} — Scene 3`, summary: s3, visualSetting: `${book.title} (${openLibSubjects.slice(0, 120) || 'climactic location'})`, characters: wikiCharacters.slice(0, 4) }
+                ]
+            };
+        });
         structure = {
             bookTitle: book.title,
             author: book.author,
@@ -1268,7 +1321,7 @@ export const discoverBookRealStructureWithAi = async (
         bookTitle: book.title,
         queueType: 'structure',
         status: 'completed',
-        providerUsed: llmRes?.providerUsed || 'OpenLibrary + Built-in Analyzer',
+        providerUsed: llmRes?.providerUsed || (wikiPlotSummary ? 'Wikipedia + OpenLibrary Plot Analyzer' : 'OpenLibrary + Built-in Analyzer'),
         detail: `Mapped ${structure.totalRealChapters} real chapters & ${structure.totalKeyScenes} narrative scenes`
     });
 
@@ -1842,14 +1895,16 @@ export const enhanceAudiobookChapterAudio = async (
         filters.push('highpass=f=80', 'lowpass=f=13500', 'afftdn=nf=-24', 'dynaudnorm=f=200:g=15');
     }
 
-    if (effectiveVoice === 'deep_narrator') {
-        filters.push('asetrate=44100*0.92,aresample=44100,atempo=1.087');
+    if (effectiveVoice === 'deep_narrator' || effectiveVoice === 'deep_cinema') {
+        filters.push('asetrate=44100*0.92,aresample=44100,atempo=1.087,equalizer=f=140:width_type=h:width=90:g=3');
     } else if (effectiveVoice === 'warm_storyteller') {
         filters.push('asetrate=44100*0.96,aresample=44100,atempo=1.041,equalizer=f=220:width_type=h:width=120:g=2.5');
-    } else if (effectiveVoice === 'crisp_clear') {
+    } else if (effectiveVoice === 'crisp_clear' || effectiveVoice === 'crisp_modern') {
         filters.push('asetrate=44100*1.04,aresample=44100,atempo=0.961,equalizer=f=3600:width_type=h:width=1200:g=3');
-    } else if (effectiveVoice === 'soft_velvet') {
-        filters.push('lowpass=f=10500,equalizer=f=180:width_type=h:width=100:g=2');
+    } else if (effectiveVoice === 'soft_velvet' || effectiveVoice === 'velvet_narrator') {
+        filters.push('asetrate=44100*0.97,aresample=44100,atempo=1.031,lowpass=f=10500,equalizer=f=180:width_type=h:width=100:g=2.5');
+    } else if (effectiveVoice === 'late_night_radio') {
+        filters.push('asetrate=44100*0.94,aresample=44100,atempo=1.064,highpass=f=90,lowpass=f=10000,equalizer=f=160:width_type=h:width=90:g=3.5,acompressor=threshold=-18dB:ratio=3:attack=10:release=180');
     }
 
     const safeId = chapter.chapter_key.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -1912,7 +1967,8 @@ export const enhanceAudiobookChapterAudio = async (
 /**
  * Dynamic AI Scene Prompt Director:
  * Uses the user's configured AI key pool (with failover / load-balancing & live API metrics)
- * to craft a scene-accurate visual prompt.
+ * plus verified Wikipedia/OpenLibrary plot & character context and transcribed audio passages
+ * to craft a scene-accurate visual prompt depicting exact characters, events, and locations.
  */
 export const generateDynamicScenePrompt = async (params: {
     book: AudiobookBookMeta;
@@ -1944,7 +2000,7 @@ export const generateDynamicScenePrompt = async (params: {
     } = params;
 
     const focusDirectives: Record<string, string> = {
-        'auto-choice': 'balanced composition capturing key characters, mood, and setting',
+        'auto-choice': 'balanced composition capturing key characters, story action, mood, and setting',
         'characters': 'expressive character portrait, attire, facial expression, and dramatic interaction in scene',
         'ambient': 'immersive atmospheric lighting, mood, weather, and environmental texture',
         'theme': 'symbolic visual metaphor and emotional core of the chapter',
@@ -1956,12 +2012,28 @@ export const generateDynamicScenePrompt = async (params: {
         ? book.dynamic_prompt_enabled
         : (config.dynamicPromptEnabled !== false);
 
+    // Extract character names & locations from both the book's discovered structure and the scene snippet
+    const knownCharacters: string[] = [];
+    if (book.real_structure_json) {
+        try {
+            const st: BookRealStructure = JSON.parse(book.real_structure_json);
+            for (const c of st.chapters || []) {
+                for (const sc of c.scenes || []) {
+                    for (const chName of sc.characters || []) {
+                        if (chName && !knownCharacters.includes(chName)) knownCharacters.push(chName);
+                    }
+                }
+            }
+        } catch {}
+    }
+
     const properNouns = Array.from(
-        new Set(
-            (sceneSnippet.match(/\b[A-Z][a-z]{2,15}(?:\s+[A-Z][a-z]{2,15})?\b/g) || [])
-                .filter(w => !['The', 'And', 'But', 'Then', 'When', 'Where', 'While', 'Opening', 'Chapter', 'Section', 'Events', 'Details', 'Closing'].includes(w))
-        )
-    ).slice(0, 6);
+        new Set([
+            ...knownCharacters.slice(0, 5),
+            ...(sceneSnippet.match(/\b[A-Z][a-z]{2,15}(?:\s+[A-Z][a-z]{2,15})?\b/g) || [])
+                .filter(w => !['The', 'And', 'But', 'Then', 'When', 'Where', 'While', 'Opening', 'Chapter', 'Section', 'Events', 'Details', 'Closing', 'Scene', 'Part'].includes(w))
+        ])
+    ).slice(0, 7);
 
     const prevContinuity = previousPrompts.length > 0
         ? `Previous scene visual continuity: "${previousPrompts[previousPrompts.length - 1].slice(0, 220)}"`
@@ -1976,100 +2048,138 @@ export const generateDynamicScenePrompt = async (params: {
     if (useDynamic) {
         const directorSystemPrompt = [
             `You are a master cinematic concept artist and book illustration director.`,
-            `Write ONE vivid, richly detailed image-generation prompt (max 85 words) for ${roleTarget}.`,
+            `Write ONE vivid, concrete image-generation prompt (max 70 words) for ${roleTarget}.`,
             `Art Style: ${effectiveStyle}. Visual Focus: ${focusDesc}.`,
-            sceneSnippet ? `Transcribed passage / scene context: "${sceneSnippet}".` : '',
-            properNouns.length > 0 ? `Named characters/locations mentioned: ${properNouns.join(', ')}.` : '',
+            sceneSnippet ? `Exact story event / transcribed passage: "${sceneSnippet}".` : '',
+            properNouns.length > 0 ? `Exact named characters/locations to depict: ${properNouns.join(', ')}.` : '',
             prevContinuity ? `${prevContinuity} (Maintain consistent character appearance, era, and world palette while advancing to the new moment).` : '',
             effectiveCustomPrompt ? `Additional user direction: ${effectiveCustomPrompt}.` : '',
-            `Include specific character appearances, setting/location architecture, lighting, atmosphere, and camera composition. Do NOT include any text, letters, book titles, speech bubbles, or watermarks in the image. Return ONLY the raw image prompt.`
+            `Depict the exact characters, story event, and environment described. Do NOT include any text, letters, book titles, speech bubbles, or watermarks in the image. Return ONLY the raw image prompt.`
         ].filter(Boolean).join('\n');
 
         const llmRes = await callStudioTextLlmWithFailover({
             prompt: directorSystemPrompt,
             task: 'art_prompt',
-            maxTokens: 180,
-            temperature: 0.65,
+            maxTokens: 160,
+            temperature: 0.6,
             description: `Scene prompt (${artType}) for "${book.title}"`
         });
 
         if (llmRes?.text && llmRes.text.length > 20) {
-            return `${llmRes.text.replace(/^["']|["']$/g, '')} — Style: ${effectiveStyle}, no text, no watermarks.`;
+            return `${llmRes.text.replace(/^["']|["']$/g, '')}, ${effectiveStyle}, highly detailed digital painting, no text, no watermarks`;
         }
     }
 
+    const cleanSnippet = sceneSnippet
+        .replace(/["'()\[\]{}<>]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 190);
+
     return [
-        `${effectiveStyle} masterpiece ${artType} illustration for the book "${book.title}" by ${book.author}, ${artType === 'cover' ? 'iconic main cover' : `${chapter.title} (${sceneTitle || `Scene ${sceneIndex + 1}`})`}.`,
-        `Visual Focus: ${focusDesc}.`,
-        properNouns.length > 0 ? `Featuring key elements/characters: ${properNouns.join(', ')}.` : '',
-        sceneSnippet ? `Dramatic moment: "${sceneSnippet.slice(0, 240)}".` : '',
-        effectiveCustomPrompt || 'Rich atmospheric lighting, cinematic composition, no text, no letters, no watermarks.'
-    ].filter(Boolean).join(' ');
+        `${effectiveStyle} illustration depicting a scene from ${book.title} by ${book.author}`,
+        properNouns.length > 0 ? `featuring ${properNouns.slice(0, 4).join(', ')}` : '',
+        cleanSnippet ? `during moment: ${cleanSnippet}` : '',
+        `(${focusDesc}, dramatic cinematic lighting, detailed environment, no text, no letters, no watermark)`
+    ].filter(Boolean).join(', ');
 };
 
 /**
- * Generates an atmospheric SVG bookplate illustration on disk as a final fallback
- * if all external cloud image endpoints are offline or rate-limited, or to auto-repair
- * previously corrupted image files.
+ * Purges any legacy fake `.svg` placeholder files from disk and removes `.svg` image references
+ * from SQLite (`audiobooks_meta` and `audiobook_chapters_meta`), recalculating book totals.
  */
-export const createAtmosphericSvgBookplate = (
-    filePath: string,
-    bookTitle: string,
-    author: string,
-    chapterTitle: string,
-    sceneIndex: number,
-    style: string,
-    width: number,
-    height: number
-): Buffer => {
-    const palettes = [
-        ['#0f172a', '#1e1b4b', '#312e81', '#f59e0b'],
-        ['#18181b', '#27272a', '#3f3f46', '#fbbf24'],
-        ['#0c0a09', '#1c1917', '#44403c', '#d97706'],
-        ['#022c22', '#064e3b', '#115e59', '#34d399']
-    ];
-    const pal = palettes[Math.abs(sceneIndex) % palettes.length];
-    const safeTitle = (bookTitle || 'Audiobook').replace(/[<>&"']/g, '');
-    const safeAuthor = (author || '').replace(/[<>&"']/g, '');
-    const safeChap = (chapterTitle || `Scene ${sceneIndex + 1}`).replace(/[<>&"']/g, '');
-    const safeStyle = (style || 'Concept Art').replace(/[<>&"']/g, '');
-
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-  <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="${pal[0]}" />
-      <stop offset="55%" stop-color="${pal[1]}" />
-      <stop offset="100%" stop-color="${pal[2]}" />
-    </linearGradient>
-    <radialGradient id="glow" cx="50%" cy="42%" r="55%">
-      <stop offset="0%" stop-color="${pal[3]}" stop-opacity="0.28" />
-      <stop offset="60%" stop-color="${pal[3]}" stop-opacity="0.06" />
-      <stop offset="100%" stop-color="#000000" stop-opacity="0" />
-    </radialGradient>
-  </defs>
-  <rect width="100%" height="100%" fill="url(#bg)" />
-  <rect width="100%" height="100%" fill="url(#glow)" />
-  <circle cx="${Math.round(width * 0.5)}" cy="${Math.round(height * 0.42)}" r="${Math.round(Math.min(width, height) * 0.26)}" fill="none" stroke="${pal[3]}" stroke-opacity="0.22" stroke-width="2" />
-  <circle cx="${Math.round(width * 0.5)}" cy="${Math.round(height * 0.42)}" r="${Math.round(Math.min(width, height) * 0.18)}" fill="none" stroke="${pal[3]}" stroke-opacity="0.14" stroke-width="1.5" stroke-dasharray="8 6" />
-  <path d="M 0 ${Math.round(height * 0.78)} Q ${Math.round(width * 0.28)} ${Math.round(height * 0.64)} ${Math.round(width * 0.55)} ${Math.round(height * 0.75)} T ${width} ${Math.round(height * 0.68)} L ${width} ${height} L 0 ${height} Z" fill="#09090b" fill-opacity="0.55" />
-  <path d="M 0 ${Math.round(height * 0.85)} Q ${Math.round(width * 0.42)} ${Math.round(height * 0.73)} ${Math.round(width * 0.75)} ${Math.round(height * 0.82)} T ${width} ${Math.round(height * 0.79)} L ${width} ${height} L 0 ${height} Z" fill="#09090b" fill-opacity="0.82" />
-  <rect x="36" y="36" width="${width - 72}" height="${height - 72}" rx="18" fill="none" stroke="${pal[3]}" stroke-opacity="0.25" stroke-width="1.5" />
-  <text x="50%" y="40%" text-anchor="middle" fill="${pal[3]}" font-family="Georgia, serif" font-size="28" font-weight="bold" opacity="0.9">${safeTitle.slice(0, 48)}</text>
-  ${safeAuthor ? `<text x="50%" y="46%" text-anchor="middle" fill="#d4d4d8" font-family="Georgia, serif" font-size="16" opacity="0.7">${safeAuthor.slice(0, 48)}</text>` : ''}
-  <text x="50%" y="53%" text-anchor="middle" fill="#e4e4e7" font-family="Georgia, serif" font-size="20" opacity="0.8">${safeChap.slice(0, 56)}</text>
-  <text x="50%" y="60%" text-anchor="middle" fill="#a1a1aa" font-family="sans-serif" font-size="13" letter-spacing="2" opacity="0.6">${safeStyle.toUpperCase()}</text>
-</svg>`;
-    const buf = Buffer.from(svg, 'utf8');
+let hasPurgedFakeSvgArt = false;
+export const purgeAllFakeSvgArtFromDbAndDisk = (force = false): {
+    deletedFiles: number;
+    cleanedChapters: number;
+    cleanedBooks: number;
+} => {
+    let deletedFiles = 0;
+    let cleanedChapters = 0;
+    let cleanedBooks = 0;
+    if (hasPurgedFakeSvgArt && !force) {
+        return { deletedFiles, cleanedChapters, cleanedBooks };
+    }
+    hasPurgedFakeSvgArt = true;
     try {
-        fs.writeFileSync(filePath, buf);
-    } catch {}
-    return buf;
+        const artDir = getAudiobookArtDir();
+        if (fs.existsSync(artDir)) {
+            for (const f of fs.readdirSync(artDir)) {
+                if (f.toLowerCase().endsWith('.svg')) {
+                    try {
+                        fs.unlinkSync(path.join(artDir, f));
+                        deletedFiles++;
+                    } catch {}
+                }
+            }
+        }
+        const allBooks = getAllAudiobooksMeta();
+        for (const book of allBooks) {
+            let bookChanged = false;
+            if (book.custom_cover_url && book.custom_cover_url.toLowerCase().includes('.svg')) {
+                upsertAudiobookMeta({
+                    book_key: book.book_key,
+                    custom_cover_url: '',
+                    use_custom_cover: false
+                });
+                cleanedBooks++;
+                bookChanged = true;
+            }
+            const chapters = getAudiobookChaptersMeta(book.book_key);
+            for (const ch of chapters) {
+                const origImages = Array.isArray(ch.images) ? ch.images : [];
+                const validImages = origImages.filter(img => {
+                    if (!img?.url || img.url.toLowerCase().includes('.svg')) return false;
+                    const m = img.url.match(/[?&]file=([^&]+)/);
+                    if (m) {
+                        const fName = path.basename(decodeURIComponent(m[1]));
+                        const fullP = path.join(artDir, fName);
+                        if (!fs.existsSync(fullP)) return false;
+                        try {
+                            const b = fs.readFileSync(fullP);
+                            if (!isValidImageBuffer(b)) {
+                                try {
+                                    fs.unlinkSync(fullP);
+                                    deletedFiles++;
+                                } catch {}
+                                return false;
+                            }
+                        } catch {
+                            return false;
+                        }
+                    }
+                    return true;
+                });
+                if (validImages.length !== origImages.length) {
+                    upsertAudiobookChapterMeta({
+                        chapter_key: ch.chapter_key,
+                        book_key: book.book_key,
+                        images: validImages,
+                        illustration_status: validImages.some(i => i.kept) ? 'completed' : 'queued',
+                        illustration_progress: validImages.some(i => i.kept) ? 100 : 0
+                    });
+                    cleanedChapters++;
+                    bookChanged = true;
+                }
+            }
+            if (bookChanged) {
+                recalculateAudiobookTotals(book.book_key);
+            }
+        }
+    } catch (e: any) {
+        console.warn('⚠️ [AudiobookStudio] Error purging legacy SVG files:', e?.message);
+    }
+    return { deletedFiles, cleanedChapters, cleanedBooks };
 };
 
 /**
- * Paints an image on the server using the user's configured AI keys first (Gemini Imagen / Flash Image,
- * OpenAI DALL-E 3, Custom SDXL), then validated Flux endpoints, and finally atmospheric SVG fallback.
- * Every image buffer is strictly checked with `isValidImageBuffer` so HTML error pages are NEVER saved.
+ * Paints a REAL binary raster image (JPEG/PNG/WebP) on the server using:
+ * 1. Configured AI keys (Gemini 2.0 Flash Image Generation, Gemini Imagen 3, OpenAI DALL-E 3)
+ * 2. Configured Custom Local SDXL / Flux endpoint
+ * 3. HuggingFace Official Flux.1-schnell Gradio Space API (free real Flux raster generation)
+ * 4. Pollinations Flux / Turbo with sanitized concise prompt & model fallback
+ * 5. AI Horde anonymous community GPU cluster (Flux / SDXL)
+ * Strictly validates every buffer with `isValidImageBuffer` and NEVER generates fake SVG placeholders.
  */
 const paintAndSaveStudioImage = async (params: {
     imgId: string;
@@ -2080,43 +2190,48 @@ const paintAndSaveStudioImage = async (params: {
     effectiveStyle: string;
     width: number;
     height: number;
-}): Promise<{ fileName: string; providerUsed: string }> => {
-    const { imgId, fullPrompt, book, chapterTitle, sceneIndex, effectiveStyle, width, height } = params;
+}): Promise<{ fileName: string; providerUsed: string } | null> => {
+    const { imgId, fullPrompt, book, chapterTitle, width, height } = params;
     const freshConfig = getAudiobookStudioConfig();
-    let fileName = `${imgId}.jpg`;
-    let filePath = path.join(getAudiobookArtDir(), fileName);
+    const fileName = `${imgId}.jpg`;
+    const filePath = path.join(getAudiobookArtDir(), fileName);
 
     // 1. Try configured API keys in failover / load-balance order (Gemini Image / Imagen 3, OpenAI DALL-E 3)
     const imageKeyCandidates = getCandidateStudioKeys(freshConfig, ['gemini', 'openai']);
     for (const keyEntry of imageKeyCandidates) {
         if (keyEntry.provider === 'gemini') {
-            // Try Gemini 2.0 Flash Image Generation first, then Imagen 3
-            try {
-                const flashImgResp = await axios.post(
-                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent?key=${encodeURIComponent(keyEntry.key)}`,
-                    {
-                        contents: [{ parts: [{ text: `Generate a high-resolution illustration (no text or words): ${fullPrompt.slice(0, 1500)}` }] }],
-                        generationConfig: { responseModalities: ['TEXT', 'IMAGE'] }
-                    },
-                    { timeout: 45000 }
-                );
-                const parts = flashImgResp.data?.candidates?.[0]?.content?.parts || [];
-                const imgPart = parts.find((p: any) => p.inlineData?.data);
-                if (imgPart?.inlineData?.data) {
-                    const buf = Buffer.from(imgPart.inlineData.data, 'base64');
-                    if (isValidImageBuffer(buf)) {
-                        fs.writeFileSync(filePath, buf);
-                        recordStudioApiMetric({
-                            task: 'image_paint',
-                            keyOrProvider: keyEntry.id,
-                            providerLabel: `${keyEntry.label} (${keyEntry.maskedKey})`,
-                            success: true,
-                            description: `Gemini Flash Image: "${book.title}" — ${chapterTitle}`
-                        });
-                        return { fileName, providerUsed: `${keyEntry.label} (${keyEntry.maskedKey})` };
+            const geminiImageModels = [
+                'gemini-2.0-flash-exp-image-generation',
+                'gemini-2.0-flash-preview-image-generation'
+            ];
+            for (const gModel of geminiImageModels) {
+                try {
+                    const flashImgResp = await axios.post(
+                        `https://generativelanguage.googleapis.com/v1beta/models/${gModel}:generateContent?key=${encodeURIComponent(keyEntry.key)}`,
+                        {
+                            contents: [{ parts: [{ text: `Generate a detailed cinematic book illustration (strictly no text, no words, no titles): ${fullPrompt.slice(0, 1500)}` }] }],
+                            generationConfig: { responseModalities: ['TEXT', 'IMAGE'] }
+                        },
+                        { timeout: 45000 }
+                    );
+                    const parts = flashImgResp.data?.candidates?.[0]?.content?.parts || [];
+                    const imgPart = parts.find((p: any) => p.inlineData?.data);
+                    if (imgPart?.inlineData?.data) {
+                        const buf = Buffer.from(imgPart.inlineData.data, 'base64');
+                        if (isValidImageBuffer(buf)) {
+                            fs.writeFileSync(filePath, buf);
+                            recordStudioApiMetric({
+                                task: 'image_paint',
+                                keyOrProvider: keyEntry.id,
+                                providerLabel: `${keyEntry.label} (${keyEntry.maskedKey})`,
+                                success: true,
+                                description: `Gemini Flash Image: "${book.title}" — ${chapterTitle}`
+                            });
+                            return { fileName, providerUsed: `${keyEntry.label} (${keyEntry.maskedKey})` };
+                        }
                     }
-                }
-            } catch {}
+                } catch {}
+            }
 
             try {
                 const imagenResp = await axios.post(
@@ -2207,51 +2322,136 @@ const paintAndSaveStudioImage = async (params: {
         } catch {}
     }
 
-    // 3. Validated Flux endpoints (strict magic-byte check so HTML/Cloudflare errors are NEVER saved)
+    // 3. HuggingFace Official Flux.1-schnell Gradio Space API (generates genuine high-res WebP/PNG illustrations)
+    const hfSpaces = [
+        'https://black-forest-labs-flux-1-schnell.hf.space',
+        'https://multimodalart-flux-1-merged.hf.space'
+    ];
+    const hfW = Math.min(1024, Math.max(512, Math.round(width / 32) * 32));
+    const hfH = Math.min(1024, Math.max(512, Math.round(height / 32) * 32));
+    for (const spaceBase of hfSpaces) {
+        try {
+            const callResp = await axios.post(
+                `${spaceBase}/gradio_api/call/infer`,
+                { data: [fullPrompt.slice(0, 900), Math.floor(Math.random() * 1000000), true, hfW, hfH, 4] },
+                { timeout: 15000, headers: { 'Content-Type': 'application/json' } }
+            );
+            const eventId = callResp.data?.event_id;
+            if (eventId) {
+                const sseResp = await axios.get(`${spaceBase}/gradio_api/call/infer/${eventId}`, {
+                    timeout: 55000,
+                    responseType: 'text'
+                });
+                const sseText = String(sseResp.data || '');
+                const dataLines = sseText.split('\n').filter(l => l.startsWith('data: '));
+                for (const dLine of dataLines.reverse()) {
+                    try {
+                        const parsed = JSON.parse(dLine.slice(6));
+                        const firstItem = Array.isArray(parsed) ? parsed[0] : parsed;
+                        const remoteUrl = firstItem?.url || ( firstItem?.path ? `${spaceBase}/gradio_api/file=${firstItem.path}` : null );
+                        if (remoteUrl) {
+                            const imgBin = await axios.get(remoteUrl, { responseType: 'arraybuffer', timeout: 25000 });
+                            const buf = Buffer.from(imgBin.data || []);
+                            if (isValidImageBuffer(buf)) {
+                                fs.writeFileSync(filePath, buf);
+                                return { fileName, providerUsed: 'Flux.1 Schnell (HF Space)' };
+                            }
+                        }
+                    } catch {}
+                }
+            }
+        } catch {}
+    }
+
+    // 4. Sanitized Pollinations Flux / Turbo endpoints (clean alphanumeric prompt avoids Cloudflare/500 errors)
     const seed = Math.floor(Math.random() * 1000000);
-    const concisePrompt = fullPrompt.slice(0, 460);
-    const encodedPrompt = encodeURIComponent(concisePrompt);
+    const sanitizedPrompt = fullPrompt
+        .replace(/[^a-zA-Z0-9 ,.-]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 240);
+    const encodedPrompt = encodeURIComponent(sanitizedPrompt);
+    const pW = Math.min(1024, Math.max(512, Math.round(width / 16) * 16));
+    const pH = Math.min(1024, Math.max(512, Math.round(height / 16) * 16));
     const candidateUrls = [
-        `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&seed=${seed}&nologo=true&model=flux`,
-        `https://pollinations.ai/p/${encodedPrompt}?width=${width}&height=${height}&seed=${seed}&nologo=true`
+        `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${pW}&height=${pH}&seed=${seed}&nologo=true&model=flux`,
+        `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${pW}&height=${pH}&seed=${seed + 7}&nologo=true&model=turbo`
     ];
 
     for (const fluxUrl of candidateUrls) {
         try {
             const imgResp = await axios.get(fluxUrl, {
                 responseType: 'arraybuffer',
-                timeout: 32000,
+                timeout: 38000,
                 headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
-                    'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36',
+                    'Accept': 'image/jpeg,image/png,image/webp,image/*;q=0.9'
                 }
             });
             const buf = Buffer.from(imgResp.data || []);
             if (isValidImageBuffer(buf)) {
                 fs.writeFileSync(filePath, buf);
                 return { fileName, providerUsed: 'Flux Studio Engine' };
-            } else {
-                console.warn(`⚠️ [AudiobookStudio] Rejected non-image response from ${fluxUrl.slice(0, 48)}...`);
             }
-        } catch (fluxErr: any) {
-            console.warn(`⚠️ [AudiobookStudio] Flux endpoint attempt failed (${fluxErr.message})`);
-        }
+        } catch {}
     }
 
-    // 4. Guaranteed valid SVG atmospheric bookplate on server disk
-    fileName = `${imgId}.svg`;
-    filePath = path.join(getAudiobookArtDir(), fileName);
-    createAtmosphericSvgBookplate(
-        filePath,
-        book.title,
-        book.author,
-        chapterTitle,
-        sceneIndex,
-        effectiveStyle,
-        width,
-        height
-    );
-    return { fileName, providerUsed: 'Studio Atmospheric Bookplate' };
+    // 5. AI Horde anonymous community GPU cluster (real SDXL / Flux raster image generation)
+    try {
+        const hordeW = width > height ? 768 : width < height ? 512 : 640;
+        const hordeH = width > height ? 512 : width < height ? 768 : 640;
+        const hordeInit = await axios.post(
+            'https://stablehorde.net/api/v2/generate/async',
+            {
+                prompt: `${fullPrompt.slice(0, 650)} ### text, watermark, signature, blurry, deformed, ugly`,
+                params: {
+                    width: hordeW,
+                    height: hordeH,
+                    steps: 20,
+                    cfg_scale: 7,
+                    sampler_name: 'k_euler_a',
+                    n: 1
+                },
+                nsfw: false,
+                censor_nsfw: false,
+                r2: true
+            },
+            {
+                headers: {
+                    'apikey': '0000000000',
+                    'Client-Agent': 'SchedulearrAudiobookStudio:1.0:admin'
+                },
+                timeout: 15000
+            }
+        );
+        const jobId = hordeInit.data?.id;
+        if (jobId) {
+            for (let poll = 0; poll < 16; poll++) {
+                await new Promise(r => setTimeout(r, 3500));
+                const statusResp = await axios.get(`https://stablehorde.net/api/v2/generate/status/${jobId}`, {
+                    headers: { 'Client-Agent': 'SchedulearrAudiobookStudio:1.0:admin' },
+                    timeout: 12000
+                });
+                if (statusResp.data?.done && Array.isArray(statusResp.data?.generations) && statusResp.data.generations.length > 0) {
+                    const genImg = statusResp.data.generations[0]?.img;
+                    if (genImg) {
+                        const buf = genImg.startsWith('http')
+                            ? Buffer.from((await axios.get(genImg, { responseType: 'arraybuffer', timeout: 25000 })).data || [])
+                            : Buffer.from(genImg, 'base64');
+                        if (isValidImageBuffer(buf)) {
+                            fs.writeFileSync(filePath, buf);
+                            return { fileName, providerUsed: `AI Horde (${statusResp.data.generations[0]?.model || 'SDXL'})` };
+                        }
+                    }
+                    break;
+                }
+                if (statusResp.data?.faulted) break;
+            }
+        }
+    } catch {}
+
+    // NEVER create or return a fake SVG bookplate — return null honestly if all raster generators failed
+    return null;
 };
 
 /**
@@ -2264,6 +2464,7 @@ export const generateAudiobookCoverArt = async (
     book: AudiobookBookMeta,
     activateImmediately: boolean = false
 ): Promise<AudiobookBookMeta> => {
+    purgeAllFakeSvgArtFromDbAndDisk();
     const freshConfig = getAudiobookStudioConfig();
     updateLiveStatus({
         isRunning: true,
@@ -2322,7 +2523,7 @@ export const generateAudiobookCoverArt = async (
     });
 
     const imgId = `cover_${book.book_key.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 24)}_${Date.now()}`;
-    const { fileName, providerUsed } = await paintAndSaveStudioImage({
+    const painted = await paintAndSaveStudioImage({
         imgId,
         fullPrompt,
         book,
@@ -2333,6 +2534,19 @@ export const generateAudiobookCoverArt = async (
         height: 1200
     });
 
+    if (!painted) {
+        appendStudioQueueHistory({
+            bookKey: book.book_key,
+            bookTitle: book.title,
+            queueType: 'art_cover',
+            status: 'failed',
+            providerUsed: 'All Image Providers Unreachable',
+            detail: 'Failed to generate raster cover image (add a Gemini or OpenAI API key in Studio Settings for instant artwork)'
+        });
+        return book;
+    }
+
+    const { fileName, providerUsed } = painted;
     const coverUrl = `/api/theater/audiobooks/art?file=${encodeURIComponent(fileName)}`;
     const updatedBook = upsertAudiobookMeta({
         book_key: book.book_key,
@@ -2367,6 +2581,7 @@ export const generateAudiobookChapterIllustrations = async (
     config: AudiobookStudioConfig,
     forceIgnoreQuota: boolean = false
 ): Promise<AudiobookChapterSceneImage[]> => {
+    purgeAllFakeSvgArtFromDbAndDisk();
     const freshConfig = getAudiobookStudioConfig();
     if (!forceIgnoreQuota && freshConfig.imagesGeneratedToday >= freshConfig.dailyImageQuota) {
         updateLiveStatus({
@@ -2397,11 +2612,20 @@ export const generateAudiobookChapterIllustrations = async (
     const effectiveFocus = (book.art_focus && book.art_focus.trim()) ? book.art_focus.trim() : (freshConfig.artFocus || 'auto-choice');
     const effectiveCustomPrompt = (book.custom_prompt && book.custom_prompt.trim()) ? book.custom_prompt.trim() : (freshConfig.customPromptTemplate || '');
 
+    // Ensure real-life scenes & Wikipedia/OpenLibrary plot context exist for this book
+    let currentBook = book;
+    if (!currentBook.real_structure_json) {
+        try {
+            await discoverBookRealStructureWithAi(currentBook);
+            currentBook = getAudiobookMeta(book.book_key) || book;
+        } catch {}
+    }
+
     // Determine real-life scenes for this chapter from book.real_structure_json + chapter duration
     let realChapterScenes: BookRealChapterScene[] = [];
-    if (book.real_structure_json) {
+    if (currentBook.real_structure_json) {
         try {
-            const st: BookRealStructure = JSON.parse(book.real_structure_json);
+            const st: BookRealStructure = JSON.parse(currentBook.real_structure_json);
             if (Array.isArray(st.chapters) && st.chapters.length > 0) {
                 const matchedChap = st.chapters[chapter.chapter_index] || st.chapters[chapter.chapter_index % st.chapters.length];
                 if (matchedChap && Array.isArray(matchedChap.scenes)) {
@@ -2417,7 +2641,9 @@ export const generateAudiobookChapterIllustrations = async (
         : (freshConfig.imagesPerChapter || Math.max(3, realChapterScenes.length + 1));
     const targetCount = Math.max(2, Math.min(8, configuredPerChap));
 
-    const existingImages = Array.isArray(chapter.images) ? [...chapter.images] : [];
+    const existingImages = Array.isArray(chapter.images)
+        ? chapter.images.filter(img => img?.url && !img.url.toLowerCase().includes('.svg'))
+        : [];
     const keptImages = existingImages.filter(img => img.kept);
     const needed = forceIgnoreQuota
         ? Math.max(1, targetCount - keptImages.length)
@@ -2428,7 +2654,8 @@ export const generateAudiobookChapterIllustrations = async (
             chapter_key: chapter.chapter_key,
             book_key: book.book_key,
             illustration_status: 'completed',
-            illustration_progress: 100
+            illustration_progress: 100,
+            images: existingImages
         });
         return existingImages;
     }
@@ -2491,7 +2718,10 @@ export const generateAudiobookChapterIllustrations = async (
             windowTranscript = transcriptText.slice(sliceStart, sliceStart + 340).trim();
         }
         if (realScene) {
-            windowTranscript = `${realScene.title} (${realScene.visualSetting}): ${realScene.summary}. ${windowTranscript}`.slice(0, 440);
+            const charStr = Array.isArray(realScene.characters) && realScene.characters.length > 0
+                ? `Characters: ${realScene.characters.join(', ')}. `
+                : '';
+            windowTranscript = `${charStr}${realScene.title} (${realScene.visualSetting}): ${realScene.summary}. ${windowTranscript}`.slice(0, 480);
         }
 
         const pct = Math.min(95, Math.round(25 + ((i + 0.5) / needed) * 70));
@@ -2501,7 +2731,7 @@ export const generateAudiobookChapterIllustrations = async (
         });
 
         const fullPrompt = await generateDynamicScenePrompt({
-            book,
+            book: currentBook,
             chapter,
             sceneIndex: slotIndex,
             totalScenes: totalPlanned,
@@ -2529,10 +2759,10 @@ export const generateAudiobookChapterIllustrations = async (
 
         try {
             const imgId = `img_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-            const { fileName, providerUsed } = await paintAndSaveStudioImage({
+            const painted = await paintAndSaveStudioImage({
                 imgId,
                 fullPrompt,
-                book,
+                book: currentBook,
                 chapterTitle: `${chapter.title} • ${sceneTitle}`,
                 sceneIndex: slotIndex,
                 effectiveStyle,
@@ -2540,6 +2770,12 @@ export const generateAudiobookChapterIllustrations = async (
                 height
             });
 
+            if (!painted) {
+                console.warn(`⚠️ [AudiobookStudio] All raster image providers unreachable for "${chapter.title}" (${sceneTitle}); skipping fake placeholder.`);
+                continue;
+            }
+
+            const { fileName, providerUsed } = painted;
             const artUrl = `/api/theater/audiobooks/art?file=${encodeURIComponent(fileName)}`;
             const newImg: AudiobookChapterSceneImage = {
                 id: imgId,
@@ -2666,6 +2902,7 @@ export const resetAndRedoAudiobookAssets = async (params: {
  * plus the completed processing history log.
  */
 export const getQueueBreakdownAndHistory = () => {
+    purgeAllFakeSvgArtFromDbAndDisk();
     const allBooks = getAllAudiobooksMeta();
     const queuedBooks = allBooks
         .filter(b => b.queue_enabled)
@@ -2814,6 +3051,7 @@ export const getQueueBreakdownAndHistory = () => {
  * 5. Voice / Audio Enhancement (`enhanceAudiobookChapterAudio`)
  */
 export const processAudiobookPriorityQueueStep = async (forceBookKey?: string, forceChapterKey?: string): Promise<boolean> => {
+    purgeAllFakeSvgArtFromDbAndDisk();
     if (g.__audiobookStudioLock) {
         return false;
     }
@@ -3061,12 +3299,23 @@ const KNOWN_BOOK_CATALOG: Array<{
     { pattern: /\brevenger\b/i, cleanTitle: 'Revenger', author: 'Alastair Reynolds', collection: 'Revenger Trilogy', bookNumber: 1, releaseYear: '2016' },
     { pattern: /\bshadow\s+captain\b/i, cleanTitle: 'Shadow Captain', author: 'Alastair Reynolds', collection: 'Revenger Trilogy', bookNumber: 2, releaseYear: '2019' },
     { pattern: /\bbone\s+silence\b/i, cleanTitle: 'Bone Silence', author: 'Alastair Reynolds', collection: 'Revenger Trilogy', bookNumber: 3, releaseYear: '2020' },
-    // Alastair Reynolds — Standalone Novels
+    // Alastair Reynolds — Standalone Novels & Novellas
     { pattern: /\bcentury\s+rain\b/i, cleanTitle: 'Century Rain', author: 'Alastair Reynolds', collection: '', bookNumber: 0, releaseYear: '2004' },
     { pattern: /\bpushing\s+ice\b/i, cleanTitle: 'Pushing Ice', author: 'Alastair Reynolds', collection: '', bookNumber: 0, releaseYear: '2005' },
     { pattern: /\bhouse\s+of\s+suns\b/i, cleanTitle: 'House of Suns', author: 'Alastair Reynolds', collection: '', bookNumber: 0, releaseYear: '2008' },
     { pattern: /\bterminal\s+world\b/i, cleanTitle: 'Terminal World', author: 'Alastair Reynolds', collection: '', bookNumber: 0, releaseYear: '2010' },
+    { pattern: /\btroika\b/i, cleanTitle: 'Troika', author: 'Alastair Reynolds', collection: '', bookNumber: 0, releaseYear: '2011' },
+    { pattern: /\bslow\s+bullets\b/i, cleanTitle: 'Slow Bullets', author: 'Alastair Reynolds', collection: '', bookNumber: 0, releaseYear: '2015' },
+    { pattern: /\bbeyond\s+the\s+aquila\s+rift\b/i, cleanTitle: 'Beyond the Aquila Rift', author: 'Alastair Reynolds', collection: '', bookNumber: 0, releaseYear: '2016' },
+    { pattern: /\bpermafrost\b/i, cleanTitle: 'Permafrost', author: 'Alastair Reynolds', collection: '', bookNumber: 0, releaseYear: '2019' },
     { pattern: /\beversion\b/i, cleanTitle: 'Eversion', author: 'Alastair Reynolds', collection: '', bookNumber: 0, releaseYear: '2022' },
+    { pattern: /\bzima\s+blue\b/i, cleanTitle: 'Zima Blue and Other Stories', author: 'Alastair Reynolds', collection: '', bookNumber: 0, releaseYear: '2006' },
+    { pattern: /\bthousandth\s+night\b/i, cleanTitle: 'Thousandth Night', author: 'Alastair Reynolds', collection: '', bookNumber: 0, releaseYear: '2005' },
+    { pattern: /\bbelladonna\s+nights\b/i, cleanTitle: 'Belladonna Nights', author: 'Alastair Reynolds', collection: '', bookNumber: 0, releaseYear: '2021' },
+    // Cixin Liu — Remembrance of Earth's Past (Three-Body Trilogy)
+    { pattern: /\b(the\s+)?three[- ]body\s+problem\b/i, cleanTitle: 'The Three-Body Problem', author: 'Cixin Liu', collection: "Remembrance of Earth's Past", bookNumber: 1, releaseYear: '2008' },
+    { pattern: /\b(the\s+)?dark\s+forest\b/i, cleanTitle: 'The Dark Forest', author: 'Cixin Liu', collection: "Remembrance of Earth's Past", bookNumber: 2, releaseYear: '2008' },
+    { pattern: /\bdeath'?s\s+end\b/i, cleanTitle: "Death's End", author: 'Cixin Liu', collection: "Remembrance of Earth's Past", bookNumber: 3, releaseYear: '2010' },
     // Frank Herbert — Pandora Sequence / WorShip
     { pattern: /\bdestination[:\s]+void\b/i, cleanTitle: 'Destination: Void', author: 'Frank Herbert', collection: 'Pandora Sequence', bookNumber: 1, releaseYear: '1966' },
     { pattern: /\bthe\s+jesus\s+incident\b/i, cleanTitle: 'The Jesus Incident', author: 'Frank Herbert', collection: 'Pandora Sequence', bookNumber: 2, releaseYear: '1979' },
@@ -3104,6 +3353,20 @@ export const parseCleanBookTitleAndNumber = (rawTitle: string, folder?: string, 
         working = working.replace(/[\(\[]\s*(19\d{2}|20\d{2})\s*[\)\]]/g, '').trim();
     }
 
+    // 1b. Strip leading "YYYY - Title" or "YYYY. Title" (e.g. "2011 - Troika" -> "Troika", releaseYear: "2011")
+    const leadYearMatch = working.match(/^(19\d{2}|20\d{2})\s*[-–—._:]+\s*(.+)$/);
+    if (leadYearMatch) {
+        if (!releaseYear) releaseYear = leadYearMatch[1];
+        working = leadYearMatch[2].trim();
+    }
+
+    // 1c. Strip trailing " - YYYY" (e.g. "Troika - 2011" -> "Troika", releaseYear: "2011")
+    const trailYearMatch = working.match(/^(.+?)\s+[-–—]\s*(19\d{2}|20\d{2})$/);
+    if (trailYearMatch) {
+        if (!releaseYear) releaseYear = trailYearMatch[2];
+        working = trailYearMatch[1].trim();
+    }
+
     // 2. Strip "[Series Name #01] - Title" or "(Book 1)"
     const bracketSeries = working.match(/^[\[\(]([^\]\)]+?)\s*(?:#|book\s*|vol\.?\s*)(\d{1,2})[\]\)]\s*[-–—:]?\s*(.+)$/i);
     if (bracketSeries) {
@@ -3119,13 +3382,23 @@ export const parseCleanBookTitleAndNumber = (rawTitle: string, folder?: string, 
         working = leadNumMatch[2].trim();
     }
 
-    // 4. Strip trailing "(Book 1)" or "[Original]" or "[Optimized HQ]"
+    // 3b. Re-check leading "YYYY - " in case it appeared after a track/book number ("01 - 2011 - Troika")
+    const secondLeadYear = working.match(/^(19\d{2}|20\d{2})\s*[-–—._:]+\s*(.+)$/);
+    if (secondLeadYear) {
+        if (!releaseYear) releaseYear = secondLeadYear[1];
+        working = secondLeadYear[2].trim();
+    }
+
+    // 4. Strip trailing "(Book 1)" or "[Original]" or "[Optimized HQ]" or bitrate/codec noise
     const trailBookNum = working.match(/^(.+?)\s*[\(\[]\s*(?:book|vol\.?|volume|#)\s*(\d{1,2})\s*[\)\]]$/i);
     if (trailBookNum) {
         if (!bookNumber) bookNumber = parseInt(trailBookNum[2], 10);
         working = trailBookNum[1].trim();
     }
-    working = working.replace(/\s*[\[\(]\s*(?:original(?:\s+audio)?|optimized(?:\s+hq|\s+audio)?|unabridged|abridged|m4b|mp3)\s*[\]\)]/gi, '').trim();
+    working = working
+        .replace(/\s*[\[\(]\s*(?:original(?:\s+audio)?|optimized(?:\s+hq|\s+audio)?|unabridged|abridged|m4b|mp3|flac|aac|\d+\s*kbps|read\s+by\s+[^\]\)]+|narrated\s+by\s+[^\]\)]+)\s*[\]\)]/gi, '')
+        .replace(/\s*[-_]\s*(?:unabridged|abridged|\d+\s*kbps|m4b|mp3)$/gi, '')
+        .trim();
 
     // 5. Inspect path hierarchy for series folder (e.g. .../Author/Series Name/01 - Book Title/file.m4b)
     if (!inferredCollection && filePath) {

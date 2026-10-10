@@ -138,16 +138,19 @@ export default function TheaterLiveTvPlayer({
     const [recordingPadding, setRecordingPadding] = useState(15);
     const [recordingDurationMinutes, setRecordingDurationMinutes] = useState(60);
     const [recordingDurationMode, setRecordingDurationMode] = useState<'until_end' | 'custom_minutes'>('until_end');
+    const [recordingFormat, setRecordingFormat] = useState<'mp4' | 'mkv' | 'mp3'>('mp4');
     const [isScheduling, setIsScheduling] = useState(false);
 
     // Server Library Folder Browser & Custom Folder Creator for Recorder
     const [showFolderBrowser, setShowFolderBrowser] = useState(false);
     const [browserLibraries, setBrowserLibraries] = useState<Array<{ id: string; name: string; type: string; rootPath: string }>>([]);
     const [browserCurrentPath, setBrowserCurrentPath] = useState<string>('');
+    const [browserParentPath, setBrowserParentPath] = useState<string | null>(null);
     const [browserSubfolders, setBrowserSubfolders] = useState<Array<{ name: string; path: string }>>([]);
     const [isLoadingFolders, setIsLoadingFolders] = useState(false);
     const [newCustomFolderName, setNewCustomFolderName] = useState('');
     const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+    const [isFixingPermissions, setIsFixingPermissions] = useState(false);
 
     // Player state
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -484,48 +487,86 @@ export default function TheaterLiveTvPlayer({
 
     // Guide and OSD Overlay States
     const [isFullGuideOpen, setIsFullGuideOpen] = useState(false);
+    const [osdControlsVisible, setOsdControlsVisible] = useState(false);
     const [osdGuideOpen, setOsdGuideOpen] = useState(false);
+    const [showZappingSidebar, setShowZappingSidebar] = useState(true);
     const [guideTimeOffsetHours, setGuideTimeOffsetHours] = useState(0);
     const osdTimerRef = useRef<NodeJS.Timeout | null>(null);
 
     const handlePlayerMouseMove = () => {
-        setOsdGuideOpen(true);
+        setOsdControlsVisible(true);
         if (osdTimerRef.current) clearTimeout(osdTimerRef.current);
         osdTimerRef.current = setTimeout(() => {
-            setOsdGuideOpen(false);
-        }, 4500);
+            setOsdControlsVisible(false);
+        }, 3500);
     };
 
-    // Fetch DVR & Server Library Destinations on mount
+    // Close any open guide overlay when pressing Escape
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                setOsdGuideOpen(false);
+                setIsFullGuideOpen(false);
+                setExpandedEpgChannelId(null);
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, []);
+
+    // Fetch Plex Media Folder & Local Device Downloads Destinations on mount
     useEffect(() => {
         const fetchDestinations = async () => {
             const list: DestinationOption[] = [
                 {
                     id: 'device',
-                    name: 'Download to this Device',
-                    path: 'Direct Browser Download to your Phone or PC',
+                    name: 'Local Device Downloads Folder',
+                    path: 'Direct Browser Download (.mp4 / .mp3) to your PC or Phone Downloads folder',
                     type: 'device',
-                    badge: 'Local Device'
+                    badge: 'Local Downloads'
                 }
             ];
 
             try {
-                const [dvrRes, libRes] = await Promise.all([
+                const [dvrRes, libRes, folderRes] = await Promise.all([
                     fetch('/api/theater/iptv/dvr').then(r => r.ok ? r.json() : { folders: [] }),
-                    fetch('/api/theater/libraries').then(r => r.ok ? r.json() : [])
+                    fetch('/api/theater/libraries').then(r => r.ok ? r.json() : []),
+                    fetch('/api/theater/folders').then(r => r.ok ? r.json() : null)
                 ]);
 
-                const flds = dvrRes.folders || [];
+                if (folderRes) {
+                    if (folderRes.libraries) setBrowserLibraries(folderRes.libraries);
+                    if (folderRes.currentPath) setBrowserCurrentPath(folderRes.currentPath);
+                    if (folderRes.parentPath !== undefined) setBrowserParentPath(folderRes.parentPath);
+                    if (folderRes.subfolders) setBrowserSubfolders(folderRes.subfolders);
+
+                    for (const plib of (folderRes.libraries || [])) {
+                        if (!plib.rootPath || plib.rootPath.startsWith('/app/')) continue;
+                        if (!list.some(d => d.path === plib.rootPath)) {
+                            list.push({
+                                id: `plexlib-${plib.id}`,
+                                name: plib.name,
+                                path: plib.rootPath,
+                                type: 'library',
+                                badge: plib.type === 'plex_root' ? '★ Plex Media Root' : 'Plex Library Folder'
+                            });
+                        }
+                    }
+                }
+
+                const flds = (dvrRes.folders || []).filter((f: any) => f.path && !f.path.startsWith('/app/'));
                 setDvrFolders(flds);
 
                 for (const f of flds) {
-                    list.push({
-                        id: `dvr-${f.id}`,
-                        name: f.name || 'DVR Storage',
-                        path: f.path,
-                        type: 'dvr',
-                        badge: f.is_default ? '★ Default NAS DVR' : 'NAS Storage'
-                    });
+                    if (!list.some(d => d.path === f.path)) {
+                        list.push({
+                            id: `dvr-${f.id}`,
+                            name: f.name || 'Plex DVR Folder',
+                            path: f.path,
+                            type: 'dvr',
+                            badge: f.is_default ? '★ Default Plex Folder' : 'Plex Folder'
+                        });
+                    }
                 }
 
                 const allLibs = Array.isArray(libRes) ? libRes : (libRes.libraries || []);
@@ -536,14 +577,14 @@ export default function TheaterLiveTvPlayer({
                         folders = typeof lib.folders === 'string' ? JSON.parse(lib.folders) : (lib.folders || []);
                     } catch {}
                     folders.forEach((f, fi) => {
-                        if (!f || typeof f !== 'string' || f.startsWith('http') || !isNaN(Number(f))) return;
+                        if (!f || typeof f !== 'string' || f.startsWith('http') || f.startsWith('/app/') || !isNaN(Number(f))) return;
                         if (!list.some(d => d.path === f)) {
                             list.push({
                                 id: `lib-${lib.id}-${fi}`,
                                 name: `${lib.name} Library`,
                                 path: f,
                                 type: 'library',
-                                badge: 'Server Library'
+                                badge: 'Plex Library Folder'
                             });
                         }
                     });
@@ -551,7 +592,9 @@ export default function TheaterLiveTvPlayer({
             } catch {}
 
             setDestinations(list);
-            const def = list.find(d => d.badge.includes('Default')) || list.find(d => d.type === 'dvr') || list[0];
+            const def = list.find(d => d.type !== 'device' && d.badge.includes('Default'))
+                || list.find(d => d.type !== 'device')
+                || list[0];
             if (def) {
                 setSelectedDestIds([def.id]);
             }
@@ -577,7 +620,11 @@ export default function TheaterLiveTvPlayer({
                 const data = await res.json();
                 if (data.libraries) setBrowserLibraries(data.libraries);
                 if (data.currentPath !== undefined) setBrowserCurrentPath(data.currentPath);
+                if (data.parentPath !== undefined) setBrowserParentPath(data.parentPath);
                 if (data.subfolders) setBrowserSubfolders(data.subfolders);
+            } else {
+                const err = await res.json().catch(() => ({}));
+                if (err.error) toast.error(err.error);
             }
         } catch {
             // ignore
@@ -586,7 +633,32 @@ export default function TheaterLiveTvPlayer({
         }
     };
 
-    const handleSelectBrowsedFolder = (folderPath: string, folderName: string, badgeLabel = 'Custom Folder') => {
+    const handleFixUnraidPermissions = async () => {
+        if (!browserCurrentPath) return;
+        setIsFixingPermissions(true);
+        try {
+            const res = await fetch('/api/theater/folders', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'fix_permissions',
+                    targetPath: browserCurrentPath
+                })
+            });
+            const data = await res.json();
+            if (!res.ok || !data.ok) {
+                throw new Error(data.error || 'Failed to repair Unraid folder permissions');
+            }
+            toast.success(data.message || `Permissions repaired on ${browserCurrentPath}`);
+            await loadServerFolderPath(browserCurrentPath);
+        } catch (err: any) {
+            toast.error(err.message || 'Permission repair failed');
+        } finally {
+            setIsFixingPermissions(false);
+        }
+    };
+
+    const handleSelectBrowsedFolder = (folderPath: string, folderName: string, badgeLabel = 'Plex Subfolder') => {
         const cleanId = `custom-${folderPath.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
         setDestinations(prev => {
             if (prev.some(d => d.path === folderPath)) {
@@ -604,12 +676,12 @@ export default function TheaterLiveTvPlayer({
             setSelectedDestIds(ids => ids.includes(cleanId) ? ids : [...ids, cleanId]);
             return [newDest, ...prev];
         });
-        toast.success(`Added "${folderName}" as recording destination`);
+        toast.success(`Selected "${folderName}" inside Plex Media Folder`);
     };
 
     const handleCreateCustomRecordingFolder = async () => {
         if (!browserCurrentPath || !newCustomFolderName.trim()) {
-            toast.error('Please pick a base library folder and enter a folder name');
+            toast.error('Please pick a Plex Media folder and enter a new folder name');
             return;
         }
         setIsCreatingFolder(true);
@@ -626,9 +698,9 @@ export default function TheaterLiveTvPlayer({
             if (!res.ok || !data.ok) {
                 throw new Error(data.error || 'Could not create folder on server');
             }
-            handleSelectBrowsedFolder(data.createdPath, data.folderName, '★ Custom Created Folder');
+            handleSelectBrowsedFolder(data.createdPath, data.folderName, '★ Custom Plex Folder');
             setNewCustomFolderName('');
-            await loadServerFolderPath(browserCurrentPath);
+            await loadServerFolderPath(data.createdPath);
         } catch (err: any) {
             toast.error(err.message || 'Failed to create folder');
         } finally {
@@ -856,19 +928,20 @@ export default function TheaterLiveTvPlayer({
             // 1. Check if "device" (Direct Local Download) is selected
             const isDeviceSelected = chosenDestinations.some(d => d.type === 'device');
             if (isDeviceSelected) {
+                const ext = recordingFormat === 'mp3' ? 'mp3' : 'mp4';
                 const cleanTitle = (recordingModalData.program.title || recordingModalData.channel.name).replace(/[/\\?%*:|"<>]/g, '').trim();
-                const downloadUrl = `/api/theater/iptv/stream?url=${encodeURIComponent(streamUrl)}&download=true&filename=${encodeURIComponent(`${cleanTitle}.ts`)}`;
+                const downloadUrl = `/api/theater/iptv/stream?url=${encodeURIComponent(streamUrl)}&download=true&format=${ext}&filename=${encodeURIComponent(`${cleanTitle}.${ext}`)}`;
                 const link = document.createElement('a');
                 link.href = downloadUrl;
-                link.download = `${cleanTitle}.ts`;
+                link.download = `${cleanTitle}.${ext}`;
                 link.target = '_blank';
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
-                toast.success(`Download started for "${cleanTitle}" to this device`);
+                toast.success(`Downloading "${cleanTitle}.${ext}" to your Local Device Downloads folder`);
             }
 
-            // 2. For each NAS / Server storage destination, schedule recording
+            // 2. For each Plex Media Folder destination, schedule recording
             const serverDestinations = chosenDestinations.filter(d => d.type !== 'device');
             for (const dest of serverDestinations) {
                 const res = await fetch('/api/theater/iptv/dvr', {
@@ -885,7 +958,8 @@ export default function TheaterLiveTvPlayer({
                         startTime: recordingModalData.program.start_time,
                         endTime: effectiveEndTime,
                         destinationFolder: dest.path,
-                        paddingMinutes: effectivePadding
+                        paddingMinutes: effectivePadding,
+                        format: recordingFormat
                     })
                 });
 
@@ -895,9 +969,9 @@ export default function TheaterLiveTvPlayer({
 
             if (serverDestinations.length > 0) {
                 if (recordingModalData.isLive) {
-                    toast.success(`Recording live broadcast to ${serverDestinations.length} destination(s)`);
+                    toast.success(`Recording live broadcast (.${recordingFormat}) to ${serverDestinations.length} Plex folder(s)`);
                 } else {
-                    toast.success(`Scheduled recording to ${serverDestinations.length} destination(s)`);
+                    toast.success(`Scheduled .${recordingFormat} recording to ${serverDestinations.length} Plex folder(s)`);
                 }
             }
             setRecordingModalData(null);
@@ -978,14 +1052,20 @@ export default function TheaterLiveTvPlayer({
 
             {/* ── Main Stage Split Screen: Player (Left) + Zapping Menu (Right) ── */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 h-[calc(100vh-230px)] min-h-[580px]">
-                {/* ── LEFT: TV Screen Playing (8 Cols) ── */}
+                {/* ── LEFT: TV Screen Playing (8 Cols or 12 Cols when Zapping Guide hidden) ── */}
                 <div
                     ref={playerContainerRef}
                     onMouseMove={handlePlayerMouseMove}
-                    className="lg:col-span-8 bg-black rounded-3xl border border-zinc-800/90 overflow-hidden flex flex-col shadow-2xl relative group"
+                    onMouseLeave={() => setOsdControlsVisible(false)}
+                    className={`${showZappingSidebar ? 'lg:col-span-8' : 'lg:col-span-12'} bg-black rounded-3xl border border-zinc-800/90 overflow-hidden flex flex-col shadow-2xl relative group transition-all`}
                 >
-                    {/* Video Screen Container */}
-                    <div className="flex-1 bg-black flex items-center justify-center relative overflow-hidden">
+                    {/* Video Screen Container — clicking anywhere on the video dismisses the guide overlay */}
+                    <div
+                        onClick={() => {
+                            if (osdGuideOpen) setOsdGuideOpen(false);
+                        }}
+                        className="flex-1 bg-black flex items-center justify-center relative overflow-hidden"
+                    >
                         <video
                             ref={videoRef}
                             autoPlay
@@ -1000,13 +1080,18 @@ export default function TheaterLiveTvPlayer({
                         />
 
                         {/* Top OSD Bar: Quality, Multi-Stream Switcher, Guide Toggle, Fullscreen */}
-                        <div className={`absolute top-0 inset-x-0 p-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent flex items-center justify-between transition-opacity duration-200 pointer-events-auto ${osdGuideOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                        <div
+                            onClick={(e) => e.stopPropagation()}
+                            className={`absolute top-0 inset-x-0 p-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent flex items-center justify-between transition-opacity duration-200 pointer-events-auto z-40 ${
+                                osdControlsVisible || osdGuideOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                            }`}
+                        >
                             <div className="flex items-center gap-2">
-                                <span className="px-2 py-0.5 rounded-lg bg-red-500 text-black text-[10px] font-black uppercase flex items-center gap-1">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-black animate-pulse" /> LIVE
+                                <span className="px-2.5 py-1 rounded-lg bg-red-500 text-black text-xs font-black uppercase flex items-center gap-1.5">
+                                    <span className="w-2 h-2 rounded-full bg-black animate-pulse" /> LIVE
                                 </span>
                                 {streamQuality && (
-                                    <span className="px-2 py-0.5 rounded-lg bg-zinc-900/90 border border-zinc-700 text-amber-300 text-[10px] font-mono font-black uppercase">
+                                    <span className="px-2.5 py-1 rounded-lg bg-zinc-900/90 border border-zinc-700 text-amber-300 text-xs font-mono font-black uppercase">
                                         {streamQuality}
                                     </span>
                                 )}
@@ -1018,8 +1103,9 @@ export default function TheaterLiveTvPlayer({
                                     {currentChannel.streams.map((st, idx) => (
                                         <button
                                             key={idx}
+                                            type="button"
                                             onClick={() => setActiveStreamIdx(idx)}
-                                            className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
+                                            className={`px-3 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
                                                 activeStreamIdx === idx
                                                     ? 'bg-amber-500 text-black shadow'
                                                     : 'text-zinc-400 hover:text-white'
@@ -1033,20 +1119,41 @@ export default function TheaterLiveTvPlayer({
 
                             <div className="flex items-center gap-2">
                                 <button
-                                    onClick={() => setOsdGuideOpen(!osdGuideOpen)}
-                                    className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 ${
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setOsdGuideOpen(prev => !prev);
+                                    }}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${
                                         osdGuideOpen
                                             ? 'bg-amber-500 text-black shadow'
                                             : 'bg-black/60 text-zinc-300 hover:text-white hover:bg-zinc-800'
                                     }`}
-                                    title="Toggle Channel Program Schedule Overlay"
+                                    title={osdGuideOpen ? 'Close Channel Schedule Overlay' : 'Show Channel Schedule Overlay'}
                                 >
-                                    <Calendar size={14} />
-                                    <span className="hidden sm:inline">Guide</span>
+                                    <Calendar size={15} />
+                                    <span className="hidden sm:inline">{osdGuideOpen ? 'Close Guide' : 'Schedule'}</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setShowZappingSidebar(prev => !prev);
+                                    }}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${
+                                        !showZappingSidebar
+                                            ? 'bg-amber-500 text-black shadow'
+                                            : 'bg-black/60 text-zinc-300 hover:text-white hover:bg-zinc-800'
+                                    }`}
+                                    title={showZappingSidebar ? 'Hide Side Channel List for Full-Width Stream' : 'Show Side Channel List'}
+                                >
+                                    <Tv size={15} />
+                                    <span className="hidden sm:inline">{showZappingSidebar ? 'Theater' : 'Channels'}</span>
                                 </button>
                                 {/* Mute toggle + Volume slider */}
-                                <div className="flex items-center gap-1.5 bg-black/60 rounded-xl px-2 py-1">
+                                <div className="flex items-center gap-1.5 bg-black/60 rounded-xl px-2.5 py-1.5">
                                     <button
+                                        type="button"
                                         onClick={() => {
                                             if (isMuted) {
                                                 setIsMuted(false);
@@ -1076,51 +1183,82 @@ export default function TheaterLiveTvPlayer({
                                     />
                                 </div>
                                 <button
+                                    type="button"
                                     onClick={toggleFullscreen}
                                     className="p-2 rounded-xl bg-black/60 hover:bg-zinc-800 text-zinc-300 hover:text-white transition-colors cursor-pointer"
+                                    title="Toggle Fullscreen"
                                 >
                                     <Maximize size={16} />
                                 </button>
                             </div>
                         </div>
 
-                        {/* On-Screen Channel Schedule Overlay (OSD) */}
-                        {osdGuideOpen && currentChannelPrograms.length > 0 && (
-                            <div className="absolute right-4 top-16 bottom-16 w-80 bg-black/90 backdrop-blur-xl border border-zinc-800/80 rounded-2xl p-4 flex flex-col space-y-3 z-30 animate-in fade-in slide-in-from-right duration-200 pointer-events-auto overflow-hidden">
-                                <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
-                                    <div className="min-w-0">
-                                        <h4 className="text-sm font-black text-white truncate">{currentChannel?.name}</h4>
-                                        <p className="text-xs text-amber-400 font-bold uppercase">Program Schedule</p>
+                        {/* On-Screen Channel Schedule Overlay (OSD) — Only shown when user explicitly clicks Schedule button */}
+                        {osdGuideOpen && (
+                            <>
+                                {/* Click-off backdrop over video stream */}
+                                <div
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setOsdGuideOpen(false);
+                                    }}
+                                    className="absolute inset-0 z-20 cursor-pointer"
+                                    title="Click anywhere on stream to close schedule"
+                                />
+                                <div
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="absolute right-4 top-16 bottom-16 w-80 bg-black/95 backdrop-blur-xl border border-zinc-700 rounded-2xl p-4 flex flex-col space-y-3 z-30 animate-in fade-in slide-in-from-right duration-200 pointer-events-auto overflow-hidden shadow-2xl"
+                                >
+                                    <div className="flex items-center justify-between border-b border-zinc-800 pb-2.5">
+                                        <div className="min-w-0">
+                                            <h4 className="text-sm font-black text-white truncate">{currentChannel?.name}</h4>
+                                            <p className="text-xs text-amber-400 font-bold uppercase">Program Schedule</p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setOsdGuideOpen(false);
+                                            }}
+                                            className="px-2.5 py-1 rounded-xl bg-zinc-900 hover:bg-red-500/20 text-zinc-300 hover:text-red-400 border border-zinc-800 flex items-center gap-1 text-xs font-black cursor-pointer"
+                                            title="Close Schedule Overlay"
+                                        >
+                                            <X size={15} /> Close
+                                        </button>
                                     </div>
-                                    <button onClick={() => setOsdGuideOpen(false)} className="text-zinc-500 hover:text-white p-1 rounded-lg">
-                                        <X size={16} />
-                                    </button>
-                                </div>
 
-                                <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1">
-                                    {currentChannelPrograms.slice(0, 10).map((prog: EpgProgram, idx: number) => {
-                                        const now = new Date();
-                                        const isLive = new Date(prog.start_time) <= now && new Date(prog.end_time) >= now;
-                                        return (
-                                            <div
-                                                key={prog.id || idx}
-                                                className={`p-3 rounded-xl border text-sm transition-all ${
-                                                    isLive
-                                                        ? 'bg-amber-500/15 border-amber-500/40 text-white'
-                                                        : 'bg-zinc-900/60 border-zinc-800/80 text-zinc-300 hover:bg-zinc-900'
-                                                }`}
-                                            >
-                                                <div className="flex items-center justify-between text-xs font-mono text-zinc-400 mb-1">
-                                                    <span>{new Date(prog.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(prog.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                                    {isLive && <span className="text-red-400 font-bold uppercase text-[10px] flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" /> LIVE</span>}
-                                                </div>
-                                                <p className="font-bold truncate text-sm">{prog.title}</p>
-                                                {prog.description && <p className="text-xs text-zinc-400 line-clamp-2 mt-0.5">{prog.description}</p>}
-                                            </div>
-                                        );
-                                    })}
+                                    {currentChannelPrograms.length === 0 ? (
+                                        <div className="flex-1 flex items-center justify-center text-center text-xs text-zinc-400 p-4">
+                                            No EPG schedule synced for this channel yet.
+                                        </div>
+                                    ) : (
+                                        <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1">
+                                            {currentChannelPrograms.slice(0, 10).map((prog: EpgProgram, idx: number) => {
+                                                const now = new Date();
+                                                const isLive = new Date(prog.start_time) <= now && new Date(prog.end_time) >= now;
+                                                return (
+                                                    <div
+                                                        key={prog.id || idx}
+                                                        onClick={() => openRecordModal(currentChannel!, prog)}
+                                                        className={`p-3 rounded-xl border text-sm transition-all cursor-pointer ${
+                                                            isLive
+                                                                ? 'bg-amber-500/15 border-amber-500/40 text-white'
+                                                                : 'bg-zinc-900/60 border-zinc-800/80 text-zinc-300 hover:bg-zinc-900'
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center justify-between text-xs font-mono text-zinc-400 mb-1">
+                                                            <span>{new Date(prog.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(prog.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                            {isLive && <span className="text-red-400 font-bold uppercase text-[10px] flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" /> LIVE</span>}
+                                                        </div>
+                                                        <p className="font-bold truncate text-sm">{prog.title}</p>
+                                                        {prog.description && <p className="text-xs text-zinc-400 line-clamp-2 mt-0.5">{prog.description}</p>}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
                                 </div>
-                            </div>
+                            </>
                         )}
                     </div>
 
@@ -1196,17 +1334,23 @@ export default function TheaterLiveTvPlayer({
                     </div>
                 </div>
 
-                {/* ── RIGHT: Zapping Menu & Live EPG Guide (4 Cols) ── */}
+                {/* ── RIGHT: Zapping Menu & Live EPG Guide (4 Cols, Collapsible) ── */}
+                {showZappingSidebar && (
                 <div className="lg:col-span-4 bg-[#0a0a0c] rounded-3xl border border-zinc-800 flex flex-col overflow-hidden shadow-2xl">
                     {/* Zapper Header: Search + Category Filter */}
                     <div className="p-4 border-b border-zinc-900 space-y-3 bg-zinc-950/80">
                         <div className="flex items-center justify-between">
                             <span className="text-xs font-black uppercase tracking-wider text-zinc-400">
-                                Zapping Guide
+                                Zapping Guide ({visibleChannels.length})
                             </span>
-                            <span className="text-[10px] font-bold text-zinc-600">
-                                {visibleChannels.length} Channels
-                            </span>
+                            <button
+                                type="button"
+                                onClick={() => setShowZappingSidebar(false)}
+                                className="px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                                title="Hide Zapping Guide sidebar"
+                            >
+                                <X size={13} /> Hide
+                            </button>
                         </div>
 
                         <div className="relative">
@@ -1453,6 +1597,7 @@ export default function TheaterLiveTvPlayer({
                         )}
                     </div>
                 </div>
+                )}
             </div>
 
             {/* ── Context Menu (Right Click on Channel) ── */}
@@ -1532,11 +1677,44 @@ export default function TheaterLiveTvPlayer({
                             </p>
                         </div>
 
+                        {/* Recording File Format Selection (MP4 / MKV / MP3 — Never .ts) */}
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                                <label className="text-xs font-black text-zinc-300 uppercase tracking-wider block">
+                                    Output File Format:
+                                </label>
+                                <span className="text-[10px] font-bold text-emerald-400">
+                                    ✓ Playable Everywhere · Freeze-Resilient
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-3 gap-2">
+                                {[
+                                    { id: 'mp4', label: 'MP4 Video', desc: 'Universal (TV, PC, Phone)' },
+                                    { id: 'mkv', label: 'MKV Video', desc: 'Plex / Home Theater' },
+                                    { id: 'mp3', label: 'MP3 Audio', desc: 'Audio / Radio / Concerts' }
+                                ].map(fmt => (
+                                    <button
+                                        key={fmt.id}
+                                        type="button"
+                                        onClick={() => setRecordingFormat(fmt.id as 'mp4' | 'mkv' | 'mp3')}
+                                        className={`p-2.5 rounded-2xl border text-left transition-all cursor-pointer ${
+                                            recordingFormat === fmt.id
+                                                ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-300 shadow-sm'
+                                                : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-white'
+                                        }`}
+                                    >
+                                        <div className="text-xs font-black">.{fmt.id.toUpperCase()} — {fmt.label}</div>
+                                        <div className="text-[10px] text-zinc-500 truncate mt-0.5">{fmt.desc}</div>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
                         {/* Storage Destinations Multi-Selection Checklist */}
                         <div className="space-y-2.5">
                             <div className="flex items-center justify-between gap-2">
                                 <label className="text-xs font-black text-zinc-300 uppercase tracking-wider block">
-                                    Select Destination(s) (Multiple Allowed):
+                                    Select Destination (Plex Media Folder or Local Downloads):
                                 </label>
                                 <button
                                     type="button"
@@ -1554,23 +1732,36 @@ export default function TheaterLiveTvPlayer({
                                     }`}
                                 >
                                     <Folder size={13} />
-                                    <span>{showFolderBrowser ? 'Close Folder Browser' : '+ Browse / New Folder'}</span>
+                                    <span>{showFolderBrowser ? 'Close Plex Browser' : '+ Browse / New Plex Folder'}</span>
                                 </button>
                             </div>
 
                             {/* Interactive Server Library Browser & Custom Folder Creator */}
                             {showFolderBrowser && (
                                 <div className="p-3.5 rounded-2xl bg-zinc-950 border border-amber-500/30 space-y-3 shadow-inner">
-                                    <div className="flex items-center justify-between">
+                                    <div className="flex items-center justify-between gap-2 flex-wrap">
                                         <span className="text-[11px] font-black text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
-                                            <Folder size={13} /> Browse Server Libraries &amp; Subfolders
+                                            <Folder size={13} /> Unraid Plex Media Folder Explorer
                                         </span>
-                                        {isLoadingFolders && (
-                                            <RefreshCw size={12} className="animate-spin text-amber-400" />
-                                        )}
+                                        <div className="flex items-center gap-2">
+                                            {browserCurrentPath && (
+                                                <button
+                                                    type="button"
+                                                    disabled={isFixingPermissions}
+                                                    onClick={handleFixUnraidPermissions}
+                                                    className="px-2.5 py-1 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 text-[10px] font-black cursor-pointer disabled:opacity-50"
+                                                    title="Automatically run Unraid Docker permission command (chmod 0777 / chown 99:100 nobody:users) on this folder"
+                                                >
+                                                    {isFixingPermissions ? '⏳ Fixing Permissions...' : '🔧 Auto-Fix Unraid Permissions'}
+                                                </button>
+                                            )}
+                                            {isLoadingFolders && (
+                                                <RefreshCw size={12} className="animate-spin text-amber-400" />
+                                            )}
+                                        </div>
                                     </div>
 
-                                    {/* 1. Pick Base Library or DVR Root */}
+                                    {/* 1. Pick Base Plex Library or Plex Media Root */}
                                     <div className="flex flex-wrap gap-1.5">
                                         {browserLibraries.map(lib => (
                                             <button
@@ -1578,26 +1769,12 @@ export default function TheaterLiveTvPlayer({
                                                 type="button"
                                                 onClick={() => loadServerFolderPath(lib.rootPath, lib.id)}
                                                 className={`px-2.5 py-1 rounded-xl text-[11px] font-black border transition-all cursor-pointer ${
-                                                    browserCurrentPath.startsWith(lib.rootPath) && lib.rootPath
+                                                    browserCurrentPath === lib.rootPath && lib.rootPath
                                                         ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
                                                         : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
                                                 }`}
                                             >
-                                                📚 {lib.name} ({lib.type})
-                                            </button>
-                                        ))}
-                                        {dvrFolders.map(df => (
-                                            <button
-                                                key={df.id}
-                                                type="button"
-                                                onClick={() => loadServerFolderPath(df.path)}
-                                                className={`px-2.5 py-1 rounded-xl text-[11px] font-black border transition-all cursor-pointer ${
-                                                    browserCurrentPath.startsWith(df.path)
-                                                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
-                                                        : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
-                                                }`}
-                                            >
-                                                💾 {df.name}
+                                                {lib.type === 'plex_root' ? '🏠 ' : '📚 '}{lib.name}
                                             </button>
                                         ))}
                                     </div>
@@ -1607,13 +1784,17 @@ export default function TheaterLiveTvPlayer({
                                         <div className="space-y-2">
                                             <div className="flex items-center justify-between gap-2 bg-zinc-900/90 px-3 py-2 rounded-xl border border-zinc-800">
                                                 <div className="min-w-0 flex-1">
-                                                    <span className="text-[9px] font-bold uppercase text-zinc-500 block">Current Server Directory</span>
+                                                    <span className="text-[9px] font-bold uppercase text-zinc-500 block">Current Plex Media Directory</span>
                                                     <p className="text-[11px] font-mono text-zinc-200 truncate">{browserCurrentPath}</p>
                                                 </div>
                                                 <div className="flex items-center gap-1.5 shrink-0">
                                                     <button
                                                         type="button"
                                                         onClick={() => {
+                                                            if (browserParentPath) {
+                                                                loadServerFolderPath(browserParentPath);
+                                                                return;
+                                                            }
                                                             const parts = browserCurrentPath.replace(/\\/g, '/').split('/').filter(Boolean);
                                                             if (parts.length > 1) {
                                                                 const isWin = browserCurrentPath.includes('\\') || /^[A-Za-z]:/.test(browserCurrentPath);
@@ -1622,15 +1803,15 @@ export default function TheaterLiveTvPlayer({
                                                             }
                                                         }}
                                                         className="px-2 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[10px] font-bold cursor-pointer"
-                                                        title="Go to parent directory"
+                                                        title="Go up to parent Plex directory"
                                                     >
                                                         ⬆️ Up
                                                     </button>
                                                     <button
                                                         type="button"
                                                         onClick={() => {
-                                                            const baseName = browserCurrentPath.replace(/\\/g, '/').split('/').filter(Boolean).pop() || 'Selected Folder';
-                                                            handleSelectBrowsedFolder(browserCurrentPath, baseName, 'Server Folder');
+                                                            const baseName = browserCurrentPath.replace(/\\/g, '/').split('/').filter(Boolean).pop() || 'Plex Folder';
+                                                            handleSelectBrowsedFolder(browserCurrentPath, baseName, 'Plex Media Folder');
                                                         }}
                                                         className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[10px] font-black cursor-pointer"
                                                     >
@@ -1639,7 +1820,7 @@ export default function TheaterLiveTvPlayer({
                                                 </div>
                                             </div>
 
-                                            {/* Existing Subfolders inside Current Library */}
+                                            {/* Existing Subfolders inside Current Plex Directory */}
                                             {browserSubfolders.length > 0 ? (
                                                 <div className="max-h-32 overflow-y-auto custom-scrollbar grid grid-cols-1 sm:grid-cols-2 gap-1.5 pr-1">
                                                     {browserSubfolders.map(sf => (
@@ -1658,7 +1839,7 @@ export default function TheaterLiveTvPlayer({
                                                             </button>
                                                             <button
                                                                 type="button"
-                                                                onClick={() => handleSelectBrowsedFolder(sf.path, sf.name, 'Library Subfolder')}
+                                                                onClick={() => handleSelectBrowsedFolder(sf.path, sf.name, 'Plex Subfolder')}
                                                                 className="px-2 py-0.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-[10px] font-black shrink-0 cursor-pointer"
                                                             >
                                                                 + Pick
@@ -1674,14 +1855,28 @@ export default function TheaterLiveTvPlayer({
                                         </div>
                                     )}
 
-                                    {/* 3. Create New Custom Folder with Auto-Name Presets */}
+                                    {/* 3. Create New Custom Folder inside Plex Media Folder with Presets */}
                                     <div className="pt-2.5 border-t border-zinc-800/80 space-y-2">
                                         <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400 block">
-                                            Create New Folder Inside Current Directory:
+                                            Create New Folder Inside Current Plex Directory:
                                         </span>
 
                                         {/* Auto-Naming Shortcut Buttons */}
                                         <div className="flex flex-wrap gap-1.5">
+                                            <button
+                                                type="button"
+                                                onClick={() => setNewCustomFolderName('National Team Games')}
+                                                className="px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-[10px] font-black cursor-pointer"
+                                            >
+                                                ⚽ National Team Games
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setNewCustomFolderName('Game Shows')}
+                                                className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[10px] font-black cursor-pointer"
+                                            >
+                                                🎲 Game Shows
+                                            </button>
                                             <button
                                                 type="button"
                                                 onClick={() => {
@@ -1694,39 +1889,7 @@ export default function TheaterLiveTvPlayer({
                                                 className="px-2.5 py-1 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 text-[10px] font-black cursor-pointer"
                                                 title="Auto-fill folder name from EPG Program Title"
                                             >
-                                                📺 Auto: EPG Title
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    const dateStr = new Date(recordingModalData.program.start_time || Date.now()).toISOString().slice(0, 10);
-                                                    const chan = (recordingModalData.channel.cleanName || recordingModalData.channel.name || 'Channel')
-                                                        .replace(/[<>:"/\\|?*]/g, ' ')
-                                                        .replace(/\s+/g, ' ')
-                                                        .trim();
-                                                    setNewCustomFolderName(`${chan} - ${dateStr}`);
-                                                }}
-                                                className="px-2.5 py-1 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 text-[10px] font-black cursor-pointer"
-                                                title="Auto-fill folder name with Channel Name + Date"
-                                            >
-                                                📅 Auto: Channel + Date
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    const dateStr = new Date(recordingModalData.program.start_time || Date.now()).toISOString().slice(0, 10);
-                                                    const chan = (recordingModalData.channel.cleanName || recordingModalData.channel.name || 'Channel')
-                                                        .replace(/[<>:"/\\|?*]/g, ' ')
-                                                        .trim();
-                                                    const title = (recordingModalData.program.title || 'Broadcast')
-                                                        .replace(/[<>:"/\\|?*]/g, ' ')
-                                                        .trim();
-                                                    setNewCustomFolderName(`${title} (${chan} ${dateStr})`);
-                                                }}
-                                                className="px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-[10px] font-black cursor-pointer"
-                                                title="Auto-fill with EPG Title + Channel + Date"
-                                            >
-                                                🎬 Auto: EPG + Channel + Date
+                                                📺 Auto: Program Title
                                             </button>
                                             <button
                                                 type="button"
@@ -1749,7 +1912,7 @@ export default function TheaterLiveTvPlayer({
                                                 type="text"
                                                 value={newCustomFolderName}
                                                 onChange={e => setNewCustomFolderName(e.target.value)}
-                                                placeholder="Folder name (e.g. Concerts, Live TV Movies...)"
+                                                placeholder="Folder name (e.g. National Team Games, Game Shows...)"
                                                 className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 outline-none focus:border-amber-500"
                                             />
                                             <button
@@ -2069,7 +2232,12 @@ export default function TheaterLiveTvPlayer({
 
             {/* ── Full Interactive TV Guide Schedule Modal (Smooth & Sliced) ── */}
             {isFullGuideOpen && (
-                <div className="fixed inset-0 z-[9999] flex flex-col p-3 sm:p-6 bg-black/95 backdrop-blur-xl animate-in fade-in duration-200">
+                <div
+                    onClick={(e) => {
+                        if (e.target === e.currentTarget) setIsFullGuideOpen(false);
+                    }}
+                    className="fixed inset-0 z-[9999] flex flex-col p-3 sm:p-6 bg-black/95 backdrop-blur-xl animate-in fade-in duration-200"
+                >
                     <div className="bg-[#0c0c0e] border border-zinc-800 rounded-3xl w-full h-full flex flex-col overflow-hidden shadow-2xl">
                         {/* Guide Header */}
                         <div className="p-4 sm:p-5 border-b border-zinc-800 flex flex-wrap items-center justify-between gap-3 bg-zinc-950/80">
@@ -2145,10 +2313,12 @@ export default function TheaterLiveTvPlayer({
                                 </button>
 
                                 <button
+                                    type="button"
                                     onClick={() => setIsFullGuideOpen(false)}
-                                    className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 ml-2 cursor-pointer"
+                                    className="px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-red-500/20 text-zinc-200 hover:text-red-400 border border-zinc-800 ml-2 flex items-center gap-1.5 text-xs font-black cursor-pointer"
+                                    title="Close TV Guide (Esc)"
                                 >
-                                    <X size={18} />
+                                    <X size={16} /> Close
                                 </button>
                             </div>
                         </div>

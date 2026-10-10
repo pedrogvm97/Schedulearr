@@ -8,6 +8,12 @@ import { initAutoUpdater } from '@/lib/autoUpdater';
 export const dynamic = 'force-dynamic';
 
 const FALLBACK_GIT_NOTES = [
+  '• [v0.6.10] Fix Live TV Guide click-off & zapping sidebar toggle, fix Narrator Voice Picker with real-time Live FFmpeg stream & on-demand file generation, eliminate fake SVG placeholders with story-specific raster art, redesign large 3D hardcover Bookshelf cards, and add main Tasks tab',
+  '  - Separate osdControlsVisible from osdGuideOpen in TheaterLiveTvPlayer so mouse movement never re-opens the Program Schedule drawer, add click-off dismissal & Escape handler, and add collapsible Channels sidebar toggle',
+  '  - Fix Narrator Voice Picker so ungenerated voices explicitly show "Not Generated Yet" with "Generate" (saved M4A) and "Live" (real-time FFmpeg audio filter stream via /api/theater/stream)',
+  '  - Purge all fake SVG placeholder files from disk & SQLite, strictly validate binary raster headers (JPEG/PNG/WebP), and generate real story-specific paintings via Gemini/OpenAI/HuggingFace Flux.1-schnell/Pollinations/AI Horde grounded in Wikipedia + Google Books + transcribed audio',
+  '  - Redesign Audiobook shelf into large 4-per-row 3D hardcover books with clean titles (stripping leading "YYYY - " year prefixes), larger typography, and icon-first buttons with hover tooltips',
+  '  - Add top-level Tasks tab (/tasks) showing all active, queued, and upcoming background tasks with server daemon persistence guarantee, plus shared single-connection IPTV Stream Hub for zero-drop MP4/MKV/MP3 recording',
   '• [v0.6.9] Fix Web UI freeze/crash during 300k+ XMLTV EPG sync & DVR rule scan, optimize 35k IPTV channel aggregation, and add comprehensive Unraid container logging across all playback & UI actions',
   '  - Yield Node.js event loop during 95MB / 306k+ XMLTV EPG parsing and batch SQLite inserts into 1,500-row chunked transactions so the web server stays responsive',
   '  - Eliminate 70,000+ full-table-scan SQLite queries in DVR rule scanning and fix index-killing OR LOWER(channel_tvg_id) clauses in getIptvEpgForChannel / getBatchIptvEpg',
@@ -53,7 +59,7 @@ export async function GET() {
 
   try {
     // 1. Get current version from package.json or system fallback
-    let currentVersion = '0.6.9';
+    let currentVersion = '0.6.10';
     const possiblePaths = [
       path.join(process.cwd(), 'package.json'),
       path.join(process.cwd(), '..', 'package.json'),

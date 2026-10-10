@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getAllActiveEpgSyncs } from '@/lib/iptvEpgSync';
 import { getAudiobookStudioStatus } from '@/lib/audiobookStudio';
 import { getDvrRecordings, getAllAudiobooksMeta } from '@/lib/db';
+import { getActiveStreamHubsSummary } from '@/lib/iptvStreamHub';
 import musicDownloadQueue from '@/lib/musicDownloadQueue';
 
 export const dynamic = 'force-dynamic';
@@ -10,11 +11,22 @@ export async function GET() {
     try {
         const items: Array<{
             id: string;
-            category: 'epg' | 'audiobook' | 'dvr' | 'download' | 'housekeeping';
+            category: 'epg' | 'audiobook' | 'dvr' | 'download' | 'housekeeping' | 'stream';
             title: string;
             detail: string;
             progress?: number;
         }> = [];
+
+        // 0. Active Shared IPTV Stream Hubs
+        const streamHubs = getActiveStreamHubsSummary();
+        for (const hub of streamHubs) {
+            items.push({
+                id: `hub-${hub.channelName}`,
+                category: 'stream',
+                title: `Live Stream: ${hub.channelName}`,
+                detail: `${hub.subscribersCount} consumer(s) sharing 1 line`
+            });
+        }
 
         // 1. Active EPG Syncs
         const epgSyncs = getAllActiveEpgSyncs();

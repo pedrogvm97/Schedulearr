@@ -3345,12 +3345,23 @@ function TheaterPageContent() {
             { pattern: /\brevenger\b/i, cleanTitle: 'Revenger', collection: 'Revenger Trilogy', bookNumber: 1, releaseYear: '2016' },
             { pattern: /\bshadow\s+captain\b/i, cleanTitle: 'Shadow Captain', collection: 'Revenger Trilogy', bookNumber: 2, releaseYear: '2019' },
             { pattern: /\bbone\s+silence\b/i, cleanTitle: 'Bone Silence', collection: 'Revenger Trilogy', bookNumber: 3, releaseYear: '2020' },
-            // Alastair Reynolds — Standalones
+            // Alastair Reynolds — Standalones & Novellas
             { pattern: /\bcentury\s+rain\b/i, cleanTitle: 'Century Rain', collection: '', bookNumber: 0, releaseYear: '2004' },
             { pattern: /\bpushing\s+ice\b/i, cleanTitle: 'Pushing Ice', collection: '', bookNumber: 0, releaseYear: '2005' },
             { pattern: /\bhouse\s+of\s+suns\b/i, cleanTitle: 'House of Suns', collection: '', bookNumber: 0, releaseYear: '2008' },
             { pattern: /\bterminal\s+world\b/i, cleanTitle: 'Terminal World', collection: '', bookNumber: 0, releaseYear: '2010' },
+            { pattern: /\btroika\b/i, cleanTitle: 'Troika', collection: '', bookNumber: 0, releaseYear: '2011' },
+            { pattern: /\bslow\s+bullets\b/i, cleanTitle: 'Slow Bullets', collection: '', bookNumber: 0, releaseYear: '2015' },
+            { pattern: /\bbeyond\s+the\s+aquila\s+rift\b/i, cleanTitle: 'Beyond the Aquila Rift', collection: '', bookNumber: 0, releaseYear: '2016' },
+            { pattern: /\bpermafrost\b/i, cleanTitle: 'Permafrost', collection: '', bookNumber: 0, releaseYear: '2019' },
             { pattern: /\beversion\b/i, cleanTitle: 'Eversion', collection: '', bookNumber: 0, releaseYear: '2022' },
+            { pattern: /\bzima\s+blue\b/i, cleanTitle: 'Zima Blue and Other Stories', collection: '', bookNumber: 0, releaseYear: '2006' },
+            { pattern: /\bthousandth\s+night\b/i, cleanTitle: 'Thousandth Night', collection: '', bookNumber: 0, releaseYear: '2005' },
+            { pattern: /\bbelladonna\s+nights\b/i, cleanTitle: 'Belladonna Nights', collection: '', bookNumber: 0, releaseYear: '2021' },
+            // Cixin Liu — Remembrance of Earth's Past (Three-Body Trilogy)
+            { pattern: /\b(the\s+)?three[- ]body\s+problem\b/i, cleanTitle: 'The Three-Body Problem', collection: "Remembrance of Earth's Past", bookNumber: 1, releaseYear: '2008' },
+            { pattern: /\b(the\s+)?dark\s+forest\b/i, cleanTitle: 'The Dark Forest', collection: "Remembrance of Earth's Past", bookNumber: 2, releaseYear: '2008' },
+            { pattern: /\bdeath'?s\s+end\b/i, cleanTitle: "Death's End", collection: "Remembrance of Earth's Past", bookNumber: 3, releaseYear: '2010' },
             // Frank Herbert — Pandora Sequence
             { pattern: /\bdestination[:\s]+void\b/i, cleanTitle: 'Destination: Void', collection: 'Pandora Sequence', bookNumber: 1, releaseYear: '1966' },
             { pattern: /\bthe\s+jesus\s+incident\b/i, cleanTitle: 'The Jesus Incident', collection: 'Pandora Sequence', bookNumber: 2, releaseYear: '1979' },
@@ -3382,6 +3393,20 @@ function TheaterPageContent() {
                 working = working.replace(/[\(\[]\s*(19\d{2}|20\d{2})\s*[\)\]]/g, '').trim();
             }
 
+            // Strip leading "YYYY - Title" or "YYYY. Title" (e.g. "2011 - Troika" -> "Troika", releaseYear: "2011")
+            const leadYearMatch = working.match(/^(19\d{2}|20\d{2})\s*[-–—._:]+\s*(.+)$/);
+            if (leadYearMatch) {
+                if (!releaseYear) releaseYear = leadYearMatch[1];
+                working = leadYearMatch[2].trim();
+            }
+
+            // Strip trailing " - YYYY"
+            const trailYearMatch = working.match(/^(.+?)\s+[-–—]\s*(19\d{2}|20\d{2})$/);
+            if (trailYearMatch) {
+                if (!releaseYear) releaseYear = trailYearMatch[2];
+                working = trailYearMatch[1].trim();
+            }
+
             const bracketSeries = working.match(/^[\[\(]([^\]\)]+?)\s*(?:#|book\s*|vol\.?\s*)(\d{1,2})[\]\)]\s*[-–—:]?\s*(.+)$/i);
             if (bracketSeries) {
                 inferredCollection = bracketSeries[1].trim();
@@ -3395,12 +3420,21 @@ function TheaterPageContent() {
                 working = leadNumMatch[2].trim();
             }
 
+            const secondLeadYear = working.match(/^(19\d{2}|20\d{2})\s*[-–—._:]+\s*(.+)$/);
+            if (secondLeadYear) {
+                if (!releaseYear) releaseYear = secondLeadYear[1];
+                working = secondLeadYear[2].trim();
+            }
+
             const trailBookNum = working.match(/^(.+?)\s*[\(\[]\s*(?:book|vol\.?|volume|#)\s*(\d{1,2})\s*[\)\]]$/i);
             if (trailBookNum) {
                 if (!bookNumber) bookNumber = parseInt(trailBookNum[2], 10);
                 working = trailBookNum[1].trim();
             }
-            working = working.replace(/\s*[\[\(]\s*(?:original(?:\s+audio)?|optimized(?:\s+hq|\s+audio)?|unabridged|abridged|m4b|mp3)\s*[\]\)]/gi, '').trim();
+            working = working
+                .replace(/\s*[\[\(]\s*(?:original(?:\s+audio)?|optimized(?:\s+hq|\s+audio)?|unabridged|abridged|m4b|mp3|flac|aac|\d+\s*kbps|read\s+by\s+[^\]\)]+|narrated\s+by\s+[^\]\)]+)\s*[\]\)]/gi, '')
+                .replace(/\s*[-_]\s*(?:unabridged|abridged|\d+\s*kbps|m4b|mp3)$/gi, '')
+                .trim();
 
             if (!inferredCollection && filePath) {
                 const parts = filePath.replace(/\\/g, '/').split('/').filter(Boolean);
@@ -3581,8 +3615,13 @@ function TheaterPageContent() {
                 const folderClean = item.folder.trim();
                 const folderDash = folderClean.match(/^([^-–—]+?)\s+[-–—]\s+(.+)$/);
                 if (folderDash) {
-                    if (!rawAuthorStr) rawAuthorStr = folderDash[1].trim();
-                    bookTitle = stripPartSuffix(folderDash[2].trim());
+                    const leftCandidate = folderDash[1].trim();
+                    if (/^(19\d{2}|20\d{2}|\d{1,2})$/.test(leftCandidate)) {
+                        bookTitle = stripPartSuffix(folderClean);
+                    } else {
+                        if (!rawAuthorStr) rawAuthorStr = leftCandidate;
+                        bookTitle = stripPartSuffix(folderDash[2].trim());
+                    }
                 } else {
                     bookTitle = stripPartSuffix(folderClean);
                 }
@@ -3597,7 +3636,7 @@ function TheaterPageContent() {
             if (titleDash) {
                 const left = titleDash[1].trim();
                 const right = titleDash[2].trim();
-                if (!/^(chapter|ch\.?|part|pt\.?|track|disc|cd|book|vol)/i.test(left)) {
+                if (!/^(chapter|ch\.?|part|pt\.?|track|disc|cd|book|vol|19\d{2}|20\d{2}|\d{1,2})/i.test(left)) {
                     if (!rawAuthorStr) rawAuthorStr = left;
                     if (!bookTitle) bookTitle = stripPartSuffix(right);
                 } else if (!bookTitle) {
@@ -3614,25 +3653,30 @@ function TheaterPageContent() {
             const parsedAuthor = canonicalizeAuthorClient(rawAuthorStr, bookTitle);
             const canonicalAuthor = parsedAuthor.canonicalAuthor;
 
-            // Also strip translator/narrator parentheticals from bookTitle
-            const cleanBookTitleBase = bookTitle
-                .replace(/[\(\[]\s*(?:trans\.?|translated\s+by|translator:?|read\s+by|narrated\s+by|narrator:?)\s+[^\)\]]+[\)\]]/gi, '')
-                .replace(/\s+/g, ' ')
-                .trim() || bookTitle;
+            // Also strip translator/narrator parentheticals & leading year prefix from bookTitle
+            const parsedInitial = parseBookMetaClient(
+                bookTitle
+                    .replace(/[\(\[]\s*(?:trans\.?|translated\s+by|translator:?|read\s+by|narrated\s+by|narrator:?)\s+[^\)\]]+[\)\]]/gi, '')
+                    .replace(/\s+/g, ' ')
+                    .trim() || bookTitle,
+                item.folder,
+                item.path
+            );
+            const cleanBookTitleBase = parsedInitial.cleanTitle || bookTitle;
 
             const key = `${canonicalAuthor} - ${cleanBookTitleBase}`.toLowerCase().trim();
             const legacyKey = `${rawAuthorStr} - ${bookTitle}`.toLowerCase().trim();
 
             if (!map.has(key)) {
-                const parsed = parseBookMetaClient(cleanBookTitleBase, item.folder, item.path);
                 const savedMeta = audiobookCollectionsState?.bookMetadata?.[key] || audiobookCollectionsState?.bookMetadata?.[legacyKey];
                 const bStudio = audiobooksStudioMap[key] || audiobooksStudioMap[legacyKey];
 
-                const cleanTitle = bStudio?.title || savedMeta?.cleanTitle || parsed.cleanTitle || cleanBookTitleBase;
+                const parsedStudio = parseBookMetaClient(bStudio?.title || savedMeta?.cleanTitle || cleanBookTitleBase, item.folder, item.path);
+                const cleanTitle = parsedStudio.cleanTitle || parsedInitial.cleanTitle || cleanBookTitleBase;
                 const effectiveAuthor = bStudio?.canonical_author || canonicalAuthor;
-                const bookNumber = savedMeta?.bookNumber ?? parsed.bookNumber;
-                const releaseYear = bStudio?.published_year || savedMeta?.releaseYear || (item as any).releaseYear || parsed.releaseYear;
-                const inferredCollection = savedMeta?.collectionName !== undefined ? savedMeta.collectionName : parsed.inferredCollection;
+                const bookNumber = savedMeta?.bookNumber ?? parsedStudio.bookNumber ?? parsedInitial.bookNumber;
+                const releaseYear = bStudio?.published_year || savedMeta?.releaseYear || (item as any).releaseYear || parsedStudio.releaseYear || parsedInitial.releaseYear;
+                const inferredCollection = savedMeta?.collectionName !== undefined ? savedMeta.collectionName : (parsedStudio.inferredCollection || parsedInitial.inferredCollection);
                 const hasOptimizedAudio = Boolean((bStudio?.enhanced_chapters || 0) > 0 || /(?:\boptimized\b|\benhanced\b|\bhq\s+audio\b)/i.test(item.path || ''));
                 const translator = bStudio?.translator || (item as any).translator || parsedAuthor.translator;
                 const narrator = bStudio?.narrator || (item as any).narrator || parsedAuthor.narrator;
@@ -5595,94 +5639,102 @@ function TheaterPageContent() {
                         </div>
                     )
                 ) : activeContentTab === 'audiobooks' ? (
-                    <div className="space-y-6">
-                        {/* ── Clean Consumption Header: Library & Bedside, Bedside Table, Authors, My Reads (Finished) + Filter & Sort Bar ── */}
-                        <div className="p-4 sm:p-6 rounded-3xl bg-gradient-to-r from-[#1a110a] via-[#140e09] to-[#1a110a] border border-amber-700/35 shadow-2xl space-y-4">
-                            <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-4">
-                                <div className="flex items-start sm:items-center gap-3.5">
-                                    <div className="w-13 h-13 p-3 rounded-2xl bg-amber-500/15 border border-amber-500/35 flex items-center justify-center text-amber-400 shrink-0 shadow-inner">
-                                        <BookOpen size={26} />
+                    <div className="space-y-7">
+                        {/* ── Clean Consumption Header: Library, Bedside, Authors, Finished + Filter & Sort Bar ── */}
+                        <div className="p-5 sm:p-7 rounded-3xl bg-gradient-to-r from-[#1a110a] via-[#140e09] to-[#1a110a] border-2 border-amber-700/40 shadow-2xl space-y-5">
+                            <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-5">
+                                <div className="flex items-start sm:items-center gap-4">
+                                    <div className="w-16 h-16 p-3.5 rounded-2xl bg-amber-500/15 border-2 border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0 shadow-inner">
+                                        <BookOpen size={32} />
                                     </div>
-                                    <div className="space-y-1">
-                                        <div className="flex items-center gap-2.5 flex-wrap">
-                                            <h3 className="text-lg sm:text-xl font-black text-amber-50 tracking-tight">
+                                    <div className="space-y-1.5">
+                                        <div className="flex items-center gap-3 flex-wrap">
+                                            <h3 className="text-xl sm:text-2xl font-black text-amber-50 tracking-tight">
                                                 Audiobook Library &amp; Bedside Table
                                             </h3>
-                                            <span className="px-3 py-1 rounded-lg bg-black/50 text-amber-300/90 border border-amber-900/40 text-xs font-mono font-bold">
+                                            <span className="px-3.5 py-1 rounded-xl bg-black/60 text-amber-300 border border-amber-800/50 text-sm font-mono font-black">
                                                 {audiobooks.length} {audiobooks.length === 1 ? 'Book' : 'Books'} • {audiobookShelfData.authorsList.length} {audiobookShelfData.authorsList.length === 1 ? 'Author' : 'Authors'}
                                             </span>
                                             {audiobookStudioStatus?.isRunning && (
-                                                <span className="px-3 py-1 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-black uppercase flex items-center gap-1.5 animate-pulse">
-                                                    <RefreshCw size={12} className="animate-spin" />
-                                                    Generating: {audiobookStudioStatus.currentBookTitle}
-                                                </span>
+                                                <Link
+                                                    href="/tasks"
+                                                    className="px-3.5 py-1 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs sm:text-sm font-black uppercase flex items-center gap-2 animate-pulse"
+                                                    title="Background Audiobook Studio task is running. Click to open the live Tasks monitor."
+                                                >
+                                                    <RefreshCw size={15} className="animate-spin" />
+                                                    Active: {audiobookStudioStatus.currentBookTitle}
+                                                </Link>
                                             )}
                                         </div>
-                                        <p className="text-xs sm:text-sm text-amber-200/70">
-                                            Pick up right where you left off on your Bedside Table, browse your Library Shelves by genre or author, or review finished books in My Reads.
+                                        <p className="text-sm sm:text-base text-amber-200/80">
+                                            Click any hardcover book to open chapters &amp; Studio tools, or hover a cover to Play, place on your Bedside Table, or mark Finished.
                                         </p>
                                     </div>
                                 </div>
 
-                                {/* ── Consumption View Tabs: Library & Bedside | Bedside Table | Authors | My Reads (Finished) ── */}
-                                <div className="flex items-center gap-1.5 bg-black/60 p-1.5 rounded-2xl border border-amber-800/40 overflow-x-auto flex-nowrap max-w-full shrink-0">
+                                {/* ── Consumption View Tabs: Big Icon + Single Word + Hover Tooltip ── */}
+                                <div className="flex items-center gap-2 bg-black/65 p-2 rounded-2xl border border-amber-800/50 overflow-x-auto flex-nowrap max-w-full shrink-0">
                                     <button
                                         onClick={() => setAudiobookShelfViewMode('books')}
-                                        className={`px-3.5 py-2 rounded-xl font-black text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center gap-2 transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+                                        title="View all books and series collections on your wooden library shelves"
+                                        className={`px-4 py-2.5 rounded-xl font-black text-sm sm:text-base uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                                             audiobookShelfViewMode === 'books'
                                                 ? 'bg-amber-400 text-black shadow-lg shadow-amber-500/25'
-                                                : 'text-amber-200/70 hover:text-white hover:bg-white/5'
+                                                : 'text-amber-200/80 hover:text-white hover:bg-white/5'
                                         }`}
                                     >
-                                        <Layers size={15} />
-                                        Library ({audiobookShelfData.shelfEntries.length})
+                                        <Layers size={20} />
+                                        <span>Library ({audiobookShelfData.shelfEntries.length})</span>
                                     </button>
                                     <button
                                         onClick={() => setAudiobookShelfViewMode('bedside')}
-                                        className={`px-3.5 py-2 rounded-xl font-black text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center gap-2 transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+                                        title="View books currently on your Bedside Table (in-progress or bookmarked)"
+                                        className={`px-4 py-2.5 rounded-xl font-black text-sm sm:text-base uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                                             audiobookShelfViewMode === 'bedside'
                                                 ? 'bg-amber-400 text-black shadow-lg shadow-amber-500/25'
-                                                : 'text-amber-200/70 hover:text-white hover:bg-white/5'
+                                                : 'text-amber-200/80 hover:text-white hover:bg-white/5'
                                         }`}
                                     >
-                                        <Bookmark size={15} />
-                                        Bedside Table ({audiobookShelfData.bedsideBooks.length})
+                                        <Bookmark size={20} />
+                                        <span>Bedside ({audiobookShelfData.bedsideBooks.length})</span>
                                     </button>
                                     <button
                                         onClick={() => setAudiobookShelfViewMode('authors')}
-                                        className={`px-3.5 py-2 rounded-xl font-black text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center gap-2 transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+                                        title="Browse audiobooks grouped by Author"
+                                        className={`px-4 py-2.5 rounded-xl font-black text-sm sm:text-base uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                                             audiobookShelfViewMode === 'authors'
                                                 ? 'bg-amber-400 text-black shadow-lg shadow-amber-500/25'
-                                                : 'text-amber-200/70 hover:text-white hover:bg-white/5'
+                                                : 'text-amber-200/80 hover:text-white hover:bg-white/5'
                                         }`}
                                     >
-                                        <User size={15} />
-                                        Authors ({audiobookShelfData.authorsList.length})
+                                        <User size={20} />
+                                        <span>Authors ({audiobookShelfData.authorsList.length})</span>
                                     </button>
                                     <button
                                         onClick={() => setAudiobookShelfViewMode('finished')}
-                                        className={`px-3.5 py-2 rounded-xl font-black text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center gap-2 transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+                                        title="View finished audiobooks in My Reads"
+                                        className={`px-4 py-2.5 rounded-xl font-black text-sm sm:text-base uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                                             audiobookShelfViewMode === 'finished'
                                                 ? 'bg-emerald-400 text-black shadow-lg shadow-emerald-500/25'
-                                                : 'text-amber-200/70 hover:text-white hover:bg-white/5'
+                                                : 'text-amber-200/80 hover:text-white hover:bg-white/5'
                                         }`}
                                     >
-                                        <Check size={15} />
-                                        My Reads ({audiobookShelfData.finishedBooks.length})
+                                        <Check size={20} />
+                                        <span>Finished ({audiobookShelfData.finishedBooks.length})</span>
                                     </button>
                                 </div>
                             </div>
 
-                            {/* ── Clean Filter & Sort Bar + Link to Media Tab for Management ── */}
-                            <div className="pt-3 border-t border-amber-900/30 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
-                                <div className="flex items-center gap-2.5 flex-wrap">
+                            {/* ── Filter, Sort & Quick Action Bar ── */}
+                            <div className="pt-4 border-t border-amber-900/40 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3.5">
+                                <div className="flex items-center gap-3 flex-wrap">
                                     {/* Genre Filter */}
-                                    <div className="flex items-center gap-1.5 bg-black/50 px-3 py-1.5 rounded-xl border border-amber-900/40">
-                                        <span className="text-[11px] font-black uppercase tracking-wider text-amber-300/75">Genre:</span>
+                                    <div className="flex items-center gap-2 bg-black/60 px-3.5 py-2 rounded-xl border border-amber-900/50" title="Filter shelf by book genre">
+                                        <span className="text-xs sm:text-sm font-black uppercase tracking-wider text-amber-300/90">Genre:</span>
                                         <select
                                             value={audiobookGenreFilter}
                                             onChange={(e) => setAudiobookGenreFilter(e.target.value)}
-                                            className="bg-transparent text-xs font-bold text-white focus:outline-none cursor-pointer"
+                                            className="bg-transparent text-sm sm:text-base font-bold text-white focus:outline-none cursor-pointer"
                                         >
                                             <option value="ALL" className="bg-zinc-900 text-white">All Genres ({audiobooks.length})</option>
                                             {audiobookShelfData.availableGenres.map(g => (
@@ -5692,12 +5744,12 @@ function TheaterPageContent() {
                                     </div>
 
                                     {/* Author Filter */}
-                                    <div className="flex items-center gap-1.5 bg-black/50 px-3 py-1.5 rounded-xl border border-amber-900/40">
-                                        <span className="text-[11px] font-black uppercase tracking-wider text-amber-300/75">Author:</span>
+                                    <div className="flex items-center gap-2 bg-black/60 px-3.5 py-2 rounded-xl border border-amber-900/50" title="Filter shelf by author">
+                                        <span className="text-xs sm:text-sm font-black uppercase tracking-wider text-amber-300/90">Author:</span>
                                         <select
                                             value={selectedShelfAuthor || 'ALL'}
                                             onChange={(e) => setSelectedShelfAuthor(e.target.value === 'ALL' ? null : e.target.value)}
-                                            className="bg-transparent text-xs font-bold text-white focus:outline-none cursor-pointer max-w-[200px]"
+                                            className="bg-transparent text-sm sm:text-base font-bold text-white focus:outline-none cursor-pointer max-w-[240px]"
                                         >
                                             <option value="ALL" className="bg-zinc-900 text-white">All Authors ({audiobookShelfData.authorsList.length})</option>
                                             {audiobookShelfData.authorsList.map(a => (
@@ -5707,13 +5759,13 @@ function TheaterPageContent() {
                                     </div>
 
                                     {/* Sort By */}
-                                    <div className="flex items-center gap-1.5 bg-black/50 px-3 py-1.5 rounded-xl border border-amber-900/40">
-                                        <ArrowUpDown size={12} className="text-amber-400" />
-                                        <span className="text-[11px] font-black uppercase tracking-wider text-amber-300/75">Sort:</span>
+                                    <div className="flex items-center gap-2 bg-black/60 px-3.5 py-2 rounded-xl border border-amber-900/50" title="Sort books on the shelf">
+                                        <ArrowUpDown size={16} className="text-amber-400" />
+                                        <span className="text-xs sm:text-sm font-black uppercase tracking-wider text-amber-300/90">Sort:</span>
                                         <select
                                             value={audiobookSortBy}
                                             onChange={(e) => setAudiobookSortBy(e.target.value as any)}
-                                            className="bg-transparent text-xs font-bold text-white focus:outline-none cursor-pointer"
+                                            className="bg-transparent text-sm sm:text-base font-bold text-white focus:outline-none cursor-pointer"
                                         >
                                             <option value="title" className="bg-zinc-900 text-white">Alphabetical (A–Z)</option>
                                             <option value="year" className="bg-zinc-900 text-white">Publication Year (Newest)</option>
@@ -5728,39 +5780,53 @@ function TheaterPageContent() {
                                                 setAudiobookGenreFilter('ALL');
                                                 setSelectedShelfAuthor(null);
                                             }}
-                                            className="px-2.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-bold cursor-pointer"
+                                            title="Clear active genre and author filters"
+                                            className="px-3.5 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 text-sm font-black cursor-pointer"
                                         >
-                                            Reset Filters
+                                            Reset
                                         </button>
                                     )}
                                 </div>
 
-                                <div className="flex items-center gap-2 self-end lg:self-auto">
+                                <div className="flex items-center gap-2.5 self-end lg:self-auto flex-wrap">
+                                    <button
+                                        onClick={handleAiOrganizeCollections}
+                                        disabled={isAiOrganizingCollections}
+                                        title="Run AI Matcher to clean book titles, infer publication years, and group series into collections"
+                                        className="px-4 py-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 text-sm font-black flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                                    >
+                                        {isAiOrganizingCollections ? <RefreshCw size={18} className="animate-spin text-amber-300" /> : <Sparkles size={18} className="text-amber-300" />}
+                                        <span>Match</span>
+                                    </button>
                                     <Link
                                         href="/discover?tab=audiobooks"
-                                        className="px-3.5 py-2 rounded-xl bg-zinc-900/90 hover:bg-zinc-800 text-amber-200/90 hover:text-white border border-amber-900/40 text-xs font-bold flex items-center gap-1.5 transition-all"
-                                        title="Edit book metadata, collections, file renamer & AI studio defaults in the Media tab"
+                                        className="px-4 py-2.5 rounded-xl bg-zinc-900/90 hover:bg-zinc-800 text-amber-100 hover:text-white border border-amber-900/50 text-sm font-black flex items-center gap-2 transition-all"
+                                        title="Open Audiobook Manager in Media tab to edit book metadata, collections, file renamer & AI studio settings"
                                     >
-                                        <Sliders size={13} className="text-amber-400" />
-                                        Edit &amp; Manage in Media Tab
+                                        <Sliders size={18} className="text-amber-400" />
+                                        <span>Manage</span>
                                     </Link>
                                 </div>
                             </div>
                         </div>
 
-                        {/* ── Wooden Bookshelf Cabinet Display (Bedside Table + Library Shelves / Authors / My Reads) ── */}
+                        {/* ── Wooden Bookshelf Cabinet Display (Large 3D Hardcover Books) ── */}
                         {audiobooks.length === 0 ? (
                             <div className="p-16 bg-zinc-950/40 rounded-[2.5rem] border border-zinc-900 text-center space-y-3">
-                                <BookOpen size={40} className="mx-auto text-zinc-700" />
-                                <p className="text-lg font-bold text-white">No audiobooks found on your shelf</p>
-                                <p className="text-xs text-zinc-500">Ensure your audiobook library paths contain .m4b, .mp3, or chaptered audio files.</p>
+                                <BookOpen size={48} className="mx-auto text-zinc-700" />
+                                <p className="text-xl font-bold text-white">No audiobooks found on your shelf</p>
+                                <p className="text-sm text-zinc-500">Ensure your audiobook library paths contain .m4b, .mp3, or chaptered audio files.</p>
                             </div>
                         ) : (() => {
-                            // Helper to render an Individual Book on any Wooden Shelf row (Clean Consumption Card without Studio Clutter)
+                            // Helper to render an Individual Book on any Wooden Shelf row as a LARGE 3D Hardcover Volume
                             const renderShelfBookCard = (book: typeof audiobooks[0]) => {
                                 const formattedDur = formatBookDuration(book.totalDurationMs);
                                 const bMeta = audiobooksStudioMap[book.bookKey];
-                                const customCoverActive = Boolean(bMeta?.use_custom_cover && bMeta?.custom_cover_url);
+                                const customCoverActive = Boolean(
+                                    bMeta?.use_custom_cover &&
+                                    bMeta?.custom_cover_url &&
+                                    !bMeta.custom_cover_url.toLowerCase().includes('.svg')
+                                );
                                 const effectiveCoverUrl = customCoverActive ? bMeta.custom_cover_url : book.posterUrl;
                                 const isFinished = book.readingStatus === 'finished';
                                 const isBedside = book.onBedsideTable;
@@ -5769,12 +5835,12 @@ function TheaterPageContent() {
                                     <div
                                         key={book.bookKey}
                                         onClick={() => openAudiobookModal(book, false)}
-                                        className="group relative flex flex-col bg-[#0c0a09] border border-amber-950/80 hover:border-amber-500/60 rounded-t-2xl rounded-b-md overflow-hidden transition-all duration-300 shadow-[6px_10px_22px_rgba(0,0,0,0.85)] cursor-pointer hover:-translate-y-2"
+                                        className="group relative flex flex-col bg-[#120d09] border-2 border-amber-900/80 hover:border-amber-400 rounded-l-md rounded-r-2xl border-r-[8px] border-r-[#dfd3be]/85 overflow-hidden transition-all duration-300 shadow-[10px_14px_28px_rgba(0,0,0,0.9)] cursor-pointer hover:-translate-y-2.5"
                                     >
-                                        {/* Left Hardcover Book Spine Crease Highlight */}
-                                        <div className="absolute inset-y-0 left-0 w-3 bg-gradient-to-r from-white/20 via-black/40 to-transparent z-20 pointer-events-none" />
+                                        {/* Left 3D Hardcover Spine Hinge & Raised Binding Ridges */}
+                                        <div className="absolute inset-y-0 left-0 w-4 bg-gradient-to-r from-amber-100/25 via-black/75 to-amber-950/40 border-r border-amber-500/25 z-20 pointer-events-none" />
 
-                                        <div className="relative aspect-[4/5] bg-zinc-900 overflow-hidden flex items-center justify-center border-b border-amber-950/70">
+                                        <div className="relative aspect-[3/4] bg-zinc-900 overflow-hidden flex items-center justify-center border-b-2 border-amber-950/80">
                                             {effectiveCoverUrl ? (
                                                 <img
                                                     src={effectiveCoverUrl}
@@ -5783,15 +5849,25 @@ function TheaterPageContent() {
                                                     loading="lazy"
                                                 />
                                             ) : (
-                                                <div className="text-zinc-700 group-hover:scale-110 transition-transform duration-500 flex flex-col items-center gap-2 p-4 text-center bg-gradient-to-br from-[#2a180d] to-[#120b07] w-full h-full justify-center">
-                                                    <BookOpen size={48} className="text-amber-500/40 group-hover:text-amber-400/70 transition-colors" />
-                                                    <span className="text-xs sm:text-sm font-black text-amber-100/80 line-clamp-3 font-serif">{book.cleanTitle}</span>
-                                                    <span className="text-[11px] text-amber-300/60 line-clamp-1">{book.author}</span>
+                                                <div className="w-full h-full p-5 pl-7 flex flex-col items-center justify-between text-center bg-gradient-to-br from-[#3b2110] via-[#221208] to-[#120904] relative">
+                                                    <div className=" inset-3 border-2 border-amber-400/35 rounded-lg pointer-events-none absolute" />
+                                                    <span className="text-xs font-black uppercase tracking-widest text-amber-300/80 pt-2 line-clamp-1">
+                                                        {book.inferredCollection || book.genre || 'Hardcover Edition'}
+                                                    </span>
+                                                    <div className="space-y-2 my-auto px-2">
+                                                        <BookOpen size={44} className="mx-auto text-amber-400/75 group-hover:scale-110 transition-transform" />
+                                                        <span className="block text-lg sm:text-xl font-black text-amber-50 leading-snug line-clamp-3 font-serif drop-shadow">
+                                                            {book.cleanTitle}
+                                                        </span>
+                                                    </div>
+                                                    <span className="text-sm font-bold text-amber-200/90 pb-2 line-clamp-1">
+                                                        {book.author}
+                                                    </span>
                                                 </div>
                                             )}
 
-                                            {/* Hover Consumption Action Overlay: Listen, Bedside Table, Mark Finished */}
-                                            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/45 to-transparent opacity-0 group-hover:opacity-100 flex items-center justify-center gap-2 transition-all duration-300 z-30">
+                                            {/* Hover Consumption Action Overlay: Big Icon + Single Word + Tooltip */}
+                                            <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/65 to-black/25 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-3 p-4 transition-all duration-300 z-30">
                                                 <button
                                                     onClick={(e) => {
                                                         e.stopPropagation();
@@ -5801,102 +5877,113 @@ function TheaterPageContent() {
                                                             openExpandedPlayer();
                                                         }
                                                     }}
-                                                    className="w-12 h-12 rounded-2xl bg-orange-500 text-black flex items-center justify-center shadow-2xl scale-90 group-hover:scale-100 hover:bg-orange-400 transition-all cursor-pointer"
-                                                    title="Listen in Picturebook Player"
+                                                    className="w-full py-3 px-4 rounded-2xl bg-orange-500 hover:bg-orange-400 text-black font-black text-base uppercase tracking-wider flex items-center justify-center gap-2.5 shadow-2xl transition-all cursor-pointer"
+                                                    title="Play this audiobook in the Picturebook Player"
                                                 >
-                                                    <Play size={20} className="ml-0.5 fill-black" />
+                                                    <Play size={22} className="fill-black shrink-0" />
+                                                    <span>Play</span>
                                                 </button>
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleUpdateBookReadingState(book, {
-                                                            onBedsideTable: !isBedside,
-                                                            readingStatus: !isBedside && book.readingStatus === 'unstarted' ? 'ongoing' : book.readingStatus
-                                                        });
-                                                    }}
-                                                    className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all cursor-pointer shadow-lg border ${
-                                                        isBedside
-                                                            ? 'bg-amber-400 text-black border-amber-300'
-                                                            : 'bg-zinc-900/90 text-amber-300 border-amber-500/40 hover:bg-zinc-800'
-                                                    }`}
-                                                    title={isBedside ? 'Return from Bedside Table to Shelf' : 'Place on Bedside Table'}
-                                                >
-                                                    <Bookmark size={15} className={isBedside ? 'fill-black' : ''} />
-                                                </button>
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleUpdateBookReadingState(book, {
-                                                            readingStatus: isFinished ? 'ongoing' : 'finished',
-                                                            onBedsideTable: isFinished ? true : false
-                                                        });
-                                                    }}
-                                                    className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all cursor-pointer shadow-lg border ${
-                                                        isFinished
-                                                            ? 'bg-emerald-400 text-black border-emerald-300'
-                                                            : 'bg-zinc-900/90 text-emerald-300 border-emerald-500/40 hover:bg-zinc-800'
-                                                    }`}
-                                                    title={isFinished ? 'Finished (Click to mark as Ongoing)' : 'Mark as Finished (Move to My Reads)'}
-                                                >
-                                                    <Check size={16} />
-                                                </button>
+                                                <div className="flex items-center gap-2.5 w-full">
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleUpdateBookReadingState(book, {
+                                                                onBedsideTable: !isBedside,
+                                                                readingStatus: !isBedside && book.readingStatus === 'unstarted' ? 'ongoing' : book.readingStatus
+                                                            });
+                                                        }}
+                                                        className={`flex-1 py-2.5 px-3 rounded-xl font-black text-xs sm:text-sm uppercase flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-lg border ${
+                                                            isBedside
+                                                                ? 'bg-amber-400 text-black border-amber-300'
+                                                                : 'bg-zinc-900/95 text-amber-300 border-amber-500/40 hover:bg-zinc-800'
+                                                        }`}
+                                                        title={isBedside ? 'Return book from Bedside Table to Library Shelf' : 'Place book on your Bedside Table'}
+                                                    >
+                                                        <Bookmark size={18} className={isBedside ? 'fill-black shrink-0' : 'shrink-0'} />
+                                                        <span>Bedside</span>
+                                                    </button>
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleUpdateBookReadingState(book, {
+                                                                readingStatus: isFinished ? 'ongoing' : 'finished',
+                                                                onBedsideTable: isFinished ? true : false
+                                                            });
+                                                        }}
+                                                        className={`flex-1 py-2.5 px-3 rounded-xl font-black text-xs sm:text-sm uppercase flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-lg border ${
+                                                            isFinished
+                                                                ? 'bg-emerald-400 text-black border-emerald-300'
+                                                                : 'bg-zinc-900/95 text-emerald-300 border-emerald-500/40 hover:bg-zinc-800'
+                                                        }`}
+                                                        title={isFinished ? 'Marked as Finished (Click to mark as Ongoing)' : 'Mark book as Finished'}
+                                                    >
+                                                        <Check size={18} className="shrink-0" />
+                                                        <span>Done</span>
+                                                    </button>
+                                                </div>
                                             </div>
 
                                             {/* Top Left Volume / Status Badges */}
-                                            <div className="absolute top-2.5 left-3.5 flex items-center gap-1.5 z-20 flex-wrap">
+                                            <div className="absolute top-3 left-5 flex items-center gap-1.5 z-20 flex-wrap">
                                                 {book.bookNumber && book.bookNumber > 0 ? (
-                                                    <span className="px-2 py-0.5 rounded-lg bg-black/85 backdrop-blur-sm border border-amber-400/40 text-amber-300 text-[10px] font-black uppercase shadow">
-                                                        Book #{book.bookNumber}
+                                                    <span className="px-2.5 py-1 rounded-lg bg-black/90 backdrop-blur-sm border border-amber-400/50 text-amber-300 text-xs font-black uppercase shadow">
+                                                        #{book.bookNumber}
                                                     </span>
                                                 ) : null}
                                                 {isFinished ? (
-                                                    <span className="px-2 py-0.5 rounded-lg bg-emerald-500/90 text-black text-[10px] font-black uppercase shadow flex items-center gap-1">
-                                                        <Check size={10} /> Finished
+                                                    <span className="px-2.5 py-1 rounded-lg bg-emerald-500 text-black text-xs font-black uppercase shadow flex items-center gap-1">
+                                                        <Check size={13} /> Done
                                                     </span>
                                                 ) : isBedside ? (
-                                                    <span className="px-2 py-0.5 rounded-lg bg-amber-400/95 text-black text-[10px] font-black uppercase shadow flex items-center gap-1">
-                                                        <Bookmark size={10} className="fill-black" /> Bedside
+                                                    <span className="px-2.5 py-1 rounded-lg bg-amber-400 text-black text-xs font-black uppercase shadow flex items-center gap-1">
+                                                        <Bookmark size={13} className="fill-black" /> Bedside
                                                     </span>
                                                 ) : null}
                                             </div>
 
                                             {/* Top Right Chapters Badge */}
-                                            <div className="absolute top-2.5 right-2.5 flex items-center gap-1 z-20">
-                                                <div className="px-2 py-0.5 rounded-lg bg-black/80 backdrop-blur-sm border border-white/10 text-[10px] font-black uppercase text-orange-400 shadow flex items-center gap-1">
-                                                    <span>{book.chapters.length} Ch</span>
+                                            <div className="absolute top-3 right-3 flex items-center gap-1 z-20">
+                                                <div className="px-2.5 py-1 rounded-lg bg-black/85 backdrop-blur-sm border border-white/15 text-xs font-black uppercase text-orange-300 shadow">
+                                                    {book.chapters.length} Ch
                                                 </div>
                                             </div>
                                         </div>
 
-                                        {/* ── Book Title, Canonical Author & Key Metrics Below Each Book ── */}
-                                        <div className="p-3 pl-3.5 bg-[#0e0a07] space-y-2 flex-1 flex flex-col justify-between">
-                                            <div className="space-y-0.5 min-w-0">
-                                                <h3 className="font-black text-amber-50 text-sm sm:text-base leading-snug line-clamp-1 group-hover:text-orange-400 transition-colors" title={book.cleanTitle}>
+                                        {/* ── Large Multi-Line Book Title, Canonical Author & Key Metrics Below Each Book ── */}
+                                        <div className="p-4 pl-6 bg-[#100b07] space-y-2.5 flex-1 flex flex-col justify-between">
+                                            <div className="space-y-1 min-w-0">
+                                                <h3
+                                                    className="font-black text-amber-50 text-lg sm:text-xl leading-snug line-clamp-2 group-hover:text-orange-400 transition-colors"
+                                                    title={book.cleanTitle}
+                                                >
                                                     {book.cleanTitle}
                                                 </h3>
-                                                <p className="text-xs text-amber-200/75 truncate font-semibold" title={book.translator ? `${book.author} (Trans. ${book.translator})` : book.author}>
+                                                <p
+                                                    className="text-sm sm:text-base text-amber-200/90 truncate font-bold"
+                                                    title={book.translator ? `${book.author} (Trans. ${book.translator})` : book.author}
+                                                >
                                                     {book.author}
                                                 </p>
-                                                {book.translator && (
-                                                    <p className="text-[10px] text-zinc-400 truncate">
-                                                        Trans. {book.translator}
+                                                {book.inferredCollection && (
+                                                    <p className="text-xs text-purple-300/90 font-semibold truncate" title={`Series: ${book.inferredCollection}`}>
+                                                        {book.inferredCollection}{book.bookNumber ? ` • Book ${book.bookNumber}` : ''}
                                                     </p>
                                                 )}
                                             </div>
 
                                             {/* Metrics Footer Below Each Book: Listening Time & Year of Publication */}
-                                            <div className="pt-1.5 border-t border-amber-950/60 flex items-center justify-between gap-1.5 text-[11px] font-mono">
-                                                <span className="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-300 border border-amber-500/20 flex items-center gap-1 font-bold" title="Total Listening Duration">
-                                                    <Clock size={11} className="text-amber-400 shrink-0" />
+                                            <div className="pt-2.5 border-t border-amber-950/80 flex items-center justify-between gap-2 text-xs sm:text-sm font-mono">
+                                                <span className="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-200 border border-amber-500/30 flex items-center gap-1.5 font-bold" title="Total Listening Duration">
+                                                    <Clock size={14} className="text-amber-400 shrink-0" />
                                                     {formattedDur || `${book.chapters.length} ch`}
                                                 </span>
                                                 {book.releaseYear ? (
-                                                    <span className="px-2 py-0.5 rounded-md bg-zinc-900/90 text-amber-100/90 border border-amber-900/40 flex items-center gap-1 font-bold" title="Year of Publication">
-                                                        <Calendar size={11} className="text-orange-400 shrink-0" />
+                                                    <span className="px-2.5 py-1 rounded-lg bg-zinc-900 text-amber-100 border border-amber-800/50 flex items-center gap-1.5 font-bold" title="Year of Publication">
+                                                        <Calendar size={14} className="text-orange-400 shrink-0" />
                                                         {book.releaseYear}
                                                     </span>
                                                 ) : (
-                                                    <span className="px-2 py-0.5 rounded-md bg-zinc-900/60 text-zinc-400 border border-zinc-800/60 text-[10px] truncate max-w-[90px]">
+                                                    <span className="px-2.5 py-1 rounded-lg bg-zinc-900/80 text-zinc-300 border border-zinc-800 text-xs font-bold truncate max-w-[120px]">
                                                         {book.genre}
                                                     </span>
                                                 )}
@@ -5917,7 +6004,7 @@ function TheaterPageContent() {
                                     <div
                                         key={col.id}
                                         onClick={() => setSelectedCollectionModal(col)}
-                                        className="group relative flex flex-col pt-3 pr-3 cursor-pointer transition-all duration-300 hover:-translate-y-2"
+                                        className="group relative flex flex-col pt-3 pr-3 cursor-pointer transition-all duration-300 hover:-translate-y-2.5"
                                     >
                                         {/* Back Overlaid Book #3 (Stacked 3D Saga Depth Effect) */}
                                         <div className="absolute top-0 right-0 left-5 bottom-14 rounded-t-2xl rounded-b-md bg-[#1f132b] border-2 border-purple-400/40 shadow-xl transform rotate-3 translate-x-1.5 -translate-y-1 overflow-hidden pointer-events-none z-0 opacity-80 group-hover:rotate-6 group-hover:translate-x-2.5 transition-all duration-300">
@@ -5929,23 +6016,23 @@ function TheaterPageContent() {
                                             {cover2 && <img src={cover2} alt="" className="w-full h-full object-cover opacity-65" />}
                                         </div>
 
-                                        {/* Front Primary Collection Hardcover Card */}
-                                        <div className="relative z-20 flex flex-col bg-[#110c18] border-2 border-purple-500/65 group-hover:border-amber-400 rounded-t-2xl rounded-b-md overflow-hidden shadow-[8px_12px_28px_rgba(0,0,0,0.92)] flex-1">
-                                            {/*Distinct Collection Top Banner Ribbon */}
-                                            <div className="bg-gradient-to-r from-purple-600 via-fuchsia-600 to-amber-500 px-3 py-1.5 flex items-center justify-between gap-1.5 border-b border-white/20 shadow-md z-30">
-                                                <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-white flex items-center gap-1.5 truncate">
-                                                    <Layers size={12} className="shrink-0 fill-white/20" />
-                                                    COLLECTION
+                                        {/* Front Primary Collection Hardcover Box Set Card */}
+                                        <div className="relative z-20 flex flex-col bg-[#110c18] border-2 border-purple-500/75 group-hover:border-amber-400 rounded-l-md rounded-r-2xl border-r-[8px] border-r-[#dfd3be]/85 overflow-hidden shadow-[10px_14px_30px_rgba(0,0,0,0.95)] flex-1">
+                                            {/* Distinct Collection Top Banner Ribbon */}
+                                            <div className="bg-gradient-to-r from-purple-700 via-fuchsia-600 to-amber-500 px-3.5 py-2 flex items-center justify-between gap-2 border-b border-white/20 shadow-md z-30">
+                                                <span className="text-xs sm:text-sm font-black uppercase tracking-wider text-white flex items-center gap-1.5 truncate">
+                                                    <Layers size={15} className="shrink-0 fill-white/20" />
+                                                    SAGA SET
                                                 </span>
-                                                <span className="px-2 py-0.5 rounded-full bg-black/75 text-amber-300 text-[10px] font-black uppercase shrink-0">
+                                                <span className="px-2.5 py-0.5 rounded-full bg-black/80 text-amber-300 text-xs font-black uppercase shrink-0">
                                                     {col.books.length} {col.books.length === 1 ? 'Book' : 'Books'}
                                                 </span>
                                             </div>
 
                                             {/* Multi-Spine Left Crease Effect */}
-                                            <div className="absolute inset-y-0 left-0 w-3.5 bg-gradient-to-r from-purple-300/25 via-black/50 to-transparent z-20 pointer-events-none" />
+                                            <div className="absolute inset-y-0 left-0 w-4 bg-gradient-to-r from-purple-300/30 via-black/65 to-transparent z-20 pointer-events-none" />
 
-                                            <div className="relative aspect-[4/5] bg-zinc-900 overflow-hidden flex items-center justify-center border-b border-purple-900/60">
+                                            <div className="relative aspect-[3/4] bg-zinc-900 overflow-hidden flex items-center justify-center border-b-2 border-purple-900/60">
                                                 {cover1 ? (
                                                     <img
                                                         src={cover1}
@@ -5954,21 +6041,21 @@ function TheaterPageContent() {
                                                         loading="lazy"
                                                     />
                                                 ) : (
-                                                    <div className="flex flex-col items-center justify-center p-4 text-center bg-gradient-to-br from-[#2d163b] via-[#1c1026] to-[#0f0a14] w-full h-full gap-2">
-                                                        <Layers size={48} className="text-purple-400/70" />
-                                                        <span className="text-sm font-black text-white font-serif line-clamp-2">{col.name}</span>
-                                                        <span className="text-xs text-purple-200/70">{col.author}</span>
+                                                    <div className="flex flex-col items-center justify-center p-5 pl-7 text-center bg-gradient-to-br from-[#2d163b] via-[#1c1026] to-[#0f0a14] w-full h-full gap-3">
+                                                        <Layers size={52} className="text-purple-400/80" />
+                                                        <span className="text-lg sm:text-xl font-black text-white font-serif line-clamp-3">{col.name}</span>
+                                                        <span className="text-sm font-bold text-purple-200/85">{col.author}</span>
                                                     </div>
                                                 )}
 
                                                 {/* Overlaid Mini Book Covers Strip at Bottom of Collection Cover */}
-                                                <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/95 via-black/80 to-transparent z-20 flex items-center justify-between gap-1.5">
-                                                    <div className="flex items-center -space-x-2 overflow-hidden pl-1">
+                                                <div className="absolute inset-x-0 bottom-0 p-2.5 bg-gradient-to-t from-black/95 via-black/80 to-transparent z-20 flex items-center justify-between gap-2">
+                                                    <div className="flex items-center -space-x-2 overflow-hidden pl-2">
                                                         {col.books.slice(0, 5).map((b, idx) => (
                                                             <div
                                                                 key={b.bookKey}
-                                                                className="w-7 h-9 rounded-md border border-amber-300/60 bg-zinc-900 overflow-hidden shadow-md shrink-0 flex items-center justify-center text-[9px] font-black text-amber-300"
-                                                                title={`${b.bookNumber ? `#${b.bookNumber} ` : ''}${b.cleanTitle}`}
+                                                                className="w-8 h-11 rounded-md border border-amber-300/70 bg-zinc-900 overflow-hidden shadow-md shrink-0 flex items-center justify-center text-xs font-black text-amber-300"
+                                                                title={`${b.bookNumber ? `Book #${b.bookNumber}: ` : ''}${b.cleanTitle}`}
                                                             >
                                                                 {b.posterUrl ? (
                                                                     <img src={b.posterUrl} alt="" className="w-full h-full object-cover" />
@@ -5978,55 +6065,59 @@ function TheaterPageContent() {
                                                             </div>
                                                         ))}
                                                     </div>
-                                                    <span className="px-2 py-0.5 rounded-md bg-purple-500/30 border border-purple-400/40 text-purple-200 text-[10px] font-mono font-bold shrink-0">
+                                                    <span className="px-2.5 py-1 rounded-lg bg-purple-500/35 border border-purple-400/50 text-purple-100 text-xs font-mono font-bold shrink-0">
                                                         {col.books.map((b, i) => `#${b.bookNumber || i + 1}`).join(' • ')}
                                                     </span>
                                                 </div>
 
-                                                {/* Hover Action Overlay on Collection */}
-                                                <div className="absolute inset-0 bg-black/80 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-2 p-3 transition-all duration-300 z-30">
+                                                {/* Hover Action Overlay on Collection: Big Icon + Single Word + Tooltip */}
+                                                <div className="absolute inset-0 bg-black/85 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-3 p-4 transition-all duration-300 z-30">
                                                     <button
                                                         onClick={(e) => {
                                                             e.stopPropagation();
                                                             setSelectedCollectionModal(col);
                                                         }}
-                                                        className="w-full py-2 px-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-black font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-lg cursor-pointer"
+                                                        title={`Open "${col.name}" collection (${col.books.length} books)`}
+                                                        className="w-full py-3 px-4 rounded-2xl bg-amber-400 hover:bg-amber-300 text-black font-black text-base uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg cursor-pointer"
                                                     >
-                                                        <BookOpen size={14} /> Open Collection ({col.books.length})
+                                                        <BookOpen size={20} />
+                                                        <span>Open ({col.books.length})</span>
                                                     </button>
-                                                    <div className="flex items-center gap-1.5 w-full">
+                                                    <div className="flex items-center gap-2 w-full">
                                                         <button
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
                                                                 openCreateOrEditCollection(col);
                                                             }}
-                                                            className="flex-1 py-2 px-2.5 rounded-xl bg-purple-500/30 hover:bg-purple-500/50 text-purple-100 border border-purple-400/40 font-bold text-[11px] flex items-center justify-center gap-1 cursor-pointer"
+                                                            className="flex-1 py-2.5 px-3 rounded-xl bg-purple-500/35 hover:bg-purple-500/55 text-purple-100 border border-purple-400/50 font-black text-xs sm:text-sm uppercase flex items-center justify-center gap-1.5 cursor-pointer"
                                                             title="Edit books in this Collection"
                                                         >
-                                                            <Edit3 size={12} /> Edit
+                                                            <Edit3 size={16} />
+                                                            <span>Edit</span>
                                                         </button>
                                                         <button
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
                                                                 handleExplodeCollection(col);
                                                             }}
-                                                            className="flex-1 py-2 px-2.5 rounded-xl bg-red-500/25 hover:bg-red-500/45 text-red-200 border border-red-400/40 font-bold text-[11px] flex items-center justify-center gap-1 cursor-pointer"
-                                                            title="Explode Collection: ungroup and return books to individual books on the shelf"
+                                                            className="flex-1 py-2.5 px-3 rounded-xl bg-red-500/30 hover:bg-red-500/50 text-red-100 border border-red-400/50 font-black text-xs sm:text-sm uppercase flex items-center justify-center gap-1.5 cursor-pointer"
+                                                            title="Ungroup Collection and show individual books on the shelf"
                                                         >
-                                                            <Minimize2 size={12} /> Explode
+                                                            <Minimize2 size={16} />
+                                                            <span>Split</span>
                                                         </button>
                                                     </div>
                                                 </div>
                                             </div>
 
                                             {/* Collection Footer & Metrics Below */}
-                                            <div className="p-3 pl-3.5 bg-[#120c1c] space-y-2 flex-1 flex flex-col justify-between">
-                                                <div className="flex items-start justify-between gap-1.5">
-                                                    <div className="min-w-0">
-                                                        <h3 className="font-black text-white text-sm sm:text-base leading-snug line-clamp-1 group-hover:text-amber-300 transition-colors" title={col.name}>
+                                            <div className="p-4 pl-6 bg-[#120c1c] space-y-2.5 flex-1 flex flex-col justify-between">
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <div className="min-w-0 space-y-1">
+                                                        <h3 className="font-black text-white text-lg sm:text-xl leading-snug line-clamp-2 group-hover:text-amber-300 transition-colors" title={col.name}>
                                                             {col.name}
                                                         </h3>
-                                                        <p className="text-xs text-purple-200/75 truncate font-semibold">
+                                                        <p className="text-sm sm:text-base text-purple-200/90 truncate font-bold">
                                                             {col.author}
                                                         </p>
                                                     </div>
@@ -6035,26 +6126,27 @@ function TheaterPageContent() {
                                                             e.stopPropagation();
                                                             handleExplodeCollection(col);
                                                         }}
-                                                        className="px-2 py-1 rounded-lg bg-red-500/15 hover:bg-red-500/30 text-red-300 border border-red-500/30 text-[10px] font-black uppercase shrink-0 transition-all cursor-pointer"
-                                                        title="Explode Collection back into individual books on the shelf"
+                                                        className="px-2.5 py-1.5 rounded-xl bg-red-500/20 hover:bg-red-500/35 text-red-200 border border-red-500/40 text-xs font-black uppercase shrink-0 transition-all cursor-pointer flex items-center gap-1"
+                                                        title="Ungroup Collection back into individual books on the shelf"
                                                     >
-                                                        Ungroup
+                                                        <Minimize2 size={13} />
+                                                        <span>Split</span>
                                                     </button>
                                                 </div>
 
                                                 {/* Metrics Row Below Collection: Total Duration & Year Span */}
-                                                <div className="pt-1.5 border-t border-purple-900/50 flex items-center justify-between gap-1.5 text-[11px] font-mono">
-                                                    <span className="px-2 py-0.5 rounded-md bg-purple-500/15 text-purple-200 border border-purple-500/30 flex items-center gap-1 font-bold" title="Total Collection Listening Duration">
-                                                        <Clock size={11} className="text-purple-400 shrink-0" />
+                                                <div className="pt-2.5 border-t border-purple-900/60 flex items-center justify-between gap-2 text-xs sm:text-sm font-mono">
+                                                    <span className="px-2.5 py-1 rounded-lg bg-purple-500/20 text-purple-100 border border-purple-500/35 flex items-center gap-1.5 font-bold" title="Total Collection Listening Duration">
+                                                        <Clock size={14} className="text-purple-400 shrink-0" />
                                                         {formattedColDur || `${col.books.length} Books`}
                                                     </span>
                                                     {col.yearRange ? (
-                                                        <span className="px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-200 border border-amber-500/30 flex items-center gap-1 font-bold" title="Publication Years">
-                                                            <Calendar size={11} className="text-amber-400 shrink-0" />
+                                                        <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-100 border border-amber-500/35 flex items-center gap-1.5 font-bold" title="Publication Years">
+                                                            <Calendar size={14} className="text-amber-400 shrink-0" />
                                                             {col.yearRange}
                                                         </span>
                                                     ) : (
-                                                        <span className="px-2 py-0.5 rounded-md bg-zinc-900 text-zinc-400 text-[10px] font-bold">
+                                                        <span className="px-2.5 py-1 rounded-lg bg-zinc-900 text-zinc-300 text-xs font-bold">
                                                             Saga
                                                         </span>
                                                     )}
@@ -6069,41 +6161,45 @@ function TheaterPageContent() {
                             const renderBedsideTableSection = (showEmptyState = false) => {
                                 if (audiobookShelfData.bedsideBooks.length === 0 && !showEmptyState) return null;
                                 return (
-                                    <div className="p-5 sm:p-6 rounded-[2.25rem] bg-gradient-to-br from-[#23170e] via-[#17100a] to-[#110c08] border-2 border-amber-500/40 shadow-2xl space-y-4">
-                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-amber-800/35 pb-3.5">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-10 h-10 rounded-2xl bg-amber-400/20 border border-amber-400/40 flex items-center justify-center text-amber-300 shrink-0">
-                                                    <Bookmark size={20} className="fill-amber-300/30" />
+                                    <div className="p-6 sm:p-7 rounded-[2.25rem] bg-gradient-to-br from-[#23170e] via-[#17100a] to-[#110c08] border-2 border-amber-500/45 shadow-2xl space-y-5">
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-amber-800/40 pb-4">
+                                            <div className="flex items-center gap-3.5">
+                                                <div className="w-12 h-12 rounded-2xl bg-amber-400/20 border border-amber-400/40 flex items-center justify-center text-amber-300 shrink-0">
+                                                    <Bookmark size={24} className="fill-amber-300/30" />
                                                 </div>
                                                 <div>
-                                                    <div className="flex items-center gap-2">
-                                                        <h4 className="text-base sm:text-lg font-black text-amber-50">
+                                                    <div className="flex items-center gap-2.5">
+                                                        <h4 className="text-lg sm:text-xl font-black text-amber-50">
                                                             My Bedside Table
                                                         </h4>
-                                                        <span className="px-2.5 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/30 text-xs font-black">
+                                                        <span className="px-3 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/35 text-xs sm:text-sm font-black">
                                                             {audiobookShelfData.bedsideBooks.length} {audiobookShelfData.bedsideBooks.length === 1 ? 'Book' : 'Books'}
                                                         </span>
                                                     </div>
-                                                    <p className="text-xs text-amber-200/70">
-                                                        Books you&apos;ve started listening to or placed by your bedside for quick access.
+                                                    <p className="text-sm text-amber-200/80">
+                                                        Books you&apos;ve started listening to or placed by your bedside for instant playback.
                                                     </p>
                                                 </div>
                                             </div>
                                         </div>
 
                                         {audiobookShelfData.bedsideBooks.length === 0 ? (
-                                            <div className="py-10 text-center space-y-2">
-                                                <Bookmark size={32} className="mx-auto text-amber-500/40" />
-                                                <p className="text-sm font-bold text-amber-100">Your Bedside Table is empty</p>
-                                                <p className="text-xs text-amber-200/60 max-w-md mx-auto">
-                                                    Start playing any audiobook or click the Bookmark icon on any book cover to place it on your Bedside Table.
+                                            <div className="py-12 text-center space-y-2.5">
+                                                <Bookmark size={40} className="mx-auto text-amber-500/40" />
+                                                <p className="text-base sm:text-lg font-bold text-amber-100">Your Bedside Table is empty</p>
+                                                <p className="text-sm text-amber-200/70 max-w-md mx-auto">
+                                                    Start playing any audiobook or click the Bedside button on any book cover to keep it right here.
                                                 </p>
                                             </div>
                                         ) : (
-                                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
                                                 {audiobookShelfData.bedsideBooks.map(book => {
                                                     const bMeta = audiobooksStudioMap[book.bookKey];
-                                                    const customCoverActive = Boolean(bMeta?.use_custom_cover && bMeta?.custom_cover_url);
+                                                    const customCoverActive = Boolean(
+                                                        bMeta?.use_custom_cover &&
+                                                        bMeta?.custom_cover_url &&
+                                                        !bMeta.custom_cover_url.toLowerCase().includes('.svg')
+                                                    );
                                                     const effectiveCoverUrl = customCoverActive ? bMeta.custom_cover_url : book.posterUrl;
                                                     const formattedDur = formatBookDuration(book.totalDurationMs);
 
@@ -6111,32 +6207,31 @@ function TheaterPageContent() {
                                                         <div
                                                             key={book.bookKey}
                                                             onClick={() => openAudiobookModal(book, false)}
-                                                            className="group p-3.5 rounded-2xl bg-black/55 hover:bg-black/75 border border-amber-700/35 hover:border-amber-400/60 flex items-center gap-4 transition-all cursor-pointer shadow-lg"
+                                                            className="group p-4 rounded-2xl bg-black/60 hover:bg-black/80 border-2 border-amber-700/40 hover:border-amber-400/70 flex items-center gap-4 transition-all cursor-pointer shadow-xl"
                                                         >
-                                                            <div className="w-20 h-24 rounded-xl bg-zinc-900 border border-amber-800/50 overflow-hidden shrink-0 relative flex items-center justify-center">
+                                                            <div className="w-24 h-32 rounded-l-sm rounded-r-xl border-r-4 border-r-[#dfd3be]/80 bg-zinc-900 border border-amber-800/60 overflow-hidden shrink-0 relative flex items-center justify-center shadow-lg">
                                                                 {effectiveCoverUrl ? (
                                                                     <img src={effectiveCoverUrl} alt={book.cleanTitle} className="w-full h-full object-cover" />
                                                                 ) : (
-                                                                    <BookOpen size={28} className="text-amber-400/50" />
+                                                                    <BookOpen size={36} className="text-amber-400/60" />
                                                                 )}
                                                             </div>
-                                                            <div className="flex-1 min-w-0 space-y-1.5">
-                                                                <div className="flex items-center gap-1.5 flex-wrap">
-                                                                    <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-black uppercase">
+                                                            <div className="flex-1 min-w-0 space-y-2">
+                                                                <div className="flex items-center gap-2 flex-wrap">
+                                                                    <span className="px-2.5 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/35 text-xs font-black uppercase">
                                                                         Ongoing
                                                                     </span>
-                                                                    {book.genre && (
-                                                                        <span className="text-[10px] text-zinc-400 font-semibold truncate">
-                                                                            {book.genre}
+                                                                    {formattedDur && (
+                                                                        <span className="text-xs font-mono font-bold text-amber-200/75">
+                                                                            {formattedDur}
                                                                         </span>
                                                                     )}
                                                                 </div>
-                                                                <h5 className="text-sm sm:text-base font-black text-white truncate group-hover:text-amber-300 transition-colors">
+                                                                <h5 className="text-base sm:text-lg font-black text-white line-clamp-2 group-hover:text-amber-300 transition-colors" title={book.cleanTitle}>
                                                                     {book.cleanTitle}
                                                                 </h5>
-                                                                <p className="text-xs font-semibold text-amber-200/80 truncate">
+                                                                <p className="text-sm font-bold text-amber-200/85 truncate">
                                                                     {book.author}
-                                                                    {book.translator ? ` (Trans. ${book.translator})` : ''}
                                                                 </p>
                                                                 <div className="flex items-center gap-2 pt-1 flex-wrap">
                                                                     <button
@@ -6147,35 +6242,34 @@ function TheaterPageContent() {
                                                                                 openExpandedPlayer();
                                                                             }
                                                                         }}
-                                                                        className="px-3 py-1.5 rounded-xl bg-orange-500 hover:bg-orange-400 text-black font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow cursor-pointer"
+                                                                        title="Resume listening in the Picturebook Player"
+                                                                        className="px-3.5 py-2 rounded-xl bg-orange-500 hover:bg-orange-400 text-black font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-1.5 shadow cursor-pointer"
                                                                     >
-                                                                        <Play size={12} className="fill-black" /> Resume
+                                                                        <Play size={15} className="fill-black" />
+                                                                        <span>Play</span>
                                                                     </button>
                                                                     <button
                                                                         onClick={(e) => {
                                                                             e.stopPropagation();
                                                                             handleUpdateBookReadingState(book, { onBedsideTable: false, readingStatus: 'unstarted' });
                                                                         }}
-                                                                        className="px-2.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 text-[11px] font-bold cursor-pointer"
+                                                                        className="px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-700 text-xs sm:text-sm font-bold flex items-center gap-1.5 cursor-pointer"
                                                                         title="Return this book to the Library Shelf"
                                                                     >
-                                                                        Back to Shelf
+                                                                        <Layers size={14} />
+                                                                        <span>Shelf</span>
                                                                     </button>
                                                                     <button
                                                                         onClick={(e) => {
                                                                             e.stopPropagation();
                                                                             handleUpdateBookReadingState(book, { readingStatus: 'finished', onBedsideTable: false });
                                                                         }}
-                                                                        className="px-2.5 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                                                                        className="px-3 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs sm:text-sm font-bold flex items-center gap-1.5 cursor-pointer"
                                                                         title="Mark book as Finished"
                                                                     >
-                                                                        <Check size={12} /> Finished
+                                                                        <Check size={15} />
+                                                                        <span>Done</span>
                                                                     </button>
-                                                                    {formattedDur && (
-                                                                        <span className="text-[11px] font-mono text-zinc-400 ml-auto">
-                                                                            {formattedDur}
-                                                                        </span>
-                                                                    )}
                                                                 </div>
                                                             </div>
                                                         </div>
@@ -6187,19 +6281,19 @@ function TheaterPageContent() {
                                 );
                             };
 
-                            // Helper to render a Wooden Bookshelf Cabinet for a list of shelfEntries
+                            // Helper to render a Wooden Bookshelf Cabinet for a list of shelfEntries (4 Large Hardcover Books per Row)
                             const renderWoodenShelfRows = (entries: typeof audiobookShelfData.shelfEntries) => (
-                                <div className="rounded-[2.25rem] bg-gradient-to-b from-[#17100b] via-[#110c08] to-[#17100b] border-2 border-[#3b2514] shadow-[inset_0_10px_40px_rgba(0,0,0,0.85),0_20px_50px_rgba(0,0,0,0.8)] p-5 sm:p-8 space-y-10">
+                                <div className="rounded-[2.25rem] bg-gradient-to-b from-[#17100b] via-[#110c08] to-[#17100b] border-2 border-[#3b2514] shadow-[inset_0_10px_40px_rgba(0,0,0,0.85),0_20px_50px_rgba(0,0,0,0.8)] p-6 sm:p-9 space-y-12">
                                     {entries.length === 0 ? (
-                                        <div className="py-12 text-center text-sm text-amber-200/60">
+                                        <div className="py-12 text-center text-base font-bold text-amber-200/70">
                                             No books match the selected filter.
                                         </div>
                                     ) : (
-                                        Array.from({ length: Math.ceil(entries.length / 6) }).map((_, shelfRowIdx) => {
-                                            const rowEntries = entries.slice(shelfRowIdx * 6, (shelfRowIdx + 1) * 6);
+                                        Array.from({ length: Math.ceil(entries.length / 4) }).map((_, shelfRowIdx) => {
+                                            const rowEntries = entries.slice(shelfRowIdx * 4, (shelfRowIdx + 1) * 4);
                                             return (
                                                 <div key={shelfRowIdx} className="relative">
-                                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5 sm:gap-6 px-2 pb-3 items-end">
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-7 sm:gap-8 px-2 pb-3 items-end">
                                                         {rowEntries.map(entry =>
                                                             entry.type === 'collection'
                                                                 ? renderShelfCollectionCard(entry)
@@ -6207,7 +6301,7 @@ function TheaterPageContent() {
                                                         )}
                                                     </div>
                                                     {/* 3D Wooden Bookshelf Plank Ledge Under Every Row */}
-                                                    <div className="h-4 w-full rounded-xl bg-gradient-to-b from-[#4a2e18] via-[#341f0f] to-[#1e1108] border-t border-amber-400/25 border-b-2 border-black shadow-[0_14px_24px_rgba(0,0,0,0.9)]" />
+                                                    <div className="h-5 w-full rounded-xl bg-gradient-to-b from-[#52331b] via-[#382110] to-[#1e1108] border-t-2 border-amber-400/30 border-b-2 border-black shadow-[0_16px_28px_rgba(0,0,0,0.95)]" />
                                                 </div>
                                             );
                                         })

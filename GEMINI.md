@@ -1,0 +1,5 @@
+# Accessibility & Visual Design Rules (MANDATORY)
+- **Vision & Readability**: The user has poor eyesight. ALWAYS use **LARGER IMAGES, LARGER FONTS, LARGER NAMES/TITLES, AND LARGER BUTTONS** across all UI views, cards, modals, and navigation (at least ~125%+ larger than standard compact UIs).
+- **No Tiny Text or Cramped Cards**: Never use microscopic text (`text-[9px]`, `text-[10px]`) for meaningful information, and never truncate book/media names into unreadable fragments when a multi-line or larger layout can show them clearly.
+- **Icon-First Buttons with Single-Word Labels & Hover Tooltips**: For UI buttons and controls, always prefer **big, clear icons/symbols paired with at most a single word** (or icon-only where appropriate) to save UI space and keep controls large and legible. Always attach a descriptive `title="..."` attribute so hovering over any button shows its full clear explanation.
+- **Authentic Visuals Only**: Never generate or substitute fake SVG placeholders when real story/content-specific generated raster artwork (illustrating exact characters, events, and locations) is expected.

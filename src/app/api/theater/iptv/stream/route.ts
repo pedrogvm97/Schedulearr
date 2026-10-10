@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { spawn } from 'child_process';
 import axios from 'axios';
-import { getFFmpegPath } from '@/lib/transcoder';
+import { createSharedRemuxWebStream } from '@/lib/iptvStreamHub';
+import { logSystemEvent } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,22 +9,33 @@ export async function GET(req: NextRequest) {
     try {
         const { searchParams } = new URL(req.url);
         const streamUrl = searchParams.get('url');
+        const channelName = searchParams.get('channel') || 'Live TV';
+        const isDownload = searchParams.get('download') === '1' || searchParams.get('download') === 'true';
+        const formatParam = (searchParams.get('format') || 'mp4').toLowerCase();
+        const format: 'mp4' | 'mp3' = formatParam === 'mp3' ? 'mp3' : 'mp4';
+        const rawFilename = searchParams.get('filename') || `${channelName}.${format}`;
+        const safeFilename = rawFilename
+            .replace(/\.ts$/i, `.${format}`)
+            .replace(/[/\\?%*:|"<>]/g, '-')
+            .trim();
 
         if (!streamUrl || (!streamUrl.startsWith('http://') && !streamUrl.startsWith('https://'))) {
             return new NextResponse('Invalid stream URL', { status: 400 });
         }
 
-        const isDirectHls = streamUrl.toLowerCase().includes('.m3u8');
-        const ffmpegBin = getFFmpegPath();
+        const isDirectHls = streamUrl.toLowerCase().includes('.m3u8') && !isDownload;
         const maskedUrl = streamUrl.replace(/password=[^&]+/i, 'password=***');
-        console.log(`[${new Date().toISOString()}] 📺 [IPTV-STREAM] Starting live stream playback -> ${maskedUrl}`);
+        logSystemEvent(
+            'IPTV-STREAM',
+            `${isDownload ? `Recording/Downloading (${format.toUpperCase()}) to Local Device Downloads` : 'Streaming Live TV (Shared Hub MP4)'}: "${channelName}" -> ${maskedUrl}`
+        );
 
-        // 1. If requesting an HLS Playlist (.m3u8), proxy & rewrite segment URLs to avoid Mixed Content & CORS
+        // 1. If requesting an HLS Playlist (.m3u8) for live viewing (not downloading), proxy & rewrite segment URLs
         if (isDirectHls) {
             try {
                 const hlsRes = await axios.get(streamUrl, {
                     timeout: 10000,
-                    headers: { 'User-Agent': 'VLC/3.0.18 LibVLC/3.0.18 Schedulearr/0.6.2' },
+                    headers: { 'User-Agent': 'VLC/3.0.20 LibVLC/3.0.20' },
                     responseType: 'text',
                     validateStatus: () => true
                 });
@@ -51,103 +62,29 @@ export async function GET(req: NextRequest) {
                         }
                     });
                 }
-            } catch (hlsErr) {
-                // If direct HLS fetch failed, fall through to FFmpeg transmuxer
+            } catch {
+                // Fall through to shared upstream hub remuxer
             }
         }
 
-        // 2. High-Performance Universal Live Transmuxer (Low-Latency Fast Start + Video Copy to Fragmented MP4)
-        const directProxy = searchParams.get('direct') === 'true';
+        // 2. Shared Upstream Hub Remuxer (Fragmented MP4 or MP3 — shares 1 IPTV connection across player + recorder!)
+        const webStream = createSharedRemuxWebStream(streamUrl, channelName, format, req.signal);
+        const headers: Record<string, string> = {
+            'Content-Type': format === 'mp3' ? 'audio/mpeg' : 'video/mp4',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Range',
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache'
+        };
 
-        if (!directProxy) {
-            try {
-                const ffmpegArgs = [
-                    '-hide_banner',
-                    '-loglevel', 'error',
-                    '-fflags', '+nobuffer+flush_packets+genpts',
-                    '-flags', 'low_delay',
-                    '-probesize', '500000',
-                    '-analyzeduration', '700000',
-                    '-reconnect', '1',
-                    '-reconnect_at_eof', '1',
-                    '-reconnect_streamed', '1',
-                    '-reconnect_delay_max', '5',
-                    '-user_agent', 'VLC/3.0.18 LibVLC/3.0.18 Schedulearr/0.6.2',
-                    '-i', streamUrl,
-                    '-c:v', 'copy',
-                    '-c:a', 'aac',
-                    '-b:a', '192k',
-                    '-f', 'mp4',
-                    '-movflags', 'frag_keyframe+empty_moov+default_base_moof+faststart',
-                    'pipe:1'
-                ];
-
-                const ffmpeg = spawn(ffmpegBin, ffmpegArgs);
-
-                let isClosed = false;
-                const safeEnqueue = (chunk: any, controller: any) => {
-                    if (isClosed) return;
-                    try { controller.enqueue(chunk); } catch { isClosed = true; }
-                };
-                const safeClose = (controller: any) => {
-                    if (isClosed) return;
-                    isClosed = true;
-                    try { controller.close(); } catch {}
-                };
-                const safeError = (err: any, controller: any) => {
-                    if (isClosed) return;
-                    isClosed = true;
-                    try { controller.error(err); } catch {}
-                };
-
-                req.signal.addEventListener('abort', () => {
-                    isClosed = true;
-                    try { ffmpeg.kill('SIGKILL'); } catch {}
-                });
-
-                const webStream = new ReadableStream({
-                    start(controller) {
-                        ffmpeg.stdout.on('data', (chunk) => safeEnqueue(chunk, controller));
-                        ffmpeg.stdout.on('end', () => safeClose(controller));
-                        ffmpeg.stdout.on('error', (err) => safeError(err, controller));
-                        ffmpeg.on('error', (err) => safeError(err, controller));
-                    },
-                    cancel() {
-                        isClosed = true;
-                        try { ffmpeg.kill('SIGKILL'); } catch {}
-                    }
-                });
-
-                return new Response(webStream as any, {
-                    status: 200,
-                    headers: {
-                        'Content-Type': 'video/mp4',
-                        'Access-Control-Allow-Origin': '*',
-                        'Access-Control-Allow-Methods': 'GET, OPTIONS',
-                        'Access-Control-Allow-Headers': 'Content-Type, Range',
-                        'Cache-Control': 'no-cache, no-store, must-revalidate',
-                        'Pragma': 'no-cache'
-                    }
-                });
-            } catch (spawnErr) {
-                // Fall through to direct pipe proxy
-            }
+        if (isDownload) {
+            headers['Content-Disposition'] = `attachment; filename="${safeFilename}"`;
         }
 
-        // 3. Fallback: Direct Pipe Proxy with CORS headers
-        const pipeRes = await axios.get(streamUrl, {
-            responseType: 'stream',
-            timeout: 25000,
-            headers: { 'User-Agent': 'VLC/3.0.18 LibVLC/3.0.18' }
-        });
-
-        return new Response(pipeRes.data as any, {
+        return new Response(webStream as any, {
             status: 200,
-            headers: {
-                'Content-Type': pipeRes.headers['content-type'] || 'video/mp2t',
-                'Access-Control-Allow-Origin': '*',
-                'Cache-Control': 'no-cache'
-            }
+            headers
         });
     } catch (e: any) {
         console.error('[IPTV STREAM PROXY] Error:', e.message);

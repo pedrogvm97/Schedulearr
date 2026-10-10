@@ -1630,61 +1630,27 @@ function DiscoverPageContent() {
         <>
             <Toaster position="top-right" theme="dark" richColors />
             <div className="space-y-6 pb-20">
-                {/* ── Main Top Bar ── */}
-                <div className="bg-[#09090b]/80 border border-zinc-800/80 backdrop-blur-2xl p-4 sm:p-5 rounded-[2.5rem] shadow-2xl space-y-3.5">
-                    {/* Row 1: Page Title + Media Type Tabs (Left) | Libraries & Folders + Refresh (Right) */}
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="flex items-center gap-3 min-w-0 max-w-full">
-                            <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight shrink-0 mr-1">
+                {/* ── Main Top Bar (Non-Overlapping Multi-Row Layout for 125% Scale) ── */}
+                <div className="bg-[#09090b]/90 border border-zinc-800/80 backdrop-blur-2xl p-5 sm:p-6 rounded-[2.5rem] shadow-2xl space-y-4">
+                    {/* Row 1: Page Title (Left) | Libraries & Folders + Refresh (Right) */}
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                            <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
                                 Media
                             </h1>
-
-                            {/* Media Type Toggle: Movies | Series | Music | Audiobooks | Live TV & DVR */}
-                            <div className="flex items-center bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner overflow-x-auto flex-nowrap gap-1 max-w-full">
-                                <button 
-                                    onClick={() => setMediaType('movie')} 
-                                    className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap shrink-0 cursor-pointer ${mediaType === 'movie' ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                >
-                                    <Film size={15} /> Movies
-                                </button>
-                                <button 
-                                    onClick={() => setMediaType('series')} 
-                                    className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap shrink-0 cursor-pointer ${mediaType === 'series' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                >
-                                    <Tv size={15} /> Series
-                                </button>
-                                <button 
-                                    onClick={() => {
-                                        setMediaType('music');
-                                        if (musicResults.length === 0) handleMusicSearch('');
-                                    }} 
-                                    className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap shrink-0 cursor-pointer ${mediaType === 'music' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                >
-                                    <Disc size={15} /> Music
-                                </button>
-                                <button 
-                                    onClick={() => setMediaType('audiobooks')} 
-                                    className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap shrink-0 cursor-pointer ${mediaType === 'audiobooks' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/40 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                >
-                                    <BookOpen size={15} /> Audiobooks
-                                </button>
-                                <button 
-                                    onClick={() => setMediaType('iptv_dvr')} 
-                                    className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap shrink-0 cursor-pointer ${mediaType === 'iptv_dvr' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                >
-                                    <Tv size={15} /> Live TV &amp; DVR
-                                </button>
-                            </div>
+                            <span className="hidden sm:inline-block text-xs font-bold text-zinc-500 border-l border-zinc-800 pl-3">
+                                Unified Library, Discovery &amp; DVR Control
+                            </span>
                         </div>
 
                         {/* Universal Library & Cache Actions */}
-                        <div className="flex items-center gap-2.5 shrink-0 ml-auto">
+                        <div className="flex items-center gap-2.5 shrink-0">
                             <button
                                 onClick={() => setIsManageLibrariesOpen(true)}
-                                className="flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black rounded-2xl border transition-all shrink-0 whitespace-nowrap bg-zinc-950 text-zinc-300 border-zinc-800 hover:text-white hover:border-zinc-700 hover:bg-zinc-900 shadow-sm cursor-pointer"
+                                className="flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black rounded-2xl border transition-all shrink-0 whitespace-nowrap bg-zinc-950 text-zinc-200 border-zinc-800 hover:text-white hover:border-emerald-500/40 hover:bg-zinc-900 shadow-sm cursor-pointer"
                                 title="Manage Media Libraries & Folders"
                             >
-                                <FolderPlus size={16} className="text-emerald-400" />
+                                <FolderPlus size={16} className="text-emerald-400 shrink-0" />
                                 <span>Libraries &amp; Folders</span>
                             </button>
 
@@ -1700,34 +1666,71 @@ function DiscoverPageContent() {
                         </div>
                     </div>
 
-                    {/* Row 2: Status Filter (Left) + Search & Filters (Right) */}
+                    {/* Row 2: Dedicated Media Type Navigation Strip */}
+                    <div className="flex flex-wrap items-center bg-zinc-950/90 p-2 rounded-2xl border border-zinc-800/80 shadow-inner gap-2">
+                        <button
+                            onClick={() => setMediaType('movie')}
+                            className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap cursor-pointer ${mediaType === 'movie' ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'}`}
+                        >
+                            <Film size={15} className="shrink-0" /> Movies
+                        </button>
+                        <button
+                            onClick={() => setMediaType('series')}
+                            className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap cursor-pointer ${mediaType === 'series' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'}`}
+                        >
+                            <Tv size={15} className="shrink-0" /> Series
+                        </button>
+                        <button
+                            onClick={() => {
+                                setMediaType('music');
+                                if (musicResults.length === 0) handleMusicSearch('');
+                            }}
+                            className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap cursor-pointer ${mediaType === 'music' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'}`}
+                        >
+                            <Disc size={15} className="shrink-0" /> Music
+                        </button>
+                        <button
+                            onClick={() => setMediaType('audiobooks')}
+                            className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap cursor-pointer ${mediaType === 'audiobooks' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/40 shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'}`}
+                        >
+                            <BookOpen size={15} className="shrink-0" /> Audiobooks
+                        </button>
+                        <button
+                            onClick={() => setMediaType('iptv_dvr')}
+                            className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap cursor-pointer ${mediaType === 'iptv_dvr' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40 shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'}`}
+                        >
+                            <Tv size={15} className="shrink-0" /> Live TV &amp; DVR
+                        </button>
+                    </div>
+
+                    {/* Row 3: Status Filter (Left) + Search & Filters (Right) */}
                     {mediaType !== 'iptv_dvr' && mediaType !== 'audiobooks' && (
-                        <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-zinc-900/70">
+                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pt-3 border-t border-zinc-900/70">
                             {/* Status Filter: All | In Library | Not in Library */}
-                            <div className="flex items-center bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner overflow-x-auto flex-nowrap gap-1 max-w-full shrink-0">
-                                <button 
-                                    onClick={() => setStatusFilter('all')} 
-                                    className={`px-3.5 py-2 text-xs font-black rounded-xl transition-all whitespace-nowrap shrink-0 cursor-pointer ${statusFilter === 'all' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                            <div className="flex flex-wrap items-center bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner gap-1.5 self-start">
+                                <button
+                                    onClick={() => setStatusFilter('all')}
+                                    className={`px-3.5 py-2 text-xs font-black rounded-xl transition-all whitespace-nowrap cursor-pointer ${statusFilter === 'all' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
                                 >
                                     All ({mediaType === 'music' ? musicResults.length : unifiedPool.length})
                                 </button>
-                                <button 
-                                    onClick={() => setStatusFilter('in_library')} 
-                                    className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-black rounded-xl transition-all whitespace-nowrap shrink-0 cursor-pointer ${statusFilter === 'in_library' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                <button
+                                    onClick={() => setStatusFilter('in_library')}
+                                    className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-black rounded-xl transition-all whitespace-nowrap cursor-pointer ${statusFilter === 'in_library' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
                                 >
-                                    <CheckCircle size={13} className="text-emerald-500" /> In Library
+                                    <CheckCircle size={13} className="text-emerald-500 shrink-0" /> In Library
                                 </button>
-                                <button 
-                                    onClick={() => setStatusFilter('not_in_library')} 
-                                    className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-black rounded-xl transition-all whitespace-nowrap shrink-0 cursor-pointer ${statusFilter === 'not_in_library' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                <button
+                                    onClick={() => setStatusFilter('not_in_library')}
+                                    className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-black rounded-xl transition-all whitespace-nowrap cursor-pointer ${statusFilter === 'not_in_library' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
                                 >
-                                    <Sparkles size={13} className="text-amber-500" /> Not in Library
+                                    <Sparkles size={13} className="text-amber-500 shrink-0" /> Not in Library
                                 </button>
                             </div>
 
                             {/* Search + Filters Toggle */}
-                            <div className="flex items-center gap-2.5 flex-1 sm:flex-initial justify-end min-w-[260px] max-w-full sm:w-auto">
-                                <div className="relative flex-1 sm:w-80 md:w-96">
+                            <div className="flex items-center gap-2.5 w-full lg:w-auto lg:flex-1 lg:max-w-xl justify-end">
+                                <div className="relative flex-1">
                                     <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
                                     <input
                                         type="text"
@@ -1755,7 +1758,7 @@ function DiscoverPageContent() {
                                             : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-zinc-200'
                                     }`}
                                 >
-                                    <Filter size={14} />
+                                    <Filter size={14} className="shrink-0" />
                                     <span>Filters</span>
                                 </button>
                             </div>

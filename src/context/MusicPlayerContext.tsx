@@ -765,7 +765,8 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         if (!playingAudio) return;
         const bKey = audiobookBookMeta?.book_key || playingAudio.bookKey || `${playingAudio.artist || 'Unknown Author'} - ${playingAudio.album || playingAudio.folder || playingAudio.title}`.toLowerCase().trim();
         const cKey = audiobookChapterMeta?.chapter_key || playingAudio.chapterKey || playingAudio.id;
-        setIsRunningChapterStudioTask(taskType);
+        const targetPreset = voiceOverride || selectedVoicePreset || 'warm_storyteller';
+        setIsRunningChapterStudioTask(taskType === 'enhance' ? `enhance:${targetPreset}` : taskType);
         try {
             const res = await fetch('/api/theater/audiobooks/studio', {
                 method: 'POST',
@@ -782,7 +783,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                     chapterIndex: playingAudio.trackNumber || 1,
                     filePath: playingAudio.path,
                     durationSec: Math.round((playingAudio.durationMs ? playingAudio.durationMs / 1000 : audioDuration) || 300),
-                    voicePreset: voiceOverride || selectedVoicePreset
+                    voicePreset: targetPreset
                 })
             });
             const data = await res.json();
@@ -804,13 +805,25 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                         source: 'audiobook-studio'
                     });
                 }
-                toast.success(
-                    taskType === 'transcribe'
-                        ? 'Synced chapter transcription ready!'
-                        : taskType === 'illustrate'
-                        ? `Painted scene illustration for "${playingAudio.title}"!`
-                        : 'Enhanced audio ready!'
-                );
+                if (taskType === 'enhance') {
+                    const generatedPath = data.chapter.processed_voices?.[targetPreset] || data.chapter.enhanced_audio_path;
+                    if (generatedPath && audioRef.current) {
+                        const curTime = audioRef.current.currentTime;
+                        const wasPlaying = !audioRef.current.paused;
+                        setSelectedVoicePreset(targetPreset);
+                        audioRef.current.src = `/api/theater/audiobooks/art?audio=${encodeURIComponent(generatedPath)}`;
+                        setUseEnhancedAudioStream(true);
+                        audioRef.current.currentTime = curTime;
+                        if (wasPlaying) audioRef.current.play().catch(() => {});
+                    }
+                    toast.success(`Generated & switched to voice: ${targetPreset.replace(/_/g, ' ')}!`);
+                } else {
+                    toast.success(
+                        taskType === 'transcribe'
+                            ? 'Synced chapter transcription ready!'
+                            : `Painted scene illustration for "${playingAudio.title}"!`
+                    );
+                }
             } else {
                 toast.error(data.error || 'Task failed');
             }
@@ -936,23 +949,50 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         }
     };
 
-    const handleSwitchProcessedVoice = (presetKey: string) => {
-        setSelectedVoicePreset(presetKey);
-        handleUpdateInPlayerBookSettings({ voicePreset: presetKey });
+    const handleSwitchProcessedVoice = (presetKey: string, mode: 'file' | 'live' = 'file') => {
         if (!audioRef.current || !playingAudio) return;
         const curTime = audioRef.current.currentTime;
         const wasPlaying = !audioRef.current.paused;
-        const enhancedPath = audiobookChapterMeta?.processed_voices?.[presetKey] || (presetKey === audiobookChapterMeta?.voice_preset ? audiobookChapterMeta?.enhanced_audio_path : null);
-        if (presetKey !== 'original' && enhancedPath) {
-            audioRef.current.src = `/api/theater/audiobooks/art?audio=${encodeURIComponent(enhancedPath)}`;
-            setUseEnhancedAudioStream(true);
-        } else {
+
+        if (presetKey === 'original') {
+            setSelectedVoicePreset('original');
+            handleUpdateInPlayerBookSettings({ voicePreset: 'original' });
             audioRef.current.src = `/api/theater/stream?path=${encodeURIComponent(playingAudio.path)}`;
             setUseEnhancedAudioStream(false);
+            audioRef.current.currentTime = curTime;
+            if (wasPlaying) audioRef.current.play().catch(() => {});
+            toast.success('Switched to Original Narrator Voice');
+            return;
         }
-        audioRef.current.currentTime = curTime;
-        if (wasPlaying) audioRef.current.play().catch(() => {});
-        toast.success(`Switched voice to: ${presetKey.replace(/_/g, ' ')}`);
+
+        const enhancedPath =
+            audiobookChapterMeta?.processed_voices?.[presetKey] ||
+            (presetKey === audiobookChapterMeta?.voice_preset ? audiobookChapterMeta?.enhanced_audio_path : null);
+
+        if (enhancedPath && mode === 'file') {
+            setSelectedVoicePreset(presetKey);
+            handleUpdateInPlayerBookSettings({ voicePreset: presetKey });
+            audioRef.current.src = `/api/theater/audiobooks/art?audio=${encodeURIComponent(enhancedPath)}`;
+            setUseEnhancedAudioStream(true);
+            audioRef.current.currentTime = curTime;
+            if (wasPlaying) audioRef.current.play().catch(() => {});
+            toast.success(`Switched to generated voice file: ${presetKey.replace(/_/g, ' ')}`);
+            return;
+        }
+
+        if (mode === 'live') {
+            setSelectedVoicePreset(presetKey);
+            handleUpdateInPlayerBookSettings({ voicePreset: presetKey });
+            audioRef.current.src = `/api/theater/stream?path=${encodeURIComponent(playingAudio.path)}&transcode=audio&voicePreset=${encodeURIComponent(presetKey)}&ss=${Math.floor(curTime)}`;
+            setUseEnhancedAudioStream(true);
+            if (wasPlaying) audioRef.current.play().catch(() => {});
+            toast.success(`Streaming live FFmpeg voice transformation: ${presetKey.replace(/_/g, ' ')}`);
+            return;
+        }
+
+        // Honest guard: if file has not been generated yet, do not pretend to switch!
+        toast.info(`Generating "${presetKey.replace(/_/g, ' ')}" voice file for this chapter now...`);
+        handleRunInPlayerChapterTask('enhance', presetKey);
     };
 
     // In-Player Playlist States & Handlers
@@ -3751,63 +3791,136 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                VOICE OPTIONS POPOVER DRAWER (ACCESSIBLE FROM PLAYER BAR)
                ══════════════════════════════════════════════════════════════ */}
             {showVoiceMenuPopup && playingAudio && (
-                <div className="fixed bottom-36 sm:bottom-24 right-3 sm:right-24 w-full max-w-sm z-[290] bg-zinc-950/98 border border-zinc-800 rounded-3xl p-5 shadow-2xl space-y-3.5 animate-in slide-in-from-bottom-5 duration-200">
+                <div className="fixed bottom-36 sm:bottom-24 right-3 sm:right-24 w-full max-w-md z-[290] bg-zinc-950/98 border border-zinc-800 rounded-3xl p-5 shadow-2xl space-y-3.5 animate-in slide-in-from-bottom-5 duration-200">
                     <div className="flex items-center justify-between pb-2.5 border-b border-zinc-900">
-                        <span className="text-sm font-black uppercase text-emerald-400 tracking-wider flex items-center gap-2">
-                            <Mic2 size={16} /> Voice &amp; Clarity Options
-                        </span>
+                        <div>
+                            <span className="text-base font-black uppercase text-emerald-400 tracking-wider flex items-center gap-2">
+                                <Mic2 size={18} /> Narrator Voice Picker
+                            </span>
+                            <p className="text-xs text-zinc-400 mt-0.5">
+                                Switch between generated voice files or generate a new voice for this chapter
+                            </p>
+                        </div>
                         <button
                             onClick={() => setShowVoiceMenuPopup(false)}
-                            className="p-1 text-zinc-500 hover:text-white cursor-pointer"
+                            className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white cursor-pointer"
+                            title="Close Voice Picker"
                         >
-                            <X size={16} />
+                            <X size={18} />
                         </button>
                     </div>
 
-                    <div className="space-y-1.5">
+                    <div className="space-y-2 max-h-[52vh] overflow-y-auto custom-scrollbar pr-1">
                         {[
-                            { id: 'original', label: 'Original Narrator', desc: 'Unmodified voice timbre' },
-                            { id: 'deep_narrator', label: 'Deep Resonant Narrator', desc: 'Warmer baritone timbre (-8% pitch)' },
-                            { id: 'warm_storyteller', label: 'Warm Fireside Storyteller', desc: 'Rich chest resonance (-4% pitch)' },
-                            { id: 'crisp_clear', label: 'Crisp Articulation', desc: 'Boosted vocal clarity & presence' },
-                            { id: 'soft_velvet', label: 'Soft Velvet Reader', desc: 'Gentle smooth timbre (+5% pitch)' },
+                            { id: 'original', label: 'Original Narrator', desc: 'Untouched original chapter recording' },
+                            { id: 'deep_narrator', label: 'Deep Resonant Baritone', desc: 'Deeper baritone timbre (-10% pitch + chest EQ)' },
+                            { id: 'warm_storyteller', label: 'Warm Fireside Storyteller', desc: 'Rich warm resonance (-5% pitch + 210Hz warmth)' },
+                            { id: 'crisp_clear', label: 'Crisp Studio Articulation', desc: 'Bright vocal clarity (+3% pitch + 3.4kHz presence)' },
+                            { id: 'soft_velvet', label: 'Soft Velvet Reader', desc: 'Gentle intimate timbre (+5% pitch + smooth high-cut)' },
+                            { id: 'late_night_radio', label: 'Late-Night FM Radio', desc: 'Broadcast baritone (-7% pitch + studio compressor)' },
                         ].map(preset => {
+                            const isOriginal = preset.id === 'original';
+                            const generatedPath = isOriginal
+                                ? playingAudio.path
+                                : (audiobookChapterMeta?.processed_voices?.[preset.id] ||
+                                   (audiobookChapterMeta?.voice_preset === preset.id ? audiobookChapterMeta?.enhanced_audio_path : null));
+                            const isGenerated = Boolean(isOriginal || generatedPath);
                             const isActive = selectedVoicePreset === preset.id;
+                            const isGeneratingThis = isRunningChapterStudioTask === `enhance:${preset.id}`;
+
                             return (
-                                <button
+                                <div
                                     key={preset.id}
-                                    type="button"
-                                    onClick={() => {
-                                        handleSwitchProcessedVoice(preset.id);
-                                    }}
-                                    className={`w-full p-3 rounded-2xl border text-left transition-all flex items-center justify-between cursor-pointer ${
+                                    className={`w-full p-3.5 rounded-2xl border text-left transition-all flex items-center justify-between gap-3 ${
                                         isActive
                                             ? 'bg-emerald-500/15 border-emerald-500/50 text-white'
-                                            : 'bg-zinc-900/60 border-zinc-800/80 text-zinc-300 hover:border-zinc-700'
+                                            : isGenerated
+                                            ? 'bg-zinc-900/70 border-zinc-800 text-zinc-200 hover:border-emerald-500/40'
+                                            : 'bg-zinc-950/80 border-zinc-900 text-zinc-400'
                                     }`}
                                 >
-                                    <div>
-                                        <div className="text-sm font-bold text-white">{preset.label}</div>
-                                        <div className="text-xs text-zinc-400">{preset.desc}</div>
+                                    <div
+                                        onClick={() => {
+                                            if (isGenerated) {
+                                                handleSwitchProcessedVoice(preset.id, 'file');
+                                            }
+                                        }}
+                                        className={`min-w-0 flex-1 ${isGenerated ? 'cursor-pointer' : 'cursor-default'}`}
+                                    >
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <span className="text-base font-black text-white">{preset.label}</span>
+                                            {isOriginal ? (
+                                                <span className="px-2 py-0.5 rounded-lg bg-zinc-800 text-zinc-300 text-[11px] font-bold">
+                                                    Original File
+                                                </span>
+                                            ) : isGenerated ? (
+                                                <span className="px-2 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-black">
+                                                    ✓ File Ready
+                                                </span>
+                                            ) : (
+                                                <span className="px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[11px] font-bold">
+                                                    Not Generated Yet
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="text-xs text-zinc-400 mt-0.5">{preset.desc}</div>
                                     </div>
-                                    {isActive && <Check size={16} className="text-emerald-400 shrink-0" />}
-                                </button>
+
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                        {isGenerated ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => handleSwitchProcessedVoice(preset.id, 'file')}
+                                                className={`px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer transition-all ${
+                                                    isActive
+                                                        ? 'bg-emerald-500 text-black shadow-md'
+                                                        : 'bg-zinc-800 hover:bg-emerald-500 hover:text-black text-emerald-300'
+                                                }`}
+                                                title={isActive ? 'Currently active voice' : `Switch playback to ${preset.label}`}
+                                            >
+                                                {isActive ? <Check size={15} /> : <Play size={14} />}
+                                                <span>{isActive ? 'Active' : 'Use'}</span>
+                                            </button>
+                                        ) : (
+                                            <>
+                                                <button
+                                                    type="button"
+                                                    disabled={Boolean(isRunningChapterStudioTask)}
+                                                    onClick={() => handleRunInPlayerChapterTask('enhance', preset.id)}
+                                                    className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-md"
+                                                    title={`Generate permanent .m4a voice file for "${preset.label}"`}
+                                                >
+                                                    <RefreshCw size={14} className={isGeneratingThis ? 'animate-spin' : ''} />
+                                                    <span>{isGeneratingThis ? 'Generating...' : 'Generate'}</span>
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleSwitchProcessedVoice(preset.id, 'live')}
+                                                    className={`px-3 py-2 rounded-xl border text-xs font-black uppercase tracking-wider flex items-center gap-1 cursor-pointer ${
+                                                        isActive
+                                                            ? 'bg-emerald-500 text-black border-emerald-400'
+                                                            : 'bg-zinc-900 hover:bg-zinc-800 text-emerald-300 border-emerald-500/30'
+                                                    }`}
+                                                    title={`Stream "${preset.label}" live on-the-fly via FFmpeg right now without waiting for file generation`}
+                                                >
+                                                    <Volume2 size={14} />
+                                                    <span>Live</span>
+                                                </button>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
                             );
                         })}
                     </div>
 
-                    <div className="pt-2 border-t border-zinc-900 flex items-center justify-between gap-2">
-                        <span className="text-xs text-zinc-400">
-                             Playback Speed: <strong className="text-white">{playbackSpeed}x</strong>
+                    <div className="pt-2.5 border-t border-zinc-900 flex items-center justify-between gap-2 text-xs text-zinc-400">
+                        <span>
+                            Playback Speed: <strong className="text-white">{playbackSpeed}x</strong>
                         </span>
-                        <button
-                            type="button"
-                            onClick={() => handleRunInPlayerChapterTask('enhance', selectedVoicePreset)}
-                            disabled={isRunningChapterStudioTask === 'enhance'}
-                            className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-black uppercase tracking-wider cursor-pointer disabled:opacity-50"
-                        >
-                            {isRunningChapterStudioTask === 'enhance' ? 'Processing...' : 'Process Chapter Voice'}
-                        </button>
+                        <span className="text-emerald-400 font-semibold">
+                            Active: {selectedVoicePreset.replace(/_/g, ' ')}
+                        </span>
                     </div>
                 </div>
             )}

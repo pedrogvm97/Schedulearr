@@ -1,14 +1,44 @@
 import fs from 'fs';
 import path from 'path';
-import { spawn, ChildProcess } from 'child_process';
-import { getDvrRecordings, updateDvrRecordingStatus, DvrRecording } from '@/lib/db';
-import { getFFmpegPath } from '@/lib/transcoder';
+import { getDvrRecordings, updateDvrRecordingStatus, DvrRecording, logSystemEvent } from '@/lib/db';
+import { startResilientHubRecording, RecordingOutputFormat } from '@/lib/iptvStreamHub';
+import { discoverPlexMediaFolderHierarchy, isPathInsidePlexMediaFolder } from '@/app/api/theater/folders/route';
+import { ensureUnraidPathPermissions } from '@/lib/docker';
 
-// Global map tracking active ffmpeg recording processes
-const activeRecorders = new Map<string, ChildProcess>();
+// Global map tracking active recording stop handles
+const activeRecorders = new Map<string, { stop: () => void }>();
 
 function sanitizeFilename(name: string): string {
     return name.replace(/[/\\?%*:|"<>]/g, '-').replace(/\s+/g, ' ').trim();
+}
+
+function normalizeFormat(fmt?: string, filePath?: string): RecordingOutputFormat {
+    const lowerFmt = (fmt || '').toLowerCase().trim();
+    if (lowerFmt === 'mkv' || lowerFmt === 'mp3' || lowerFmt === 'mp4') {
+        return lowerFmt;
+    }
+    const ext = filePath ? path.extname(filePath).replace('.', '').toLowerCase() : '';
+    if (ext === 'mkv' || ext === 'mp3' || ext === 'mp4') {
+        return ext;
+    }
+    return 'mp4';
+}
+
+export async function resolveValidPlexRecordingFolder(requestedFolder?: string): Promise<string | null> {
+    const { plexMediaRoot, libraries, allowedRoots } = await discoverPlexMediaFolderHierarchy();
+
+    if (requestedFolder && isPathInsidePlexMediaFolder(requestedFolder, allowedRoots)) {
+        return requestedFolder;
+    }
+
+    // Never allow /app/recordings or anything outside the Plex Media Folder
+    if (libraries.length > 0 && libraries[0].rootPath) {
+        return libraries[0].rootPath;
+    }
+    if (plexMediaRoot) {
+        return plexMediaRoot;
+    }
+    return null;
 }
 
 export function startRecordingProcess(recording: DvrRecording): boolean {
@@ -16,82 +46,94 @@ export function startRecordingProcess(recording: DvrRecording): boolean {
         return true; // Already running
     }
 
-    try {
-        if (!recording.stream_url) {
-            updateDvrRecordingStatus(recording.id, 'failed', undefined, 0, 'No stream URL provided for recording');
-            return false;
-        }
-
-        const now = Date.now();
-        const endMs = new Date(recording.end_time).getTime();
-        const durationSec = Math.max(60, Math.round((endMs - now) / 1000));
-
-        // Ensure target folder exists
-        const destFolder = recording.destination_path || path.join(process.cwd(), 'recordings');
-        if (!fs.existsSync(destFolder)) {
-            fs.mkdirSync(destFolder, { recursive: true });
-        }
-
-        let targetFile: string = recording.file_path || '';
-        if (!targetFile) {
-            const safeTitle = sanitizeFilename(recording.program_title);
-            const dateStr = new Date(recording.start_time).toISOString().replace(/[:.]/g, '-').slice(0, 16);
-            const fileName = `${safeTitle} - ${sanitizeFilename(recording.channel_name)} (${dateStr}).ts`;
-            targetFile = path.join(destFolder, fileName);
-        }
-
-        updateDvrRecordingStatus(recording.id, 'recording', targetFile);
-
-        const ffmpegBin = getFFmpegPath() || 'ffmpeg';
-        const ffmpegArgs: string[] = [
-            '-y',
-            '-hide_banner',
-            '-loglevel', 'error',
-            '-headers', 'User-Agent: VLC/3.0.18 LibVLC/3.0.18\r\n',
-            '-i', recording.stream_url,
-            '-t', durationSec.toString(),
-            '-c', 'copy',
-            targetFile
-        ];
-
-        const child = spawn(ffmpegBin, ffmpegArgs, { detached: true, stdio: 'ignore' }) as ChildProcess;
-        activeRecorders.set(recording.id, child);
-
-        child.on('exit', (code: number | null) => {
-            activeRecorders.delete(recording.id);
-            let finalSize = 0;
-            try {
-                if (targetFile && fs.existsSync(targetFile)) {
-                    finalSize = fs.statSync(targetFile).size;
-                }
-            } catch {}
-
-            if (code === 0 && finalSize > 1024) {
-                updateDvrRecordingStatus(recording.id, 'completed', targetFile, finalSize);
-            } else {
-                updateDvrRecordingStatus(recording.id, 'failed', targetFile, finalSize, `FFmpeg exited with code ${code}`);
-            }
-        });
-
-        child.on('error', (err: Error) => {
-            activeRecorders.delete(recording.id);
-            updateDvrRecordingStatus(recording.id, 'failed', targetFile, 0, err.message);
-        });
-
-        child.unref();
-        return true;
-    } catch (err: any) {
-        console.error(`Failed to launch DVR recorder for ${recording.program_title}:`, err.message);
-        updateDvrRecordingStatus(recording.id, 'failed', undefined, 0, err.message);
+    if (!recording.stream_url) {
+        updateDvrRecordingStatus(recording.id, 'failed', undefined, 0, 'No stream URL provided for recording');
         return false;
     }
+
+    void (async () => {
+        try {
+            const validDestFolder = await resolveValidPlexRecordingFolder(recording.destination_path);
+            if (!validDestFolder) {
+                const msg = 'Recording blocked: No valid Plex Media Folder found on Unraid. Recordings are strictly restricted to folders inside your Plex Media Folder or your Local Device Downloads folder.';
+                logSystemEvent('DVR', msg, 'error');
+                updateDvrRecordingStatus(recording.id, 'failed', undefined, 0, msg);
+                return;
+            }
+
+            if (!fs.existsSync(validDestFolder)) {
+                fs.mkdirSync(validDestFolder, { recursive: true, mode: 0o777 });
+                await ensureUnraidPathPermissions(validDestFolder).catch(() => {});
+            }
+
+            const format = normalizeFormat(recording.format, recording.file_path);
+            const now = Date.now();
+            const endMs = new Date(recording.end_time).getTime();
+            const durationSec = Math.max(60, Math.round((endMs - now) / 1000));
+
+            const safeTitle = sanitizeFilename(recording.program_title || 'Live Recording');
+            const safeChan = sanitizeFilename(recording.channel_name || 'TV');
+            const dateStr = new Date(recording.start_time || now).toISOString().replace(/[:.]/g, '-').slice(0, 16);
+
+            let targetFile = recording.file_path || '';
+            // Ensure targetFile is inside validDestFolder and NEVER has a .ts extension
+            if (!targetFile || targetFile.endsWith('.ts') || !targetFile.startsWith(validDestFolder)) {
+                const fileName = `${safeTitle} - ${safeChan} (${dateStr}).${format}`;
+                targetFile = path.join(validDestFolder, fileName);
+            }
+
+            updateDvrRecordingStatus(recording.id, 'recording', targetFile);
+            logSystemEvent(
+                'DVR',
+                `Started freeze-resilient ${format.toUpperCase()} recording for "${recording.program_title}" (${recording.channel_name}) -> ${targetFile}`
+            );
+
+            const handle = startResilientHubRecording({
+                recordingId: recording.id,
+                channelName: recording.channel_name,
+                title: recording.program_title,
+                streamUrl: recording.stream_url!,
+                outputPath: targetFile,
+                format,
+                durationSec,
+                onProgress: (sizeBytes) => {
+                    updateDvrRecordingStatus(recording.id, 'recording', targetFile, sizeBytes);
+                },
+                onComplete: (finalSize, finalPath) => {
+                    activeRecorders.delete(recording.id);
+                    if (finalSize > 1024) {
+                        updateDvrRecordingStatus(recording.id, 'completed', finalPath, finalSize);
+                        logSystemEvent(
+                            'DVR',
+                            `Completed ${format.toUpperCase()} recording "${recording.program_title}" (${(finalSize / (1024 * 1024)).toFixed(1)} MB) -> ${finalPath}`
+                        );
+                    } else {
+                        updateDvrRecordingStatus(recording.id, 'failed', finalPath, finalSize, 'Recording ended with empty output file');
+                    }
+                },
+                onError: (errMsg) => {
+                    activeRecorders.delete(recording.id);
+                    logSystemEvent('DVR', `Recording failed for "${recording.program_title}": ${errMsg}`, 'error');
+                    updateDvrRecordingStatus(recording.id, 'failed', targetFile, 0, errMsg);
+                }
+            });
+
+            activeRecorders.set(recording.id, handle);
+        } catch (err: any) {
+            activeRecorders.delete(recording.id);
+            console.error(`Failed to launch DVR recorder for ${recording.program_title}:`, err.message);
+            updateDvrRecordingStatus(recording.id, 'failed', undefined, 0, err.message);
+        }
+    })();
+
+    return true;
 }
 
 export function cancelRecordingProcess(id: string): boolean {
-    const proc = activeRecorders.get(id);
-    if (proc) {
+    const handle = activeRecorders.get(id);
+    if (handle) {
         try {
-            proc.kill('SIGTERM');
+            handle.stop();
         } catch {}
         activeRecorders.delete(id);
     }

@@ -14,12 +14,20 @@ const primaryNavItems = [
     {
         href: '/theater',
         label: 'Theater',
-        icon: (active: boolean) => <Play size={active ? 20 : 18} className={active ? 'text-purple-400' : 'text-zinc-400'} />
+        title: 'Open Theater Mode (Movies, Shows, Audiobooks, Music & Live TV)',
+        icon: (active: boolean) => <Play size={active ? 22 : 20} className={active ? 'text-purple-400' : 'text-zinc-400'} />
     },
     {
         href: '/discover',
         label: 'Media',
-        icon: (active: boolean) => <Film size={active ? 20 : 18} className={active ? 'text-emerald-400' : 'text-zinc-400'} />
+        title: 'Manage Media Libraries, Audiobook Studio, Live TV & DVR',
+        icon: (active: boolean) => <Film size={active ? 22 : 20} className={active ? 'text-emerald-400' : 'text-zinc-400'} />
+    },
+    {
+        href: '/tasks',
+        label: 'Tasks',
+        title: 'View all Ongoing, Queued, Completed & Upcoming Server Tasks',
+        icon: (active: boolean) => <Activity size={active ? 22 : 20} className={active ? 'text-amber-400' : 'text-zinc-400'} />
     }
 ];
 
@@ -27,22 +35,26 @@ const secondaryNavItems = [
     {
         href: '/',
         label: 'Schedule',
-        icon: (active: boolean) => <Calendar size={active ? 20 : 18} className={active ? 'text-emerald-400' : 'text-zinc-400'} />
+        title: 'Search Scheduler & Automated Housekeeping',
+        icon: (active: boolean) => <Calendar size={active ? 22 : 20} className={active ? 'text-emerald-400' : 'text-zinc-400'} />
     },
     {
         href: '/downloads',
         label: 'Transfers',
-        icon: (active: boolean) => <Download size={active ? 20 : 18} className={active ? 'text-sky-400' : 'text-zinc-400'} />
+        title: 'Active Torrent & Audio Transfers',
+        icon: (active: boolean) => <Download size={active ? 22 : 20} className={active ? 'text-sky-400' : 'text-zinc-400'} />
     },
     {
         href: '/analytics',
         label: 'Analytics',
-        icon: (active: boolean) => <BarChart3 size={active ? 20 : 18} className={active ? 'text-indigo-400' : 'text-zinc-400'} />
+        title: 'Network & Playback Telemetry',
+        icon: (active: boolean) => <BarChart3 size={active ? 22 : 20} className={active ? 'text-indigo-400' : 'text-zinc-400'} />
     },
     {
         href: '/settings',
         label: 'Settings',
-        icon: (active: boolean) => <Settings size={active ? 20 : 18} className={active ? 'text-zinc-200' : 'text-zinc-400'} />
+        title: 'System & Instance Configuration',
+        icon: (active: boolean) => <Settings size={active ? 22 : 20} className={active ? 'text-zinc-200' : 'text-zinc-400'} />
     }
 ];
 
@@ -51,29 +63,33 @@ const mobileCoreNavItems = [
     {
         href: '/theater',
         label: 'Theater',
-        icon: (active: boolean) => <Play size={20} className={active ? 'text-purple-400' : 'text-zinc-400'} />
+        title: 'Open Theater Mode',
+        icon: (active: boolean) => <Play size={22} className={active ? 'text-purple-400' : 'text-zinc-400'} />
     },
     {
         href: '/discover',
         label: 'Media',
-        icon: (active: boolean) => <Film size={20} className={active ? 'text-emerald-400' : 'text-zinc-400'} />
+        title: 'Manage Media Libraries',
+        icon: (active: boolean) => <Film size={22} className={active ? 'text-emerald-400' : 'text-zinc-400'} />
     },
     {
-        href: '/',
-        label: 'Schedule',
-        icon: (active: boolean) => <Calendar size={20} className={active ? 'text-emerald-400' : 'text-zinc-400'} />
+        href: '/tasks',
+        label: 'Tasks',
+        title: 'Server Tasks & Queues',
+        icon: (active: boolean) => <Activity size={22} className={active ? 'text-amber-400' : 'text-zinc-400'} />
     },
     {
         href: '/downloads',
         label: 'Transfers',
-        icon: (active: boolean) => <Download size={20} className={active ? 'text-sky-400' : 'text-zinc-400'} />
+        title: 'Active Transfers',
+        icon: (active: boolean) => <Download size={22} className={active ? 'text-sky-400' : 'text-zinc-400'} />
     }
 ];
 
 export function Navigation() {
     const pathname = usePathname();
     const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
-    const [appVersion, setAppVersion] = useState('0.6.2');
+    const [appVersion, setAppVersion] = useState('0.6.10');
     const [activeMusicCount, setActiveMusicCount] = useState(0);
     const [ongoingTasks, setOngoingTasks] = useState<Array<{
         id: string;
@@ -117,65 +133,73 @@ export function Navigation() {
 
     const allNavItems = [...primaryNavItems, ...secondaryNavItems];
 
-    const isMoreTabActive = ['/profiles', '/analytics', '/settings', '/tv'].includes(pathname);
+    const isMoreTabActive = ['/profiles', '/analytics', '/settings', '/tv', '/'].includes(pathname);
     const hasOngoingActivity = Boolean(playingAudio || ongoingTasks.length > 0);
+    const totalTasksCount = ongoingTasks.length + (playingAudio ? 1 : 0);
 
     return (
         <>
             {/* ── Top Mobile App Header (<640px) ── */}
-            <header className="sm:hidden sticky top-0 z-50 w-full bg-zinc-950/85 backdrop-blur-2xl border-b border-white/5 px-4 h-14 flex items-center justify-between shadow-lg">
+            <header className="sm:hidden sticky top-0 z-50 w-full bg-zinc-950/85 backdrop-blur-2xl border-b border-white/5 px-4 h-16 flex items-center justify-between shadow-lg">
                 <Link href="/" className="flex items-center gap-2.5 active:scale-95 transition-transform">
-                    <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-500/20 via-teal-500/10 to-zinc-900 p-1 border border-emerald-500/30 flex items-center justify-center shadow-[0_0_12px_rgba(16,185,129,0.25)]">
+                    <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-500/20 via-teal-500/10 to-zinc-900 p-1 border border-emerald-500/30 flex items-center justify-center shadow-[0_0_12px_rgba(16,185,129,0.25)]">
                         <img src="/icon.png" alt="Schedulearr" className="w-full h-full object-contain" />
                     </div>
-                    <div className="flex items-center gap-1.5">
-                        <span className="font-black text-base text-white tracking-tight">Schedulearr</span>
-                        <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-zinc-800 text-emerald-400 border border-emerald-500/30">v{appVersion}</span>
+                    <div className="flex items-center gap-2">
+                        <span className="font-black text-lg text-white tracking-tight">Schedulearr</span>
+                        <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-zinc-800 text-emerald-400 border border-emerald-500/30">v{appVersion}</span>
                     </div>
                 </Link>
 
                 <div className="flex items-center gap-2">
                     <button
                         onClick={() => setIsMobileMoreOpen(true)}
-                        className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white active:scale-95 transition-all"
+                        title="Open Navigation Menu"
+                        className="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white active:scale-95 transition-all"
                         aria-label="Open Navigation Menu"
                     >
-                        <Menu size={18} />
+                        <Menu size={20} />
                     </button>
                 </div>
             </header>
 
             {/* ── Desktop & Tablet Top Nav (≥640px) ── */}
             <nav className="hidden sm:block border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur-2xl sticky top-0 z-50 w-full max-w-full">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
-                    <Link href="/" className="flex items-center gap-3 group flex-shrink-0">
-                        <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500/20 via-teal-500/10 to-zinc-900 p-1.5 border border-emerald-500/30 transition-transform group-hover:scale-105 shadow-[0_0_15px_rgba(16,185,129,0.15)] flex items-center justify-center">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 h-20 flex items-center justify-between gap-4">
+                    <Link href="/" className="flex items-center gap-3.5 group flex-shrink-0" title="Schedulearr Home">
+                        <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-emerald-500/20 via-teal-500/10 to-zinc-900 p-1.5 border border-emerald-500/30 transition-transform group-hover:scale-105 shadow-[0_0_15px_rgba(16,185,129,0.15)] flex items-center justify-center">
                             <img src="/icon.png" alt="Schedulearr Logo" className="w-full h-full object-contain" />
                         </div>
-                        <div className="flex items-center gap-2">
-                            <span className="font-black text-lg text-white tracking-tight">Schedulearr</span>
-                            <span className="text-[10px] font-mono font-black px-1.5 py-0.5 rounded bg-zinc-800 text-emerald-400 border border-emerald-500/30">v{appVersion}</span>
+                        <div className="flex items-center gap-2.5">
+                            <span className="font-black text-xl text-white tracking-tight">Schedulearr</span>
+                            <span className="text-xs font-mono font-black px-2 py-0.5 rounded-lg bg-zinc-800 text-emerald-400 border border-emerald-500/30">v{appVersion}</span>
                         </div>
                     </Link>
 
                     {/* Clean Wrapped Desktop Items */}
-                    <div className="flex items-center gap-1 sm:gap-1.5 flex-wrap justify-end">
+                    <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-end">
                         {allNavItems.map(item => {
                             const active = pathname === item.href;
                             return (
                                 <Link 
                                     key={item.href} 
-                                    href={item.href} 
-                                    className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all ${
+                                    href={item.href}
+                                    title={item.title}
+                                    className={`flex items-center gap-2.5 px-4 py-2.5 text-sm font-black rounded-xl transition-all ${
                                         active 
                                             ? 'text-white bg-zinc-900 border border-zinc-700/60 shadow-lg shadow-black/40' 
-                                            : 'text-zinc-400 hover:text-white hover:bg-zinc-900/50 border border-transparent'
+                                            : 'text-zinc-300 hover:text-white hover:bg-zinc-900/50 border border-transparent'
                                     }`}
                                 >
                                     <span>{item.icon(active)}</span>
                                     <span className="tracking-tight">{item.label}</span>
+                                    {item.href === '/tasks' && totalTasksCount > 0 && (
+                                        <span className="min-w-[22px] h-[22px] px-1.5 rounded-full bg-amber-500 text-black text-xs font-black flex items-center justify-center animate-pulse">
+                                            {totalTasksCount}
+                                        </span>
+                                    )}
                                     {item.href === '/downloads' && activeMusicCount > 0 && (
-                                        <span className="w-4 h-4 rounded-full bg-amber-500 text-black text-[9px] font-black flex items-center justify-center animate-pulse">
+                                        <span className="min-w-[22px] h-[22px] px-1.5 rounded-full bg-sky-400 text-black text-xs font-black flex items-center justify-center animate-pulse">
                                             {activeMusicCount}
                                         </span>
                                     )}
@@ -188,42 +212,49 @@ export function Navigation() {
 
             {/* ── Global "Ongoing" Summary Banner (Active Playback, EPG Sync, Audiobook Studio, DVR & Housekeeping) ── */}
             {hasOngoingActivity && (
-                <div className="w-full bg-gradient-to-r from-zinc-950 via-[#101418] to-zinc-950 border-b border-emerald-500/20 px-4 py-1.5 z-40">
+                <div className="w-full bg-gradient-to-r from-zinc-950 via-[#101418] to-zinc-950 border-b border-emerald-500/20 px-4 py-2 z-40">
                     <div className="max-w-7xl mx-auto flex items-center justify-between gap-3 overflow-x-auto no-scrollbar scrollbar-none">
-                        <div className="flex items-center gap-2 shrink-0">
-                            <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-                                Ongoing
+                        <Link
+                            href="/tasks"
+                            title="Open Server Tasks & Pipelines Dashboard"
+                            className="flex items-center gap-2 shrink-0 hover:opacity-90 transition-opacity"
+                        >
+                            <span className="px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-xs font-black uppercase tracking-wider flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                                Ongoing ({totalTasksCount})
                             </span>
-                        </div>
+                        </Link>
 
-                        <div className="flex items-center gap-2.5 flex-1 min-w-0 overflow-x-auto no-scrollbar scrollbar-none">
+                        <div className="flex items-center gap-3 flex-1 min-w-0 overflow-x-auto no-scrollbar scrollbar-none">
                             {playingAudio && (
                                 <button
                                     onClick={() => openExpandedPlayer()}
-                                    className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-[11px] text-amber-200 flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors"
+                                    title="Click to open full Audiobook / Music Player"
+                                    className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-xs text-amber-200 flex items-center gap-2 shrink-0 cursor-pointer transition-colors"
                                 >
-                                    <Play size={11} className={isAudioPlaying ? 'text-amber-400 fill-amber-400 animate-pulse' : 'text-zinc-400'} />
+                                    <Play size={14} className={isAudioPlaying ? 'text-amber-400 fill-amber-400 animate-pulse' : 'text-zinc-400'} />
                                     <span className="font-black">{playingAudio.isAudiobook ? 'Reading:' : 'Playing:'}</span>
-                                    <span className="truncate max-w-[180px] font-semibold">{playingAudio.title}</span>
+                                    <span className="truncate max-w-[220px] font-bold">{playingAudio.title}</span>
                                 </button>
                             )}
 
                             {ongoingTasks.map(task => (
-                                <div
+                                <Link
                                     key={task.id}
-                                    className="px-2.5 py-1 rounded-lg bg-zinc-900/90 border border-zinc-800 text-[11px] text-zinc-200 flex items-center gap-1.5 shrink-0"
+                                    href="/tasks"
+                                    title={`${task.title}: ${task.detail} — Click to open Tasks dashboard`}
+                                    className="px-3 py-1.5 rounded-xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-xs text-zinc-200 flex items-center gap-2 shrink-0 transition-colors"
                                 >
                                     {task.category === 'epg' ? (
-                                        <Radio size={11} className="text-amber-400 animate-spin" />
+                                        <Radio size={14} className="text-amber-400 animate-spin" />
                                     ) : task.category === 'audiobook' ? (
-                                        <BookOpen size={11} className="text-orange-400 animate-pulse" />
+                                        <BookOpen size={14} className="text-orange-400 animate-pulse" />
                                     ) : (
-                                        <Activity size={11} className="text-emerald-400 animate-pulse" />
+                                        <Activity size={14} className="text-emerald-400 animate-pulse" />
                                     )}
-                                    <span className="font-bold text-white">{task.title}:</span>
-                                    <span className="text-zinc-400 truncate max-w-[220px]">{task.detail}</span>
-                                </div>
+                                    <span className="font-black text-white">{task.title}:</span>
+                                    <span className="text-zinc-300 truncate max-w-[260px]">{task.detail}</span>
+                                </Link>
                             ))}
                         </div>
                     </div>
