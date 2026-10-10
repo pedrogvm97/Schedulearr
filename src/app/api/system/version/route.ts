@@ -8,6 +8,7 @@ import { initAutoUpdater } from '@/lib/autoUpdater';
 export const dynamic = 'force-dynamic';
 
 const FALLBACK_GIT_NOTES = [
+  '• [v0.6.5] Audiobook Shelf Authors vs Books switcher, Author bookshelves with Listening Time & Year of Publication metrics, alphabetical clean sorting, auto-grouped 3D overlaid Collections with AI matcher & Explode/Create actions, and Uniform Book File Renamer with custom templates & Original/Optimized Audio version tags',
   '• [v0.6.4] Fix audiobook auto-sync & scene art fallback, mini-player book cover, Smart TV cast LAN IP/transcode, Bookshelf UI with per-book & shelf settings, unified AI key auto-detector & Dynamic Prompt',
   '• [v0.6.3] Fix vinyl spinner 1:1 circular geometry on tall/desktop screens, fix Plex & untagged audiobook grouping ("Unknown Album") & streaming, and surface full Git commit patch notes in System & Updates',
   '  - Fixed Spinning Disk, Turntable Platter, and Minimalist Vinyl aspect-ratio distortion so records always spin as true circles',
@@ -36,7 +37,7 @@ export async function GET() {
 
   try {
     // 1. Get current version from package.json or system fallback
-    let currentVersion = '0.6.4';
+    let currentVersion = '0.6.5';
     const possiblePaths = [
       path.join(process.cwd(), 'package.json'),
       path.join(process.cwd(), '..', 'package.json'),

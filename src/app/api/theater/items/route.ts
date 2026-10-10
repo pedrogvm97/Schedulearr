@@ -487,6 +487,9 @@ export async function GET(req: Request) {
                             const rawThumb = item.thumb || item.parentThumb || item.grandparentThumb || '';
                             const thumb = rawThumb && !rawThumb.endsWith('/-1') && rawThumb !== '-1' ? rawThumb : '';
                             const posterUrl = thumb ? `/api/proxy?url=${encodeURIComponent(`${plexUrl}${thumb}?X-Plex-Token=${plex.api_key}`)}` : undefined;
+                            const rawAuthorThumb = item.grandparentThumb && !item.grandparentThumb.endsWith('/-1') && item.grandparentThumb !== '-1' ? item.grandparentThumb : '';
+                            const authorThumb = rawAuthorThumb ? `/api/proxy?url=${encodeURIComponent(`${plexUrl}${rawAuthorThumb}?X-Plex-Token=${plex.api_key}`)}` : undefined;
+                            const releaseYear = item.parentYear || item.year ? String(item.parentYear || item.year) : undefined;
 
                             let mediaCategory: 'video' | 'audio' | 'photo' = 'video';
                             if (lib.type === 'music' || isAudiobooksLib || item.type === 'artist' || item.type === 'track' || item.type === 'album') mediaCategory = 'audio';
@@ -548,6 +551,8 @@ export async function GET(req: Request) {
                                 album: finalAlbum,
                                 trackNumber: finalTrackNum,
                                 isAudiobook: isAudiobookItem,
+                                releaseYear,
+                                authorThumb,
                                 durationMs: item.duration,
                                 path: localFilePath,
                                 folder: isShow ? item.title : (finalAlbum || item.parentTitle || lib.name),

@@ -1536,3 +1536,683 @@ export const triggerAudiobookQueueWorker = (forceBookKey?: string, forceChapterK
         }
     }, 50);
 };
+
+// ══════════════════════════════════════════════════════════════════════════════
+// AUDIOBOOK COLLECTIONS (SERIES / SAGAS) & METADATA ENRICHMENT + FILE RENAMER
+// ══════════════════════════════════════════════════════════════════════════════
+
+export interface AudiobookCollectionEntry {
+    id: string;
+    name: string;
+    author: string;
+    description?: string;
+    bookKeys: string[];
+    source: 'manual' | 'ai' | 'auto';
+    updatedAt: string;
+}
+
+export interface AudiobookBookEnrichment {
+    bookKey: string;
+    cleanTitle?: string;
+    bookNumber?: number;
+    releaseYear?: string;
+    collectionId?: string;
+    collectionName?: string;
+}
+
+export interface AudiobookCollectionsState {
+    collections: AudiobookCollectionEntry[];
+    explodedCollectionIds: string[];
+    ungroupedBookKeys: string[];
+    bookMetadata: Record<string, AudiobookBookEnrichment>;
+}
+
+const DEFAULT_COLLECTIONS_STATE: AudiobookCollectionsState = {
+    collections: [],
+    explodedCollectionIds: [],
+    ungroupedBookKeys: [],
+    bookMetadata: {}
+};
+
+export const getAudiobookCollectionsState = (): AudiobookCollectionsState => {
+    try {
+        const raw = getSetting('audiobook_collections_state') || '';
+        if (!raw) return { ...DEFAULT_COLLECTIONS_STATE, collections: [], explodedCollectionIds: [], ungroupedBookKeys: [], bookMetadata: {} };
+        const parsed = JSON.parse(raw);
+        return {
+            collections: Array.isArray(parsed.collections) ? parsed.collections : [],
+            explodedCollectionIds: Array.isArray(parsed.explodedCollectionIds) ? parsed.explodedCollectionIds : [],
+            ungroupedBookKeys: Array.isArray(parsed.ungroupedBookKeys) ? parsed.ungroupedBookKeys : [],
+            bookMetadata: parsed.bookMetadata && typeof parsed.bookMetadata === 'object' ? parsed.bookMetadata : {}
+        };
+    } catch {
+        return { ...DEFAULT_COLLECTIONS_STATE, collections: [], explodedCollectionIds: [], ungroupedBookKeys: [], bookMetadata: {} };
+    }
+};
+
+export const saveAudiobookCollectionsState = (partial: Partial<AudiobookCollectionsState>): AudiobookCollectionsState => {
+    const current = getAudiobookCollectionsState();
+    const updated: AudiobookCollectionsState = {
+        collections: partial.collections !== undefined ? partial.collections : current.collections,
+        explodedCollectionIds: partial.explodedCollectionIds !== undefined ? partial.explodedCollectionIds : current.explodedCollectionIds,
+        ungroupedBookKeys: partial.ungroupedBookKeys !== undefined ? partial.ungroupedBookKeys : current.ungroupedBookKeys,
+        bookMetadata: partial.bookMetadata !== undefined ? { ...current.bookMetadata, ...partial.bookMetadata } : current.bookMetadata
+    };
+    setSetting('audiobook_collections_state', JSON.stringify(updated));
+    return updated;
+};
+
+/**
+ * Built-in Literary Saga & Publication Year Knowledge Base for instant, accurate
+ * offline/fallback series grouping and publication year inference.
+ */
+const KNOWN_BOOK_CATALOG: Array<{
+    pattern: RegExp;
+    cleanTitle: string;
+    author: string;
+    collection: string;
+    bookNumber: number;
+    releaseYear: string;
+}> = [
+    // Alastair Reynolds — Poseidon's Children
+    { pattern: /\bblue\s+remembered\s+earth\b/i, cleanTitle: 'Blue Remembered Earth', author: 'Alastair Reynolds', collection: "Poseidon's Children", bookNumber: 1, releaseYear: '2012' },
+    { pattern: /\bon\s+the\s+steel\s+breeze\b/i, cleanTitle: 'On the Steel Breeze', author: 'Alastair Reynolds', collection: "Poseidon's Children", bookNumber: 2, releaseYear: '2013' },
+    { pattern: /\bposeidon'?s\s+wake\b/i, cleanTitle: "Poseidon's Wake", author: 'Alastair Reynolds', collection: "Poseidon's Children", bookNumber: 3, releaseYear: '2015' },
+    // Alastair Reynolds — Revelation Space Universe
+    { pattern: /\brevelation\s+space\b/i, cleanTitle: 'Revelation Space', author: 'Alastair Reynolds', collection: 'Revelation Space', bookNumber: 1, releaseYear: '2000' },
+    { pattern: /\bchasm\s+city\b/i, cleanTitle: 'Chasm City', author: 'Alastair Reynolds', collection: 'Revelation Space', bookNumber: 2, releaseYear: '2001' },
+    { pattern: /\bredemption\s+ark\b/i, cleanTitle: 'Redemption Ark', author: 'Alastair Reynolds', collection: 'Revelation Space', bookNumber: 3, releaseYear: '2002' },
+    { pattern: /\babsolution\s+gap\b/i, cleanTitle: 'Absolution Gap', author: 'Alastair Reynolds', collection: 'Revelation Space', bookNumber: 4, releaseYear: '2003' },
+    { pattern: /\binhibitor\s+phase\b/i, cleanTitle: 'Inhibitor Phase', author: 'Alastair Reynolds', collection: 'Revelation Space', bookNumber: 5, releaseYear: '2021' },
+    { pattern: /\bdiamond\s+dogs\b/i, cleanTitle: 'Diamond Dogs, Turquoise Days', author: 'Alastair Reynolds', collection: 'Revelation Space', bookNumber: 6, releaseYear: '2003' },
+    { pattern: /\bgalactic\s+north\b/i, cleanTitle: 'Galactic North', author: 'Alastair Reynolds', collection: 'Revelation Space', bookNumber: 7, releaseYear: '2006' },
+    // Alastair Reynolds — Prefect Dreyfus Emergencies
+    { pattern: /\b(the\s+prefect|aurora\s+rising)\b/i, cleanTitle: 'Aurora Rising (The Prefect)', author: 'Alastair Reynolds', collection: 'Prefect Dreyfus Emergencies', bookNumber: 1, releaseYear: '2007' },
+    { pattern: /\belysium\s+fire\b/i, cleanTitle: 'Elysium Fire', author: 'Alastair Reynolds', collection: 'Prefect Dreyfus Emergencies', bookNumber: 2, releaseYear: '2018' },
+    { pattern: /\bmachine\s+vendetta\b/i, cleanTitle: 'Machine Vendetta', author: 'Alastair Reynolds', collection: 'Prefect Dreyfus Emergencies', bookNumber: 3, releaseYear: '2024' },
+    // Alastair Reynolds — Revenger Trilogy
+    { pattern: /\brevenger\b/i, cleanTitle: 'Revenger', author: 'Alastair Reynolds', collection: 'Revenger Trilogy', bookNumber: 1, releaseYear: '2016' },
+    { pattern: /\bshadow\s+captain\b/i, cleanTitle: 'Shadow Captain', author: 'Alastair Reynolds', collection: 'Revenger Trilogy', bookNumber: 2, releaseYear: '2019' },
+    { pattern: /\bbone\s+silence\b/i, cleanTitle: 'Bone Silence', author: 'Alastair Reynolds', collection: 'Revenger Trilogy', bookNumber: 3, releaseYear: '2020' },
+    // Alastair Reynolds — Standalone Novels
+    { pattern: /\bcentury\s+rain\b/i, cleanTitle: 'Century Rain', author: 'Alastair Reynolds', collection: '', bookNumber: 0, releaseYear: '2004' },
+    { pattern: /\bpushing\s+ice\b/i, cleanTitle: 'Pushing Ice', author: 'Alastair Reynolds', collection: '', bookNumber: 0, releaseYear: '2005' },
+    { pattern: /\bhouse\s+of\s+suns\b/i, cleanTitle: 'House of Suns', author: 'Alastair Reynolds', collection: '', bookNumber: 0, releaseYear: '2008' },
+    { pattern: /\bterminal\s+world\b/i, cleanTitle: 'Terminal World', author: 'Alastair Reynolds', collection: '', bookNumber: 0, releaseYear: '2010' },
+    { pattern: /\beversion\b/i, cleanTitle: 'Eversion', author: 'Alastair Reynolds', collection: '', bookNumber: 0, releaseYear: '2022' },
+    // Frank Herbert — Pandora Sequence / WorShip
+    { pattern: /\bdestination[:\s]+void\b/i, cleanTitle: 'Destination: Void', author: 'Frank Herbert', collection: 'Pandora Sequence', bookNumber: 1, releaseYear: '1966' },
+    { pattern: /\bthe\s+jesus\s+incident\b/i, cleanTitle: 'The Jesus Incident', author: 'Frank Herbert', collection: 'Pandora Sequence', bookNumber: 2, releaseYear: '1979' },
+    { pattern: /\bthe\s+lazarus\s+effect\b/i, cleanTitle: 'The Lazarus Effect', author: 'Frank Herbert', collection: 'Pandora Sequence', bookNumber: 3, releaseYear: '1983' },
+    { pattern: /\bthe\s+ascension\s+factor\b/i, cleanTitle: 'The Ascension Factor', author: 'Frank Herbert', collection: 'Pandora Sequence', bookNumber: 4, releaseYear: '1988' },
+    // Frank Herbert — Dune Chronicles
+    { pattern: /^(\d+\s*[-_.]*\s*)?dune$/i, cleanTitle: 'Dune', author: 'Frank Herbert', collection: 'Dune Chronicles', bookNumber: 1, releaseYear: '1965' },
+    { pattern: /\bdune\s+messiah\b/i, cleanTitle: 'Dune Messiah', author: 'Frank Herbert', collection: 'Dune Chronicles', bookNumber: 2, releaseYear: '1969' },
+    { pattern: /\bchildren\s+of\s+dune\b/i, cleanTitle: 'Children of Dune', author: 'Frank Herbert', collection: 'Dune Chronicles', bookNumber: 3, releaseYear: '1976' },
+    { pattern: /\bgod\s+emperor\s+of\s+dune\b/i, cleanTitle: 'God Emperor of Dune', author: 'Frank Herbert', collection: 'Dune Chronicles', bookNumber: 4, releaseYear: '1981' },
+    { pattern: /\bheretics\s+of\s+dune\b/i, cleanTitle: 'Heretics of Dune', author: 'Frank Herbert', collection: 'Dune Chronicles', bookNumber: 5, releaseYear: '1984' },
+    { pattern: /\bchapterhouse[:\s]+dune\b/i, cleanTitle: 'Chapterhouse: Dune', author: 'Frank Herbert', collection: 'Dune Chronicles', bookNumber: 6, releaseYear: '1985' },
+    // Frank Herbert — ConSentiency
+    { pattern: /\bwhipping\s+star\b/i, cleanTitle: 'Whipping Star', author: 'Frank Herbert', collection: 'ConSentiency', bookNumber: 1, releaseYear: '1970' },
+    { pattern: /\bthe\s+dosadi\s+experiment\b/i, cleanTitle: 'The Dosadi Experiment', author: 'Frank Herbert', collection: 'ConSentiency', bookNumber: 2, releaseYear: '1977' }
+];
+
+export const parseCleanBookTitleAndNumber = (rawTitle: string, folder?: string, filePath?: string): {
+    cleanTitle: string;
+    bookNumber?: number;
+    releaseYear?: string;
+    inferredCollection?: string;
+} => {
+    let working = (rawTitle || '').trim();
+    let releaseYear: string | undefined;
+    let bookNumber: number | undefined;
+    let inferredCollection: string | undefined;
+
+    // 1. Extract year from title, folder, or path if present like (2012) or [2012]
+    const yearMatch = working.match(/[\(\[]\s*(19\d{2}|20\d{2})\s*[\)\]]/) ||
+        (folder || '').match(/[\(\[]\s*(19\d{2}|20\d{2})\s*[\)\]]/) ||
+        (filePath || '').match(/[\(\[]\s*(19\d{2}|20\d{2})\s*[\)\]]/);
+    if (yearMatch) {
+        releaseYear = yearMatch[1];
+        working = working.replace(/[\(\[]\s*(19\d{2}|20\d{2})\s*[\)\]]/g, '').trim();
+    }
+
+    // 2. Strip "[Series Name #01] - Title" or "(Book 1)"
+    const bracketSeries = working.match(/^[\[\(]([^\]\)]+?)\s*(?:#|book\s*|vol\.?\s*)(\d{1,2})[\]\)]\s*[-–—:]?\s*(.+)$/i);
+    if (bracketSeries) {
+        inferredCollection = bracketSeries[1].trim();
+        bookNumber = parseInt(bracketSeries[2], 10);
+        working = bracketSeries[3].trim();
+    }
+
+    // 3. Strip leading "01 - ", "02. ", "Book 01 - "
+    const leadNumMatch = working.match(/^(?:book\s*|vol\.?\s*|#)?(\d{1,2})\s*[-–—._:]+\s*(.+)$/i);
+    if (leadNumMatch) {
+        if (!bookNumber) bookNumber = parseInt(leadNumMatch[1], 10);
+        working = leadNumMatch[2].trim();
+    }
+
+    // 4. Strip trailing "(Book 1)" or "[Original]" or "[Optimized HQ]"
+    const trailBookNum = working.match(/^(.+?)\s*[\(\[]\s*(?:book|vol\.?|volume|#)\s*(\d{1,2})\s*[\)\]]$/i);
+    if (trailBookNum) {
+        if (!bookNumber) bookNumber = parseInt(trailBookNum[2], 10);
+        working = trailBookNum[1].trim();
+    }
+    working = working.replace(/\s*[\[\(]\s*(?:original(?:\s+audio)?|optimized(?:\s+hq|\s+audio)?|unabridged|abridged|m4b|mp3)\s*[\]\)]/gi, '').trim();
+
+    // 5. Inspect path hierarchy for series folder (e.g. .../Author/Series Name/01 - Book Title/file.m4b)
+    if (!inferredCollection && filePath) {
+        const parts = filePath.replace(/\\/g, '/').split('/').filter(Boolean);
+        if (parts.length >= 4) {
+            const bookDir = parts[parts.length - 2];
+            const parentOfBookDir = parts[parts.length - 3];
+            const grandParent = parts[parts.length - 4];
+            const genericRe = /^(audiobooks?|books?|spoken\s*word|media|mnt|user|data|torrents?|downloads?|library|audio)$/i;
+            if (!genericRe.test(parentOfBookDir) && !genericRe.test(grandParent)) {
+                // If grandParent is the Author and parentOfBookDir is the Series/Collection
+                if (parentOfBookDir.toLowerCase() !== bookDir.toLowerCase()) {
+                    inferredCollection = parentOfBookDir
+                        .replace(/^\d{1,2}\s*[-–—._]\s*/, '')
+                        .replace(/[\(\[]\s*(19\d{2}|20\d{2})\s*[\)\]]/g, '')
+                        .trim();
+                }
+            }
+        }
+    }
+
+    // 6. Match against KNOWN_BOOK_CATALOG
+    for (const entry of KNOWN_BOOK_CATALOG) {
+        if (entry.pattern.test(working) || entry.pattern.test(rawTitle)) {
+            if (!releaseYear && entry.releaseYear) releaseYear = entry.releaseYear;
+            if (!bookNumber && entry.bookNumber > 0) bookNumber = entry.bookNumber;
+            if (!inferredCollection && entry.collection) inferredCollection = entry.collection;
+            working = entry.cleanTitle;
+            break;
+        }
+    }
+
+    return {
+        cleanTitle: working || rawTitle,
+        bookNumber,
+        releaseYear,
+        inferredCollection
+    };
+};
+
+/**
+ * Runs book titles, authors, and folder paths through the configured AI model (Gemini, Claude, OpenAI, Groq)
+ * plus our built-in literary analyzer to automatically group series/sagas into Collections and infer publication years.
+ */
+export const organizeAudiobookCollectionsWithAi = async (
+    inputBooks: Array<{
+        bookKey: string;
+        title: string;
+        author: string;
+        folder?: string;
+        path?: string;
+    }>
+): Promise<{
+    state: AudiobookCollectionsState;
+    usedProvider: string;
+    collectionsCreated: number;
+}> => {
+    const config = getAudiobookStudioConfig();
+    const currentState = getAudiobookCollectionsState();
+    const bookMetadata: Record<string, AudiobookBookEnrichment> = { ...currentState.bookMetadata };
+
+    // Step 1: Deterministic & Built-in Literary Catalog pass
+    for (const b of inputBooks) {
+        const parsed = parseCleanBookTitleAndNumber(b.title, b.folder, b.path);
+        const existing = bookMetadata[b.bookKey] || { bookKey: b.bookKey };
+        bookMetadata[b.bookKey] = {
+            ...existing,
+            bookKey: b.bookKey,
+            cleanTitle: parsed.cleanTitle || existing.cleanTitle || b.title,
+            bookNumber: parsed.bookNumber ?? existing.bookNumber,
+            releaseYear: parsed.releaseYear || existing.releaseYear,
+            collectionName: parsed.inferredCollection || existing.collectionName
+        };
+    }
+
+    // Step 2: Query connected LLM (Gemini / Claude / OpenAI / Groq) to enrich Collections, Book Numbers & Publication Years
+    let usedProvider = 'Built-in Literary Saga & Folder Analyzer';
+    const promptLines = inputBooks.map((b, idx) => {
+        const pre = bookMetadata[b.bookKey];
+        return `${idx + 1}. key="${b.bookKey}" | rawTitle="${b.title}" | cleanTitle="${pre?.cleanTitle || b.title}" | author="${b.author}" | folder="${b.folder || ''}" | path="${b.path || ''}"`;
+    });
+
+    const systemPrompt = [
+        `You are an expert literary bibliographer and audiobook librarian.`,
+        `Analyze the following list of audiobooks (with their titles, authors, and folder names).`,
+        `For EACH book:`,
+        `1. Determine its clean book title (strip leading track/volume numbers like "01 - " or "02 - " and file tags).`,
+        `2. Determine if it belongs to a literary Series, Saga, or Trilogy (which we call a "Collection", e.g., "Poseidon's Children", "Revelation Space", "Revenger Trilogy", "Pandora Sequence", "Dune Chronicles", etc.). Even if only 1 book from a well-known series is present or multiple books share a saga, provide the official Series/Collection name if it belongs to one, or "" if it is a standalone novel.`,
+        `3. Determine its volume/book number within that Collection (integer 1, 2, 3... or null if standalone).`,
+        `4. Determine its original Year of Publication as a 4-digit string (e.g. "2012", "2000", "1966").`,
+        `Return ONLY a valid JSON array of objects with exact keys: [{"bookKey": "...", "cleanTitle": "...", "collectionName": "...", "bookNumber": 1, "releaseYear": "2012"}]. Do not wrap in markdown.`
+    ].join('\n');
+
+    const fullPrompt = `${systemPrompt}\n\nBooks:\n${promptLines.join('\n')}`;
+    let aiJsonText = '';
+
+    if (config.geminiApiKey) {
+        try {
+            const resp = await axios.post(
+                `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(config.geminiApiKey)}`,
+                {
+                    contents: [{ parts: [{ text: fullPrompt }] }],
+                    generationConfig: { temperature: 0.2, maxOutputTokens: 2048 }
+                },
+                { timeout: 22000 }
+            );
+            aiJsonText = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            if (aiJsonText) usedProvider = 'Google Gemini 2.0 Flash';
+        } catch (e: any) {
+            console.warn('⚠️ [AudiobookStudio] Gemini collection organizer fallback:', e.message);
+        }
+    } else if (config.anthropicApiKey) {
+        try {
+            const resp = await axios.post(
+                'https://api.anthropic.com/v1/messages',
+                {
+                    model: 'claude-3-5-haiku-latest',
+                    max_tokens: 2048,
+                    messages: [{ role: 'user', content: fullPrompt }]
+                },
+                {
+                    headers: {
+                        'x-api-key': config.anthropicApiKey,
+                        'anthropic-version': '2023-06-01',
+                        'content-type': 'application/json'
+                    },
+                    timeout: 22000
+                }
+            );
+            aiJsonText = resp.data?.content?.[0]?.text || '';
+            if (aiJsonText) usedProvider = 'Anthropic Claude 3.5 Haiku';
+        } catch (e: any) {
+            console.warn('⚠️ [AudiobookStudio] Claude collection organizer fallback:', e.message);
+        }
+    } else if (config.openaiApiKey) {
+        try {
+            const resp = await axios.post(
+                'https://api.openai.com/v1/chat/completions',
+                {
+                    model: 'gpt-4o-mini',
+                    messages: [{ role: 'user', content: fullPrompt }],
+                    temperature: 0.2
+                },
+                {
+                    headers: { Authorization: `Bearer ${config.openaiApiKey}` },
+                    timeout: 22000
+                }
+            );
+            aiJsonText = resp.data?.choices?.[0]?.message?.content || '';
+            if (aiJsonText) usedProvider = 'OpenAI GPT-4o-mini';
+        } catch (e: any) {
+            console.warn('⚠️ [AudiobookStudio] OpenAI collection organizer fallback:', e.message);
+        }
+    } else if (config.groqApiKey) {
+        try {
+            const resp = await axios.post(
+                'https://api.groq.com/openai/v1/chat/completions',
+                {
+                    model: 'llama-3.3-70b-versatile',
+                    messages: [{ role: 'user', content: fullPrompt }],
+                    temperature: 0.2
+                },
+                {
+                    headers: { Authorization: `Bearer ${config.groqApiKey}` },
+                    timeout: 18000
+                }
+            );
+            aiJsonText = resp.data?.choices?.[0]?.message?.content || '';
+            if (aiJsonText) usedProvider = 'Groq Llama 3.3 70B';
+        } catch (e: any) {
+            console.warn('⚠️ [AudiobookStudio] Groq collection organizer fallback:', e.message);
+        }
+    }
+
+    if (aiJsonText) {
+        try {
+            const cleaned = aiJsonText
+                .replace(/^```json\s*/i, '')
+                .replace(/^```\s*/i, '')
+                .replace(/```\s*$/, '')
+                .trim();
+            const startBracket = cleaned.indexOf('[');
+            const endBracket = cleaned.lastIndexOf(']');
+            if (startBracket !== -1 && endBracket !== -1) {
+                const parsedArr = JSON.parse(cleaned.slice(startBracket, endBracket + 1));
+                if (Array.isArray(parsedArr)) {
+                    for (const item of parsedArr) {
+                        if (!item || !item.bookKey) continue;
+                        const prev = bookMetadata[item.bookKey] || { bookKey: item.bookKey };
+                        bookMetadata[item.bookKey] = {
+                            ...prev,
+                            cleanTitle: item.cleanTitle || prev.cleanTitle,
+                            collectionName: item.collectionName !== undefined ? String(item.collectionName || '').trim() : prev.collectionName,
+                            bookNumber: item.bookNumber ? Number(item.bookNumber) : prev.bookNumber,
+                            releaseYear: item.releaseYear ? String(item.releaseYear).trim() : prev.releaseYear
+                        };
+                    }
+                }
+            }
+        } catch (parseErr: any) {
+            console.warn('⚠️ [AudiobookStudio] Could not parse AI collection JSON:', parseErr.message);
+        }
+    }
+
+    // Step 3: Build Collections from enriched bookMetadata (preserving manual collections unless updated)
+    const collectionGroups = new Map<string, { name: string; author: string; bookKeys: string[] }>();
+    for (const b of inputBooks) {
+        const meta = bookMetadata[b.bookKey];
+        const colName = (meta?.collectionName || '').trim();
+        if (!colName) continue;
+        const colId = `col_${(b.author || 'author').toLowerCase().replace(/[^a-z0-9]+/g, '_')}_${colName.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
+        meta.collectionId = colId;
+        if (!collectionGroups.has(colId)) {
+            collectionGroups.set(colId, {
+                name: colName,
+                author: b.author || 'Unknown Author',
+                bookKeys: []
+            });
+        }
+        const grp = collectionGroups.get(colId)!;
+        if (!grp.bookKeys.includes(b.bookKey)) {
+            grp.bookKeys.push(b.bookKey);
+        }
+    }
+
+    // Sort books inside each collection by bookNumber then cleanTitle
+    const manualCollections = currentState.collections.filter(c => c.source === 'manual');
+    const newAiCollections: AudiobookCollectionEntry[] = [];
+
+    for (const [colId, grp] of collectionGroups.entries()) {
+        // Group into a collection if there are >= 2 books OR if the book has an explicit series volume number (e.g. #1, #2)
+        const hasNumberedBook = grp.bookKeys.some(k => (bookMetadata[k]?.bookNumber || 0) > 0);
+        if (grp.bookKeys.length < 2 && !hasNumberedBook) continue;
+
+        grp.bookKeys.sort((ka, kb) => {
+            const na = bookMetadata[ka]?.bookNumber || 999;
+            const nb = bookMetadata[kb]?.bookNumber || 999;
+            if (na !== nb) return na - nb;
+            return (bookMetadata[ka]?.cleanTitle || ka).localeCompare(bookMetadata[kb]?.cleanTitle || kb);
+        });
+
+        newAiCollections.push({
+            id: colId,
+            name: grp.name,
+            author: grp.author,
+            bookKeys: grp.bookKeys,
+            source: usedProvider.startsWith('Built-in') ? 'auto' : 'ai',
+            updatedAt: new Date().toISOString()
+        });
+    }
+
+    // Merge manual collections with newly organized AI collections
+    const mergedMap = new Map<string, AudiobookCollectionEntry>();
+    for (const c of newAiCollections) mergedMap.set(c.id, c);
+    for (const m of manualCollections) mergedMap.set(m.id, m);
+
+    // Clear exploded flags when user explicitly triggers AI Auto-Group so newly matched collections appear
+    const savedState = saveAudiobookCollectionsState({
+        collections: Array.from(mergedMap.values()),
+        explodedCollectionIds: [],
+        ungroupedBookKeys: [],
+        bookMetadata
+    });
+
+    return {
+        state: savedState,
+        usedProvider,
+        collectionsCreated: newAiCollections.length
+    };
+};
+
+// ══════════════════════════════════════════════════════════════════════════════
+// UNIFORM AUDIOBOOK FILE RENAMER (WITH CUSTOM TEMPLATES & AUDIO VERSION TAGS)
+// ══════════════════════════════════════════════════════════════════════════════
+
+export interface BookRenameItemInput {
+    bookKey: string;
+    title: string;
+    cleanTitle?: string;
+    author: string;
+    releaseYear?: string;
+    collectionName?: string;
+    bookNumber?: number;
+    chapterKey?: string;
+    chapterIndex?: number;
+    chapterTitle?: string;
+    totalChapters?: number;
+    filePath: string;
+    audioVersion?: 'Original' | 'Optimized Audio' | 'auto';
+}
+
+export interface BookRenamePreviewResult {
+    bookKey: string;
+    chapterKey?: string;
+    oldPath: string;
+    oldFileName: string;
+    newPath: string;
+    newFileName: string;
+    directory: string;
+    audioVersionLabel: string;
+    hasOptimizedAudio: boolean;
+    existsOnDisk: boolean;
+    willChange: boolean;
+}
+
+const sanitizeFileNameSegment = (val: string): string => {
+    return (val || '')
+        .replace(/[<>:"/\\|?*\x00-\x1F]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+};
+
+export const formatUniformAudiobookFileName = (
+    item: BookRenameItemInput,
+    template: string,
+    versionMode: 'auto' | 'original_only' | 'optimized_label' = 'auto'
+): { newFileName: string; audioVersionLabel: string; hasOptimizedAudio: boolean } => {
+    const ext = path.extname(item.filePath || '') || '.m4b';
+    const parsed = parseCleanBookTitleAndNumber(item.title, undefined, item.filePath);
+
+    const cleanTitle = sanitizeFileNameSegment(item.cleanTitle || parsed.cleanTitle || item.title || 'Untitled Book');
+    const author = sanitizeFileNameSegment(item.author || 'Unknown Author');
+    const year = sanitizeFileNameSegment(item.releaseYear || parsed.releaseYear || '');
+    const collection = sanitizeFileNameSegment(item.collectionName || parsed.inferredCollection || '');
+    const rawBookNum = item.bookNumber ?? parsed.bookNumber;
+    const bookNum = rawBookNum && rawBookNum > 0 ? String(rawBookNum).padStart(2, '0') : '';
+    const totalCh = item.totalChapters || 1;
+    const chapterNum = item.chapterIndex && item.chapterIndex > 0 ? String(item.chapterIndex).padStart(2, '0') : '01';
+    const chapterTitle = sanitizeFileNameSegment(item.chapterTitle || `Chapter ${chapterNum}`);
+
+    // Check if this chapter or book has an Audio-Enhanced (Optimized) version in Studio SQLite
+    let hasOptimizedAudio = false;
+    if (item.chapterKey) {
+        const chMeta = getAudiobookChapterMeta(item.chapterKey);
+        if (chMeta?.audio_enhance_status === 'completed' || (chMeta?.enhanced_audio_path && fs.existsSync(chMeta.enhanced_audio_path))) {
+            hasOptimizedAudio = true;
+        }
+    }
+    if (!hasOptimizedAudio && item.bookKey) {
+        const bMeta = getAudiobookMeta(item.bookKey);
+        if (bMeta && (bMeta.enhanced_chapters || 0) > 0) {
+            hasOptimizedAudio = true;
+        }
+    }
+    if (/(?:\boptimized\b|\benhanced\b|\bhq\s+audio\b)/i.test(path.basename(item.filePath || ''))) {
+        hasOptimizedAudio = true;
+    }
+
+    let audioVersionLabel = 'Original';
+    if (versionMode === 'optimized_label') {
+        audioVersionLabel = 'Optimized Audio';
+    } else if (versionMode === 'original_only') {
+        audioVersionLabel = 'Original';
+    } else {
+        audioVersionLabel = hasOptimizedAudio ? 'Optimized Audio' : 'Original';
+    }
+
+    let rendered = (template || '{Author} - {Title} ({Year}) [{AudioVersion}]')
+        .replace(/\{Author\}/gi, author)
+        .replace(/\{Title\}/gi, cleanTitle)
+        .replace(/\{CleanTitle\}/gi, cleanTitle)
+        .replace(/\{Year\}/gi, year)
+        .replace(/\{Collection\}/gi, collection)
+        .replace(/\{Series\}/gi, collection)
+        .replace(/\{BookNum\}/gi, bookNum)
+        .replace(/\{ChapterNum\}/gi, chapterNum)
+        .replace(/\{ChapterTitle\}/gi, chapterTitle)
+        .replace(/\{AudioVersion\}/gi, audioVersionLabel);
+
+    // Clean up empty parentheses/brackets when a book doesn't have a Year, Collection, or BookNum
+    rendered = rendered
+        .replace(/\[\s*#?\s*\]/g, '')
+        .replace(/\(\s*\)/g, '')
+        .replace(/\[\s*-\s*\]/g, '')
+        .replace(/(?:[-–—]\s*){2,}/g, '- ')
+        .replace(/\s+[-–—]\s*$/g, '')
+        .replace(/^\s*[-–—]\s+/g, '')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+
+    // If a book has multiple chapter files (>1) and the template didn't include {ChapterNum} or {ChapterTitle},
+    // append " - Part XX" before the extension so multi-file chapters never collide!
+    if (totalCh > 1 && !/\{ChapterNum\}|\{ChapterTitle\}/i.test(template)) {
+        rendered = `${rendered} - Ch ${chapterNum}`;
+    }
+
+    const safeBase = sanitizeFileNameSegment(rendered) || cleanTitle || 'Audiobook';
+    const newFileName = safeBase.toLowerCase().endsWith(ext.toLowerCase()) ? safeBase : `${safeBase}${ext}`;
+
+    return {
+        newFileName,
+        audioVersionLabel,
+        hasOptimizedAudio
+    };
+};
+
+export const previewRenameAudiobookFiles = (
+    items: BookRenameItemInput[],
+    template: string,
+    versionMode: 'auto' | 'original_only' | 'optimized_label' = 'auto'
+): BookRenamePreviewResult[] => {
+    const results: BookRenamePreviewResult[] = [];
+    const usedTargetPaths = new Set<string>();
+
+    for (const item of items) {
+        if (!item.filePath) continue;
+        const dir = path.dirname(item.filePath);
+        const oldFileName = path.basename(item.filePath);
+        const { newFileName, audioVersionLabel, hasOptimizedAudio } = formatUniformAudiobookFileName(item, template, versionMode);
+
+        let finalNewFileName = newFileName;
+        let candidatePath = path.join(dir, finalNewFileName);
+        let counter = 2;
+        while (usedTargetPaths.has(candidatePath.toLowerCase()) && candidatePath.toLowerCase() !== item.filePath.toLowerCase()) {
+            const ext = path.extname(newFileName);
+            const base = newFileName.slice(0, -ext.length);
+            finalNewFileName = `${base} (${counter})${ext}`;
+            candidatePath = path.join(dir, finalNewFileName);
+            counter++;
+        }
+        usedTargetPaths.add(candidatePath.toLowerCase());
+
+        const existsOnDisk = fs.existsSync(item.filePath);
+        results.push({
+            bookKey: item.bookKey,
+            chapterKey: item.chapterKey,
+            oldPath: item.filePath,
+            oldFileName,
+            newPath: candidatePath,
+            newFileName: finalNewFileName,
+            directory: dir,
+            audioVersionLabel,
+            hasOptimizedAudio,
+            existsOnDisk,
+            willChange: oldFileName !== finalNewFileName
+        });
+    }
+
+    return results;
+};
+
+export const executeRenameAudiobookFiles = (
+    items: BookRenameItemInput[],
+    template: string,
+    versionMode: 'auto' | 'original_only' | 'optimized_label' = 'auto'
+): {
+    renamedCount: number;
+    skippedCount: number;
+    errors: string[];
+    results: Array<{ oldPath: string; newPath: string; oldFileName: string; newFileName: string; status: 'renamed' | 'skipped' | 'error'; message?: string }>;
+} => {
+    const previews = previewRenameAudiobookFiles(items, template, versionMode);
+    let renamedCount = 0;
+    let skippedCount = 0;
+    const errors: string[] = [];
+    const results: Array<{ oldPath: string; newPath: string; oldFileName: string; newFileName: string; status: 'renamed' | 'skipped' | 'error'; message?: string }> = [];
+
+    for (const p of previews) {
+        if (!p.willChange) {
+            skippedCount++;
+            results.push({ oldPath: p.oldPath, newPath: p.newPath, oldFileName: p.oldFileName, newFileName: p.newFileName, status: 'skipped', message: 'Already matches uniform template' });
+            continue;
+        }
+        if (!p.existsOnDisk) {
+            skippedCount++;
+            results.push({ oldPath: p.oldPath, newPath: p.newPath, oldFileName: p.oldFileName, newFileName: p.newFileName, status: 'skipped', message: 'Remote stream / file not on local path' });
+            continue;
+        }
+
+        try {
+            if (fs.existsSync(p.newPath) && p.oldPath.toLowerCase() !== p.newPath.toLowerCase()) {
+                errors.push(`Target file already exists: ${p.newFileName}`);
+                results.push({ oldPath: p.oldPath, newPath: p.newPath, oldFileName: p.oldFileName, newFileName: p.newFileName, status: 'error', message: 'Target file already exists' });
+                continue;
+            }
+
+            fs.renameSync(p.oldPath, p.newPath);
+
+            // Also rename companion .lrc / .txt sidecars if they exist alongside the audio file
+            const oldExt = path.extname(p.oldPath);
+            const newExt = path.extname(p.newPath);
+            const oldBase = p.oldPath.slice(0, -oldExt.length);
+            const newBase = p.newPath.slice(0, -newExt.length);
+            for (const sideExt of ['.lrc', '.txt', '.srt']) {
+                if (fs.existsSync(`${oldBase}${sideExt}`) && !fs.existsSync(`${newBase}${sideExt}`)) {
+                    try { fs.renameSync(`${oldBase}${sideExt}`, `${newBase}${sideExt}`); } catch {}
+                }
+            }
+
+            // Update chapter file_path in SQLite if tracked
+            if (p.chapterKey) {
+                const ch = getAudiobookChapterMeta(p.chapterKey);
+                if (ch) {
+                    upsertAudiobookChapterMeta({
+                        chapter_key: p.chapterKey,
+                        book_key: ch.book_key,
+                        file_path: p.newPath
+                    });
+                }
+            }
+
+            renamedCount++;
+            results.push({ oldPath: p.oldPath, newPath: p.newPath, oldFileName: p.oldFileName, newFileName: p.newFileName, status: 'renamed' });
+        } catch (err: any) {
+            errors.push(`${p.oldFileName}: ${err.message}`);
+            results.push({ oldPath: p.oldPath, newPath: p.newPath, oldFileName: p.oldFileName, newFileName: p.newFileName, status: 'error', message: err.message });
+        }
+    }
+
+    return {
+        renamedCount,
+        skippedCount,
+        errors,
+        results
+    };
+};
+

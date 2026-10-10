@@ -9,7 +9,9 @@ import {
     getAudiobookChaptersMeta,
     getAudiobookChapterMeta,
     upsertAudiobookChapterMeta,
-    recalculateAudiobookTotals
+    recalculateAudiobookTotals,
+    getTheaterLibraries,
+    clearCachedTheaterItems
 } from '@/lib/db';
 import {
     getAudiobookStudioConfig,
@@ -20,7 +22,12 @@ import {
     generateAudiobookChapterIllustrations,
     triggerAudiobookQueueWorker,
     getAudiobookArtDir,
-    detectAndVerifyAiApiKey
+    detectAndVerifyAiApiKey,
+    getAudiobookCollectionsState,
+    saveAudiobookCollectionsState,
+    organizeAudiobookCollectionsWithAi,
+    previewRenameAudiobookFiles,
+    executeRenameAudiobookFiles
 } from '@/lib/audiobookStudio';
 
 export const dynamic = 'force-dynamic';
@@ -34,6 +41,7 @@ export async function GET(request: Request) {
         const config = getAudiobookStudioConfig();
         const status = getAudiobookStudioStatus();
         const books = getAllAudiobooksMeta();
+        const collectionsState = getAudiobookCollectionsState();
 
         if (chapterKey) {
             const chapter = getAudiobookChapterMeta(chapterKey);
@@ -43,7 +51,8 @@ export async function GET(request: Request) {
                 config,
                 status,
                 book,
-                chapter
+                chapter,
+                collectionsState
             });
         }
 
@@ -56,7 +65,8 @@ export async function GET(request: Request) {
                 status,
                 book,
                 chapters,
-                books
+                books,
+                collectionsState
             });
         }
 
@@ -64,7 +74,8 @@ export async function GET(request: Request) {
             success: true,
             config,
             status,
-            books
+            books,
+            collectionsState
         });
     } catch (e: any) {
         console.error('Error in GET /api/theater/audiobooks/studio:', e);
@@ -395,13 +406,175 @@ export async function POST(request: Request) {
             });
         }
 
-        if (action === 'run_queue_now') {
+        if (action === 'run_queue_now' || action === 'trigger_worker') {
             console.log(`🚀 [AudiobookStudio] Manual queue processing triggered.`);
             triggerAudiobookQueueWorker(body.bookKey);
             return NextResponse.json({
                 success: true,
                 status: getAudiobookStudioStatus(),
-                books: getAllAudiobooksMeta()
+                books: getAllAudiobooksMeta(),
+                collectionsState: getAudiobookCollectionsState()
+            });
+        }
+
+        if (action === 'toggle_queue') {
+            const { bookKey, isQueued } = body;
+            if (!bookKey) {
+                return NextResponse.json({ success: false, error: 'Missing bookKey' }, { status: 400 });
+            }
+            upsertAudiobookMeta({
+                book_key: bookKey,
+                queue_enabled: Boolean(isQueued),
+                status: isQueued ? 'queued' : 'idle'
+            });
+            return NextResponse.json({
+                success: true,
+                books: getAllAudiobooksMeta(),
+                status: getAudiobookStudioStatus()
+            });
+        }
+
+        if (action === 'ai_organize_collections') {
+            const inputBooks = Array.isArray(body.books) ? body.books : [];
+            const { state, usedProvider, collectionsCreated } = await organizeAudiobookCollectionsWithAi(inputBooks);
+            return NextResponse.json({
+                success: true,
+                collectionsState: state,
+                usedProvider,
+                collectionsCreated
+            });
+        }
+
+        if (action === 'save_collection') {
+            const { id, name, author, description, bookKeys, bookMetadataPatch } = body;
+            if (!name || !Array.isArray(bookKeys) || bookKeys.length === 0) {
+                return NextResponse.json({ success: false, error: 'Collection name and at least 1 book are required' }, { status: 400 });
+            }
+            const cur = getAudiobookCollectionsState();
+            const colId = id || `col_manual_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+            const existingIdx = cur.collections.findIndex(c => c.id === colId);
+
+            // Remove selected bookKeys from any other collection so a book only belongs to one collection at a time
+            const cleanedCollections = cur.collections.map(c => {
+                if (c.id === colId) return c;
+                return {
+                    ...c,
+                    bookKeys: c.bookKeys.filter(k => !bookKeys.includes(k))
+                };
+            }).filter(c => c.id === colId || c.bookKeys.length > 0);
+
+            const entry = {
+                id: colId,
+                name: String(name).trim(),
+                author: String(author || 'Various Authors').trim(),
+                description: description ? String(description).trim() : undefined,
+                bookKeys,
+                source: 'manual' as const,
+                updatedAt: new Date().toISOString()
+            };
+
+            if (existingIdx >= 0) {
+                const idxInCleaned = cleanedCollections.findIndex(c => c.id === colId);
+                if (idxInCleaned >= 0) cleanedCollections[idxInCleaned] = entry;
+                else cleanedCollections.push(entry);
+            } else {
+                cleanedCollections.push(entry);
+            }
+
+            const nextMeta = { ...cur.bookMetadata, ...(bookMetadataPatch || {}) };
+            bookKeys.forEach((k: string, idx: number) => {
+                nextMeta[k] = {
+                    ...(nextMeta[k] || { bookKey: k }),
+                    bookKey: k,
+                    collectionId: colId,
+                    collectionName: String(name).trim(),
+                    bookNumber: nextMeta[k]?.bookNumber || (idx + 1)
+                };
+            });
+
+            const saved = saveAudiobookCollectionsState({
+                collections: cleanedCollections,
+                explodedCollectionIds: cur.explodedCollectionIds.filter(eid => eid !== colId),
+                ungroupedBookKeys: cur.ungroupedBookKeys.filter(uk => !bookKeys.includes(uk)),
+                bookMetadata: nextMeta
+            });
+
+            return NextResponse.json({
+                success: true,
+                collectionsState: saved
+            });
+        }
+
+        if (action === 'explode_collection') {
+            const { collectionId, bookKeys } = body;
+            const cur = getAudiobookCollectionsState();
+            const keysToUngroup: string[] = Array.isArray(bookKeys) ? bookKeys : [];
+
+            const targetCol = cur.collections.find(c => c.id === collectionId);
+            if (targetCol) {
+                for (const k of targetCol.bookKeys) {
+                    if (!keysToUngroup.includes(k)) keysToUngroup.push(k);
+                }
+            }
+
+            const nextCollections = cur.collections.filter(c => c.id !== collectionId);
+            const nextExploded = collectionId && !cur.explodedCollectionIds.includes(collectionId)
+                ? [...cur.explodedCollectionIds, collectionId]
+                : cur.explodedCollectionIds;
+            const nextUngrouped = Array.from(new Set([...cur.ungroupedBookKeys, ...keysToUngroup]));
+
+            const nextMeta = { ...cur.bookMetadata };
+            for (const k of keysToUngroup) {
+                if (nextMeta[k]) {
+                    nextMeta[k] = {
+                        ...nextMeta[k],
+                        collectionId: '',
+                        collectionName: ''
+                    };
+                }
+            }
+
+            const saved = saveAudiobookCollectionsState({
+                collections: nextCollections,
+                explodedCollectionIds: nextExploded,
+                ungroupedBookKeys: nextUngrouped,
+                bookMetadata: nextMeta
+            });
+
+            return NextResponse.json({
+                success: true,
+                collectionsState: saved
+            });
+        }
+
+        if (action === 'preview_rename_books') {
+            const items = Array.isArray(body.items) ? body.items : [];
+            const template = String(body.template || '{Author} - {Title} ({Year}) [{AudioVersion}]');
+            const versionMode = body.versionMode || 'auto';
+            const previews = previewRenameAudiobookFiles(items, template, versionMode);
+            return NextResponse.json({
+                success: true,
+                previews
+            });
+        }
+
+        if (action === 'execute_rename_books') {
+            const items = Array.isArray(body.items) ? body.items : [];
+            const template = String(body.template || '{Author} - {Title} ({Year}) [{AudioVersion}]');
+            const versionMode = body.versionMode || 'auto';
+            const outcome = executeRenameAudiobookFiles(items, template, versionMode);
+
+            // Invalidate cached audiobook libraries so rescans reflect the new filenames immediately
+            try {
+                const libs = getTheaterLibraries().filter(l => l.type === 'audiobooks');
+                for (const l of libs) {
+                    clearCachedTheaterItems(l.id);
+                }
+            } catch {}
+
+            return NextResponse.json({
+                success: true,
+                ...outcome
             });
         }
 

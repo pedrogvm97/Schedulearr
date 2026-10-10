@@ -66,7 +66,7 @@ export async function GET() {
       ? commitsSettled.value.data
       : [];
 
-    let currentBucketTag = 'v0.6.4';
+    let currentBucketTag = 'v0.6.5';
     for (const c of commits) {
       const rawMsg: string = c?.commit?.message || '';
       if (!rawMsg) continue;
@@ -130,6 +130,13 @@ export async function GET() {
 
     // Ensure current versions are always present even if offline/rate-limited
     if (versionMap.size === 0) {
+      versionMap.set('v0.6.5', {
+        tag: 'v0.6.5',
+        name: 'v0.6.5',
+        publishedAt: new Date().toISOString(),
+        changelog: '• Audiobook Shelf Authors vs Books switcher, Author bookshelves with Listening Time & Year of Publication metrics, alphabetical clean sorting, auto-grouped 3D overlaid Collections with AI matcher & Explode/Create actions, and Uniform Book File Renamer with custom templates & Original/Optimized Audio version tags',
+        prerelease: false
+      });
       versionMap.set('v0.6.4', {
         tag: 'v0.6.4',
         name: 'v0.6.4',
