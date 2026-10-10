@@ -27,6 +27,7 @@ import TheaterLiveTvPlayer from '@/components/TheaterLiveTvPlayer';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import { smartMatchScore, normalizeSearchTerm, cleanTrackForMatching, findMatchingLocalTrack } from '@/lib/searchUtils';
 import { sanitizeSongMetadata } from '@/lib/songSanitizer';
+import { logClientEvent } from '@/lib/clientLogger';
 
 interface TheaterLibrary {
     id: string;
@@ -238,6 +239,7 @@ function TheaterPageContent() {
             try {
                 localStorage.setItem('schedulearr_theater_active_tab', activeContentTab);
             } catch {}
+            logClientEvent('THEATER-UI', `Switched Theater tab to "${activeContentTab.toUpperCase()}"`);
         }
     }, [activeContentTab]);
 
@@ -871,6 +873,7 @@ function TheaterPageContent() {
         const id = Math.random().toString(36).substring(2, 9);
         const timestamp = new Date().toLocaleTimeString();
         setDebugLogs(prev => [...prev.slice(-150), { id, timestamp, level, message, details }]);
+        logClientEvent('THEATER-PLAYER', message, details, level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'info');
     };
 
     const handleSetVideoMode = (mode: 'universal' | 'transcode' | 'direct') => {
@@ -1276,6 +1279,7 @@ function TheaterPageContent() {
                 setIptvGroups(allGroups);
                 setShortlists(allShortlists);
                 setItems([]);
+                logClientEvent('THEATER-LIVE', `Loaded ${allChannels.length} channels (${allShortlists.length} shortlists) across ${libs.length} IPTV library(s)`);
             } else {
                 const results = await Promise.all(
                     libs.map(async (lib) => {
@@ -1298,14 +1302,16 @@ function TheaterPageContent() {
                 const mergedItems = results.flat();
                 setItems(mergedItems);
                 setIptvChannels([]);
+                logClientEvent('THEATER-LIBRARY', `Loaded ${mergedItems.length} items for tab "${activeContentTab}" from ${libs.map(l => l.name).join(', ')}`);
 
                 // If music tab, fetch playlists
                 if (libs.some(l => l.type === 'music')) {
                     fetchGlobalPlaylists();
                 }
             }
-        } catch (e) {
+        } catch (e: any) {
             console.error('Error fetching libraries content:', e);
+            logClientEvent('THEATER-ERROR', `Error loading library content for tab "${activeContentTab}": ${e?.message || e}`, undefined, 'error');
             toast.error('Error loading library content');
             setItems([]);
             setIptvChannels([]);

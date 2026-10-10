@@ -181,9 +181,14 @@ export async function GET(req: NextRequest) {
         const startTime = searchParams.get('ss') || '0';
         const title = searchParams.get('title') || 'media';
         const ffmpegBin = getFFmpegPath();
+        const rangeHeader = req.headers.get('range');
+        if (!rangeHeader || rangeHeader.startsWith('bytes=0-')) {
+            console.log(`[${new Date().toISOString()}] 🎬 [PLAYBACK-STREAM] Request: title="${title}" mode="${transcode || 'direct'}" path="${filePath || plexPart || searchParams.get('ratingKey') || 'unknown'}"`);
+        }
 
         // 0. Generate .M3U playlist file for VLC / External Players
         if (m3u === 'true') {
+            console.log(`[${new Date().toISOString()}] 📋 [PLAYBACK-STREAM] Generated external player .m3u for "${title}"`);
             const clientOrigin = searchParams.get('origin');
             const host = req.headers.get('x-forwarded-host') || req.headers.get('host') || 'localhost:3010';
             const forwardedProto = req.headers.get('x-forwarded-proto');

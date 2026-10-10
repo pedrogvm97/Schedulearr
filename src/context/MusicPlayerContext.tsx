@@ -27,6 +27,7 @@ import {
     detectPitchFromAudioBuffer
 } from '@/lib/chordAnalyzer';
 import { MusicDownloadModal } from '@/components/MusicDownloadModal';
+import { logClientEvent } from '@/lib/clientLogger';
 
 export interface MediaItem {
     id: string;
@@ -1498,6 +1499,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         const id = Math.random().toString(36).substring(2, 9);
         const timestamp = new Date().toLocaleTimeString();
         setAudioNerdLogs(prev => [...prev.slice(-150), { id, timestamp, level, message, details }]);
+        logClientEvent('AUDIO-PLAYER', message, details, level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'info');
     };
 
     // Star Rating States (1-5 Stars per Track)
@@ -2333,6 +2335,11 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
         setPlayingAudio(cleanTrack);
         setIsAudioPlaying(true);
+        logClientEvent(
+            trackIsAudiobook ? 'AUDIOBOOK-PLAYBACK' : 'MUSIC-PLAYBACK',
+            `Starting playback: "${cleanTrack.title}" by ${cleanTrack.artist} (${cleanTrack.streamUrl})`,
+            { id: cleanTrack.id, album: cleanTrack.album, isAudiobook: trackIsAudiobook }
+        );
         if (queue && queue.length > 0) {
             setAudioQueue(queue);
             setQueueIndex(index !== undefined ? index : 0);

@@ -70,8 +70,10 @@ export async function POST(req: Request) {
         const success = createTheaterLibrary(id, name.trim(), type, folders, plexSectionId, instanceId);
 
         if (success) {
+            console.log(`[${new Date().toISOString()}] 🗂️ [THEATER-LIBRARIES] Created library "${name.trim()}" (type=${type}, id=${id})`);
             return NextResponse.json({ success: true, id });
         } else {
+            console.error(`[${new Date().toISOString()}] ❌ [THEATER-LIBRARIES] Failed to create library "${name.trim()}"`);
             return NextResponse.json({ error: 'Failed to create theater library' }, { status: 500 });
         }
     } catch (error: any) {
@@ -91,6 +93,7 @@ export async function PATCH(req: Request) {
 
         const success = updateTheaterLibrary(id, folders, name);
         if (success) {
+            console.log(`[${new Date().toISOString()}] 🛠️ [THEATER-LIBRARIES] Updated library "${name || id}"`);
             return NextResponse.json({ success: true });
         } else {
             return NextResponse.json({ error: 'Failed to update theater library' }, { status: 500 });
@@ -112,6 +115,7 @@ export async function DELETE(req: Request) {
 
         const success = deleteTheaterLibrary(id);
         if (success) {
+            console.log(`[${new Date().toISOString()}] 🗑️ [THEATER-LIBRARIES] Deleted library "${id}"`);
             return NextResponse.json({ success: true });
         } else {
             return NextResponse.json({ error: 'Failed to delete theater library' }, { status: 500 });

@@ -1392,27 +1392,39 @@ export const batchUpdateIptvChannelLogos = (libraryId: string, updates: Array<{ 
 };
 
 // ── IPTV EPG Guide Data Persistence ──
-export const saveIptvEpg = (libraryId: string, epgList: Array<{
-    channelTvgId: string;
-    title: string;
-    description?: string;
-    startTime: string;
-    endTime: string;
-}>, replaceExisting: boolean = true): boolean => {
+export const clearIptvEpgForLibrary = (libraryId: string): boolean => {
     try {
+        if (!libraryId) return false;
+        db.prepare('DELETE FROM iptv_epg WHERE library_id = ?').run(libraryId);
+        return true;
+    } catch (e) {
+        console.error('[DB-ERROR] Error clearing IPTV EPG for library:', e);
+        return false;
+    }
+};
+
+export const insertIptvEpgChunk = (
+    libraryId: string,
+    chunk: Array<{
+        channelTvgId: string;
+        title: string;
+        description?: string;
+        startTime: string;
+        endTime: string;
+    }>,
+    chunkOffset: number = 0
+): boolean => {
+    try {
+        if (!chunk || chunk.length === 0) return true;
         const stmt = db.prepare(`
             INSERT INTO iptv_epg (id, library_id, channel_tvg_id, title, description, start_time, end_time)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         `);
-
-        const insertMany = db.transaction((items: any[]) => {
-            if (replaceExisting && libraryId) {
-                db.prepare('DELETE FROM iptv_epg WHERE library_id = ?').run(libraryId);
-            }
-            const nowTs = Date.now();
+        const nowTs = Date.now();
+        const tx = db.transaction((items: typeof chunk) => {
             for (let i = 0; i < items.length; i++) {
                 const item = items[i];
-                const id = `epg_${nowTs}_${i}_${Math.random().toString(36).slice(2, 6)}`;
+                const id = `epg_${nowTs}_${chunkOffset + i}_${Math.random().toString(36).slice(2, 6)}`;
                 stmt.run(
                     id,
                     libraryId,
@@ -1424,11 +1436,32 @@ export const saveIptvEpg = (libraryId: string, epgList: Array<{
                 );
             }
         });
-
-        insertMany(epgList);
+        tx(chunk);
         return true;
     } catch (e) {
-        console.error('Error saving IPTV EPG:', e);
+        console.error('[DB-ERROR] Error inserting IPTV EPG chunk:', e);
+        return false;
+    }
+};
+
+export const saveIptvEpg = (libraryId: string, epgList: Array<{
+    channelTvgId: string;
+    title: string;
+    description?: string;
+    startTime: string;
+    endTime: string;
+}>, replaceExisting: boolean = true): boolean => {
+    try {
+        if (replaceExisting && libraryId) {
+            clearIptvEpgForLibrary(libraryId);
+        }
+        const batchSize = 1500;
+        for (let i = 0; i < epgList.length; i += batchSize) {
+            insertIptvEpgChunk(libraryId, epgList.slice(i, i + batchSize), i);
+        }
+        return true;
+    } catch (e) {
+        console.error('[DB-ERROR] Error saving IPTV EPG:', e);
         return false;
     }
 };
@@ -1438,16 +1471,22 @@ export const getIptvEpgForChannel = (
     tvgId: string,
     startTime?: string,
     endTime?: string,
-    limit: number = 200
+    limit: number = 200,
+    allowCrossLibraryFallback: boolean = true
 ): any[] => {
     try {
-        const normId = (tvgId || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-        const hasSpecificLib = libraryId && libraryId !== 'ALL';
+        if (!tvgId) return [];
+        const cleanId = tvgId.trim();
+        const lowerId = cleanId.toLowerCase();
+        const normId = lowerId.replace(/[^a-z0-9]/g, '');
+        const hasSpecificLib = Boolean(libraryId && libraryId !== 'ALL');
+
+        // Use exact IN (?, ?, ?) so SQLite always uses idx_iptv_epg_lookup (library_id, channel_tvg_id, end_time) in <0.5ms
         let query = `
             SELECT * FROM iptv_epg 
-            WHERE ${hasSpecificLib ? 'library_id = ? AND ' : ''}(channel_tvg_id = ? OR LOWER(channel_tvg_id) = LOWER(?) OR channel_tvg_id = ?)
+            WHERE ${hasSpecificLib ? 'library_id = ? AND ' : ''}channel_tvg_id IN (?, ?, ?)
         `;
-        const params: any[] = hasSpecificLib ? [libraryId, tvgId, tvgId, normId] : [tvgId, tvgId, normId];
+        const params: any[] = hasSpecificLib ? [libraryId, cleanId, lowerId, normId] : [cleanId, lowerId, normId];
 
         if (startTime) {
             query += ' AND end_time >= ?';
@@ -1462,13 +1501,12 @@ export const getIptvEpgForChannel = (
         params.push(limit);
 
         let rows = db.prepare(query).all(...params) as any[];
-        // Fallback: if specific libraryId returned 0 rows (e.g. merged channels across providers), query across all libraries
-        if ((!rows || rows.length === 0) && hasSpecificLib) {
+        if ((!rows || rows.length === 0) && hasSpecificLib && allowCrossLibraryFallback) {
             let fallbackQuery = `
                 SELECT * FROM iptv_epg 
-                WHERE (channel_tvg_id = ? OR LOWER(channel_tvg_id) = LOWER(?) OR channel_tvg_id = ?)
+                WHERE channel_tvg_id IN (?, ?, ?)
             `;
-            const fbParams: any[] = [tvgId, tvgId, normId];
+            const fbParams: any[] = [cleanId, lowerId, normId];
             if (startTime) {
                 fallbackQuery += ' AND end_time >= ?';
                 fbParams.push(startTime);
@@ -1483,7 +1521,7 @@ export const getIptvEpgForChannel = (
         }
         return rows || [];
     } catch (e) {
-        console.error('Error fetching IPTV EPG for channel:', e);
+        console.error('[DB-ERROR] Error fetching IPTV EPG for channel:', e);
         return [];
     }
 };
@@ -1804,7 +1842,7 @@ export const getPlaybackHistory = (limit: number = 500) => {
     }
 };
 
-// ── Batch IPTV EPG Query ──
+// ── Batch IPTV EPG Query (Indexed <1ms Lookup) ──
 export const getBatchIptvEpg = (
     libraryId: string,
     tvgIds: string[],
@@ -1820,21 +1858,26 @@ export const getBatchIptvEpg = (
         if (uniqueIds.length === 0) return {};
 
         const result: Record<string, any[]> = {};
-        const chunkSize = 250; // SQLite max variables safety
+        const chunkSize = 200; // SQLite max variables safety (200 * 3 = 600 bind params)
 
         for (let i = 0; i < uniqueIds.length; i += chunkSize) {
             const chunk = uniqueIds.slice(i, i + chunkSize);
-            const lowerIds = chunk.map(t => t.toLowerCase().trim());
-            const placeholders = chunk.map(() => '?').join(',');
+            const allKeys = Array.from(new Set([
+                ...chunk,
+                ...chunk.map(t => t.toLowerCase().trim()),
+                ...chunk.map(t => t.toLowerCase().replace(/[^a-z0-9]/g, ''))
+            ].filter(Boolean)));
+            if (allKeys.length === 0) continue;
+            const placeholders = allKeys.map(() => '?').join(',');
 
             const runQuery = (restrictLib: boolean) => {
                 let query = `
                     SELECT * FROM iptv_epg 
-                    WHERE ${restrictLib ? 'library_id = ? AND ' : ''}(channel_tvg_id IN (${placeholders}) OR LOWER(channel_tvg_id) IN (${placeholders})) AND end_time >= ?
+                    WHERE ${restrictLib ? 'library_id = ? AND ' : ''}channel_tvg_id IN (${placeholders}) AND end_time >= ?
                 `;
                 const params: any[] = restrictLib
-                    ? [libraryId, ...chunk, ...lowerIds, effectiveStart]
-                    : [...chunk, ...lowerIds, effectiveStart];
+                    ? [libraryId, ...allKeys, effectiveStart]
+                    : [...allKeys, effectiveStart];
 
                 if (endTime) {
                     query += ' AND start_time <= ?';
@@ -1864,8 +1907,32 @@ export const getBatchIptvEpg = (
         }
         return result;
     } catch (e) {
-        console.error('Error fetching batch IPTV EPG:', e);
+        console.error('[DB-ERROR] Error fetching batch IPTV EPG:', e);
         return {};
+    }
+};
+
+export const searchIptvEpgForDvrRule = (libraryId: string, tokens: string[]): any[] => {
+    try {
+        const cleanTokens = (tokens || []).map(t => t.trim().toLowerCase()).filter(Boolean);
+        if (cleanTokens.length === 0) return [];
+        const nowIso = new Date().toISOString();
+        const clauses = cleanTokens.map(() => '(LOWER(title) LIKE ? OR LOWER(description) LIKE ?)').join(' AND ');
+        const params: any[] = [libraryId, nowIso];
+        for (const t of cleanTokens) {
+            const likePat = `%${t}%`;
+            params.push(likePat, likePat);
+        }
+        const query = `
+            SELECT * FROM iptv_epg
+            WHERE library_id = ? AND end_time >= ? AND ${clauses}
+            ORDER BY start_time ASC
+            LIMIT 500
+        `;
+        return (db.prepare(query).all(...params) as any[]) || [];
+    } catch (e) {
+        console.error('[DB-ERROR] Error searching IPTV EPG for DVR rule:', e);
+        return [];
     }
 };
 

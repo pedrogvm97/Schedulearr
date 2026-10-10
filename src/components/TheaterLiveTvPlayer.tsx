@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import Hls from 'hls.js';
 import { toast } from 'sonner';
+import { logClientEvent } from '@/lib/clientLogger';
 
 export interface IptvChannel {
     id: string;
@@ -236,7 +237,7 @@ export default function TheaterLiveTvPlayer({
     // ── Smart Multi-Resolution Channel Aggregator (0.1ms Instant Performance) ──
     const aggregatedChannels = useMemo(() => {
         // 1. FAST SHORTLIST PRE-FILTER:
-        // If viewing a shortlist or if full list is hidden, ONLY process the ~100 shortlisted channels!
+        // If viewing a shortlist or if full list is hidden, ONLY process the shortlisted channels!
         let baseList = channels;
         if (activeShortlistId) {
             const sl = shortlists.find(s => s.id === activeShortlistId);
@@ -266,6 +267,11 @@ export default function TheaterLiveTvPlayer({
             baseList = baseList.filter(c => !c.libraryId || !disabledLibIds.includes(c.libraryId));
         }
 
+        // 3. Fast path: If only 1 provider is active and backend already pre-aggregated streams & cleanName, return directly!
+        if (activeProviders.length <= 1 && baseList.length > 0 && baseList[0].cleanName && Array.isArray(baseList[0].streams)) {
+            return baseList;
+        }
+
         const map = new Map<string, IptvChannel>();
 
         const qualityOrder: Record<string, number> = {
@@ -285,28 +291,9 @@ export default function TheaterLiveTvPlayer({
         };
 
         for (const c of baseList) {
-            const rawName = c.cleanName || c.name;
-            const norm = rawName
-                .toLowerCase()
-                .replace(/^(\s*\|?\s*(?:vo|vodafone|meo|nos|nowo|pt|uk|us|es|fr|de)\s*\|?\s*[:\-\|\/])+/i, '')
-                .replace(/^(\s*\|[a-z0-9]+\|\s*)/i, '')
-                .replace(/^(\[[a-z0-9]+\]|\([a-z0-9]+\))\s*/i, '')
-                .replace(/\b(8k|4k|uhd|fhd|hd|sd|hevc|h\.?265|1080p|720p|576p|480p|2160p|raw|backup|alt|50fps|60fps|vip)\b/gi, '')
-                .replace(/\[.*?\]|\(.*?\)/g, '')
-                .replace(/[^a-z0-9]/g, '');
-
+            const cleanDisplayName = c.cleanName || c.name;
+            const norm = cleanDisplayName.toLowerCase().replace(/[^a-z0-9]/g, '');
             const key = norm || c.id;
-
-            // Strip prefixes from display name
-            const cleanDisplayName = rawName
-                .replace(/^(\s*\|?\s*(?:vo|vodafone|meo|nos|nowo|pt|uk|us|es|fr|de)\s*\|?\s*[:\-\|\/])+/i, '')
-                .replace(/^(\s*\|[a-z0-9]+\|\s*)/i, '')
-                .replace(/^(\[[a-z0-9]+\]|\([a-z0-9]+\))\s*/i, '')
-                .replace(/\b(8k|4k|uhd|fhd|hd|sd|hevc|h\.?265|1080p|720p|576p|480p|2160p|raw|backup|alt|50fps|60fps|vip)\b/gi, '')
-                .replace(/\[.*?\]|\(.*?\)/g, '')
-                .replace(/[*#=\-_~+]/g, ' ')
-                .replace(/\s+/g, ' ')
-                .trim() || rawName;
 
             if (!map.has(key)) {
                 const initialStreams = (c.streams && c.streams.length > 0)
@@ -344,7 +331,7 @@ export default function TheaterLiveTvPlayer({
             }
         }
         return list;
-    }, [channels, activeShortlistId, shortlists, hideFullList, disabledLibIds]);
+    }, [channels, activeShortlistId, shortlists, hideFullList, disabledLibIds, activeProviders.length]);
 
     // Filter channels by provider, category, and search (Shortlist already filtered in aggregatedChannels)
     const visibleChannels = useMemo(() => {
@@ -449,6 +436,7 @@ export default function TheaterLiveTvPlayer({
         }
         setIsSyncingEpg(true);
         setSyncProgressMsg('Connecting...');
+        logClientEvent('LIVE-TV', `User triggered EPG Sync for libraryId=${libraryId}`);
         try {
             const res = await fetch('/api/theater/iptv/epg/sync', {
                 method: 'POST',
@@ -471,12 +459,14 @@ export default function TheaterLiveTvPlayer({
                             setIsSyncingEpg(false);
                             setSyncProgressMsg('');
                             toast.success(`TV Guide synced! (${(sData.programCount || 0).toLocaleString()} programs loaded)`);
+                            logClientEvent('LIVE-TV', `EPG Sync completed in UI (${sData.programCount || 0} programs)`);
                             await refreshEpgData();
                         } else if (sData.status === 'error') {
                             clearInterval(pollTimer);
                             setIsSyncingEpg(false);
                             setSyncProgressMsg('');
                             toast.error(sData.error || 'EPG sync failed');
+                            logClientEvent('LIVE-TV', `EPG Sync error: ${sData.error || 'Unknown'}`, undefined, 'error');
                         }
                     }
                 } catch {
@@ -488,6 +478,7 @@ export default function TheaterLiveTvPlayer({
             setIsSyncingEpg(false);
             setSyncProgressMsg('');
             toast.error(err.message || 'Could not sync EPG');
+            logClientEvent('LIVE-TV', `Failed to start EPG sync: ${err.message}`, undefined, 'error');
         }
     };
 
@@ -661,14 +652,32 @@ export default function TheaterLiveTvPlayer({
         const rawUrl = activeStreamRawUrl;
 
         setStreamQuality(activeStream?.quality || 'LIVE');
+        logClientEvent(
+            'LIVE-TV-PLAYBACK',
+            `Playing channel "${currentChannel.cleanName || currentChannel.name}" [${activeStream?.quality || 'LIVE'}] (stream ${activeStreamIdx + 1}/${streams.length})`,
+            { channelId: currentChannel.id, tvgId: currentChannel.tvgId, provider: currentChannel.libraryName }
+        );
 
         const proxiedUrl = `/api/theater/iptv/stream?url=${encodeURIComponent(rawUrl)}`;
 
-        const handleFallback = () => {
+        const handleFallback = (reason?: string) => {
             if (streams.length > activeStreamIdx + 1) {
                 const nextIdx = activeStreamIdx + 1;
+                logClientEvent(
+                    'LIVE-TV-FAILOVER',
+                    `Stream failed for "${currentChannel.cleanName || currentChannel.name}" (${reason || 'playback error'}). Failing over to stream ${nextIdx + 1}/${streams.length} [${streams[nextIdx].quality || 'Backup'}]`,
+                    undefined,
+                    'warn'
+                );
                 toast.error(`Stream issue. Switching to backup: ${streams[nextIdx].quality || 'Backup'}...`);
                 setActiveStreamIdx(nextIdx);
+            } else {
+                logClientEvent(
+                    'LIVE-TV-ERROR',
+                    `All ${streams.length} stream(s) failed for channel "${currentChannel.cleanName || currentChannel.name}" (${reason || 'playback error'})`,
+                    undefined,
+                    'error'
+                );
             }
         };
 
@@ -682,16 +691,20 @@ export default function TheaterLiveTvPlayer({
             hls.loadSource(proxiedUrl);
             hls.attachMedia(video);
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                video.play().catch(() => {});
+                video.play().catch((err) => {
+                    logClientEvent('LIVE-TV-WARN', `Autoplay blocked or interrupted for "${currentChannel.name}": ${err?.message || err}`, undefined, 'warn');
+                });
             });
             hls.on(Hls.Events.ERROR, (event, data) => {
-                if (data.fatal) handleFallback();
+                if (data.fatal) handleFallback(`HLS fatal: ${data.type}/${data.details}`);
             });
             hlsRef.current = hls;
         } else {
             video.src = proxiedUrl;
-            video.onerror = () => handleFallback();
-            video.play().catch(() => {});
+            video.onerror = () => handleFallback('HTML5 video element error');
+            video.play().catch((err) => {
+                logClientEvent('LIVE-TV-WARN', `Direct stream play() interrupted for "${currentChannel.name}": ${err?.message || err}`, undefined, 'warn');
+            });
         }
 
         return () => {

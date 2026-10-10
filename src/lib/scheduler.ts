@@ -16,6 +16,25 @@ import { startSpeedMonitor } from '@/lib/speedMonitor';
 import { performStartupContainerCleanup } from '@/lib/docker';
 import { checkAndRunScheduledEpgSyncs } from '@/lib/iptvEpgSync';
 import { triggerAudiobookQueueWorker, getAudiobookStudioConfig } from '@/lib/audiobookStudio';
+import fs from 'fs';
+import path from 'path';
+
+function getAppVersionString(): string {
+    try {
+        const candidates = [
+            path.join(process.cwd(), 'package.json'),
+            '/app/package.json',
+            '/app/.next/standalone/package.json'
+        ];
+        for (const p of candidates) {
+            if (fs.existsSync(p)) {
+                const pkg = JSON.parse(fs.readFileSync(p, 'utf8'));
+                if (pkg?.version) return `v${String(pkg.version).replace(/^v/i, '')}`;
+            }
+        }
+    } catch {}
+    return 'v0.6.9';
+}
 
 if (!global.globalSchedulerRunning && process.env.NEXT_PHASE !== 'phase-production-build') {
     global.globalSchedulerRunning = true;
@@ -26,7 +45,8 @@ if (!global.globalSchedulerRunning && process.env.NEXT_PHASE !== 'phase-producti
     }, 30000);
 
     const startScheduler = () => {
-        console.log('🏁 Schedulearr v0.6.2 background orchestrator active and running.');
+        const appVer = getAppVersionString();
+        console.log(`🏁 Schedulearr ${appVer} background orchestrator active and running.`);
         
         // Start network speed monitor with dynamic interval
         const { networkInterval } = getSchedulerConfig();
@@ -34,7 +54,7 @@ if (!global.globalSchedulerRunning && process.env.NEXT_PHASE !== 'phase-producti
 
         const runCycle = async () => {
             const now = new Date().toISOString();
-            console.log(`[${now}] 🕒 Schedulearr v0.6.2 running automated batch...`);
+            console.log(`[${now}] 🕒 Schedulearr ${getAppVersionString()} running automated batch...`);
             try {
                 await evaluateIndexerRules();
                 await runBatchSearch();

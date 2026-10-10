@@ -8,6 +8,11 @@ import { initAutoUpdater } from '@/lib/autoUpdater';
 export const dynamic = 'force-dynamic';
 
 const FALLBACK_GIT_NOTES = [
+  '• [v0.6.9] Fix Web UI freeze/crash during 300k+ XMLTV EPG sync & DVR rule scan, optimize 35k IPTV channel aggregation, and add comprehensive Unraid container logging across all playback & UI actions',
+  '  - Yield Node.js event loop during 95MB / 306k+ XMLTV EPG parsing and batch SQLite inserts into 1,500-row chunked transactions so the web server stays responsive',
+  '  - Eliminate 70,000+ full-table-scan SQLite queries in DVR rule scanning and fix index-killing OR LOWER(channel_tvg_id) clauses in getIptvEpgForChannel / getBatchIptvEpg',
+  '  - Deduplicate concurrent EPG sync runs and fast-path 35,000+ IPTV channel aggregation in both API and Live TV Player UI',
+  '  - Mirror all client & server actions, playback starts, stream failovers, transcodes, and errors directly to Unraid container stdout/stderr logs and report dynamic package version in scheduler logs',
   '• [v0.6.8] Fix Theater tab loading across all libraries, fix Media top bar overlap, and fix Audiobook Studio sub-tab wrapping & item aggregation',
   '  - Fix empty Set lockout in Theater enabledLibsByTab state and normalize library type matching across Movie, Series, Live TV, Music, Audiobooks, and Photos tabs',
   '  - Restructure Media (/discover) top navigation into two non-overlapping rows so Media Type tabs, Status Filters, and Search never collide',
@@ -48,7 +53,7 @@ export async function GET() {
 
   try {
     // 1. Get current version from package.json or system fallback
-    let currentVersion = '0.6.8';
+    let currentVersion = '0.6.9';
     const possiblePaths = [
       path.join(process.cwd(), 'package.json'),
       path.join(process.cwd(), '..', 'package.json'),

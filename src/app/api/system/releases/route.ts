@@ -66,7 +66,7 @@ export async function GET() {
       ? commitsSettled.value.data
       : [];
 
-    let currentBucketTag = 'v0.6.8';
+    let currentBucketTag = 'v0.6.9';
     for (const c of commits) {
       const rawMsg: string = c?.commit?.message || '';
       if (!rawMsg) continue;
@@ -130,6 +130,13 @@ export async function GET() {
 
     // Ensure current versions are always present even if offline/rate-limited
     if (versionMap.size === 0) {
+      versionMap.set('v0.6.9', {
+        tag: 'v0.6.9',
+        name: 'v0.6.9',
+        publishedAt: new Date().toISOString(),
+        changelog: '• Fix Web UI freeze/crash during 300k+ XMLTV EPG sync & DVR rule scan, optimize 35k IPTV channel aggregation, and add comprehensive Unraid container logging across all playback & UI actions',
+        prerelease: false
+      });
       versionMap.set('v0.6.8', {
         tag: 'v0.6.8',
         name: 'v0.6.8',

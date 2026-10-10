@@ -370,6 +370,7 @@ export async function GET(req: Request) {
         const libraryId = searchParams.get('libraryId');
         const sourceUrl = searchParams.get('url');
         const filePath = searchParams.get('path');
+        const forceRefresh = searchParams.get('refresh') === 'true';
 
         // 1. If libraryId provided and stored channels exist in DB
         let currentLib: any = null;
@@ -377,91 +378,54 @@ export async function GET(req: Request) {
             const allLibs = getTheaterLibraries();
             currentLib = allLibs.find(l => l.id === libraryId);
 
-            const stored = getIptvChannels(libraryId);
-            if (stored && stored.length > 0) {
-                // Perform smart canonical resolution merging on stored channels
-                const mergedStoredMap = new Map<string, StoredIptvChannel>();
-                for (const c of stored) {
-                    const rawName = c.name || '';
-                    const { cleanName, canonicalKey, quality, label } = detectQuality(rawName, c.group);
-                    const groupKey = (c.group || 'general').toLowerCase().replace(/[^a-z0-9]/g, '');
-                    const nameKey = (canonicalKey || c.cleanName || rawName).toLowerCase().replace(/[^a-z0-9]/g, '');
-                    const key = `${groupKey}:::${nameKey}`;
+            if (!forceRefresh) {
+                const stored = getIptvChannels(libraryId);
+                if (stored && stored.length > 0) {
+                    const groupCounts: Record<string, number> = {};
+                    const formattedChannels = new Array(stored.length);
 
-                    if (!mergedStoredMap.has(key)) {
-                        const existingStreams = (c.streams && c.streams.length > 0)
-                            ? [...c.streams]
-                            : [{ url: (c as any).url || '', quality, label: `${label} (${rawName})` }];
-                        mergedStoredMap.set(key, {
-                            ...c,
-                            name: cleanName || c.name,
-                            cleanName: cleanName || c.cleanName || c.name,
-                            streams: existingStreams
-                        });
-                    } else {
-                        const existing = mergedStoredMap.get(key)!;
-                        const existingStreams = existing.streams || [];
-                        const incomingStreams = (c.streams && c.streams.length > 0)
-                            ? c.streams
-                            : [{ url: (c as any).url || '', quality, label: `${label} (${rawName})` }];
-
-                        for (const is of incomingStreams) {
-                            if (is.url && !existingStreams.some(s => s.url === is.url)) {
-                                existingStreams.push(is);
-                            }
+                    for (let i = 0; i < stored.length; i++) {
+                        if (i > 0 && i % 3000 === 0) {
+                            await new Promise<void>(r => setImmediate(r));
                         }
-                        existing.streams = existingStreams;
-                        if (!existing.logo && c.logo) existing.logo = c.logo;
-                        if (!existing.tvgId && c.tvgId) existing.tvgId = c.tvgId;
+                        const c = stored[i];
+                        const cleanName = c.cleanName || c.name || `Channel ${i + 1}`;
+                        const group = c.group || 'General';
+                        groupCounts[group] = (groupCounts[group] || 0) + 1;
+                        const streams = (c.streams && c.streams.length > 0)
+                            ? c.streams
+                            : [{ url: (c as any).url || '', quality: 'HD', label: cleanName }];
+
+                        formattedChannels[i] = {
+                            id: c.id,
+                            name: cleanName,
+                            cleanName,
+                            logo: c.logo
+                                ? `/api/theater/iptv/logo?url=${encodeURIComponent(c.logo)}&name=${encodeURIComponent(cleanName)}`
+                                : `/api/theater/iptv/logo?name=${encodeURIComponent(cleanName)}`,
+                            rawLogo: c.logo,
+                            group,
+                            tvgId: c.tvgId,
+                            url: streams[0]?.url || '',
+                            streams
+                        };
                     }
+
+                    const groups = Object.keys(groupCounts).map(g => ({
+                        name: g,
+                        count: groupCounts[g]
+                    })).sort((a, b) => b.count - a.count);
+
+                    const epgUrl = currentLib?.folders?.[1] || '';
+                    console.log(`[${new Date().toISOString()}] 📺 [IPTV] Loaded ${formattedChannels.length.toLocaleString()} cached channels across ${groups.length} groups for "${currentLib?.name || libraryId}"`);
+
+                    return NextResponse.json({
+                        total: formattedChannels.length,
+                        groups,
+                        epgUrl,
+                        channels: formattedChannels
+                    });
                 }
-
-                const qualityRank = (q: string) => {
-                    const l = (q || '').toLowerCase();
-                    if (l.includes('8k')) return 5;
-                    if (l.includes('4k') || l.includes('uhd') || l.includes('2160')) return 4;
-                    if (l.includes('fhd') || l.includes('1080') || l.includes('raw') || l.includes('hevc')) return 3;
-                    if (l.includes('hd') || l.includes('720')) return 2;
-                    return 1;
-                };
-
-                const consolidated = Array.from(mergedStoredMap.values());
-                for (const ch of consolidated) {
-                    if (ch.streams && ch.streams.length > 1) {
-                        ch.streams.sort((a, b) => qualityRank(b.quality) - qualityRank(a.quality));
-                    }
-                }
-
-                const groupCounts: Record<string, number> = {};
-                for (const c of consolidated) {
-                    groupCounts[c.group] = (groupCounts[c.group] || 0) + 1;
-                }
-
-                const groups = Object.keys(groupCounts).map(g => ({
-                    name: g,
-                    count: groupCounts[g]
-                })).sort((a, b) => b.count - a.count);
-
-                const epgUrl = currentLib?.folders?.[1] || '';
-
-                return NextResponse.json({
-                    total: consolidated.length,
-                    groups,
-                    epgUrl,
-                    channels: consolidated.map(c => ({
-                        id: c.id,
-                        name: c.name,
-                        cleanName: c.cleanName,
-                        logo: c.logo
-                            ? `/api/theater/iptv/logo?url=${encodeURIComponent(c.logo)}&name=${encodeURIComponent(c.cleanName || c.name)}`
-                            : `/api/theater/iptv/logo?name=${encodeURIComponent(c.cleanName || c.name)}`,
-                        rawLogo: c.logo,
-                        group: c.group,
-                        tvgId: c.tvgId,
-                        url: c.streams[0]?.url || '',
-                        streams: c.streams
-                    }))
-                });
             }
         }
 
@@ -470,6 +434,8 @@ export async function GET(req: Request) {
         const effectiveSourceUrl = sourceUrl || currentLib?.folders?.[0] || '';
         const effectiveFilePath = filePath || '';
         let channels: StoredIptvChannel[] = [];
+
+        console.log(`[${new Date().toISOString()}] 📡 [IPTV] Ingesting live channels for "${currentLib?.name || effectiveLibId}"...`);
 
         const xtreamCreds = effectiveSourceUrl ? tryExtractXtream(effectiveSourceUrl) : null;
         if (xtreamCreds) {
@@ -481,7 +447,6 @@ export async function GET(req: Request) {
             const rawM3u = fs.readFileSync(effectiveFilePath, 'utf8');
             channels = parseM3uContent(rawM3u, effectiveLibId);
         } else {
-            // If library exists but has no source URL yet, return empty list gracefully
             return NextResponse.json({
                 total: 0,
                 groups: [],
@@ -504,6 +469,8 @@ export async function GET(req: Request) {
             count: groupCounts[g]
         })).sort((a, b) => b.count - a.count);
 
+        console.log(`[${new Date().toISOString()}] ✅ [IPTV] Ingested ${channels.length.toLocaleString()} channels across ${groups.length} groups for "${currentLib?.name || effectiveLibId}"`);
+
         return NextResponse.json({
             total: channels.length,
             groups,
@@ -523,7 +490,7 @@ export async function GET(req: Request) {
             }))
         });
     } catch (error: any) {
-        console.error('API /theater/iptv error:', error);
+        console.error(`[${new Date().toISOString()}] ❌ [IPTV] GET error:`, error?.message || error);
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }
@@ -538,11 +505,12 @@ export async function POST(req: Request) {
         const rawContent = formData.get('content') as string | null;
         let epgUrl = formData.get('epgUrl') as string | null;
 
+        console.log(`[${new Date().toISOString()}] 📡 [IPTV] Saving/importing IPTV playlist for library "${libraryId}"...`);
+
         let parsedChannels: StoredIptvChannel[] = [];
         const xtreamCreds = url ? tryExtractXtream(url) : null;
 
         if (xtreamCreds) {
-            // Auto-deduce XMLTV EPG URL if not provided
             if (!epgUrl) {
                 epgUrl = `${xtreamCreds.host}/xmltv.php?username=${encodeURIComponent(xtreamCreds.username)}&password=${encodeURIComponent(xtreamCreds.password)}`;
             }
@@ -560,7 +528,6 @@ export async function POST(req: Request) {
                 return NextResponse.json({ error: 'Please upload an M3U file or enter a valid URL.' }, { status: 400 });
             }
 
-            // Also check if M3U header has url-tvg
             if (!epgUrl) {
                 const tvgMatch = m3uText.match(/url-tvg="([^"]+)"/i) || m3uText.match(/x-tvg-url="([^"]+)"/i);
                 if (tvgMatch) epgUrl = tvgMatch[1].trim();
@@ -570,26 +537,33 @@ export async function POST(req: Request) {
         }
 
         if (parsedChannels.length === 0) {
+            console.warn(`[${new Date().toISOString()}] ⚠️ [IPTV] No valid channels found in M3U playlist for "${libraryId}"`);
             return NextResponse.json({ error: 'No valid channels found in the provided M3U playlist.' }, { status: 422 });
         }
 
         saveIptvChannels(libraryId, parsedChannels);
 
-        // Update library folders to store [streamUrl, epgUrl]
         if (libraryId) {
             const allLibs = getTheaterLibraries();
             const currentLib = allLibs.find(l => l.id === libraryId);
             if (currentLib) {
                 const streamSource = url || currentLib.folders?.[0] || 'local_file_upload';
-                const folders = [streamSource, epgUrl || ''];
+                const folders = [
+                    streamSource,
+                    epgUrl || currentLib.folders?.[1] || '',
+                    currentLib.folders?.[2] || '24',
+                    currentLib.folders?.[3] || '',
+                    currentLib.folders?.[4] || 'all'
+                ];
                 updateTheaterLibrary(libraryId, folders);
             }
         }
 
-        // Kick off background EPG sync if EPG URL available
         if (epgUrl) {
-            executeEpgSync(libraryId, epgUrl).catch(e => console.warn('Background EPG sync notice:', e.message));
+            executeEpgSync(libraryId, epgUrl).catch(e => console.warn('[IPTV] Background EPG sync notice:', e.message));
         }
+
+        console.log(`[${new Date().toISOString()}] ✅ [IPTV] Saved ${parsedChannels.length.toLocaleString()} channels for "${libraryId}"`);
 
         return NextResponse.json({
             success: true,
@@ -599,7 +573,7 @@ export async function POST(req: Request) {
             epgUrl: epgUrl || null
         });
     } catch (error: any) {
-        console.error('API /theater/iptv POST error:', error.message);
+        console.error(`[${new Date().toISOString()}] ❌ [IPTV] POST error:`, error.message);
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }
@@ -623,12 +597,18 @@ export async function PUT(req: Request) {
         const activeStreamUrl = streamUrl || currentLib.folders?.[0] || '';
         const activeEpgUrl = typeof epgUrl === 'string' ? epgUrl.trim() : (currentLib.folders?.[1] || '');
 
-        updateTheaterLibrary(libraryId, [activeStreamUrl, activeEpgUrl]);
+        updateTheaterLibrary(libraryId, [
+            activeStreamUrl,
+            activeEpgUrl,
+            currentLib.folders?.[2] || '24',
+            currentLib.folders?.[3] || '',
+            currentLib.folders?.[4] || 'all'
+        ]);
 
-        let syncedEpgCount = 0;
+        console.log(`[${new Date().toISOString()}] 🛠️ [IPTV] Updated provider "${currentLib.name}" (${libraryId}) settings (resyncChannels=${Boolean(resyncChannels)})`);
+
         if (activeEpgUrl) {
-            const syncRes = await executeEpgSync(libraryId, activeEpgUrl);
-            syncedEpgCount = syncRes.programCount;
+            executeEpgSync(libraryId, activeEpgUrl).catch(e => console.warn('[IPTV] Background EPG sync notice:', e.message));
         }
 
         let channelCount = 0;
@@ -638,13 +618,8 @@ export async function PUT(req: Request) {
             if (xtream) {
                 channels = await fetchXtreamLiveChannels(xtream, libraryId);
             } else if (activeStreamUrl.startsWith('http://') || activeStreamUrl.startsWith('https://')) {
-                const res = await axios.get(activeStreamUrl, {
-                    timeout: 180000,
-                    maxContentLength: Infinity,
-                    maxBodyLength: Infinity,
-                    headers: { 'User-Agent': 'VLC/3.0.18 LibVLC/3.0.18 Schedulearr/0.5.39' }
-                });
-                channels = parseM3uContent(res.data, libraryId);
+                const rawM3u = await downloadM3uText(activeStreamUrl);
+                channels = parseM3uContent(rawM3u, libraryId);
             }
             if (channels.length > 0) {
                 saveIptvChannels(libraryId, channels);
@@ -656,11 +631,11 @@ export async function PUT(req: Request) {
             success: true,
             libraryId,
             epgUrl: activeEpgUrl,
-            syncedEpgCount,
+            syncedEpgCount: 0,
             channelCount: channelCount || undefined
         });
     } catch (error: any) {
-        console.error('API /theater/iptv PUT error:', error);
+        console.error(`[${new Date().toISOString()}] ❌ [IPTV] PUT error:`, error);
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }
