@@ -132,7 +132,7 @@ const db = {
 };
 
 function initializeSchema(d: any) {
-    const CURRENT_SCHEMA_VER = 12;
+    const CURRENT_SCHEMA_VER = 13;
     try {
         const v = d.pragma('user_version', { simple: true });
         if (typeof v === 'number' && v >= CURRENT_SCHEMA_VER) {
@@ -953,9 +953,17 @@ export const getTheaterLibraries = (): any[] => {
             } catch {
                 folders = r.folders ? [r.folders] : [];
             }
+            const rawType = String(r.type || '').toLowerCase().trim();
+            const normalizedType =
+                (rawType === 'iptv' || rawType === 'livetv' || rawType === 'live_tv') ? 'live' :
+                (rawType === 'tv' || rawType === 'series') ? 'show' :
+                (rawType === 'audiobook') ? 'audiobooks' :
+                (rawType === 'photo') ? 'photos' :
+                (rawType === 'movies') ? 'movie' :
+                rawType;
             return {
                 ...r,
-                type: (r.type === 'iptv' || r.type === 'livetv' || r.type === 'live_tv') ? 'live' : r.type,
+                type: normalizedType,
                 folders
             };
         });

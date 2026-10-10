@@ -254,7 +254,7 @@ function TheaterPageContent() {
                     const parsed = JSON.parse(saved);
                     const result: Record<string, Set<string>> = {};
                     for (const [tab, ids] of Object.entries(parsed)) {
-                        if (Array.isArray(ids)) {
+                        if (Array.isArray(ids) && ids.length > 0) {
                             result[tab] = new Set(ids as string[]);
                         }
                     }
@@ -749,7 +749,7 @@ function TheaterPageContent() {
             // 2. Read URL parameters to restore tab, subtab, codec, and search query
             const params = new URLSearchParams(window.location.search);
             const tab = params.get('tab');
-            if (tab && ['movie', 'show', 'live', 'music', 'photos'].includes(tab)) {
+            if (tab && ['movie', 'show', 'live', 'music', 'audiobooks', 'photos'].includes(tab)) {
                 setActiveContentTab(tab as any);
             } else {
                 setActiveContentTab('movie');
@@ -783,7 +783,7 @@ function TheaterPageContent() {
         const subtabParam = searchParams.get('subtab') || searchParams.get('musicTab');
         const codecParam = searchParams.get('codec');
 
-        if (tabParam && ['movie', 'show', 'live', 'music', 'photos'].includes(tabParam)) {
+        if (tabParam && ['movie', 'show', 'live', 'music', 'audiobooks', 'photos'].includes(tabParam)) {
             setActiveContentTab(tabParam as any);
         }
         if (subtabParam && ['albums', 'artists', 'tracks', 'playlists'].includes(subtabParam)) {
@@ -1059,6 +1059,17 @@ function TheaterPageContent() {
         toast.info('Searching for Chromecast and Cast devices on your network...');
     };
 
+    const matchesTabType = useCallback((libType: string | undefined, tab: string) => {
+        const t = String(libType || '').toLowerCase().trim();
+        if (tab === 'movie') return t === 'movie' || t === 'movies';
+        if (tab === 'show') return t === 'show' || t === 'tv' || t === 'series';
+        if (tab === 'live') return t === 'live' || t === 'iptv' || t === 'livetv' || t === 'live_tv';
+        if (tab === 'music') return t === 'music' || t === 'audio';
+        if (tab === 'audiobooks') return t === 'audiobooks' || t === 'audiobook';
+        if (tab === 'photos') return t === 'photos' || t === 'photo';
+        return t === tab;
+    }, []);
+
     // 1. Fetch Theater Libraries
     const fetchLibraries = async () => {
         setLoadingLibraries(true);
@@ -1072,7 +1083,7 @@ function TheaterPageContent() {
                     localStorage.setItem('schedulearr_theater_libraries_cache', JSON.stringify(libs));
                 } catch {}
 
-                // Prune any deleted libraries from per-tab selections
+                // Prune any deleted libraries from per-tab selections (and clear empty sets so tabs never get stuck with 0 enabled libraries)
                 const validIds = new Set(libs.map(l => l.id));
                 setEnabledLibsByTab(prev => {
                     let changed = false;
@@ -1080,13 +1091,19 @@ function TheaterPageContent() {
                     for (const [tab, set] of Object.entries(prev)) {
                         const pruned = new Set([...set].filter(id => validIds.has(id)));
                         if (pruned.size !== set.size) changed = true;
-                        updated[tab] = pruned;
+                        if (pruned.size > 0) {
+                            updated[tab] = pruned;
+                        } else {
+                            changed = true;
+                        }
                     }
                     if (changed) {
                         try {
                             const serialized: Record<string, string[]> = {};
                             for (const [tab, set] of Object.entries(updated)) {
-                                serialized[tab] = Array.from(set);
+                                if (set.size > 0) {
+                                    serialized[tab] = Array.from(set);
+                                }
                             }
                             localStorage.setItem('schedulearr_theater_enabled_libraries_by_tab', JSON.stringify(serialized));
                         } catch {}
@@ -1097,7 +1114,7 @@ function TheaterPageContent() {
 
                 if (libs.length > 0) {
                     if (!activeLibraryId || !libs.some(l => l.id === activeLibraryId)) {
-                        const tabLibs = libs.filter(l => l.type === activeContentTab);
+                        const tabLibs = libs.filter(l => matchesTabType(l.type, activeContentTab));
                         if (tabLibs.length > 0) {
                             setActiveLibraryId(tabLibs[0].id);
                         } else {
@@ -1135,19 +1152,21 @@ function TheaterPageContent() {
 
     // Libraries matching the current content tab type
     const activeTabLibraries = useMemo(() => {
-        return libraries.filter(l => l.type === activeContentTab);
-    }, [libraries, activeContentTab]);
+        return libraries.filter(l => matchesTabType(l.type, activeContentTab));
+    }, [libraries, activeContentTab, matchesTabType]);
 
-    // Enabled libraries for the current tab (respects per-tab toggles)
+    // Enabled libraries for the current tab (respects per-tab toggles; never locks out single-library tabs or empty sets)
     const enabledTabLibraries = useMemo(() => {
+        if (activeTabLibraries.length <= 1) return activeTabLibraries;
         const enabledSet = enabledLibsByTab[activeContentTab];
-        if (enabledSet === undefined) return activeTabLibraries;
-        return activeTabLibraries.filter(l => enabledSet.has(l.id));
+        if (!enabledSet || enabledSet.size === 0) return activeTabLibraries;
+        const filtered = activeTabLibraries.filter(l => enabledSet.has(l.id));
+        return filtered.length > 0 ? filtered : activeTabLibraries;
     }, [activeTabLibraries, enabledLibsByTab, activeContentTab]);
 
     // Sync activeLibraryId to first library of the new tab whenever tab changes
     useEffect(() => {
-        const tabLibs = libraries.filter(l => l.type === activeContentTab);
+        const tabLibs = libraries.filter(l => matchesTabType(l.type, activeContentTab));
         if (tabLibs.length > 0) {
             if (!tabLibs.some(l => l.id === activeLibraryId)) {
                 setActiveLibraryId(tabLibs[0].id);
@@ -1155,7 +1174,7 @@ function TheaterPageContent() {
         } else {
             setActiveLibraryId(null);
         }
-    }, [activeContentTab, libraries]);
+    }, [activeContentTab, libraries, matchesTabType]);
 
     const fetchGlobalPlaylists = async () => {
         try {
@@ -4557,7 +4576,7 @@ function TheaterPageContent() {
 
                     {/* Row 2: Content-type tabs (Left) + Search Bar (Right) */}
                     <div className="flex flex-wrap items-center justify-between gap-4">
-                        <div className="flex items-center gap-1.5 bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner flex-wrap">
+                        <div className="flex items-center gap-1.5 bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner overflow-x-auto flex-nowrap max-w-full">
                             {([
                                 { id: 'movie', label: 'Movies', icon: <Film size={15} />, color: 'text-indigo-400', activeBg: 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40' },
                                 { id: 'show', label: 'Series', icon: <Tv size={15} />, color: 'text-emerald-400', activeBg: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' },
@@ -4567,12 +4586,12 @@ function TheaterPageContent() {
                                 { id: 'photos', label: 'Photos', icon: <ImageIcon size={15} />, color: 'text-sky-400', activeBg: 'bg-sky-500/20 text-sky-300 border border-sky-500/40' },
                             ] as const).map(tab => {
                                 const isActive = activeContentTab === tab.id;
-                                const count = libraries.filter(l => l.type === tab.id).length;
+                                const count = libraries.filter(l => matchesTabType(l.type, tab.id)).length;
                                 return (
                                     <button
                                         key={tab.id}
                                         onClick={() => setActiveContentTab(tab.id as any)}
-                                        className={`flex items-center gap-2 px-4 py-2.5 text-sm font-black rounded-xl transition-all ${
+                                        className={`flex items-center gap-2 px-4 py-2.5 text-sm font-black rounded-xl transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                                             isActive ? tab.activeBg : 'text-zinc-500 hover:text-zinc-300'
                                         }`}
                                     >
@@ -5513,9 +5532,9 @@ function TheaterPageContent() {
                             </div>
                         )}
                     </div>
-                ) : activeContentTab === 'live' && activeLibrary ? (
+                ) : activeContentTab === 'live' && (activeTabLibraries[0] || activeLibrary) ? (
                     <TheaterLiveTvPlayer
-                        libraryId={activeLibrary.id}
+                        libraryId={(activeTabLibraries[0] || activeLibrary)!.id}
                         channels={iptvChannels}
                         shortlists={shortlists}
                         activeShortlistId={activeShortlistId === 'ALL' ? null : activeShortlistId}
@@ -5600,10 +5619,10 @@ function TheaterPageContent() {
                                 </div>
 
                                 {/* ── Consumption View Tabs: Library & Bedside | Bedside Table | Authors | My Reads (Finished) ── */}
-                                <div className="flex items-center gap-1.5 bg-black/60 p-1.5 rounded-2xl border border-amber-800/40 self-stretch sm:self-auto flex-wrap">
+                                <div className="flex items-center gap-1.5 bg-black/60 p-1.5 rounded-2xl border border-amber-800/40 overflow-x-auto flex-nowrap max-w-full shrink-0">
                                     <button
                                         onClick={() => setAudiobookShelfViewMode('books')}
-                                        className={`px-3.5 py-2 rounded-xl font-black text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                                        className={`px-3.5 py-2 rounded-xl font-black text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center gap-2 transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                                             audiobookShelfViewMode === 'books'
                                                 ? 'bg-amber-400 text-black shadow-lg shadow-amber-500/25'
                                                 : 'text-amber-200/70 hover:text-white hover:bg-white/5'
@@ -5614,7 +5633,7 @@ function TheaterPageContent() {
                                     </button>
                                     <button
                                         onClick={() => setAudiobookShelfViewMode('bedside')}
-                                        className={`px-3.5 py-2 rounded-xl font-black text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                                        className={`px-3.5 py-2 rounded-xl font-black text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center gap-2 transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                                             audiobookShelfViewMode === 'bedside'
                                                 ? 'bg-amber-400 text-black shadow-lg shadow-amber-500/25'
                                                 : 'text-amber-200/70 hover:text-white hover:bg-white/5'
@@ -5625,7 +5644,7 @@ function TheaterPageContent() {
                                     </button>
                                     <button
                                         onClick={() => setAudiobookShelfViewMode('authors')}
-                                        className={`px-3.5 py-2 rounded-xl font-black text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                                        className={`px-3.5 py-2 rounded-xl font-black text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center gap-2 transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                                             audiobookShelfViewMode === 'authors'
                                                 ? 'bg-amber-400 text-black shadow-lg shadow-amber-500/25'
                                                 : 'text-amber-200/70 hover:text-white hover:bg-white/5'
@@ -5636,7 +5655,7 @@ function TheaterPageContent() {
                                     </button>
                                     <button
                                         onClick={() => setAudiobookShelfViewMode('finished')}
-                                        className={`px-3.5 py-2 rounded-xl font-black text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                                        className={`px-3.5 py-2 rounded-xl font-black text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center gap-2 transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                                             audiobookShelfViewMode === 'finished'
                                                 ? 'bg-emerald-400 text-black shadow-lg shadow-emerald-500/25'
                                                 : 'text-amber-200/70 hover:text-white hover:bg-white/5'

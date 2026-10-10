@@ -112,13 +112,13 @@ export function AudiobooksMediaManager() {
     const fetchAll = useCallback(async () => {
         try {
             const [itemsRes, studioRes] = await Promise.all([
-                fetch('/api/theater/items'),
+                fetch('/api/theater/items?type=audiobooks'),
                 fetch('/api/theater/audiobooks/studio')
             ]);
             if (itemsRes.ok) {
                 const itemsData = await itemsRes.json();
                 const allItems = Array.isArray(itemsData?.items) ? itemsData.items : [];
-                setRawItems(allItems.filter((i: any) => i.type === 'audiobook' || i.libraryType === 'audiobooks'));
+                setRawItems(allItems.filter((i: any) => i.isAudiobook || i.type === 'audiobook' || i.libraryType === 'audiobooks'));
             }
             if (studioRes.ok) {
                 const sData = await studioRes.json();
@@ -178,6 +178,30 @@ export function AudiobooksMediaManager() {
             entry.totalDurationMs += item.durationMs || 0;
             entry.sizeBytes += item.sizeBytes || 0;
             if (!entry.posterUrl && item.posterUrl) entry.posterUrl = item.posterUrl;
+        }
+
+        // Also include any books saved in SQLite studioBooksMap that weren't in rawItems
+        for (const meta of Object.values(studioBooksMap)) {
+            if (!meta?.title) continue;
+            const parsed = canonicalizeAuthorClient(meta.canonical_author || meta.author);
+            const key = `${parsed.canonicalAuthor}:::${meta.title.trim()}`.toLowerCase();
+            const alreadyMatched = Array.from(map.values()).some(
+                b => b.bookKey === meta.book_key || b.title.toLowerCase() === String(meta.title).trim().toLowerCase()
+            );
+            if (!alreadyMatched && !map.has(key)) {
+                map.set(key, {
+                    id: `ab-${key}`,
+                    bookKey: meta.book_key,
+                    title: String(meta.title).trim(),
+                    author: parsed.canonicalAuthor,
+                    translator: meta.translator || parsed.translator || null,
+                    narrator: meta.narrator || parsed.narrator || null,
+                    posterUrl: meta.cover_url || null,
+                    chapters: [],
+                    totalDurationMs: Number(meta.total_duration_sec || 0) * 1000,
+                    sizeBytes: 0
+                });
+            }
         }
 
         const list = Array.from(map.values()).map(book => {
@@ -445,14 +469,14 @@ export function AudiobooksMediaManager() {
     return (
         <div className="space-y-6">
             {/* Top Management Navigation Strip */}
-            <div className="p-5 rounded-[2rem] bg-zinc-950/90 border border-zinc-800/80 flex flex-col lg:flex-row lg:items-center justify-between gap-4 shadow-xl">
-                <div className="space-y-1">
-                    <div className="flex items-center gap-2.5">
-                        <span className="px-2.5 py-1 rounded-xl bg-orange-500/15 text-orange-400 border border-orange-500/30 text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
+            <div className="p-5 rounded-[2rem] bg-zinc-950/90 border border-zinc-800/80 flex flex-col xl:flex-row xl:items-center justify-between gap-4 shadow-xl">
+                <div className="space-y-1 min-w-0">
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                        <span className="px-2.5 py-1 rounded-xl bg-orange-500/15 text-orange-400 border border-orange-500/30 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shrink-0">
                             <BookOpen size={14} /> Audiobook Studio &amp; Library Manager
                         </span>
                         {workerState?.running && (
-                            <span className="px-2.5 py-1 rounded-xl bg-amber-500/15 text-amber-300 border border-amber-500/30 text-xs font-mono font-bold flex items-center gap-1.5 animate-pulse">
+                            <span className="px-2.5 py-1 rounded-xl bg-amber-500/15 text-amber-300 border border-amber-500/30 text-xs font-mono font-bold flex items-center gap-1.5 animate-pulse shrink-0">
                                 <RefreshCw size={12} className="animate-spin" />
                                 {workerState.currentTask || 'Processing queue...'}
                             </span>
@@ -463,41 +487,39 @@ export function AudiobooksMediaManager() {
                     </p>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
-                    <div className="flex bg-zinc-900 p-1 rounded-2xl border border-zinc-800 flex-wrap gap-1">
-                        <button
-                            onClick={() => setActiveSubTab('books')}
-                            className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${
-                                activeSubTab === 'books' ? 'bg-orange-500 text-black shadow' : 'text-zinc-400 hover:text-white'
-                            }`}
-                        >
-                            <BookOpen size={14} /> Books &amp; Metadata ({groupedBooks.length})
-                        </button>
-                        <button
-                            onClick={() => setActiveSubTab('collections')}
-                            className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${
-                                activeSubTab === 'collections' ? 'bg-orange-500 text-black shadow' : 'text-zinc-400 hover:text-white'
-                            }`}
-                        >
-                            <Layers size={14} /> Collections ({collections.length})
-                        </button>
-                        <button
-                            onClick={() => setActiveSubTab('renamer')}
-                            className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${
-                                activeSubTab === 'renamer' ? 'bg-orange-500 text-black shadow' : 'text-zinc-400 hover:text-white'
-                            }`}
-                        >
-                            <Wrench size={14} /> File Renamer
-                        </button>
-                        <button
-                            onClick={() => setActiveSubTab('queue_settings')}
-                            className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${
-                                activeSubTab === 'queue_settings' ? 'bg-orange-500 text-black shadow' : 'text-zinc-400 hover:text-white'
-                            }`}
-                        >
-                            <Sliders size={14} /> AI Queue &amp; Defaults ({queuedBooks.length})
-                        </button>
-                    </div>
+                <div className="flex items-center bg-zinc-900 p-1.5 rounded-2xl border border-zinc-800 gap-1.5 overflow-x-auto flex-nowrap max-w-full shrink-0">
+                    <button
+                        onClick={() => setActiveSubTab('books')}
+                        className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                            activeSubTab === 'books' ? 'bg-orange-500 text-black shadow' : 'text-zinc-400 hover:text-white'
+                        }`}
+                    >
+                        <BookOpen size={14} /> Books &amp; Metadata ({groupedBooks.length})
+                    </button>
+                    <button
+                        onClick={() => setActiveSubTab('collections')}
+                        className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                            activeSubTab === 'collections' ? 'bg-orange-500 text-black shadow' : 'text-zinc-400 hover:text-white'
+                        }`}
+                    >
+                        <Layers size={14} /> Collections ({collections.length})
+                    </button>
+                    <button
+                        onClick={() => setActiveSubTab('renamer')}
+                        className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                            activeSubTab === 'renamer' ? 'bg-orange-500 text-black shadow' : 'text-zinc-400 hover:text-white'
+                        }`}
+                    >
+                        <Wrench size={14} /> File Renamer
+                    </button>
+                    <button
+                        onClick={() => setActiveSubTab('queue_settings')}
+                        className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                            activeSubTab === 'queue_settings' ? 'bg-orange-500 text-black shadow' : 'text-zinc-400 hover:text-white'
+                        }`}
+                    >
+                        <Sliders size={14} /> AI Queue &amp; Defaults ({queuedBooks.length})
+                    </button>
                 </div>
             </div>
 

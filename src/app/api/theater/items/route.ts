@@ -301,12 +301,76 @@ export async function GET(req: Request) {
             });
         }
 
-        // ── 3. Scan / Fetch Items in Library ──
+        // ── 3. Scan / Fetch Items in Library (or Aggregate Across Libraries if libraryId omitted) ──
+        const libraries = getTheaterLibraries();
         if (!libraryId) {
-            return NextResponse.json({ error: 'libraryId is required' }, { status: 400 });
+            const typeFilter = (searchParams.get('type') || '').toLowerCase().trim();
+            const targetLibs = libraries.filter(l => {
+                if (l.type === 'live') return false;
+                if (!typeFilter) return true;
+                if (typeFilter === 'audiobooks' || typeFilter === 'audiobook') {
+                    return l.type === 'audiobooks' || /\b(audiobooks?|spoken\s*word)\b/i.test(l.name || '');
+                }
+                return l.type === typeFilter;
+            });
+
+            const aggregatedItems: any[] = [];
+            for (const targetLib of targetLibs) {
+                const isTargetAudiobooks = targetLib.type === 'audiobooks' || /\b(audiobooks?|spoken\s*word)\b/i.test(targetLib.name || '');
+                const cached = !refresh ? getCachedTheaterItems(targetLib.id) : null;
+                let libItems: any[] = [];
+
+                if (cached && Array.isArray(cached.items) && cached.items.length > 0) {
+                    libItems = cached.items;
+                } else {
+                    let folderList: string[] = [];
+                    try {
+                        folderList = typeof targetLib.folders === 'string' ? JSON.parse(targetLib.folders) : (Array.isArray(targetLib.folders) ? targetLib.folders : []);
+                    } catch {
+                        folderList = [];
+                    }
+                    for (const folder of folderList) {
+                        if (fs.existsSync(folder)) {
+                            libItems.push(...scanDirectory(folder, 8, 0, targetLib));
+                        }
+                    }
+                    if (libItems.length > 0) {
+                        saveCachedTheaterItems(targetLib.id, libItems);
+                    }
+                }
+
+                for (const it of libItems) {
+                    if (isTargetAudiobooks) {
+                        const parsed = parseAndCanonicalizeAuthor(it.artist || '', it.album || it.title || '');
+                        aggregatedItems.push({
+                            ...it,
+                            libraryId: targetLib.id,
+                            libraryName: targetLib.name,
+                            libraryType: targetLib.type,
+                            type: it.type || 'audiobook',
+                            isAudiobook: true,
+                            artist: parsed.canonicalAuthor || it.artist,
+                            album: parsed.cleanTitle || it.album,
+                            translator: it.translator || parsed.translator,
+                            narrator: it.narrator || parsed.narrator,
+                        });
+                    } else {
+                        aggregatedItems.push({
+                            ...it,
+                            libraryId: targetLib.id,
+                            libraryName: targetLib.name,
+                            libraryType: targetLib.type,
+                        });
+                    }
+                }
+            }
+
+            return NextResponse.json({
+                items: aggregatedItems,
+                total: aggregatedItems.length,
+            });
         }
 
-        const libraries = getTheaterLibraries();
         const lib = libraries.find(l => l.id === libraryId);
 
         if (!lib) {

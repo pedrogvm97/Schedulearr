@@ -1631,131 +1631,63 @@ function DiscoverPageContent() {
             <Toaster position="top-right" theme="dark" richColors />
             <div className="space-y-6 pb-20">
                 {/* ── Main Top Bar ── */}
-                <div className="bg-[#09090b]/80 border border-zinc-800/80 backdrop-blur-2xl p-4 sm:p-5 rounded-[2.5rem] shadow-2xl space-y-4">
-                    <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
-                        <div className="flex flex-wrap items-center gap-3 min-w-0">
-                            {/* Page Title */}
-                            <div className="flex items-center justify-between shrink-0 mr-1">
-                                <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight flex items-center gap-2">
-                                    Media
-                                </h1>
-                            </div>
+                <div className="bg-[#09090b]/80 border border-zinc-800/80 backdrop-blur-2xl p-4 sm:p-5 rounded-[2.5rem] shadow-2xl space-y-3.5">
+                    {/* Row 1: Page Title + Media Type Tabs (Left) | Libraries & Folders + Refresh (Right) */}
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex items-center gap-3 min-w-0 max-w-full">
+                            <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight shrink-0 mr-1">
+                                Media
+                            </h1>
 
-                            {/* Controls Pills Row with Wrapping (No clipping or truncation) */}
-                            <div className="flex flex-wrap items-center gap-2.5">
-                                {/* Media Type Toggle: Movies | Series | Music | Audiobooks | Live TV & DVR */}
-                                <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner shrink-0 flex-wrap gap-1">
-                                    <button 
-                                        onClick={() => setMediaType('movie')} 
-                                        className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 text-xs font-black rounded-xl transition-all whitespace-nowrap ${mediaType === 'movie' ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                    >
-                                        <Film size={15} /> Movies
-                                    </button>
-                                    <button 
-                                        onClick={() => setMediaType('series')} 
-                                        className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 text-xs font-black rounded-xl transition-all whitespace-nowrap ${mediaType === 'series' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                    >
-                                        <Tv size={15} /> Series
-                                    </button>
-                                    <button 
-                                        onClick={() => {
-                                            setMediaType('music');
-                                            if (musicResults.length === 0) handleMusicSearch('');
-                                        }} 
-                                        className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 text-xs font-black rounded-xl transition-all whitespace-nowrap ${mediaType === 'music' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                    >
-                                        <Disc size={15} /> Music
-                                    </button>
-                                    <button 
-                                        onClick={() => setMediaType('audiobooks')} 
-                                        className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 text-xs font-black rounded-xl transition-all whitespace-nowrap ${mediaType === 'audiobooks' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/40 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                    >
-                                        <BookOpen size={15} /> Audiobooks
-                                    </button>
-                                    <button 
-                                        onClick={() => setMediaType('iptv_dvr')} 
-                                        className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 text-xs font-black rounded-xl transition-all whitespace-nowrap ${mediaType === 'iptv_dvr' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                    >
-                                        <Tv size={15} /> Live TV &amp; DVR
-                                    </button>
-                                </div>
-
-                                {/* Status Filter: All | In Library | Not in Library */}
-                                {mediaType !== 'iptv_dvr' && mediaType !== 'audiobooks' && (
-                                    <div className="flex bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner shrink-0">
-                                        <button 
-                                            onClick={() => setStatusFilter('all')} 
-                                            className={`px-3.5 py-2 text-xs font-black rounded-xl transition-all whitespace-nowrap ${statusFilter === 'all' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                        >
-                                            All ({mediaType === 'music' ? musicResults.length : unifiedPool.length})
-                                        </button>
-                                        <button 
-                                            onClick={() => setStatusFilter('in_library')} 
-                                            className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-black rounded-xl transition-all whitespace-nowrap ${statusFilter === 'in_library' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                        >
-                                            <CheckCircle size={13} className="text-emerald-500" /> In Library
-                                        </button>
-                                        <button 
-                                            onClick={() => setStatusFilter('not_in_library')} 
-                                            className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-black rounded-xl transition-all whitespace-nowrap ${statusFilter === 'not_in_library' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                        >
-                                            <Sparkles size={13} className="text-amber-500" /> Not in Library
-                                        </button>
-                                    </div>
-                                )}
+                            {/* Media Type Toggle: Movies | Series | Music | Audiobooks | Live TV & DVR */}
+                            <div className="flex items-center bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner overflow-x-auto flex-nowrap gap-1 max-w-full">
+                                <button 
+                                    onClick={() => setMediaType('movie')} 
+                                    className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap shrink-0 cursor-pointer ${mediaType === 'movie' ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                >
+                                    <Film size={15} /> Movies
+                                </button>
+                                <button 
+                                    onClick={() => setMediaType('series')} 
+                                    className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap shrink-0 cursor-pointer ${mediaType === 'series' ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                >
+                                    <Tv size={15} /> Series
+                                </button>
+                                <button 
+                                    onClick={() => {
+                                        setMediaType('music');
+                                        if (musicResults.length === 0) handleMusicSearch('');
+                                    }} 
+                                    className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap shrink-0 cursor-pointer ${mediaType === 'music' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                >
+                                    <Disc size={15} /> Music
+                                </button>
+                                <button 
+                                    onClick={() => setMediaType('audiobooks')} 
+                                    className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap shrink-0 cursor-pointer ${mediaType === 'audiobooks' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/40 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                >
+                                    <BookOpen size={15} /> Audiobooks
+                                </button>
+                                <button 
+                                    onClick={() => setMediaType('iptv_dvr')} 
+                                    className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-black rounded-xl transition-all whitespace-nowrap shrink-0 cursor-pointer ${mediaType === 'iptv_dvr' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                >
+                                    <Tv size={15} /> Live TV &amp; DVR
+                                </button>
                             </div>
                         </div>
 
-                        {/* Search + Action Buttons */}
-                        <div className="flex items-center gap-3 w-full xl:w-auto">
-                            {mediaType !== 'iptv_dvr' && mediaType !== 'audiobooks' && (
-                                <>
-                                    <div className="relative flex-1 xl:w-80 min-w-[200px]">
-                                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
-                                        <input
-                                            type="text"
-                                            placeholder={mediaType === 'movie' ? 'Search movies...' : mediaType === 'series' ? 'Search series...' : 'Search artists, albums, songs, labels...'}
-                                            value={searchQuery}
-                                            onChange={e => setSearchQuery(e.target.value)}
-                                            className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl pl-10 pr-9 py-2.5 text-xs text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all placeholder-zinc-600 font-medium"
-                                        />
-                                        {searchQuery && (
-                                            <button
-                                                type="button"
-                                                onClick={() => setSearchQuery('')}
-                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
-                                            >
-                                                <X size={14} />
-                                            </button>
-                                        )}
-                                    </div>
-
-                                    {/* Filters Toggle Button */}
-                                    <button
-                                        onClick={() => setShowFilters(!showFilters)}
-                                        className={`flex items-center gap-2 px-4 py-2.5 text-xs font-black rounded-2xl border transition-all shrink-0 whitespace-nowrap ${
-                                            showFilters
-                                                ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-sm'
-                                                : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-zinc-200'
-                                        }`}
-                                    >
-                                        <Filter size={14} />
-                                        <span>Filters</span>
-                                    </button>
-                                </>
-                            )}
-
-                            {/* Libraries & Folders Management (Universal access across Movies, Series, Music, Audiobooks, and Live TV) */}
+                        {/* Universal Library & Cache Actions */}
+                        <div className="flex items-center gap-2.5 shrink-0 ml-auto">
                             <button
                                 onClick={() => setIsManageLibrariesOpen(true)}
-                                className="flex items-center gap-2 px-4 py-2.5 text-sm font-black rounded-2xl border transition-all shrink-0 whitespace-nowrap bg-zinc-950 text-zinc-300 border-zinc-800 hover:text-white hover:border-zinc-700 hover:bg-zinc-900 shadow-sm cursor-pointer"
+                                className="flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black rounded-2xl border transition-all shrink-0 whitespace-nowrap bg-zinc-950 text-zinc-300 border-zinc-800 hover:text-white hover:border-zinc-700 hover:bg-zinc-900 shadow-sm cursor-pointer"
                                 title="Manage Media Libraries & Folders"
                             >
                                 <FolderPlus size={16} className="text-emerald-400" />
-                                <span>Libraries & Folders</span>
+                                <span>Libraries &amp; Folders</span>
                             </button>
 
-                            {/* Refresh Cache */}
                             {mediaType !== 'iptv_dvr' && mediaType !== 'audiobooks' && (
                                 <button
                                     onClick={() => loadLibrary()}
@@ -1767,6 +1699,68 @@ function DiscoverPageContent() {
                             )}
                         </div>
                     </div>
+
+                    {/* Row 2: Status Filter (Left) + Search & Filters (Right) */}
+                    {mediaType !== 'iptv_dvr' && mediaType !== 'audiobooks' && (
+                        <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-zinc-900/70">
+                            {/* Status Filter: All | In Library | Not in Library */}
+                            <div className="flex items-center bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800/80 shadow-inner overflow-x-auto flex-nowrap gap-1 max-w-full shrink-0">
+                                <button 
+                                    onClick={() => setStatusFilter('all')} 
+                                    className={`px-3.5 py-2 text-xs font-black rounded-xl transition-all whitespace-nowrap shrink-0 cursor-pointer ${statusFilter === 'all' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                >
+                                    All ({mediaType === 'music' ? musicResults.length : unifiedPool.length})
+                                </button>
+                                <button 
+                                    onClick={() => setStatusFilter('in_library')} 
+                                    className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-black rounded-xl transition-all whitespace-nowrap shrink-0 cursor-pointer ${statusFilter === 'in_library' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                >
+                                    <CheckCircle size={13} className="text-emerald-500" /> In Library
+                                </button>
+                                <button 
+                                    onClick={() => setStatusFilter('not_in_library')} 
+                                    className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-black rounded-xl transition-all whitespace-nowrap shrink-0 cursor-pointer ${statusFilter === 'not_in_library' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                >
+                                    <Sparkles size={13} className="text-amber-500" /> Not in Library
+                                </button>
+                            </div>
+
+                            {/* Search + Filters Toggle */}
+                            <div className="flex items-center gap-2.5 flex-1 sm:flex-initial justify-end min-w-[260px] max-w-full sm:w-auto">
+                                <div className="relative flex-1 sm:w-80 md:w-96">
+                                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
+                                    <input
+                                        type="text"
+                                        placeholder={mediaType === 'movie' ? 'Search movies...' : mediaType === 'series' ? 'Search series...' : 'Search artists, albums, songs, labels...'}
+                                        value={searchQuery}
+                                        onChange={e => setSearchQuery(e.target.value)}
+                                        className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl pl-10 pr-9 py-2.5 text-xs sm:text-sm text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 outline-none transition-all placeholder-zinc-600 font-medium"
+                                    />
+                                    {searchQuery && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setSearchQuery('')}
+                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                                        >
+                                            <X size={14} />
+                                        </button>
+                                    )}
+                                </div>
+
+                                <button
+                                    onClick={() => setShowFilters(!showFilters)}
+                                    className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-black rounded-2xl border transition-all shrink-0 whitespace-nowrap cursor-pointer ${
+                                        showFilters
+                                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-sm'
+                                            : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-zinc-200'
+                                    }`}
+                                >
+                                    <Filter size={14} />
+                                    <span>Filters</span>
+                                </button>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Instance Filter Pills (Dedicated Row below, consistent across both tabs) */}
                     {mediaType !== 'iptv_dvr' && mediaType !== 'audiobooks' && availableInstances.length > 1 && (

@@ -8,6 +8,11 @@ import { initAutoUpdater } from '@/lib/autoUpdater';
 export const dynamic = 'force-dynamic';
 
 const FALLBACK_GIT_NOTES = [
+  '• [v0.6.8] Fix Theater tab loading across all libraries, fix Media top bar overlap, and fix Audiobook Studio sub-tab wrapping & item aggregation',
+  '  - Fix empty Set lockout in Theater enabledLibsByTab state and normalize library type matching across Movie, Series, Live TV, Music, Audiobooks, and Photos tabs',
+  '  - Restructure Media (/discover) top navigation into two non-overlapping rows so Media Type tabs, Status Filters, and Search never collide',
+  '  - Fix 4-button sub-tab pill wrapping in Audiobooks Media Manager and Theater Audiobook Shelf so all 4 options stay on a single row',
+  '  - Support library aggregation in /api/theater/items when libraryId is omitted and bump SQLite schema version to 13 so all audiobook_books_meta columns migrate cleanly',
   '• [v0.6.7] Author canonicalization, real Speech-to-Text & 3-card Storyboard player, Bedside Table & My Reads, Media tab Audiobooks & Live TV manager',
   '  - Strip/extract translator, narrator, editor, and lifespan tags so books by the same author always group under one canonical author',
   '  - Fix 0 API hits in Audiobook Studio by persisting chapter file paths, syncing key pools, and running real chunked Speech-to-Text without placeholder lines',
@@ -43,7 +48,7 @@ export async function GET() {
 
   try {
     // 1. Get current version from package.json or system fallback
-    let currentVersion = '0.6.7';
+    let currentVersion = '0.6.8';
     const possiblePaths = [
       path.join(process.cwd(), 'package.json'),
       path.join(process.cwd(), '..', 'package.json'),

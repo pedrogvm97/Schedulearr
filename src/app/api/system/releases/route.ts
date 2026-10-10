@@ -66,7 +66,7 @@ export async function GET() {
       ? commitsSettled.value.data
       : [];
 
-    let currentBucketTag = 'v0.6.7';
+    let currentBucketTag = 'v0.6.8';
     for (const c of commits) {
       const rawMsg: string = c?.commit?.message || '';
       if (!rawMsg) continue;
@@ -130,6 +130,13 @@ export async function GET() {
 
     // Ensure current versions are always present even if offline/rate-limited
     if (versionMap.size === 0) {
+      versionMap.set('v0.6.8', {
+        tag: 'v0.6.8',
+        name: 'v0.6.8',
+        publishedAt: new Date().toISOString(),
+        changelog: '• Fix Theater tab loading across all libraries, fix Media top bar overlap, and fix Audiobook Studio sub-tab wrapping & item aggregation',
+        prerelease: false
+      });
       versionMap.set('v0.6.7', {
         tag: 'v0.6.7',
         name: 'v0.6.7',

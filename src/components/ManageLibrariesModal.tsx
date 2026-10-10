@@ -391,12 +391,19 @@ export function ManageLibrariesModal({ isOpen, onClose, onLibrariesChanged }: Ma
 
     if (!isOpen) return null;
 
-    const filteredLibs = libraries.filter(l => activeTypeFilter === 'all' || l.type === activeTypeFilter);
+    const matchesModalTab = (libType: string, tab: string) => {
+        if (tab === 'all') return true;
+        if (tab === 'tv') return libType === 'tv' || libType === 'show' || libType === 'series';
+        return libType === tab;
+    };
+
+    const filteredLibs = libraries.filter(l => matchesModalTab(l.type, activeTypeFilter));
 
     const getTypeIcon = (type: string) => {
         switch (type) {
             case 'movie': return <Film size={15} className="text-indigo-400" />;
-            case 'tv': return <Tv size={15} className="text-emerald-400" />;
+            case 'tv':
+            case 'show': return <Tv size={15} className="text-emerald-400" />;
             case 'music': return <Disc size={15} className="text-amber-400" />;
             case 'audiobooks': return <BookOpen size={15} className="text-orange-400" />;
             case 'live': return <Tv2 size={15} className="text-red-400" />;
@@ -407,7 +414,8 @@ export function ManageLibrariesModal({ isOpen, onClose, onLibrariesChanged }: Ma
     const getTypeBadgeClass = (type: string) => {
         switch (type) {
             case 'movie': return 'bg-indigo-500/15 text-indigo-400 border-indigo-500/30';
-            case 'tv': return 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30';
+            case 'tv':
+            case 'show': return 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30';
             case 'music': return 'bg-amber-500/15 text-amber-400 border-amber-500/30';
             case 'audiobooks': return 'bg-orange-500/15 text-orange-400 border-orange-500/30';
             case 'live': return 'bg-red-500/15 text-red-400 border-red-500/30';
@@ -460,7 +468,7 @@ export function ManageLibrariesModal({ isOpen, onClose, onLibrariesChanged }: Ma
                             >
                                 {tab === 'all' ? 'All' : tab === 'movie' ? 'Movies' : tab === 'tv' ? 'TV Shows' : tab === 'music' ? 'Music' : tab === 'audiobooks' ? 'Audiobooks' : 'Live TV'}
                                 <span className="text-[10px] opacity-60">
-                                    ({tab === 'all' ? libraries.length : libraries.filter(l => l.type === tab).length})
+                                    ({tab === 'all' ? libraries.length : libraries.filter(l => matchesModalTab(l.type, tab)).length})
                                 </span>
                             </button>
                         ))}
