@@ -5789,15 +5789,6 @@ function TheaterPageContent() {
                                 </div>
 
                                 <div className="flex items-center gap-2.5 self-end lg:self-auto flex-wrap">
-                                    <button
-                                        onClick={handleAiOrganizeCollections}
-                                        disabled={isAiOrganizingCollections}
-                                        title="Run AI Matcher to clean book titles, infer publication years, and group series into collections"
-                                        className="px-4 py-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 text-sm font-black flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
-                                    >
-                                        {isAiOrganizingCollections ? <RefreshCw size={18} className="animate-spin text-amber-300" /> : <Sparkles size={18} className="text-amber-300" />}
-                                        <span>Match</span>
-                                    </button>
                                     <Link
                                         href="/discover?tab=audiobooks"
                                         className="px-4 py-2.5 rounded-xl bg-zinc-900/90 hover:bg-zinc-800 text-amber-100 hover:text-white border border-amber-900/50 text-sm font-black flex items-center gap-2 transition-all"
@@ -6083,55 +6074,33 @@ function TheaterPageContent() {
                                                         <BookOpen size={20} />
                                                         <span>Open ({col.books.length})</span>
                                                     </button>
-                                                    <div className="flex items-center gap-2 w-full">
-                                                        <button
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                openCreateOrEditCollection(col);
-                                                            }}
-                                                            className="flex-1 py-2.5 px-3 rounded-xl bg-purple-500/35 hover:bg-purple-500/55 text-purple-100 border border-purple-400/50 font-black text-xs sm:text-sm uppercase flex items-center justify-center gap-1.5 cursor-pointer"
-                                                            title="Edit books in this Collection"
-                                                        >
-                                                            <Edit3 size={16} />
-                                                            <span>Edit</span>
-                                                        </button>
-                                                        <button
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                handleExplodeCollection(col);
-                                                            }}
-                                                            className="flex-1 py-2.5 px-3 rounded-xl bg-red-500/30 hover:bg-red-500/50 text-red-100 border border-red-400/50 font-black text-xs sm:text-sm uppercase flex items-center justify-center gap-1.5 cursor-pointer"
-                                                            title="Ungroup Collection and show individual books on the shelf"
-                                                        >
-                                                            <Minimize2 size={16} />
-                                                            <span>Split</span>
-                                                        </button>
-                                                    </div>
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            const allChapters = (col.books || []).flatMap((b: any) => b.chapters || []);
+                                                            if (allChapters.length > 0) {
+                                                                handlePlayAlbum(allChapters);
+                                                                openExpandedPlayer();
+                                                            }
+                                                        }}
+                                                        title={`Play all ${col.books.length} books in "${col.name}"`}
+                                                        className="w-full py-2.5 px-4 rounded-2xl bg-purple-600 hover:bg-purple-500 text-white font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg cursor-pointer"
+                                                    >
+                                                        <Play size={18} className="fill-white" />
+                                                        <span>Play</span>
+                                                    </button>
                                                 </div>
                                             </div>
 
                                             {/* Collection Footer & Metrics Below */}
                                             <div className="p-4 pl-6 bg-[#120c1c] space-y-2.5 flex-1 flex flex-col justify-between">
-                                                <div className="flex items-start justify-between gap-2">
-                                                    <div className="min-w-0 space-y-1">
-                                                        <h3 className="font-black text-white text-lg sm:text-xl leading-snug line-clamp-2 group-hover:text-amber-300 transition-colors" title={col.name}>
-                                                            {col.name}
-                                                        </h3>
-                                                        <p className="text-sm sm:text-base text-purple-200/90 truncate font-bold">
-                                                            {col.author}
-                                                        </p>
-                                                    </div>
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            handleExplodeCollection(col);
-                                                        }}
-                                                        className="px-2.5 py-1.5 rounded-xl bg-red-500/20 hover:bg-red-500/35 text-red-200 border border-red-500/40 text-xs font-black uppercase shrink-0 transition-all cursor-pointer flex items-center gap-1"
-                                                        title="Ungroup Collection back into individual books on the shelf"
-                                                    >
-                                                        <Minimize2 size={13} />
-                                                        <span>Split</span>
-                                                    </button>
+                                                <div className="min-w-0 space-y-1">
+                                                    <h3 className="font-black text-white text-lg sm:text-xl leading-snug line-clamp-2 group-hover:text-amber-300 transition-colors" title={col.name}>
+                                                        {col.name}
+                                                    </h3>
+                                                    <p className="text-sm sm:text-base text-purple-200/90 truncate font-bold">
+                                                        {col.author}
+                                                    </p>
                                                 </div>
 
                                                 {/* Metrics Row Below Collection: Total Duration & Year Span */}
@@ -7918,283 +7887,98 @@ function TheaterPageContent() {
                                         <Check size={14} />
                                         {isFinished ? 'Finished (In My Reads)' : 'Mark Finished'}
                                     </button>
+                                    <Link
+                                        href={`/discover?tab=audiobooks&bookKey=${encodeURIComponent(bKey)}`}
+                                        className="px-4 py-2.5 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-amber-200 border border-zinc-800 font-bold text-xs flex items-center gap-1.5 transition-all"
+                                        title="Open this audiobook in the Media tab to edit metadata, chapters, transcriptions, and scene illustrations"
+                                    >
+                                        <Sliders size={14} className="text-amber-400" />
+                                        <span>Edit in Media</span>
+                                    </Link>
                                 </div>
 
-                                {/* Modal View Switcher: Overview & Chapters vs. Generate */}
-                                <div className="pt-3 flex items-center justify-center sm:justify-start gap-2">
-                                    <div className="inline-flex items-center bg-zinc-950 p-1 rounded-2xl border border-zinc-800">
-                                        <button
-                                            onClick={() => setBookModalTab('overview')}
-                                            className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${
-                                                bookModalTab === 'overview'
-                                                    ? 'bg-orange-500 text-black shadow'
-                                                    : 'text-zinc-400 hover:text-white'
-                                            }`}
+                                {/* Quick Playback Settings Strip (Voice Preset & Cover View) */}
+                                <div className="pt-3 flex items-center justify-center sm:justify-start gap-3 flex-wrap">
+                                    <div className="flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-zinc-950 border border-zinc-800">
+                                        <Headphones size={15} className="text-emerald-400 shrink-0" />
+                                        <span className="text-xs font-black uppercase tracking-wider text-zinc-400">Voice:</span>
+                                        <select
+                                            value={bMeta?.voice_preset || 'original'}
+                                            onChange={(e) => handleSaveBookStudioSettings(selectedAudiobook, { voicePreset: e.target.value })}
+                                            className="bg-transparent text-xs sm:text-sm font-bold text-white focus:outline-none cursor-pointer"
+                                            title="Select default narrator voice preset for playback"
                                         >
-                                            <BookOpen size={13} /> Overview &amp; Chapters
-                                        </button>
-                                        <button
-                                            onClick={() => setBookModalTab('generate')}
-                                            className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${
-                                                bookModalTab === 'generate'
-                                                    ? 'bg-amber-500 text-black shadow'
-                                                    : 'text-zinc-400 hover:text-white'
-                                            }`}
-                                        >
-                                            <Sparkles size={13} /> Generate ({totalPct}%)
-                                        </button>
+                                            <option value="original" className="bg-zinc-900 text-white">Original Narrator</option>
+                                            <option value="warm_storyteller" className="bg-zinc-900 text-white">Warm Fireside Storyteller</option>
+                                            <option value="deep_narrator" className="bg-zinc-900 text-white">Deep Resonant Baritone</option>
+                                            <option value="crisp_clear" className="bg-zinc-900 text-white">Crisp Studio Articulation</option>
+                                            <option value="soft_velvet" className="bg-zinc-900 text-white">Soft Velvet Reader</option>
+                                            <option value="late_night_radio" className="bg-zinc-900 text-white">Late-Night FM Radio</option>
+                                        </select>
                                     </div>
+
+                                    {bMeta?.custom_cover_url && !bMeta.custom_cover_url.toLowerCase().includes('.svg') && (
+                                        <button
+                                            onClick={() => handleToggleCustomCoverForBook(selectedAudiobook)}
+                                            className="px-3.5 py-2 rounded-2xl bg-zinc-950 hover:bg-zinc-900 text-amber-300 border border-zinc-800 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                                            title="Switch between Original Cover and AI Cover for playback display"
+                                        >
+                                            <ImageIcon size={14} />
+                                            <span>{bMeta?.use_custom_cover ? 'Cover: Custom AI' : 'Cover: Original'}</span>
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         </div>
 
-                        {/* ── TAB 1: OVERVIEW & CHAPTERS ── */}
-                        {bookModalTab === 'overview' && (
-                            <div className="space-y-5">
-                                {/* Synopsis & Author Bio Grid */}
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {/* Book Synopsis */}
-                                    <div className="p-5 rounded-3xl bg-zinc-950/70 border border-zinc-900 space-y-2">
-                                        <h3 className="text-xs font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
-                                            <BookText size={14} className="text-orange-400" />
-                                            Book Synopsis
-                                        </h3>
-                                        {audiobookDetails?.description ? (
-                                            <p className="text-xs text-zinc-300 leading-relaxed max-h-48 overflow-y-auto custom-scrollbar pr-1">
-                                                {audiobookDetails.description}
-                                            </p>
-                                        ) : audiobookDetails?.loading ? (
-                                            <p className="text-xs text-zinc-500 italic">Looking up book synopsis from OpenLibrary &amp; iTunes...</p>
-                                        ) : (
-                                            <p className="text-xs text-zinc-600 italic">No synopsis available for this title.</p>
-                                        )}
-                                    </div>
+                        {/* ── OVERVIEW: SYNOPSIS & AUTHOR BIO ── */}
+                        <div className="space-y-5">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {/* Book Synopsis */}
+                                <div className="p-5 rounded-3xl bg-zinc-950/70 border border-zinc-900 space-y-2">
+                                    <h3 className="text-xs font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                                        <BookText size={14} className="text-orange-400" />
+                                        Book Synopsis
+                                    </h3>
+                                    {audiobookDetails?.description ? (
+                                        <p className="text-xs sm:text-sm text-zinc-300 leading-relaxed max-h-48 overflow-y-auto custom-scrollbar pr-1">
+                                            {audiobookDetails.description}
+                                        </p>
+                                    ) : audiobookDetails?.loading ? (
+                                        <p className="text-xs text-zinc-500 italic">Looking up book synopsis from OpenLibrary &amp; iTunes...</p>
+                                    ) : (
+                                        <p className="text-xs text-zinc-600 italic">No synopsis available for this title.</p>
+                                    )}
+                                </div>
 
-                                    {/* Writer / Author Biography */}
-                                    <div className="p-5 rounded-3xl bg-zinc-950/70 border border-zinc-900 space-y-2">
-                                        <h3 className="text-xs font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
-                                            <User size={14} className="text-amber-400" />
-                                            About the Author ({selectedAudiobook.author})
-                                        </h3>
-                                        {audiobookDetails?.authorBio ? (
-                                            <p className="text-xs text-zinc-300 leading-relaxed max-h-48 overflow-y-auto custom-scrollbar pr-1 whitespace-pre-line">
-                                                {audiobookDetails.authorBio}
-                                            </p>
-                                        ) : audiobookDetails?.loading ? (
-                                            <p className="text-xs text-zinc-500 italic">Fetching writer biography...</p>
-                                        ) : (
-                                            <p className="text-xs text-zinc-600 italic">No author biography found on OpenLibrary.</p>
-                                        )}
-                                    </div>
+                                {/* Writer / Author Biography */}
+                                <div className="p-5 rounded-3xl bg-zinc-950/70 border border-zinc-900 space-y-2">
+                                    <h3 className="text-xs font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                                        <User size={14} className="text-amber-400" />
+                                        About the Author ({selectedAudiobook.author})
+                                    </h3>
+                                    {audiobookDetails?.authorBio ? (
+                                        <p className="text-xs sm:text-sm text-zinc-300 leading-relaxed max-h-48 overflow-y-auto custom-scrollbar pr-1 whitespace-pre-line">
+                                            {audiobookDetails.authorBio}
+                                        </p>
+                                    ) : audiobookDetails?.loading ? (
+                                        <p className="text-xs text-zinc-500 italic">Fetching writer biography...</p>
+                                    ) : (
+                                        <p className="text-xs text-zinc-600 italic">No author biography found on OpenLibrary.</p>
+                                    )}
                                 </div>
                             </div>
-                        )}
+                        </div>
 
-                        {/* ── TAB 2: GENERATE (Whole-Book Generation, Real Counters & Per-Book Settings) ── */}
-                        {bookModalTab === 'generate' && (
-                            <div className="p-5 rounded-3xl bg-gradient-to-b from-amber-950/20 via-zinc-950 to-zinc-950 border border-amber-500/30 space-y-5 animate-in fade-in duration-200">
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-4">
-                                    <div>
-                                        <h3 className="text-base font-black text-white flex items-center gap-2">
-                                            <Sparkles size={16} className="text-amber-400" />
-                                            Generate Synced Transcription &amp; Storyboard Art
-                                        </h3>
-                                        <p className="text-xs text-zinc-400 mt-0.5">
-                                            Queue the entire book for real Speech-to-Text transcription and scene illustrations, or click <strong className="text-zinc-200">Edit</strong> on any chapter below for individual controls.
-                                        </p>
-                                    </div>
-                                    <div className="flex items-center gap-2 flex-wrap shrink-0">
-                                        <button
-                                            onClick={() => handleQueueWholeBook(selectedAudiobook)}
-                                            className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-xs uppercase tracking-wider transition-all flex items-center gap-2 shadow-lg shadow-orange-500/20 cursor-pointer"
-                                        >
-                                            <Sparkles size={14} /> Generate Whole Book
-                                        </button>
-                                        <button
-                                            onClick={() => handleQueueAudiobook(selectedAudiobook, true)}
-                                            className="px-3.5 py-2.5 rounded-2xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-black text-xs uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer"
-                                        >
-                                            <Zap size={13} /> Prioritize #1
-                                        </button>
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleToggleCustomCoverForBook(selectedAudiobook);
-                                            }}
-                                            className="px-3.5 py-2.5 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-amber-300 border border-zinc-800 font-bold text-xs flex items-center gap-1.5 cursor-pointer"
-                                        >
-                                            <ImageIcon size={13} /> {bMeta?.custom_cover_url ? 'Toggle AI Cover' : '+ AI Cover'}
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {/* Real Progress Counters: Time Transcribed, Scenes Illustrated, Voice Clarity */}
-                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                    <div className="p-4 rounded-2xl bg-black/50 border border-amber-500/25 space-y-2">
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-[10px] font-black uppercase tracking-wider text-amber-400">Time Transcribed</span>
-                                            <span className="text-xs font-black font-mono text-amber-300">{transPct}%</span>
-                                        </div>
-                                        <p className="text-base font-black text-white font-mono">
-                                            {formatSecCounter(transcribedSec)}
-                                            {totalDurSec > 0 ? <span className="text-xs text-zinc-400 font-normal"> / {formatSecCounter(totalDurSec)}</span> : null}
-                                        </p>
-                                        <div className="w-full h-1.5 bg-zinc-900 rounded-full overflow-hidden">
-                                            <div className="h-full bg-amber-400 transition-all duration-300" style={{ width: `${transPct}%` }} />
-                                        </div>
-                                        <p className="text-[11px] text-zinc-400 font-mono">{transCh} of {totalCh} chapters transcribed</p>
-                                    </div>
-
-                                    <div className="p-4 rounded-2xl bg-black/50 border border-purple-500/25 space-y-2">
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-[10px] font-black uppercase tracking-wider text-purple-400">Scenes Illustrated</span>
-                                            <span className="text-xs font-black font-mono text-purple-300">{illPct}%</span>
-                                        </div>
-                                        <p className="text-base font-black text-white font-mono">
-                                            {totalBookScenes} <span className="text-xs text-zinc-400 font-normal">Scenes Painted</span>
-                                        </p>
-                                        <div className="w-full h-1.5 bg-zinc-900 rounded-full overflow-hidden">
-                                            <div className="h-full bg-purple-400 transition-all duration-300" style={{ width: `${illPct}%` }} />
-                                        </div>
-                                        <p className="text-[11px] text-zinc-400 font-mono">{illCh} of {totalCh} chapters illustrated</p>
-                                    </div>
-
-                                    <div className="p-4 rounded-2xl bg-black/50 border border-emerald-500/25 space-y-2">
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400">Voice &amp; Clarity</span>
-                                            <span className="text-xs font-black font-mono text-emerald-300">{enhPct}%</span>
-                                        </div>
-                                        <p className="text-base font-black text-white font-mono">
-                                            {enhCh} / {totalCh} <span className="text-xs text-zinc-400 font-normal">Chapters</span>
-                                        </p>
-                                        <div className="w-full h-1.5 bg-zinc-900 rounded-full overflow-hidden">
-                                            <div className="h-full bg-emerald-400 transition-all duration-300" style={{ width: `${enhPct}%` }} />
-                                        </div>
-                                        <p className="text-[11px] text-zinc-400 font-mono">Preset: {bMeta?.voice_preset || audiobookStudioConfig?.voicePreset || 'Original'}</p>
-                                    </div>
-                                </div>
-
-                                {/* Per-Book Creative Selectors */}
-                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-                                    <div className="space-y-1">
-                                        <label className="text-[10px] font-black uppercase tracking-wider text-zinc-400">Book Art Style</label>
-                                        <select
-                                            value={bMeta?.art_style || ''}
-                                            onChange={(e) => handleSaveBookStudioSettings(selectedAudiobook, { artStyle: e.target.value })}
-                                            className="w-full px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-bold text-white"
-                                        >
-                                            <option value="">Use Shelf Default ({audiobookStudioConfig?.artStyle || 'cinematic_concept'})</option>
-                                            <option value="cinematic_concept">Cinematic Concept Art</option>
-                                            <option value="oil_painting">Classical Oil Painting</option>
-                                            <option value="dark_fantasy">Dark Fantasy Illustration</option>
-                                            <option value="graphic_novel">Graphic Novel / Comic Ink</option>
-                                            <option value="watercolor">Storybook Watercolor</option>
-                                            <option value="anime_cel">Anime Feature Film Cel</option>
-                                            <option value="vintage_etching">Vintage Bookplate Etching</option>
-                                            <option value="noir_ink">Atmospheric Noir &amp; Chiaroscuro</option>
-                                        </select>
-                                    </div>
-
-                                    <div className="space-y-1">
-                                        <label className="text-[10px] font-black uppercase tracking-wider text-zinc-400">Narrator Voice Preset</label>
-                                        <select
-                                            value={bMeta?.voice_preset || ''}
-                                            onChange={(e) => handleSaveBookStudioSettings(selectedAudiobook, { voicePreset: e.target.value })}
-                                            className="w-full px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-bold text-white"
-                                        >
-                                            <option value="">Use Shelf Default ({audiobookStudioConfig?.voicePreset || 'warm_storyteller'})</option>
-                                            <option value="original">Original Narrator (Unchanged)</option>
-                                            <option value="warm_storyteller">Warm Fireside Storyteller</option>
-                                            <option value="deep_cinema">Deep Cinema Narrator</option>
-                                            <option value="crisp_modern">Crisp Studio Voice</option>
-                                            <option value="late_night_radio">Late-Night Velvet Radio</option>
-                                            <option value="velvet_narrator">Soft Intimate Audiobook</option>
-                                        </select>
-                                    </div>
-
-                                    <div className="space-y-1">
-                                        <label className="text-[10px] font-black uppercase tracking-wider text-zinc-400">Scenes Per Chapter</label>
-                                        <select
-                                            value={bMeta?.images_per_chapter || 0}
-                                            onChange={(e) => handleSaveBookStudioSettings(selectedAudiobook, { imagesPerChapter: Number(e.target.value) })}
-                                            className="w-full px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-bold text-white"
-                                        >
-                                            <option value={0}>Use Shelf Default ({audiobookStudioConfig?.imagesPerChapter || 2})</option>
-                                            <option value={1}>1 Scene per Chapter</option>
-                                            <option value={2}>2 Scenes per Chapter</option>
-                                            <option value={3}>3 Scenes per Chapter</option>
-                                            <option value={4}>4 Scenes per Chapter</option>
-                                            <option value={6}>6 Scenes per Chapter</option>
-                                        </select>
-                                    </div>
-
-                                    <div className="space-y-1">
-                                        <label className="text-[10px] font-black uppercase tracking-wider text-zinc-400">Scene Visual Focus</label>
-                                        <select
-                                            value={bMeta?.art_focus || ''}
-                                            onChange={(e) => handleSaveBookStudioSettings(selectedAudiobook, { artFocus: e.target.value })}
-                                            className="w-full px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-bold text-white"
-                                        >
-                                            <option value="">Use Shelf Default ({audiobookStudioConfig?.artFocus || 'balanced'})</option>
-                                            <option value="balanced">Balanced (Characters &amp; World)</option>
-                                            <option value="characters">Character Portraits &amp; Expressions</option>
-                                            <option value="environment">Landscapes &amp; Architecture</option>
-                                            <option value="action">Dramatic Action Moments</option>
-                                        </select>
-                                    </div>
-                                </div>
-
-                                {/* Character/Setting Notes & Reset Options */}
-                                <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 pt-1">
-                                    <div className="flex-1 space-y-1">
-                                        <label className="text-[10px] font-black uppercase tracking-wider text-zinc-400">
-                                            Book Character / Setting Visual Notes
-                                        </label>
-                                        <input
-                                            type="text"
-                                            defaultValue={bMeta?.custom_prompt || ''}
-                                            onBlur={(e) => {
-                                                if (e.target.value !== (bMeta?.custom_prompt || '')) {
-                                                    handleSaveBookStudioSettings(selectedAudiobook, { customPrompt: e.target.value });
-                                                }
-                                            }}
-                                            placeholder="e.g. Early 20th-century Prague apartment, muted oil palette..."
-                                            className="w-full px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-xs text-white placeholder:text-zinc-600 focus:outline-none focus:border-amber-400"
-                                        />
-                                    </div>
-                                    <div className="flex items-center gap-1.5 flex-wrap shrink-0">
-                                        <button
-                                            onClick={() => handleResetAndRedoBookAssets(selectedAudiobook, 'transcriptions')}
-                                            className="px-2.5 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-300 border border-red-500/25 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
-                                        >
-                                            <RotateCcw size={11} /> Redo STT
-                                        </button>
-                                        <button
-                                            onClick={() => handleResetAndRedoBookAssets(selectedAudiobook, 'art')}
-                                            className="px-2.5 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-300 border border-red-500/25 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
-                                        >
-                                            <RotateCcw size={11} /> Redo Art
-                                        </button>
-                                        <button
-                                            onClick={() => handleResetAndRedoBookAssets(selectedAudiobook, 'all')}
-                                            className="px-2.5 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/35 text-red-200 border border-red-500/30 text-[11px] font-black flex items-center gap-1 cursor-pointer"
-                                        >
-                                            <Trash2 size={11} /> Reset All
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Chapters Tracklist (Per-chapter Studio actions tucked behind explicit Edit button) */}
+                        {/* Chapters Tracklist (Pure Playback) */}
                         <div className="space-y-3 pt-1">
                             <div className="flex items-center justify-between gap-2 flex-wrap">
-                                <h3 className="text-xs font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
-                                    <BookMarked size={14} className="text-orange-400" />
+                                <h3 className="text-xs sm:text-sm font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                                    <BookMarked size={15} className="text-orange-400" />
                                     Chapters ({selectedAudiobook.chapters.length})
                                 </h3>
-                                <span className="text-[11px] text-zinc-500">
-                                    Click any chapter to listen, or click <strong className="text-zinc-300">Edit</strong> for individual chapter generation
+                                <span className="text-xs text-zinc-500">
+                                    Click any chapter to start listening
                                 </span>
                             </div>
 
@@ -8203,14 +7987,9 @@ function TheaterPageContent() {
                                     const cKey = (ch as any).chapterKey || ch.id;
                                     const cMeta = audiobookChaptersStudioMap[cKey];
                                     const isTransDone = cMeta?.transcription_status === 'done' || cMeta?.transcription_status === 'completed';
-                                    const isIllDone = cMeta?.illustration_status === 'done' || cMeta?.illustration_status === 'completed';
                                     const isEnhDone = cMeta?.audio_enhance_status === 'done' || cMeta?.audio_enhance_status === 'completed';
-                                    const tPct = isTransDone ? 100 : (cMeta?.transcription_progress || 0);
-                                    const iPct = isIllDone ? 100 : (cMeta?.illustration_progress || 0);
-                                    const ePct = isEnhDone ? 100 : (cMeta?.audio_enhance_progress || 0);
                                     const chImages = cMeta?.images || [];
                                     const keptImages = chImages.filter((im: any) => im.kept !== false);
-                                    const isEditingChapter = editingModalChapterKey === cKey;
 
                                     return (
                                         <div
@@ -8224,14 +8003,14 @@ function TheaterPageContent() {
                                         >
                                             <div className="flex items-center justify-between gap-3">
                                                 <div className="flex items-center gap-3.5 min-w-0">
-                                                    <span className="w-7 text-center font-mono text-xs text-zinc-500 font-bold group-hover:text-orange-400 transition-colors">
+                                                    <span className="w-7 text-center font-mono text-xs sm:text-sm text-zinc-500 font-bold group-hover:text-orange-400 transition-colors">
                                                         {ch.trackNumber || idx + 1}
                                                     </span>
                                                     <div className="min-w-0 space-y-0.5">
-                                                        <h4 className="font-bold text-white text-sm truncate group-hover:text-orange-400 transition-colors">
+                                                        <h4 className="font-bold text-white text-sm sm:text-base truncate group-hover:text-orange-400 transition-colors">
                                                             {ch.title || ch.name}
                                                         </h4>
-                                                        <div className="flex items-center gap-2 text-[10px] text-zinc-500 font-medium flex-wrap">
+                                                        <div className="flex items-center gap-2 text-xs text-zinc-500 font-medium flex-wrap">
                                                             <span className="uppercase font-mono font-bold text-zinc-400">{ch.extension}</span>
                                                             {ch.sizeBytes > 0 && (
                                                                 <>
@@ -8240,17 +8019,17 @@ function TheaterPageContent() {
                                                                 </>
                                                             )}
                                                             {isTransDone && (
-                                                                <span className="px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 font-bold">
+                                                                <span className="px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 font-bold">
                                                                     Synced Transcript
                                                                 </span>
                                                             )}
                                                             {keptImages.length > 0 && (
-                                                                <span className="px-1.5 py-0.2 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30 font-bold">
+                                                                <span className="px-2 py-0.5 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30 font-bold">
                                                                     {keptImages.length} {keptImages.length === 1 ? 'Scene' : 'Scenes'}
                                                                 </span>
                                                             )}
                                                             {isEnhDone && (
-                                                                <span className="px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold">
+                                                                <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold">
                                                                     HQ Voice
                                                                 </span>
                                                             )}
@@ -8258,100 +8037,29 @@ function TheaterPageContent() {
                                                     </div>
                                                 </div>
 
-                                                <div className="flex items-center gap-1.5 shrink-0">
+                                                <div className="flex items-center gap-2 shrink-0">
                                                     {ch.durationMs ? (
-                                                        <span className="font-mono text-xs text-zinc-500 group-hover:text-zinc-300 mr-1">
+                                                        <span className="font-mono text-xs sm:text-sm text-zinc-500 group-hover:text-zinc-300 mr-1">
                                                             {formatTime(ch.durationMs / 1000)}
                                                         </span>
                                                     ) : ch.duration ? (
-                                                        <span className="font-mono text-xs text-zinc-500 group-hover:text-zinc-300 mr-1">
+                                                        <span className="font-mono text-xs sm:text-sm text-zinc-500 group-hover:text-zinc-300 mr-1">
                                                             {ch.duration}
                                                         </span>
                                                     ) : null}
-
-                                                    {/* Explicit Edit Button for Individual Chapter Controls */}
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            setEditingModalChapterKey(prev => prev === cKey ? null : cKey);
-                                                        }}
-                                                        className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition-all cursor-pointer flex items-center gap-1 ${
-                                                            isEditingChapter
-                                                                ? 'bg-orange-500 text-black border-orange-400 font-black'
-                                                                : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
-                                                        }`}
-                                                        title="Open individual chapter generation & curation options"
-                                                    >
-                                                        <Sliders size={11} />
-                                                        <span>Edit</span>
-                                                    </button>
 
                                                     <button
                                                         onClick={(e) => {
                                                             e.stopPropagation();
                                                             playAlbum(selectedAudiobook.chapters, idx);
                                                         }}
-                                                        className="w-8 h-8 rounded-xl bg-zinc-900 group-hover:bg-orange-500 text-zinc-400 group-hover:text-black flex items-center justify-center transition-all cursor-pointer"
+                                                        className="w-9 h-9 rounded-xl bg-zinc-900 group-hover:bg-orange-500 text-zinc-400 group-hover:text-black flex items-center justify-center transition-all cursor-pointer"
                                                         title="Play Chapter"
                                                     >
-                                                        <Play size={14} className="ml-0.5 fill-current" />
+                                                        <Play size={16} className="ml-0.5 fill-current" />
                                                     </button>
                                                 </div>
                                             </div>
-
-                                            {/* Individual Chapter Edit Drawer (Only visible when Edit is clicked for this chapter) */}
-                                            {isEditingChapter && (
-                                                <div
-                                                    onClick={(e) => e.stopPropagation()}
-                                                    className="mt-1 p-3 rounded-2xl bg-zinc-900/80 border border-zinc-800 flex flex-wrap items-center justify-between gap-2 animate-in fade-in duration-150"
-                                                >
-                                                    <div className="flex items-center gap-2 flex-wrap">
-                                                        <button
-                                                            onClick={() => handleRunChapterTaskFromBookModal(selectedAudiobook, ch, idx, 'transcribe')}
-                                                            disabled={runningBookModalTask === `${cKey}:transcribe`}
-                                                            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 flex items-center gap-1.5 cursor-pointer"
-                                                        >
-                                                            <FileText size={12} className={runningBookModalTask === `${cKey}:transcribe` ? 'animate-spin' : ''} />
-                                                            {runningBookModalTask === `${cKey}:transcribe` ? 'Transcribing...' : tPct === 100 ? 'Redo Transcription' : 'Transcribe Chapter'}
-                                                        </button>
-
-                                                        <button
-                                                            onClick={() => handleRunChapterTaskFromBookModal(selectedAudiobook, ch, idx, 'illustrate')}
-                                                            disabled={runningBookModalTask === `${cKey}:illustrate`}
-                                                            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/30 flex items-center gap-1.5 cursor-pointer"
-                                                        >
-                                                            <Sparkles size={12} className={runningBookModalTask === `${cKey}:illustrate` ? 'animate-spin' : ''} />
-                                                            {runningBookModalTask === `${cKey}:illustrate` ? 'Painting...' : chImages.length > 0 ? `Generate More Art (${chImages.length})` : 'Generate Scene Art'}
-                                                        </button>
-
-                                                        {chImages.length > 0 && (
-                                                            <button
-                                                                onClick={() => setCuratingChapterModal(cMeta)}
-                                                                className="px-3 py-1.5 rounded-xl text-xs font-bold bg-purple-600/25 hover:bg-purple-600/40 text-purple-200 border border-purple-500/40 flex items-center gap-1.5 cursor-pointer"
-                                                            >
-                                                                <ImageIcon size={12} />
-                                                                Curate Scenes ({keptImages.length}/{chImages.length})
-                                                            </button>
-                                                        )}
-
-                                                        <button
-                                                            onClick={() => handleRunChapterTaskFromBookModal(selectedAudiobook, ch, idx, 'enhance')}
-                                                            disabled={runningBookModalTask === `${cKey}:enhance`}
-                                                            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5 cursor-pointer"
-                                                        >
-                                                            <Zap size={12} className={runningBookModalTask === `${cKey}:enhance` ? 'animate-spin' : ''} />
-                                                            {runningBookModalTask === `${cKey}:enhance` ? 'Enhancing...' : ePct === 100 ? 'Re-Enhance Audio' : 'Enhance Audio'}
-                                                        </button>
-                                                    </div>
-
-                                                    <button
-                                                        onClick={() => handleDownloadTrack(ch)}
-                                                        className="px-3 py-1.5 rounded-xl text-xs font-bold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center gap-1.5 cursor-pointer"
-                                                    >
-                                                        <Download size={12} /> Download File
-                                                    </button>
-                                                </div>
-                                            )}
                                         </div>
                                     );
                                 })}
@@ -8672,36 +8380,17 @@ function TheaterPageContent() {
                                 >
                                     <Play size={15} className="fill-black" /> Play Collection
                                 </button>
-                                <button
-                                    onClick={() => {
-                                        const col = selectedCollectionModal;
-                                        setSelectedCollectionModal(null);
-                                        openCreateOrEditCollection(col);
-                                    }}
+                                <a
+                                    href="/discover?tab=audiobooks&subTab=collections"
                                     className="px-4 py-2.5 rounded-2xl bg-purple-500/20 hover:bg-purple-500/35 text-purple-200 border border-purple-400/40 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
+                                    title="Edit collection, books, or file names in Media Manager"
                                 >
-                                    <Edit3 size={14} /> Edit Books
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        const booksInCol = selectedCollectionModal.books || [];
-                                        setSelectedCollectionModal(null);
-                                        openBookRenamerModal(booksInCol);
-                                    }}
-                                    className="px-4 py-2.5 rounded-2xl bg-emerald-500/20 hover:bg-emerald-500/35 text-emerald-200 border border-emerald-400/40 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
-                                >
-                                    <Edit3 size={14} /> Rename Files
-                                </button>
-                                <button
-                                    onClick={() => handleExplodeCollection(selectedCollectionModal)}
-                                    className="px-4 py-2.5 rounded-2xl bg-red-500/20 hover:bg-red-500/35 text-red-200 border border-red-400/40 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
-                                    title="Ungroup this Collection so its books return to being individual books on the shelf"
-                                >
-                                    <Minimize2 size={14} /> Explode to Individual Books
-                                </button>
+                                    <Edit3 size={14} /> Edit in Media
+                                </a>
                                 <button
                                     onClick={() => setSelectedCollectionModal(null)}
                                     className="p-2.5 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white cursor-pointer"
+                                    title="Close collection view"
                                 >
                                     <X size={18} />
                                 </button>

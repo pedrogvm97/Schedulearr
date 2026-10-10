@@ -8,6 +8,9 @@ import { initAutoUpdater } from '@/lib/autoUpdater';
 export const dynamic = 'force-dynamic';
 
 const FALLBACK_GIT_NOTES = [
+  '• [v0.6.11] Separate Audiobook playback & quick playback settings in Theater from full Audiobook editing in the Media tab',
+  '  - Keep Theater Audiobook shelf, book detail modal, collection modal, and Expanded Audiobook Player strictly focused on playback and quick playback settings (Play/Resume, Chapter list playback, Speed, Narrator Voice Preset selector, Cover view toggle, Volume, and Bedside Table / Finished status)',
+  '  - Consolidate all Audiobook editing (Metadata, Studio & AI settings, Custom AI Cover generation, Reset & Redo STT/Art/All, per-chapter Transcribe/Illustrate/Voice, Scene Image curation, Collection management, and File Renaming) into Media -> Audiobooks (/discover?tab=audiobooks) with direct deep-linking via ?bookKey= and ?subTab=',
   '• [v0.6.10] Fix Live TV Guide click-off & zapping sidebar toggle, fix Narrator Voice Picker with real-time Live FFmpeg stream & on-demand file generation, eliminate fake SVG placeholders with story-specific raster art, redesign large 3D hardcover Bookshelf cards, and add main Tasks tab',
   '  - Separate osdControlsVisible from osdGuideOpen in TheaterLiveTvPlayer so mouse movement never re-opens the Program Schedule drawer, add click-off dismissal & Escape handler, and add collapsible Channels sidebar toggle',
   '  - Fix Narrator Voice Picker so ungenerated voices explicitly show "Not Generated Yet" with "Generate" (saved M4A) and "Live" (real-time FFmpeg audio filter stream via /api/theater/stream)',
@@ -59,7 +62,7 @@ export async function GET() {
 
   try {
     // 1. Get current version from package.json or system fallback
-    let currentVersion = '0.6.10';
+    let currentVersion = '0.6.11';
     const possiblePaths = [
       path.join(process.cwd(), 'package.json'),
       path.join(process.cwd(), '..', 'package.json'),
