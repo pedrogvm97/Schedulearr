@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Calendar, RefreshCw, Check, Clock, Tv2, AlertCircle, Play, ChevronRight, Layers, Trash2 } from 'lucide-react';
+import { X, Calendar, RefreshCw, Check, Clock, Tv2, Layers, Trash2, ListFilter } from 'lucide-react';
 import { toast } from 'sonner';
 import { ConfirmModal } from '@/components/ConfirmModal';
 
@@ -37,28 +37,8 @@ export default function IptvSettingsModal({
     const initialEpg = library.folders?.[1] || '';
     const initialInterval = library.folders?.[2] || '24';
     const lastSyncDate = library.folders?.[3] ? new Date(library.folders[3]) : null;
+    const initialScope = library.folders?.[4] || 'shortlists_only';
 
-    const [providerName, setProviderName] = useState(library.name);
-    const [epgUrl, setEpgUrl] = useState(initialEpg);
-    const [intervalHours, setIntervalHours] = useState(initialInterval);
-    const [isSaving, setIsSaving] = useState(false);
-    const [isRefreshingChannels, setIsRefreshingChannels] = useState(false);
-    const [isDeleting, setIsDeleting] = useState(false);
-    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-
-    // Live sync progress states
-    const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
-    const [syncProgress, setSyncProgress] = useState<SyncProgressState>({
-        status: 'idle',
-        progressPercent: 0,
-        message: 'Idle',
-        programCount: 0,
-        ruleMatchesCount: 0
-    });
-
-    const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
-    // Auto-detect Xtream host and credentials to offer XMLTV guide if empty
     const getSuggestedEpg = () => {
         try {
             if (streamUrl.includes('username=') && streamUrl.includes('password=')) {
@@ -77,12 +57,85 @@ export default function IptvSettingsModal({
 
     const suggestedEpg = getSuggestedEpg();
 
-    // Cleanup polling on unmount
+    const [providerName, setProviderName] = useState(library.name);
+    const [epgUrl, setEpgUrl] = useState(initialEpg || suggestedEpg);
+    const [intervalHours, setIntervalHours] = useState(initialInterval);
+
+    // Channel / Shortlist Scope Selection for EPG Sync
+    const [scopeMode, setScopeMode] = useState<'shortlists_only' | 'custom_shortlists' | 'custom_groups' | 'all'>(() => {
+        if (initialScope === 'all') return 'all';
+        if (initialScope.startsWith('shortlists:')) return 'custom_shortlists';
+        if (initialScope.startsWith('groups:')) return 'custom_groups';
+        return 'shortlists_only';
+    });
+    const [selectedShortlistIds, setSelectedShortlistIds] = useState<string[]>(() => {
+        if (initialScope.startsWith('shortlists:')) {
+            return initialScope.replace('shortlists:', '').split(',').map(s => s.trim()).filter(Boolean);
+        }
+        return [];
+    });
+    const [selectedGroupNames, setSelectedGroupNames] = useState<string[]>(() => {
+        if (initialScope.startsWith('groups:')) {
+            return initialScope.replace('groups:', '').split(',').map(s => s.trim()).filter(Boolean);
+        }
+        return [];
+    });
+    const [availableShortlists, setAvailableShortlists] = useState<Array<{ id: string; name: string; count: number }>>([]);
+    const [availableGroups, setAvailableGroups] = useState<string[]>([]);
+
+    const [isSaving, setIsSaving] = useState(false);
+    const [isRefreshingChannels, setIsRefreshingChannels] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+    // Live sync progress states
+    const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+    const [syncProgress, setSyncProgress] = useState<SyncProgressState>({
+        status: 'idle',
+        progressPercent: 0,
+        message: 'Idle',
+        programCount: 0,
+        ruleMatchesCount: 0
+    });
+
+    const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+    // Load shortlists and channel groups for this library so user can pick which ones to sync EPG for
+    useEffect(() => {
+        let active = true;
+        fetch(`/api/theater/iptv?libraryId=${encodeURIComponent(library.id)}`)
+            .then(r => r.json())
+            .then(data => {
+                if (!active) return;
+                const sls = (data.shortlists || []).map((s: any) => ({
+                    id: s.id,
+                    name: s.name,
+                    count: (s.channelIds || []).length
+                }));
+                setAvailableShortlists(sls);
+                const grps = Array.from(new Set((data.channels || []).map((c: any) => c.group).filter(Boolean))) as string[];
+                setAvailableGroups(grps.slice(0, 60));
+            })
+            .catch(() => {});
+        return () => { active = false; };
+    }, [library.id]);
+
     useEffect(() => {
         return () => {
             if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
         };
     }, []);
+
+    const computeScopeConfigString = () => {
+        if (scopeMode === 'all') return 'all';
+        if (scopeMode === 'custom_shortlists' && selectedShortlistIds.length > 0) {
+            return `shortlists:${selectedShortlistIds.join(',')}`;
+        }
+        if (scopeMode === 'custom_groups' && selectedGroupNames.length > 0) {
+            return `groups:${selectedGroupNames.join(',')}`;
+        }
+        return 'shortlists_only';
+    };
 
     const stopPolling = () => {
         if (pollIntervalRef.current) {
@@ -109,7 +162,7 @@ export default function IptvSettingsModal({
 
                     if (data.status === 'completed') {
                         stopPolling();
-                        toast.success(`EPG Guide synced! (${data.programCount?.toLocaleString()} programmes)`);
+                        toast.success(`EPG Guide synced locally! (${data.programCount?.toLocaleString()} programmes)`);
                         onUpdated();
                     } else if (data.status === 'error') {
                         stopPolling();
@@ -125,6 +178,7 @@ export default function IptvSettingsModal({
     const handleSave = async () => {
         setIsSaving(true);
         try {
+            const scopeStr = computeScopeConfigString();
             const res = await fetch('/api/theater/libraries', {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
@@ -133,16 +187,17 @@ export default function IptvSettingsModal({
                     name: providerName.trim() || library.name,
                     folders: [
                         streamUrl,
-                        epgUrl.trim(),
+                        (epgUrl.trim() || suggestedEpg),
                         intervalHours,
-                        library.folders?.[3] || ''
+                        library.folders?.[3] || '',
+                        scopeStr
                     ]
                 })
             });
 
             if (!res.ok) throw new Error('Failed to update provider settings');
 
-            toast.success('Settings saved!');
+            toast.success('EPG schedule & channel scope saved!');
             onUpdated();
             onClose();
         } catch (err: any) {
@@ -154,16 +209,23 @@ export default function IptvSettingsModal({
     };
 
     const handleTriggerManualSync = async () => {
-        if (!epgUrl.trim()) {
+        const effectiveEpg = epgUrl.trim() || suggestedEpg;
+        if (!effectiveEpg) {
             toast.error('Please configure an XMLTV EPG URL first');
             return;
         }
+        const scopeStr = computeScopeConfigString();
+
+        // Display clear start notification immediately as requested
+        toast.info(`EPG Sync started for "${providerName || library.name}"!`, {
+            description: 'You can watch progress here or close this window to let it finish in the background.'
+        });
 
         setIsSyncModalOpen(true);
         setSyncProgress({
             status: 'downloading',
-            progressPercent: 10,
-            message: 'Starting guide sync...',
+            progressPercent: 12,
+            message: 'Starting guide sync on server...',
             programCount: 0,
             ruleMatchesCount: 0
         });
@@ -174,7 +236,10 @@ export default function IptvSettingsModal({
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     libraryId: library.id,
-                    epgUrl: epgUrl.trim()
+                    epgUrl: effectiveEpg,
+                    intervalHours,
+                    scopeConfig: scopeStr,
+                    background: true
                 })
             });
 
@@ -183,7 +248,6 @@ export default function IptvSettingsModal({
                 throw new Error(data.error || 'Failed to trigger sync');
             }
 
-            // Start polling progress
             startPolling(library.id);
         } catch (err: any) {
             console.error(err);
@@ -202,9 +266,7 @@ export default function IptvSettingsModal({
     const handleRunInBackground = () => {
         stopPolling();
         setIsSyncModalOpen(false);
-        toast.info('EPG sync continuing in background...', {
-            description: 'Guide schedules and recording rules will update automatically.'
-        });
+        toast.info('EPG sync running in background — visible in the Ongoing banner at the top of the app.');
         onUpdated();
         onClose();
     };
@@ -265,7 +327,7 @@ export default function IptvSettingsModal({
 
     return (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200">
-            <div className="bg-[#0b0c10] border border-zinc-800 rounded-[2.5rem] max-w-xl w-full p-6 sm:p-8 shadow-2xl relative space-y-6 text-zinc-100">
+            <div className="bg-[#0b0c10] border border-zinc-800 rounded-[2.5rem] max-w-xl w-full p-6 sm:p-8 shadow-2xl relative space-y-5 text-zinc-100 max-h-[92vh] overflow-y-auto custom-scrollbar">
                 {/* Header */}
                 <div className="flex items-center justify-between border-b border-zinc-900 pb-4">
                     <div className="flex items-center gap-3">
@@ -273,8 +335,8 @@ export default function IptvSettingsModal({
                             <Calendar size={22} />
                         </div>
                         <div>
-                            <h3 className="text-lg font-black text-white">EPG &amp; Provider Settings</h3>
-                            <p className="text-xs text-zinc-500 mt-0.5">Configure guide schedule, sync frequency, and channel sources</p>
+                            <h3 className="text-lg font-black text-white">EPG Sync &amp; Provider Settings</h3>
+                            <p className="text-xs text-zinc-500 mt-0.5">Configure guide URL, auto-sync schedule, and shortlist/channel scope</p>
                         </div>
                     </div>
                     <button
@@ -305,7 +367,7 @@ export default function IptvSettingsModal({
                                 XMLTV EPG Guide URL
                             </label>
                             {lastSyncDate && (
-                                <span className="text-[11px] text-zinc-500 font-bold">
+                                <span className="text-[11px] text-emerald-400 font-bold">
                                     Last synced: {lastSyncDate.toLocaleDateString()} {lastSyncDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                 </span>
                             )}
@@ -318,7 +380,6 @@ export default function IptvSettingsModal({
                             className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-xs text-zinc-200 font-mono focus:border-amber-500 outline-none"
                         />
 
-                        {/* Suggested EPG auto-fill button */}
                         {!epgUrl && suggestedEpg && (
                             <button
                                 type="button"
@@ -331,14 +392,100 @@ export default function IptvSettingsModal({
                         )}
                     </div>
 
+                    {/* Channel / Shortlist Scope Selector for EPG Update */}
+                    <div className="space-y-2 p-3.5 rounded-2xl bg-zinc-950/90 border border-zinc-800/90">
+                        <label className="text-xs font-black uppercase text-amber-400 tracking-wider flex items-center gap-1.5">
+                            <ListFilter size={14} />
+                            Channels / Shortlists to Update During EPG Sync
+                        </label>
+                        <p className="text-[11px] text-zinc-400">
+                            Avoid parsing 30,000+ unused channels by syncing guide data only for your shortlists or selected categories.
+                        </p>
+
+                        <div className="grid grid-cols-2 gap-2 pt-1">
+                            {[
+                                { id: 'shortlists_only', label: 'All Shortlisted Channels (Fast)' },
+                                { id: 'custom_shortlists', label: 'Pick Specific Shortlists' },
+                                { id: 'custom_groups', label: 'Pick Channel Categories' },
+                                { id: 'all', label: 'All Provider Channels (Slow)' }
+                            ].map(opt => (
+                                <button
+                                    key={opt.id}
+                                    type="button"
+                                    onClick={() => setScopeMode(opt.id as any)}
+                                    className={`p-2 rounded-xl border text-left text-xs font-bold transition-all cursor-pointer ${
+                                        scopeMode === opt.id
+                                            ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
+                                            : 'bg-zinc-900/60 border-zinc-800 text-zinc-400 hover:text-white'
+                                    }`}
+                                >
+                                    {opt.label}
+                                </button>
+                            ))}
+                        </div>
+
+                        {scopeMode === 'custom_shortlists' && (
+                            <div className="pt-2 space-y-1.5 max-h-32 overflow-y-auto custom-scrollbar">
+                                {availableShortlists.length === 0 ? (
+                                    <p className="text-[11px] text-zinc-500 italic">No custom shortlists created yet (will fallback to all channels).</p>
+                                ) : (
+                                    availableShortlists.map(sl => {
+                                        const checked = selectedShortlistIds.includes(sl.id);
+                                        return (
+                                            <label key={sl.id} className="flex items-center justify-between p-2 rounded-xl bg-zinc-900/70 border border-zinc-800 cursor-pointer text-xs">
+                                                <span className="font-bold text-white">{sl.name}</span>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-[10px] font-mono text-zinc-400">{sl.count} ch</span>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={checked}
+                                                        onChange={() => {
+                                                            setSelectedShortlistIds(prev =>
+                                                                checked ? prev.filter(x => x !== sl.id) : [...prev, sl.id]
+                                                            );
+                                                        }}
+                                                        className="accent-amber-500"
+                                                    />
+                                                </div>
+                                            </label>
+                                        );
+                                    })
+                                )}
+                            </div>
+                        )}
+
+                        {scopeMode === 'custom_groups' && (
+                            <div className="pt-2 grid grid-cols-2 gap-1.5 max-h-36 overflow-y-auto custom-scrollbar">
+                                {availableGroups.map(grp => {
+                                    const checked = selectedGroupNames.includes(grp);
+                                    return (
+                                        <label key={grp} className="flex items-center gap-2 p-1.5 rounded-lg bg-zinc-900/70 border border-zinc-800 cursor-pointer text-[11px] truncate">
+                                            <input
+                                                type="checkbox"
+                                                checked={checked}
+                                                onChange={() => {
+                                                    setSelectedGroupNames(prev =>
+                                                        checked ? prev.filter(x => x !== grp) : [...prev, grp]
+                                                    );
+                                                }}
+                                                className="accent-amber-500 shrink-0"
+                                            />
+                                            <span className="truncate text-zinc-300">{grp}</span>
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+
                     {/* Auto Sync Schedule */}
                     <div className="space-y-1.5">
                         <div className="flex items-center justify-between">
                             <label className="text-xs font-black uppercase text-zinc-400 tracking-wider flex items-center gap-1.5">
                                 <Clock size={14} className="text-amber-400" />
-                                Auto Sync Schedule
+                                Scheduled Auto-Update of EPG
                             </label>
-                            <span className="text-[11px] text-zinc-500">Automated background guide refresh</span>
+                            <span className="text-[11px] text-zinc-500">Stored locally on server SQLite</span>
                         </div>
                         <select
                             value={intervalHours}
@@ -353,26 +500,18 @@ export default function IptvSettingsModal({
                             <option value="168">Every 7 Days (Weekly)</option>
                         </select>
                     </div>
-
-                    {/* Stream Source Info */}
-                    <div className="p-3 bg-zinc-950/60 rounded-2xl border border-zinc-900 space-y-1">
-                        <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-bold text-zinc-400">Stream Source:</span>
-                            <span className="text-[11px] text-zinc-500 font-mono truncate max-w-[260px]">{streamUrl || 'Local file upload'}</span>
-                        </div>
-                    </div>
                 </div>
 
                 {/* Quick Actions: Sync Guide & Refresh Channels */}
-                <div className="grid grid-cols-2 gap-3 pt-2">
+                <div className="grid grid-cols-2 gap-3 pt-1">
                     <button
                         type="button"
                         onClick={handleTriggerManualSync}
-                        disabled={!epgUrl.trim()}
+                        disabled={!epgUrl.trim() && !suggestedEpg}
                         className="p-3 rounded-2xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-black flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
                     >
                         <RefreshCw size={14} />
-                        Sync EPG Guide
+                        Sync EPG Guide Now
                     </button>
 
                     <button
@@ -393,7 +532,6 @@ export default function IptvSettingsModal({
                         onClick={handleDeleteProvider}
                         disabled={isDeleting}
                         className="px-4 py-2.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                        title="Permanently remove this IPTV provider and its channels"
                     >
                         <Trash2 size={14} />
                         <span>{isDeleting ? 'Deleting...' : 'Delete Provider'}</span>
@@ -419,7 +557,7 @@ export default function IptvSettingsModal({
                 </div>
             </div>
 
-            {/* ── Progressive EPG Sync Modal with Run In Background Option ── */}
+            {/* ── Progressive EPG Sync Modal with Close / Run In Background Option ── */}
             {isSyncModalOpen && (
                 <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl animate-in fade-in duration-200">
                     <div className="bg-[#0e0e12] border border-amber-500/30 rounded-[2.5rem] max-w-lg w-full p-6 sm:p-8 shadow-2xl space-y-6 text-zinc-100 animate-in zoom-in-95 duration-200">
@@ -430,14 +568,24 @@ export default function IptvSettingsModal({
                                 </div>
                                 <div>
                                     <h4 className="text-base font-black text-white">Syncing Guide Schedule</h4>
-                                    <p className="text-xs text-zinc-400">XMLTV EPG &amp; DVR Rule Evaluation</p>
+                                    <p className="text-xs text-zinc-400">Stored locally on server SQLite • Safe to close window</p>
                                 </div>
                             </div>
-                            <span className="text-xs font-mono font-black text-amber-400">{syncProgress.progressPercent}%</span>
+                            <button
+                                type="button"
+                                onClick={handleRunInBackground}
+                                className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 cursor-pointer"
+                                title="Close window and continue syncing in background"
+                            >
+                                <X size={18} />
+                            </button>
                         </div>
 
-                        {/* Progress Bar */}
                         <div className="space-y-2">
+                            <div className="flex items-center justify-between text-xs font-mono">
+                                <span className="text-zinc-400">Progress</span>
+                                <span className="font-black text-amber-400">{syncProgress.progressPercent}%</span>
+                            </div>
                             <div className="h-3 w-full bg-zinc-900 rounded-full overflow-hidden p-0.5 border border-zinc-800">
                                 <div
                                     className={`h-full rounded-full transition-all duration-300 ${
@@ -456,10 +604,9 @@ export default function IptvSettingsModal({
                             </p>
                         </div>
 
-                        {/* Stats Summary */}
                         <div className="grid grid-cols-2 gap-3 p-4 bg-zinc-950 rounded-2xl border border-zinc-900">
                             <div className="space-y-0.5">
-                                <span className="text-[11px] font-bold text-zinc-500 uppercase">Programmes</span>
+                                <span className="text-[11px] font-bold text-zinc-500 uppercase">Programmes Stored</span>
                                 <p className="text-base font-black text-white">{syncProgress.programCount.toLocaleString()}</p>
                             </div>
                             <div className="space-y-0.5">
@@ -468,41 +615,30 @@ export default function IptvSettingsModal({
                             </div>
                         </div>
 
-                        {/* Actions: Run in background vs close */}
                         <div className="flex items-center justify-between pt-2 border-t border-zinc-900">
                             {isSyncActive ? (
                                 <>
                                     <button
                                         type="button"
                                         onClick={handleRunInBackground}
-                                        className="px-5 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-amber-300 border border-amber-500/20 text-xs font-black transition-all cursor-pointer flex items-center gap-1.5"
+                                        className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shadow-lg shadow-amber-500/20"
                                     >
                                         <Layers size={14} />
-                                        Run in Background
+                                        Continue in Background &amp; Close
                                     </button>
-                                    <span className="text-[11px] text-zinc-500">Syncing live...</span>
+                                    <span className="text-[11px] text-zinc-400">Visible in Ongoing banner</span>
                                 </>
-                            ) : syncProgress.status === 'completed' ? (
+                            ) : (
                                 <div className="w-full flex justify-end">
                                     <button
                                         type="button"
                                         onClick={() => {
                                             setIsSyncModalOpen(false);
-                                            onClose();
+                                            if (syncProgress.status === 'completed') onClose();
                                         }}
-                                        className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs transition-all shadow-lg shadow-emerald-500/20 cursor-pointer"
+                                        className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs transition-all cursor-pointer"
                                     >
                                         Done
-                                    </button>
-                                </div>
-                            ) : (
-                                <div className="w-full flex justify-end">
-                                    <button
-                                        type="button"
-                                        onClick={() => setIsSyncModalOpen(false)}
-                                        className="px-6 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs cursor-pointer"
-                                    >
-                                        Close
                                     </button>
                                 </div>
                             )}
@@ -511,7 +647,6 @@ export default function IptvSettingsModal({
                 </div>
             )}
 
-            {/* Custom Delete Confirmation Modal */}
             <ConfirmModal
                 isOpen={showDeleteConfirm}
                 onClose={() => setShowDeleteConfirm(false)}
@@ -520,7 +655,7 @@ export default function IptvSettingsModal({
                 title="Delete IPTV Provider"
                 description={
                     <span>
-                        Are you sure you want to delete IPTV provider <strong className="text-white">"{library.name}"</strong>? This will permanently remove all of its channels, guide schedules, and shortlists.
+                        Are you sure you want to delete IPTV provider <strong className="text-white">&ldquo;{library.name}&rdquo;</strong>? This will permanently remove all of its channels, guide schedules, and shortlists.
                     </span>
                 }
                 confirmText="Delete Provider"

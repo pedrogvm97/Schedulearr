@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Server, Sliders, Shield, Wrench, Heart } from "lucide-react";
 import { toast } from "sonner";
 import { CustomSelect } from "@/components/CustomSelect";
 import { ProfilesPanel } from "@/components/ProfilesPanel";
 import { PasswordPromptModal } from "@/components/PasswordPromptModal";
+import { twColorToHex } from "@/lib/instanceColor";
 
 export default function Settings() {
     const [settingsNavTab, setSettingsNavTab] = useState<'settings' | 'analytics' | 'profiles'>('settings');
@@ -243,12 +244,133 @@ export default function Settings() {
         id: string;
         name: string;
         instanceId: string;
-        type: 'radarr' | 'sonarr' | 'lidarr';
+        type: 'radarr' | 'sonarr' | 'lidarr' | 'iptv_dvr';
         enabled: boolean;
         maxGb: number;
         cleanMode: 'largest' | 'oldest' | 'unplayed';
     }[]>([]);
     const [cleaningLibraryId, setCleaningLibraryId] = useState<string | null>(null);
+
+    // Curated Audiobook AI Studio, Transcription, Audio DSP & Daily Artwork Quota Config
+    const [audiobookStudioConfig, setAudiobookStudioConfig] = useState<{
+        enabled: boolean;
+        scheduleMode: 'continuous_low_cpu' | 'hourly' | 'overnight' | 'manual_only';
+        sttEngine: 'whisper_tiny_local' | 'openai_whisper' | 'gemini_audio' | 'acoustic_cadence';
+        cpuThreads: number;
+        audioEnhancePreset: 'denoise_clarity' | 'vintage_restore' | 'crystal_voice';
+        defaultVoicePreset: 'original' | 'deep_narrator' | 'warm_storyteller' | 'crisp_clear' | 'soft_velvet';
+        artProvider: 'pollinations_flux' | 'openai' | 'gemini' | 'custom';
+        openaiApiKey: string;
+        geminiApiKey: string;
+        customApiUrl: string;
+        customApiKey: string;
+        dailyImageQuota: number;
+        imagesGeneratedToday: number;
+        imagesPerChapter: number;
+        artStyle: string;
+        artResolution: '1024x1024' | '1280x720' | '1536x1024' | '768x768';
+        artFocus: 'auto-choice' | 'characters' | 'ambient' | 'theme' | 'landscapes';
+        passTranscriptionContext: boolean;
+        customPromptTemplate: string;
+    }>({
+        enabled: true,
+        scheduleMode: 'continuous_low_cpu',
+        sttEngine: 'whisper_tiny_local',
+        cpuThreads: 1,
+        audioEnhancePreset: 'denoise_clarity',
+        defaultVoicePreset: 'original',
+        artProvider: 'pollinations_flux',
+        openaiApiKey: '',
+        geminiApiKey: '',
+        customApiUrl: '',
+        customApiKey: '',
+        dailyImageQuota: 10,
+        imagesGeneratedToday: 0,
+        imagesPerChapter: 2,
+        artStyle: 'Cinematic Concept Art',
+        artResolution: '1280x720',
+        artFocus: 'auto-choice',
+        passTranscriptionContext: true,
+        customPromptTemplate: 'Rich atmospheric book illustration, detailed lighting, no text or watermarks.'
+    });
+    const [savingStudioConfig, setSavingStudioConfig] = useState(false);
+
+    const saveAudiobookStudioConfig = async (updates?: Partial<typeof audiobookStudioConfig>) => {
+        const next = updates ? { ...audiobookStudioConfig, ...updates } : audiobookStudioConfig;
+        setAudiobookStudioConfig(next);
+        setSavingStudioConfig(true);
+        try {
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'save_config', config: next })
+            });
+            const data = await res.json();
+            if (res.ok && data.config) {
+                setAudiobookStudioConfig(prev => ({ ...prev, ...data.config }));
+                toast.success('Audiobook AI Studio settings saved');
+            }
+        } catch {
+            toast.error('Failed to save Audiobook Studio settings');
+        } finally {
+            setSavingStudioConfig(false);
+        }
+    };
+
+    const formatBytes = (bytes: number): string => {
+        if (!bytes || bytes <= 0) return '0 GB';
+        if (bytes >= 1e12) return `${(bytes / 1e12).toFixed(2)} TB`;
+        return `${(bytes / 1e9).toFixed(1)} GB`;
+    };
+
+    const instanceSegments = useMemo(() => {
+        if (!diskInfo || !diskInfo.byInstance || diskInfo.totalBytes <= 0) return [];
+        const totalBytes = diskInfo.totalBytes;
+        const usedPercent = diskInfo.usedPercent;
+
+        const totalMediaBytes = diskInfo.byInstance.reduce((s: number, i: any) => s + (i.mediaBytes || 0), 0);
+
+        if (totalMediaBytes > 0) {
+            const segments = diskInfo.byInstance.map((inst: any) => {
+                const mBytes = inst.mediaBytes || 0;
+                const pct = (mBytes / totalBytes) * 100;
+                const colorHex = inst.colorHex || twColorToHex(inst.color);
+                return {
+                    id: inst.id,
+                    name: inst.name,
+                    type: inst.type,
+                    bytes: mBytes,
+                    percent: pct,
+                    colorHex
+                };
+            }).filter((s: any) => s.percent > 0.05);
+
+            const sumSegmentPct = segments.reduce((s: number, seg: any) => s + seg.percent, 0);
+            const otherUsedPct = Math.max(0, usedPercent - sumSegmentPct);
+            if (otherUsedPct > 0.5) {
+                segments.push({
+                    id: 'other-volume-data',
+                    name: 'Other Volume Data',
+                    type: 'system',
+                    bytes: Math.max(0, diskInfo.usedBytes - totalMediaBytes),
+                    percent: otherUsedPct,
+                    colorHex: '#52525b'
+                });
+            }
+            return segments;
+        } else {
+            const count = diskInfo.byInstance.length;
+            const slice = count > 0 ? (usedPercent / count) : 0;
+            return diskInfo.byInstance.map((inst: any) => ({
+                id: inst.id,
+                name: inst.name,
+                type: inst.type,
+                bytes: 0,
+                percent: slice,
+                colorHex: inst.colorHex || twColorToHex(inst.color)
+            }));
+        }
+    }, [diskInfo]);
 
     const handleUpdateLibraryLimit = (id: string, updates: Partial<{ enabled: boolean; maxGb: number; cleanMode: 'largest' | 'oldest' | 'unplayed' }>) => {
         const next = libraryLimits.map(l => l.id === id ? { ...l, ...updates } : l);
@@ -353,6 +475,15 @@ export default function Settings() {
         fetchCandidates();
         // Fetch disk info on mount
         fetch('/api/system/disk').then(r => r.ok ? r.json() : null).then(d => { if (d) setDiskInfo(d); }).catch(() => {});
+        // Fetch Audiobook AI Studio & Artwork Quota config
+        fetch('/api/theater/audiobooks/studio')
+            .then(r => r.ok ? r.json() : null)
+            .then(d => {
+                if (d?.config) {
+                    setAudiobookStudioConfig(prev => ({ ...prev, ...d.config }));
+                }
+            })
+            .catch(() => {});
     }, []);
 
     // Sync disk settings from allSettings when loaded
@@ -380,7 +511,7 @@ export default function Settings() {
             }
         }
         const mediaInstances = instances.filter(i => ['radarr', 'sonarr', 'lidarr'].includes(i.type));
-        const merged = mediaInstances.map(inst => {
+        const merged: any[] = mediaInstances.map(inst => {
             const existing = savedLimits.find((l: any) => l.instanceId === inst.id || l.id === inst.id);
             return {
                 id: inst.id,
@@ -392,6 +523,19 @@ export default function Settings() {
                 cleanMode: existing ? (existing.cleanMode || 'largest') : 'largest',
             };
         });
+
+        // Include IPTV DVR Recordings as a togglable library
+        const existingDvr = savedLimits.find((l: any) => l.id === 'iptv-dvr' || l.type === 'iptv_dvr');
+        merged.push({
+            id: 'iptv-dvr',
+            name: 'IPTV Recordings',
+            instanceId: 'iptv-dvr',
+            type: 'iptv_dvr' as const,
+            enabled: existingDvr ? existingDvr.enabled : false,
+            maxGb: existingDvr ? (existingDvr.maxGb || 100) : 100,
+            cleanMode: existingDvr ? (existingDvr.cleanMode || 'oldest') : 'oldest',
+        });
+
         setLibraryLimits(merged);
     }, [allSettings, instances]);
 
@@ -1219,6 +1363,300 @@ export default function Settings() {
                 </div>
             </div>
 
+                    {/* Curated Audiobook AI Studio, Transcription, Audio Enhancement & Daily Artwork Quota */}
+                    <div className="bg-zinc-900 border border-amber-500/30 rounded-2xl p-6 space-y-6 shadow-xl">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-800">
+                            <div>
+                                <div className="flex items-center gap-2.5">
+                                    <span className="text-2xl">📖</span>
+                                    <h2 className="text-xl font-black text-white">
+                                        Audiobook AI Studio &amp; Scheduled Chapter Artwork
+                                    </h2>
+                                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                                        audiobookStudioConfig.enabled
+                                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                            : 'bg-zinc-800 text-zinc-500 border-zinc-700'
+                                    }`}>
+                                        {audiobookStudioConfig.enabled ? 'Studio Active' : 'Paused'}
+                                    </span>
+                                </div>
+                                <p className="text-xs text-zinc-400 mt-1">
+                                    Optimized for low-power Intel Unraid CPUs (single-threaded background queue). Configure transcription models, audio clarity DSP, and ChatGPT / Gemini / Open-Source chapter illustration quotas.
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-3 shrink-0">
+                                <div className="px-3 py-1.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-bold text-amber-300">
+                                    Today&apos;s Art Quota: <span className="font-mono font-black">{audiobookStudioConfig.imagesGeneratedToday} / {audiobookStudioConfig.dailyImageQuota}</span>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => saveAudiobookStudioConfig({ enabled: !audiobookStudioConfig.enabled })}
+                                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider border transition-all cursor-pointer ${
+                                        audiobookStudioConfig.enabled
+                                            ? 'bg-amber-500 text-black border-amber-400'
+                                            : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-white'
+                                    }`}
+                                >
+                                    {audiobookStudioConfig.enabled ? 'Enabled' : 'Paused'}
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* 1. Schedule Mode, Low-CPU Transcription & Audio Clarity Restoration */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="space-y-1.5 bg-zinc-950/70 p-4 rounded-xl border border-zinc-800">
+                                <label className="text-xs font-black uppercase tracking-wider text-amber-400 block">
+                                    1. Background Queue Schedule
+                                </label>
+                                <select
+                                    value={audiobookStudioConfig.scheduleMode}
+                                    onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, scheduleMode: e.target.value as any }))}
+                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none focus:border-amber-500"
+                                >
+                                    <option value="continuous_low_cpu">Continuous 1-Thread (Low Unraid CPU)</option>
+                                    <option value="hourly">Hourly Batch</option>
+                                    <option value="overnight">Overnight Only (01:00–07:00)</option>
+                                    <option value="manual_only">Manual Trigger Only</option>
+                                </select>
+                                <p className="text-[11px] text-zinc-500">
+                                    Processes books sequentially following your Bookshelf Priority Queue.
+                                </p>
+                            </div>
+
+                            <div className="space-y-1.5 bg-zinc-950/70 p-4 rounded-xl border border-zinc-800">
+                                <label className="text-xs font-black uppercase tracking-wider text-sky-400 block">
+                                    2. Synced Transcription Model
+                                </label>
+                                <select
+                                    value={audiobookStudioConfig.sttEngine}
+                                    onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, sttEngine: e.target.value as any }))}
+                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none focus:border-amber-500"
+                                >
+                                    <option value="whisper_tiny_local">Local Whisper Tiny / Acoustic Cadence (0 GPU)</option>
+                                    <option value="acoustic_cadence">Ultra-Light Speech Cadence Aligner (Fastest CPU)</option>
+                                    <option value="openai_whisper">OpenAI Whisper-1 Cloud API</option>
+                                    <option value="gemini_audio">Google Gemini 1.5 Flash Audio STT</option>
+                                </select>
+                                <p className="text-[11px] text-zinc-500">
+                                    Creates live `[mm:ss.xx]` karaoke-style reading lines per chapter.
+                                </p>
+                            </div>
+
+                            <div className="space-y-1.5 bg-zinc-950/70 p-4 rounded-xl border border-zinc-800">
+                                <label className="text-xs font-black uppercase tracking-wider text-emerald-400 block">
+                                    3. Audio Quality &amp; Voice Preset
+                                </label>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <select
+                                        value={audiobookStudioConfig.audioEnhancePreset}
+                                        onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, audioEnhancePreset: e.target.value as any }))}
+                                        className="bg-zinc-900 border border-zinc-800 rounded-xl px-2.5 py-2 text-xs font-bold text-white outline-none focus:border-emerald-500"
+                                        title="Noise Reduction & Clarity Filter"
+                                    >
+                                        <option value="denoise_clarity">FFmpeg afftdn Denoise + Clarity</option>
+                                        <option value="vintage_restore">Old Tape / Vintage Restoration</option>
+                                        <option value="crystal_voice">Crystal Vocal Presence Boost</option>
+                                    </select>
+                                    <select
+                                        value={audiobookStudioConfig.defaultVoicePreset}
+                                        onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, defaultVoicePreset: e.target.value as any }))}
+                                        className="bg-zinc-900 border border-zinc-800 rounded-xl px-2.5 py-2 text-xs font-bold text-white outline-none focus:border-emerald-500"
+                                        title="Narrator Voice Timbre / Pitch"
+                                    >
+                                        <option value="original">Original Voice</option>
+                                        <option value="deep_narrator">Deep Cinema Narrator</option>
+                                        <option value="warm_storyteller">Warm Storyteller</option>
+                                        <option value="crisp_clear">Crisp Articulation</option>
+                                        <option value="soft_velvet">Soft Late-Night Voice</option>
+                                    </select>
+                                </div>
+                                <p className="text-[11px] text-zinc-500">
+                                    Removes tape hiss and enhances vocal clarity on single CPU thread.
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* 2. AI Artwork Provider, API Keys & Daily Quota */}
+                        <div className="p-4 bg-zinc-950/80 rounded-xl border border-zinc-800 space-y-4">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <h3 className="text-sm font-black uppercase tracking-wider text-amber-300">
+                                    🎨 Chapter Scene Illustration Provider, Quotas &amp; Prompts
+                                </h3>
+                                <span className="text-[11px] text-zinc-400">
+                                    Supports Open-Source Flux, ChatGPT (DALL·E 3), Google Gemini Imagen 3, or Local SD WebUI
+                                </span>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                                <div>
+                                    <label className="text-[11px] font-bold text-zinc-400 block mb-1">AI Artwork Provider</label>
+                                    <select
+                                        value={audiobookStudioConfig.artProvider}
+                                        onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, artProvider: e.target.value as any }))}
+                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none focus:border-amber-500"
+                                    >
+                                        <option value="pollinations_flux">Free Open-Source Flux (No Key Needed)</option>
+                                        <option value="openai">ChatGPT / OpenAI (DALL·E 3)</option>
+                                        <option value="gemini">Google Gemini (Imagen 3)</option>
+                                        <option value="custom">Custom Local / SD API Endpoint</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="text-[11px] font-bold text-zinc-400 block mb-1">Daily New Images Quota</label>
+                                    <div className="flex items-center gap-1.5">
+                                        <input
+                                            type="number"
+                                            min={1}
+                                            max={1000}
+                                            value={audiobookStudioConfig.dailyImageQuota}
+                                            onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, dailyImageQuota: Math.max(1, parseInt(e.target.value) || 1) }))}
+                                            className="w-20 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-mono font-black text-amber-300 outline-none focus:border-amber-500"
+                                        />
+                                        <div className="flex gap-1">
+                                            {[1, 10, 50, 100].map(q => (
+                                                <button
+                                                    key={q}
+                                                    type="button"
+                                                    onClick={() => setAudiobookStudioConfig(prev => ({ ...prev, dailyImageQuota: q }))}
+                                                    className={`px-2 py-1.5 rounded-lg text-[10px] font-black border cursor-pointer ${
+                                                        audiobookStudioConfig.dailyImageQuota === q
+                                                            ? 'bg-amber-500 text-black border-amber-400'
+                                                            : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
+                                                    }`}
+                                                >
+                                                    {q}/d
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="text-[11px] font-bold text-zinc-400 block mb-1">Images Per Chapter Scene</label>
+                                    <select
+                                        value={audiobookStudioConfig.imagesPerChapter}
+                                        onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, imagesPerChapter: parseInt(e.target.value) || 2 }))}
+                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none focus:border-amber-500"
+                                    >
+                                        <option value={1}>1 Image per Chapter</option>
+                                        <option value={2}>2 Images (Swaps at 1/2 way)</option>
+                                        <option value={3}>3 Images (Swaps at 1/3 &amp; 2/3)</option>
+                                        <option value={4}>4 Images (Swaps every 1/4)</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="text-[11px] font-bold text-zinc-400 block mb-1">Scene Visual Focus</label>
+                                    <select
+                                        value={audiobookStudioConfig.artFocus}
+                                        onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, artFocus: e.target.value as any }))}
+                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none focus:border-amber-500"
+                                    >
+                                        <option value="auto-choice">✨ Auto-Choice (Context Adaptive)</option>
+                                        <option value="characters">👤 Characters &amp; Expressions</option>
+                                        <option value="ambient">🕯️ Ambient &amp; Mood</option>
+                                        <option value="theme">🎭 Symbolic Theme</option>
+                                        <option value="landscapes">🏔️ Landscapes &amp; Worldbuilding</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            {/* API Keys Row (shown for OpenAI / Gemini / Custom) */}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                <div>
+                                    <label className="text-[11px] font-bold text-zinc-400 block mb-1">OpenAI / ChatGPT API Key</label>
+                                    <input
+                                        type="password"
+                                        placeholder="sk-..."
+                                        value={audiobookStudioConfig.openaiApiKey}
+                                        onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, openaiApiKey: e.target.value }))}
+                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-amber-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[11px] font-bold text-zinc-400 block mb-1">Google Gemini API Key</label>
+                                    <input
+                                        type="password"
+                                        placeholder="AIza..."
+                                        value={audiobookStudioConfig.geminiApiKey}
+                                        onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, geminiApiKey: e.target.value }))}
+                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-amber-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[11px] font-bold text-zinc-400 block mb-1">Custom API URL (Optional)</label>
+                                    <input
+                                        type="text"
+                                        placeholder="http://192.168.1.125:7860/sdapi/v1/txt2img"
+                                        value={audiobookStudioConfig.customApiUrl}
+                                        onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, customApiUrl: e.target.value }))}
+                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-amber-500"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Art Style, Resolution & Custom Prompt */}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                <div>
+                                    <label className="text-[11px] font-bold text-zinc-400 block mb-1">Art Style Preset</label>
+                                    <input
+                                        type="text"
+                                        value={audiobookStudioConfig.artStyle}
+                                        onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, artStyle: e.target.value }))}
+                                        placeholder="e.g. Cinematic Concept Art, Oil Painting, Dark Fantasy..."
+                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-amber-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[11px] font-bold text-zinc-400 block mb-1">Artwork Resolution</label>
+                                    <select
+                                        value={audiobookStudioConfig.artResolution}
+                                        onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, artResolution: e.target.value as any }))}
+                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none focus:border-amber-500"
+                                    >
+                                        <option value="1280x720">1280×720 (Wide Open-Book Spread)</option>
+                                        <option value="1536x1024">1536×1024 (HD Book Spread)</option>
+                                        <option value="1024x1024">1024×1024 (Square Cover Art)</option>
+                                        <option value="768x768">768×768 (Fast Lightweight)</option>
+                                    </select>
+                                </div>
+                                <div className="flex items-end pb-1">
+                                    <label className="flex items-center gap-2 text-xs font-bold text-zinc-300 cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={audiobookStudioConfig.passTranscriptionContext}
+                                            onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, passTranscriptionContext: e.target.checked }))}
+                                            className="w-4 h-4 rounded accent-amber-500"
+                                        />
+                                        Pass Chapter Transcription Text to AI Painter
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="text-[11px] font-bold text-zinc-400 block mb-1">Custom Prompt Instructions</label>
+                                <div className="flex flex-col sm:flex-row gap-2">
+                                    <input
+                                        type="text"
+                                        value={audiobookStudioConfig.customPromptTemplate}
+                                        onChange={e => setAudiobookStudioConfig(prev => ({ ...prev, customPromptTemplate: e.target.value }))}
+                                        placeholder="Custom prompt directives for chapter illustrations..."
+                                        className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-amber-500"
+                                    />
+                                    <button
+                                        type="button"
+                                        disabled={savingStudioConfig}
+                                        onClick={() => saveAudiobookStudioConfig()}
+                                        className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider shrink-0 transition-all cursor-pointer shadow-lg shadow-amber-500/20"
+                                    >
+                                        {savingStudioConfig ? 'Saving...' : 'Save Studio Settings'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     {/* Backup & Restore */}
                                 <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -1309,11 +1747,11 @@ export default function Settings() {
 
                         {/* Disk Storage Capacity Fill Bar Meter */}
                         {diskInfo ? (
-                            <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-800 space-y-2">
-                                <div className="flex justify-between items-center text-xs">
+                            <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-800 space-y-3">
+                                <div className="flex justify-between items-center text-sm">
                                     <span className="font-bold text-white uppercase tracking-wider">Total Storage Capacity</span>
                                     <div className="flex items-center gap-2">
-                                        <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${
+                                        <span className={`px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider ${
                                             diskInfo.usedPercent >= diskPauseThreshold
                                                 ? 'bg-red-500/10 text-red-400 border border-red-500/20'
                                                 : diskInfo.usedPercent >= 75
@@ -1324,65 +1762,64 @@ export default function Settings() {
                                         </span>
                                         <button
                                             onClick={() => fetch('/api/system/disk').then(r => r.ok ? r.json() : null).then(d => { if (d) setDiskInfo(d); }).catch(() => {})}
-                                            className="p-1 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white"
+                                            className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-colors"
                                             title="Refresh disk info"
                                         >
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
                                         </button>
                                     </div>
                                 </div>
 
-                                {/* Progress Bar Meter */}
-                                <div className="relative h-3.5 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800">
+                                {/* Multi-Color Segmented Progress Bar */}
+                                <div className="relative h-4 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800 flex">
+                                    {instanceSegments.map((seg: any) => (
+                                        <div
+                                            key={seg.id}
+                                            className="h-full transition-all duration-700 first:rounded-l-full last:rounded-r-full hover:opacity-90 relative group"
+                                            style={{
+                                                width: `${seg.percent}%`,
+                                                backgroundColor: seg.colorHex,
+                                                boxShadow: `inset 0 1px 0 rgba(255,255,255,0.2)`
+                                            }}
+                                            title={`${seg.name}: ${seg.percent.toFixed(1)}% of total storage (${formatBytes(seg.bytes)})`}
+                                        />
+                                    ))}
+                                    {/* Auto-Clean Trigger Threshold Dashed Line */}
                                     <div
-                                        className={`h-full rounded-full transition-all duration-1000 ${
-                                            diskInfo.usedPercent >= 90 ? 'bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.4)]'
-                                            : diskInfo.usedPercent >= 75 ? 'bg-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.3)]'
-                                            : 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.3)]'
-                                        }`}
-                                        style={{ width: `${diskInfo.usedPercent}%` }}
-                                    />
-                                    <div
-                                        className="absolute top-0 bottom-0 w-0.5 bg-white/50 border-r border-dashed border-white/30"
+                                        className="absolute top-0 bottom-0 w-0.5 bg-white z-10 pointer-events-none"
                                         style={{ left: `${diskPauseThreshold}%` }}
                                         title={`Trigger Threshold: ${diskPauseThreshold}%`}
-                                    />
+                                    >
+                                        <div className="absolute -top-1 -left-1 w-2.5 h-2.5 bg-white rounded-full shadow-md" />
+                                    </div>
                                 </div>
 
-                                <div className="flex justify-between text-[11px] text-zinc-400 font-semibold">
+                                <div className="flex justify-between text-xs text-zinc-300 font-bold">
                                     <span>
-                                        {diskInfo.totalBytes >= 1e12
-                                            ? `${(diskInfo.usedBytes / 1e12).toFixed(2)} TB used of ${(diskInfo.totalBytes / 1e12).toFixed(2)} TB`
-                                            : `${(diskInfo.usedBytes / 1e9).toFixed(0)} GB used of ${(diskInfo.totalBytes / 1e9).toFixed(0)} GB`}
+                                        {formatBytes(diskInfo.usedBytes)} used of {formatBytes(diskInfo.totalBytes)}
                                     </span>
                                     <span className="text-emerald-400 font-black">
-                                        {diskInfo.totalBytes >= 1e12
-                                            ? `${(diskInfo.freeBytes / 1e12).toFixed(2)} TB free`
-                                            : `${(diskInfo.freeBytes / 1e9).toFixed(0)} GB free`}
+                                        {formatBytes(diskInfo.freeBytes)} free
                                     </span>
                                 </div>
 
-                                {/* Per-Instance Breakdown */}
-                                {Array.isArray(diskInfo?.byInstance) && diskInfo.byInstance.length > 0 && (
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3 pt-3 border-t border-zinc-900">
-                                        {diskInfo.byInstance.map((inst: any) => {
-                                            const folders = Array.isArray(inst?.folders) ? inst.folders : [];
-                                            const instTotal = folders.reduce((s: number, f: any) => s + (f?.totalBytes || 0), 0);
-                                            const instFree = folders.reduce((s: number, f: any) => s + (f?.freeBytes || 0), 0);
-                                            const instUsed = instTotal - instFree;
-                                            const instPct = instTotal > 0 ? Math.round((instUsed / instTotal) * 100) : 0;
-                                            return (
-                                                <div key={inst.id || inst.name} className="p-2.5 bg-zinc-900/60 rounded-xl border border-zinc-800/60 space-y-1">
-                                                    <div className="flex items-center justify-between">
-                                                        <span className="text-[10px] font-bold text-zinc-300 uppercase tracking-wider truncate">{inst.name}</span>
-                                                        <span className={`text-[10px] font-black ${ instPct >= 90 ? 'text-red-400' : instPct >= 75 ? 'text-amber-400' : 'text-emerald-400'}`}>{instPct}%</span>
-                                                    </div>
-                                                    <div className="h-1.5 bg-zinc-950 rounded-full overflow-hidden">
-                                                        <div className={`h-full rounded-full ${instPct >= 90 ? 'bg-red-500' : instPct >= 75 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${instPct}%` }} />
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
+                                {/* Segment Color Legend */}
+                                {instanceSegments.length > 0 && (
+                                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pt-2 border-t border-zinc-900 text-xs">
+                                        {instanceSegments.map((seg: any) => (
+                                            <div key={seg.id} className="flex items-center gap-1.5 text-zinc-300 font-medium">
+                                                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: seg.colorHex }} />
+                                                <span>{seg.name}:</span>
+                                                <span className="text-white font-bold">{formatBytes(seg.bytes || (diskInfo.totalBytes * seg.percent / 100))}</span>
+                                                <span className="text-zinc-500 font-medium">({seg.percent.toFixed(1)}%)</span>
+                                            </div>
+                                        ))}
+                                        <div className="flex items-center gap-1.5 text-emerald-400 font-semibold ml-auto">
+                                            <span className="w-2.5 h-2.5 rounded-full bg-zinc-800 border border-zinc-700 flex-shrink-0" />
+                                            <span>Free Space:</span>
+                                            <span className="font-bold">{formatBytes(diskInfo.freeBytes)}</span>
+                                            <span className="text-zinc-500 font-medium">({(100 - diskInfo.usedPercent)}%)</span>
+                                        </div>
                                     </div>
                                 )}
                             </div>
@@ -1534,12 +1971,20 @@ export default function Settings() {
                                     ) : (
                                         <div className="grid grid-cols-1 gap-3">
                                             {libraryLimits.map(lib => {
-                                                const instDisk = diskInfo?.byInstance?.find((i: any) => i.id === lib.instanceId || i.name === lib.name);
+                                                const instDisk = diskInfo?.byInstance?.find((i: any) => i.id === lib.instanceId || i.name === lib.name || (lib.type === 'iptv_dvr' && i.type === 'iptv_dvr'));
+                                                const colorHex = instDisk?.colorHex || (lib.type === 'iptv_dvr' ? '#f43f5e' : (lib.type === 'lidarr' ? '#10b981' : twColorToHex(instDisk?.color)));
                                                 const folders = Array.isArray(instDisk?.folders) ? instDisk.folders : [];
-                                                const currentBytes = folders.reduce((s: number, f: any) => s + (f?.totalBytes - f?.freeBytes || 0), 0);
-                                                const currentGb = currentBytes > 0 ? (currentBytes / (1024 ** 3)) : 0;
-                                                const percentOfLimit = lib.maxGb > 0 && currentGb > 0 ? Math.min(100, Math.round((currentGb / lib.maxGb) * 100)) : 0;
-                                                const isOverLimit = lib.enabled && lib.maxGb > 0 && currentGb > lib.maxGb;
+                                                const hostVolTotal = folders.reduce((s: number, f: any) => s + (f?.totalBytes || 0), 0);
+                                                const hostVolFree = folders.reduce((s: number, f: any) => s + (f?.freeBytes || 0), 0);
+                                                const hostVolUsed = hostVolTotal - hostVolFree;
+                                                const hostVolPct = hostVolTotal > 0 ? Math.round((hostVolUsed / hostVolTotal) * 100) : 0;
+
+                                                const mediaBytes = (instDisk?.mediaBytes && instDisk.mediaBytes > 0)
+                                                    ? instDisk.mediaBytes
+                                                    : (lib.type === 'iptv_dvr' ? 0 : hostVolUsed);
+                                                const mediaGb = mediaBytes > 0 ? (mediaBytes / (1024 ** 3)) : 0;
+                                                const percentOfLimit = lib.maxGb > 0 && mediaGb > 0 ? Math.min(100, Math.round((mediaGb / lib.maxGb) * 100)) : 0;
+                                                const isOverLimit = lib.enabled && lib.maxGb > 0 && mediaGb > lib.maxGb;
 
                                                 return (
                                                     <div
@@ -1547,42 +1992,59 @@ export default function Settings() {
                                                         className={`p-4 rounded-2xl border transition-all ${
                                                             lib.enabled
                                                                 ? isOverLimit
-                                                                    ? 'bg-rose-500/5 border-rose-500/30 shadow-lg'
+                                                                    ? 'bg-rose-500/5 border-rose-500/40 shadow-lg'
                                                                     : 'bg-zinc-950/80 border-zinc-800/90'
-                                                                : 'bg-zinc-950/40 border-zinc-900 opacity-60'
+                                                                : 'bg-zinc-950/40 border-zinc-900 opacity-65'
                                                         }`}
                                                     >
-                                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                                                            <div className="flex items-center gap-3">
-                                                                <div className={`p-2.5 rounded-xl ${
-                                                                    lib.type === 'radarr' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
-                                                                    lib.type === 'sonarr' ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20' :
-                                                                    'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                                                                }`}>
+                                                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                                                            <div className="flex items-center gap-3.5">
+                                                                <div
+                                                                    className="p-3 rounded-xl border flex-shrink-0"
+                                                                    style={{
+                                                                        backgroundColor: `${colorHex}15`,
+                                                                        borderColor: `${colorHex}35`,
+                                                                        color: colorHex
+                                                                    }}
+                                                                >
                                                                     {lib.type === 'radarr' ? (
-                                                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/></svg>
+                                                                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/></svg>
+                                                                    ) : lib.type === 'sonarr' ? (
+                                                                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect width="20" height="15" x="2" y="7" rx="2"/><polyline points="17 2 12 7 7 2"/></svg>
+                                                                    ) : lib.type === 'lidarr' ? (
+                                                                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
                                                                     ) : (
-                                                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect width="20" height="15" x="2" y="7" rx="2"/><polyline points="17 2 12 7 7 2"/></svg>
+                                                                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><path d="m4.93 4.93 4.24 4.24"/><path d="m14.83 9.17 4.24-4.24"/><path d="m14.83 14.83 4.24 4.24"/><path d="m9.17 14.83-4.24 4.24"/></svg>
                                                                     )}
                                                                 </div>
                                                                 <div>
-                                                                    <div className="flex items-center gap-2">
-                                                                        <span className="text-sm font-black text-white">{lib.name}</span>
-                                                                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-zinc-800 text-zinc-400 border border-zinc-700">
-                                                                            {lib.type}
+                                                                    <div className="flex items-center gap-2.5 flex-wrap">
+                                                                        <span className="text-base font-black text-white">{lib.name}</span>
+                                                                        <span
+                                                                            className="px-2.5 py-0.5 rounded-md text-xs font-bold uppercase tracking-wider border"
+                                                                            style={{
+                                                                                backgroundColor: `${colorHex}15`,
+                                                                                borderColor: `${colorHex}30`,
+                                                                                color: colorHex
+                                                                            }}
+                                                                        >
+                                                                            {lib.type === 'iptv_dvr' ? 'IPTV DVR' : lib.type}
                                                                         </span>
                                                                         {isOverLimit && (
-                                                                            <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-rose-500/20 text-rose-400 border border-rose-500/30 animate-pulse">
-                                                                                Over Limit ({currentGb.toFixed(0)} GB &gt; {lib.maxGb} GB)
+                                                                            <span className="px-2.5 py-0.5 rounded-md text-xs font-black uppercase tracking-wider bg-rose-500/20 text-rose-400 border border-rose-500/40 animate-pulse">
+                                                                                Over Limit ({mediaGb.toFixed(0)} GB &gt; {lib.maxGb} GB)
                                                                             </span>
                                                                         )}
                                                                     </div>
-                                                                    {currentGb > 0 && (
-                                                                        <p className="text-[11px] text-zinc-400 mt-0.5">
-                                                                            Current Size: <span className="text-zinc-200 font-bold">{currentGb.toFixed(1)} GB</span>
-                                                                            {lib.enabled && lib.maxGb > 0 && (
-                                                                                <span className="text-zinc-500 font-medium"> ({percentOfLimit}% of {lib.maxGb} GB limit)</span>
-                                                                            )}
+                                                                    <p className="text-xs text-zinc-300 mt-1">
+                                                                        Media Content Size: <span className="text-white font-black">{formatBytes(mediaBytes)}</span>
+                                                                        {lib.enabled && lib.maxGb > 0 && (
+                                                                            <span className="text-zinc-400 font-semibold"> ({percentOfLimit}% of {lib.maxGb} GB limit)</span>
+                                                                        )}
+                                                                    </p>
+                                                                    {hostVolTotal > 0 && (
+                                                                        <p className="text-[11px] text-zinc-500 mt-0.5">
+                                                                            Shared NAS Volume: <span className="text-zinc-400 font-medium">{hostVolPct}% occupied ({formatBytes(hostVolUsed)} of {formatBytes(hostVolTotal)})</span>
                                                                         </p>
                                                                     )}
                                                                 </div>
@@ -1591,17 +2053,17 @@ export default function Settings() {
                                                             {/* Controls */}
                                                             <div className="flex flex-wrap items-center gap-3">
                                                                 {/* Clean Mode selector */}
-                                                                {lib.enabled && (
-                                                                    <div className="flex items-center gap-1 bg-zinc-900/90 border border-zinc-800 rounded-xl p-1">
+                                                                {lib.enabled && lib.type !== 'iptv_dvr' && (
+                                                                    <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-xl p-1">
                                                                         {(['largest', 'oldest', 'unplayed'] as const).map(m => (
                                                                             <button
                                                                                 key={m}
                                                                                 type="button"
                                                                                 onClick={() => handleUpdateLibraryLimit(lib.id, { cleanMode: m })}
-                                                                                className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase transition-all ${
+                                                                                className={`px-2.5 py-1 rounded-lg text-xs font-bold uppercase transition-all ${
                                                                                     lib.cleanMode === m
                                                                                         ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                                                                        : 'text-zinc-500 hover:text-zinc-300'
+                                                                                        : 'text-zinc-400 hover:text-zinc-200'
                                                                                 }`}
                                                                             >
                                                                                 {m === 'largest' ? 'Largest' : m === 'oldest' ? 'Oldest' : 'Unplayed'}
@@ -1611,8 +2073,8 @@ export default function Settings() {
                                                                 )}
 
                                                                 {/* Max Size input */}
-                                                                <div className="flex items-center gap-1.5 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-1.5">
-                                                                    <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">Max:</span>
+                                                                <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-1.5">
+                                                                    <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Max:</span>
                                                                     <input
                                                                         type="number"
                                                                         min="1"
@@ -1620,9 +2082,9 @@ export default function Settings() {
                                                                         value={lib.maxGb}
                                                                         disabled={!lib.enabled}
                                                                         onChange={e => handleUpdateLibraryLimit(lib.id, { maxGb: Math.max(1, parseInt(e.target.value) || 100) })}
-                                                                        className="w-16 bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-0.5 text-center text-xs font-bold text-emerald-400 outline-none disabled:opacity-40"
+                                                                        className="w-20 bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-1 text-center text-sm font-black text-emerald-400 outline-none disabled:opacity-40"
                                                                     />
-                                                                    <span className="text-[11px] font-bold text-zinc-400">GB</span>
+                                                                    <span className="text-xs font-bold text-zinc-400">GB</span>
                                                                 </div>
 
                                                                 {/* Run Library Clean Button */}
@@ -1631,12 +2093,12 @@ export default function Settings() {
                                                                         type="button"
                                                                         onClick={() => handleRunLibraryClean(lib)}
                                                                         disabled={cleaningLibraryId === lib.id}
-                                                                        className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-zinc-700 text-zinc-300 hover:text-white text-xs font-bold transition-all disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
+                                                                        className="px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-zinc-700 text-zinc-200 hover:text-white text-xs font-bold transition-all disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
                                                                     >
                                                                         {cleaningLibraryId === lib.id ? (
-                                                                            <div className="w-3 h-3 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                                                                            <div className="w-3.5 h-3.5 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
                                                                         ) : (
-                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
                                                                         )}
                                                                         Clean Library
                                                                     </button>
@@ -1646,33 +2108,31 @@ export default function Settings() {
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => handleUpdateLibraryLimit(lib.id, { enabled: !lib.enabled })}
-                                                                    className={`w-11 h-6 rounded-full transition-all relative flex-shrink-0 p-0.5 ${
-                                                                        lib.enabled ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-zinc-800'
+                                                                    className={`w-12 h-6.5 rounded-full transition-all relative flex-shrink-0 p-0.5 ${
+                                                                        lib.enabled ? 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.3)]' : 'bg-zinc-800'
                                                                     }`}
                                                                     title={lib.enabled ? `Disable ${lib.name} Limit` : `Enable ${lib.name} Limit`}
                                                                 >
-                                                                    <div className={`w-5 h-5 rounded-full bg-white transition-transform ${lib.enabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                                                                    <div className={`w-5.5 h-5.5 rounded-full bg-white transition-transform ${lib.enabled ? 'translate-x-5.5' : 'translate-x-0'}`} />
                                                                 </button>
                                                             </div>
                                                         </div>
 
-                                                        {/* Usage Bar */}
-                                                        {lib.enabled && lib.maxGb > 0 && (
-                                                            <div className="mt-3 space-y-1.5">
-                                                                <div className="relative h-2 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800/80">
-                                                                    <div
-                                                                        className={`h-full rounded-full transition-all duration-500 ${
-                                                                            percentOfLimit >= 100
-                                                                                ? 'bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.4)]'
-                                                                                : percentOfLimit >= 80
-                                                                                ? 'bg-amber-500'
-                                                                                : 'bg-emerald-500'
-                                                                        }`}
-                                                                        style={{ width: `${Math.min(100, percentOfLimit)}%` }}
-                                                                    />
-                                                                </div>
+                                                        {/* Instance Color-Coded Usage Bar */}
+                                                        <div className="mt-3.5 space-y-1">
+                                                            <div className="relative h-2.5 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800/80">
+                                                                <div
+                                                                    className="h-full rounded-full transition-all duration-500"
+                                                                    style={{
+                                                                        width: lib.enabled && lib.maxGb > 0
+                                                                            ? `${Math.min(100, percentOfLimit)}%`
+                                                                            : `${Math.max(2, Math.min(100, diskInfo?.totalBytes ? (mediaBytes / diskInfo.totalBytes) * 100 : hostVolPct))}%`,
+                                                                        backgroundColor: isOverLimit ? '#f43f5e' : colorHex,
+                                                                        boxShadow: `0 0 10px ${isOverLimit ? 'rgba(244,63,94,0.4)' : `${colorHex}50`}`
+                                                                    }}
+                                                                />
                                                             </div>
-                                                        )}
+                                                        </div>
                                                     </div>
                                                 );
                                             })}

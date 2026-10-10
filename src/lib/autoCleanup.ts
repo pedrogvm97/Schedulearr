@@ -1,4 +1,5 @@
-import { getInstances, getSetting, getTorrentActivity, updateTorrentActivity, deleteTorrentActivity, logSearchHistory } from '@/lib/db';
+import { getInstances, getSetting, getTorrentActivity, updateTorrentActivity, deleteTorrentActivity, logSearchHistory, getDvrRecordings, deleteDvrRecording } from '@/lib/db';
+import fs from 'fs';
 import { authenticateQbittorrent, getActiveTorrents, deleteTorrents } from '@/lib/qbittorrent';
 import { getQueue as getRadarrQueue, deleteFromQueue as deleteFromRadarrQueue, getAllMovies, deleteMovie } from '@/lib/radarr';
 import { getQueue as getSonarrQueue, deleteFromQueue as deleteFromSonarrQueue, getAllSeries, deleteSeries, getEpisodeFiles, deleteSeason, deleteEpisodeFile } from '@/lib/sonarr';
@@ -525,7 +526,7 @@ export interface LibraryLimitConfig {
     id: string;
     name: string;
     instanceId: string;
-    type: 'radarr' | 'sonarr' | 'lidarr';
+    type: 'radarr' | 'sonarr' | 'lidarr' | 'iptv_dvr';
     enabled: boolean;
     maxGb: number;
     cleanMode?: 'largest' | 'oldest' | 'unplayed';
@@ -538,8 +539,10 @@ export async function runLibrarySmartCleanup(libraryConfig: LibraryLimitConfig) 
 
     const radarrInstances = getInstances('radarr', true);
     const sonarrInstances = getInstances('sonarr', true);
+    const lidarrInstances = getInstances('lidarr', true);
     const targetRadarr = radarrInstances.find(i => i.id === libraryConfig.instanceId);
     const targetSonarr = sonarrInstances.find(i => i.id === libraryConfig.instanceId);
+    const targetLidarr = lidarrInstances.find(i => i.id === libraryConfig.instanceId);
 
     const maxSizeBytes = libraryConfig.maxGb * 1024 * 1024 * 1024;
     const mode = libraryConfig.cleanMode || getSetting('media_smart_clean_mode') || 'largest';
@@ -601,6 +604,49 @@ export async function runLibrarySmartCleanup(libraryConfig: LibraryLimitConfig) 
         } catch (e) {
             console.error(`Error fetching series for library ${libraryConfig.name}:`, e);
         }
+    } else if (targetLidarr && libraryConfig.type === 'lidarr') {
+        try {
+            const res = await fetch(`${targetLidarr.url.replace(/\/$/, '')}/api/v1/artist`, {
+                headers: { 'X-Api-Key': targetLidarr.api_key },
+                signal: AbortSignal.timeout(4000)
+            });
+            if (res.ok) {
+                const artists = await res.json();
+                for (const a of artists) {
+                    const size = a.statistics?.sizeOnDisk || 0;
+                    if (size === 0) continue;
+                    currentTotalBytes += size;
+
+                    candidates.push({
+                        id: a.id,
+                        title: a.artistName || 'Artist',
+                        type: 'lidarr',
+                        size,
+                        added: a.added || new Date().toISOString(),
+                        instance: targetLidarr
+                    });
+                }
+            }
+        } catch (e) {
+            console.error(`Error fetching Lidarr for library ${libraryConfig.name}:`, e);
+        }
+    } else if (libraryConfig.type === 'iptv_dvr') {
+        try {
+            const recordings = getDvrRecordings(500).filter(r => (r.status === 'completed' || r.status === 'recording') && r.file_size);
+            for (const r of recordings) {
+                currentTotalBytes += (r.file_size || 0);
+                candidates.push({
+                    id: r.id,
+                    title: r.program_title || 'IPTV Recording',
+                    type: 'iptv_dvr',
+                    size: r.file_size || 0,
+                    added: r.start_time || new Date().toISOString(),
+                    filePath: r.file_path
+                });
+            }
+        } catch (e) {
+            console.error(`Error fetching IPTV recordings for library ${libraryConfig.name}:`, e);
+        }
     }
 
     if (currentTotalBytes <= maxSizeBytes) {
@@ -647,6 +693,18 @@ export async function runLibrarySmartCleanup(libraryConfig: LibraryLimitConfig) 
                 deleted = await deleteMovie(item.instance.url, item.instance.api_key, item.id, true);
             } else if (item.type === 'series') {
                 deleted = await deleteSeries(item.instance.url, item.instance.api_key, item.id, true);
+            } else if (item.type === 'lidarr') {
+                const res = await fetch(`${item.instance.url.replace(/\/$/, '')}/api/v1/artist/${item.id}?deleteFiles=true`, {
+                    method: 'DELETE',
+                    headers: { 'X-Api-Key': item.instance.api_key }
+                });
+                deleted = res.ok;
+            } else if (item.type === 'iptv_dvr') {
+                if (item.filePath && fs.existsSync(item.filePath)) {
+                    try { fs.unlinkSync(item.filePath); } catch {}
+                }
+                deleteDvrRecording(item.id);
+                deleted = true;
             }
             if (deleted) {
                 currentTotalBytes -= item.size;

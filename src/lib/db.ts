@@ -132,7 +132,7 @@ const db = {
 };
 
 function initializeSchema(d: any) {
-    const CURRENT_SCHEMA_VER = 6;
+    const CURRENT_SCHEMA_VER = 7;
     try {
         const v = d.pragma('user_version', { simple: true });
         if (typeof v === 'number' && v >= CURRENT_SCHEMA_VER) {
@@ -372,6 +372,52 @@ function initializeSchema(d: any) {
         view_offset_ms INTEGER DEFAULT 0,
         viewed_at INTEGER NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS audiobook_books_meta (
+        book_key TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        author TEXT NOT NULL,
+        library_id TEXT,
+        poster_url TEXT,
+        total_chapters INTEGER DEFAULT 0,
+        transcribed_chapters INTEGER DEFAULT 0,
+        illustrated_chapters INTEGER DEFAULT 0,
+        enhanced_chapters INTEGER DEFAULT 0,
+        queue_priority INTEGER DEFAULT 100,
+        queue_enabled INTEGER DEFAULT 1,
+        transcribe_enabled INTEGER DEFAULT 1,
+        illustrate_enabled INTEGER DEFAULT 1,
+        enhance_enabled INTEGER DEFAULT 0,
+        enhance_preset TEXT DEFAULT 'denoise_clarity',
+        voice_preset TEXT DEFAULT 'original',
+        status TEXT DEFAULT 'idle',
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS audiobook_chapters_meta (
+        chapter_key TEXT PRIMARY KEY,
+        book_key TEXT NOT NULL,
+        chapter_index INTEGER DEFAULT 0,
+        title TEXT NOT NULL,
+        file_path TEXT,
+        duration_ms INTEGER DEFAULT 0,
+        transcription_status TEXT DEFAULT 'none',
+        transcription_progress INTEGER DEFAULT 0,
+        synced_transcript TEXT,
+        plain_transcript TEXT,
+        illustration_status TEXT DEFAULT 'none',
+        illustration_progress INTEGER DEFAULT 0,
+        images_json TEXT DEFAULT '[]',
+        enhance_status TEXT DEFAULT 'none',
+        enhance_progress INTEGER DEFAULT 0,
+        enhance_preset TEXT DEFAULT 'none',
+        voice_preset TEXT DEFAULT 'original',
+        enhanced_file_path TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_audiobook_chapters_book ON audiobook_chapters_meta (book_key, chapter_index);
+      CREATE INDEX IF NOT EXISTS idx_audiobook_books_priority ON audiobook_books_meta (queue_priority ASC);
     `);
 
     // Migrations
@@ -1226,7 +1272,7 @@ export const saveIptvEpg = (libraryId: string, epgList: Array<{
     description?: string;
     startTime: string;
     endTime: string;
-}>): boolean => {
+}>, replaceExisting: boolean = true): boolean => {
     try {
         const stmt = db.prepare(`
             INSERT INTO iptv_epg (id, library_id, channel_tvg_id, title, description, start_time, end_time)
@@ -1234,8 +1280,13 @@ export const saveIptvEpg = (libraryId: string, epgList: Array<{
         `);
 
         const insertMany = db.transaction((items: any[]) => {
-            for (const item of items) {
-                const id = `epg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+            if (replaceExisting && libraryId) {
+                db.prepare('DELETE FROM iptv_epg WHERE library_id = ?').run(libraryId);
+            }
+            const nowTs = Date.now();
+            for (let i = 0; i < items.length; i++) {
+                const item = items[i];
+                const id = `epg_${nowTs}_${i}_${Math.random().toString(36).slice(2, 6)}`;
                 stmt.run(
                     id,
                     libraryId,
@@ -1264,11 +1315,13 @@ export const getIptvEpgForChannel = (
     limit: number = 200
 ): any[] => {
     try {
+        const normId = (tvgId || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const hasSpecificLib = libraryId && libraryId !== 'ALL';
         let query = `
             SELECT * FROM iptv_epg 
-            WHERE library_id = ? AND (channel_tvg_id = ? OR LOWER(channel_tvg_id) = LOWER(?))
+            WHERE ${hasSpecificLib ? 'library_id = ? AND ' : ''}(channel_tvg_id = ? OR LOWER(channel_tvg_id) = LOWER(?) OR channel_tvg_id = ?)
         `;
-        const params: any[] = [libraryId, tvgId, tvgId];
+        const params: any[] = hasSpecificLib ? [libraryId, tvgId, tvgId, normId] : [tvgId, tvgId, normId];
 
         if (startTime) {
             query += ' AND end_time >= ?';
@@ -1282,7 +1335,26 @@ export const getIptvEpgForChannel = (
         query += ' ORDER BY start_time ASC LIMIT ?';
         params.push(limit);
 
-        const rows = db.prepare(query).all(...params) as any[];
+        let rows = db.prepare(query).all(...params) as any[];
+        // Fallback: if specific libraryId returned 0 rows (e.g. merged channels across providers), query across all libraries
+        if ((!rows || rows.length === 0) && hasSpecificLib) {
+            let fallbackQuery = `
+                SELECT * FROM iptv_epg 
+                WHERE (channel_tvg_id = ? OR LOWER(channel_tvg_id) = LOWER(?) OR channel_tvg_id = ?)
+            `;
+            const fbParams: any[] = [tvgId, tvgId, normId];
+            if (startTime) {
+                fallbackQuery += ' AND end_time >= ?';
+                fbParams.push(startTime);
+            }
+            if (endTime) {
+                fallbackQuery += ' AND start_time <= ?';
+                fbParams.push(endTime);
+            }
+            fallbackQuery += ' ORDER BY start_time ASC LIMIT ?';
+            fbParams.push(limit);
+            rows = db.prepare(fallbackQuery).all(...fbParams) as any[];
+        }
         return rows || [];
     } catch (e) {
         console.error('Error fetching IPTV EPG for channel:', e);
@@ -1618,34 +1690,50 @@ export const getBatchIptvEpg = (
         if (!tvgIds || tvgIds.length === 0) return {};
         // Default time window: 6 hours ago to 48 hours in the future
         const effectiveStart = startTime || new Date(Date.now() - 6 * 3600 * 1000).toISOString();
-        const lowerIds = tvgIds.map(t => t.toLowerCase().trim());
-        const placeholders = tvgIds.map(() => '?').join(',');
-
-        let query = `
-            SELECT * FROM iptv_epg 
-            WHERE library_id = ? AND (channel_tvg_id IN (${placeholders}) OR LOWER(channel_tvg_id) IN (${placeholders})) AND end_time >= ?
-        `;
-        const params: any[] = [libraryId, ...tvgIds, ...lowerIds, effectiveStart];
-
-        if (endTime) {
-            query += ' AND start_time <= ?';
-            params.push(endTime);
-        }
-
-        query += ' ORDER BY start_time ASC';
-
-        const rows = db.prepare(query).all(...params) as any[];
+        const uniqueIds = Array.from(new Set(tvgIds.filter(Boolean)));
+        if (uniqueIds.length === 0) return {};
 
         const result: Record<string, any[]> = {};
-        for (const row of (rows || [])) {
-            const exactKey = row.channel_tvg_id;
-            const lowerKey = (exactKey || '').toLowerCase();
-            const normKey = lowerKey.replace(/[^a-z0-9]/g, '');
+        const chunkSize = 250; // SQLite max variables safety
 
-            const keysToStore = Array.from(new Set([exactKey, lowerKey, normKey])).filter(Boolean);
-            for (const k of keysToStore) {
-                if (!result[k]) result[k] = [];
-                if (result[k].length < limitPerChannel) result[k].push(row);
+        for (let i = 0; i < uniqueIds.length; i += chunkSize) {
+            const chunk = uniqueIds.slice(i, i + chunkSize);
+            const lowerIds = chunk.map(t => t.toLowerCase().trim());
+            const placeholders = chunk.map(() => '?').join(',');
+
+            const runQuery = (restrictLib: boolean) => {
+                let query = `
+                    SELECT * FROM iptv_epg 
+                    WHERE ${restrictLib ? 'library_id = ? AND ' : ''}(channel_tvg_id IN (${placeholders}) OR LOWER(channel_tvg_id) IN (${placeholders})) AND end_time >= ?
+                `;
+                const params: any[] = restrictLib
+                    ? [libraryId, ...chunk, ...lowerIds, effectiveStart]
+                    : [...chunk, ...lowerIds, effectiveStart];
+
+                if (endTime) {
+                    query += ' AND start_time <= ?';
+                    params.push(endTime);
+                }
+
+                query += ' ORDER BY start_time ASC';
+                return db.prepare(query).all(...params) as any[];
+            };
+
+            let rows = (libraryId && libraryId !== 'ALL') ? runQuery(true) : runQuery(false);
+            if ((!rows || rows.length === 0) && libraryId && libraryId !== 'ALL') {
+                rows = runQuery(false);
+            }
+
+            for (const row of (rows || [])) {
+                const exactKey = row.channel_tvg_id;
+                const lowerKey = (exactKey || '').toLowerCase();
+                const normKey = lowerKey.replace(/[^a-z0-9]/g, '');
+
+                const keysToStore = Array.from(new Set([exactKey, lowerKey, normKey])).filter(Boolean);
+                for (const k of keysToStore) {
+                    if (!result[k]) result[k] = [];
+                    if (result[k].length < limitPerChannel) result[k].push(row);
+                }
             }
         }
         return result;
@@ -1880,4 +1968,385 @@ export const deleteDvrRecording = (id: string): boolean => {
     }
 };
 
+// ── Audiobook Studio & Priority Queue Helpers ──
+export interface AudiobookBookMeta {
+    book_key: string;
+    title: string;
+    author: string;
+    thumb?: string;
+    library_id?: string;
+    queue_priority: number;
+    queue_enabled: boolean;
+    transcribe_enabled: boolean;
+    illustrate_enabled: boolean;
+    enhance_audio_enabled: boolean;
+    voice_preset: string;
+    total_chapters: number;
+    transcribed_chapters: number;
+    illustrated_chapters: number;
+    enhanced_chapters: number;
+    status: string;
+    updated_at: string;
+}
+
+export interface AudiobookChapterSceneImage {
+    id: string;
+    url: string;
+    prompt: string;
+    kept: boolean;
+    sceneIndex: number;
+    createdAt: string;
+}
+
+export interface AudiobookChapterMeta {
+    chapter_key: string;
+    book_key: string;
+    chapter_index: number;
+    title: string;
+    file_path?: string;
+    duration_sec: number;
+    transcription_status: 'idle' | 'queued' | 'processing' | 'completed' | 'failed';
+    transcription_progress: number;
+    synced_lyrics?: string;
+    plain_transcript?: string;
+    illustration_status: 'idle' | 'queued' | 'processing' | 'completed' | 'failed';
+    illustration_progress: number;
+    images: AudiobookChapterSceneImage[];
+    audio_enhance_status: 'idle' | 'queued' | 'processing' | 'completed' | 'failed';
+    audio_enhance_progress: number;
+    enhanced_audio_path?: string;
+    voice_preset: string;
+    error_message?: string;
+    updated_at: string;
+}
+
+const mapBookRow = (r: any): AudiobookBookMeta => ({
+    book_key: r.book_key,
+    title: r.title || 'Untitled Book',
+    author: r.author || 'Unknown Author',
+    thumb: r.thumb || undefined,
+    library_id: r.library_id || undefined,
+    queue_priority: Number(r.queue_priority ?? 100),
+    queue_enabled: Boolean(r.queue_enabled),
+    transcribe_enabled: r.transcribe_enabled !== 0,
+    illustrate_enabled: r.illustrate_enabled !== 0,
+    enhance_audio_enabled: Boolean(r.enhance_audio_enabled),
+    voice_preset: r.voice_preset || 'original',
+    total_chapters: Number(r.total_chapters ?? 0),
+    transcribed_chapters: Number(r.transcribed_chapters ?? 0),
+    illustrated_chapters: Number(r.illustrated_chapters ?? 0),
+    enhanced_chapters: Number(r.enhanced_chapters ?? 0),
+    status: r.status || 'idle',
+    updated_at: r.updated_at || new Date().toISOString()
+});
+
+const mapChapterRow = (r: any): AudiobookChapterMeta => {
+    let parsedImages: AudiobookChapterSceneImage[] = [];
+    try {
+        parsedImages = JSON.parse(r.images_json || '[]');
+    } catch {
+        parsedImages = [];
+    }
+    return {
+        chapter_key: r.chapter_key,
+        book_key: r.book_key,
+        chapter_index: Number(r.chapter_index ?? 0),
+        title: r.title || 'Chapter',
+        file_path: r.file_path || undefined,
+        duration_sec: Number(r.duration_sec ?? 0),
+        transcription_status: r.transcription_status || 'idle',
+        transcription_progress: Number(r.transcription_progress ?? 0),
+        synced_lyrics: r.synced_lyrics || undefined,
+        plain_transcript: r.plain_transcript || undefined,
+        illustration_status: r.illustration_status || 'idle',
+        illustration_progress: Number(r.illustration_progress ?? 0),
+        images: parsedImages,
+        audio_enhance_status: r.audio_enhance_status || 'idle',
+        audio_enhance_progress: Number(r.audio_enhance_progress ?? 0),
+        enhanced_audio_path: r.enhanced_audio_path || undefined,
+        voice_preset: r.voice_preset || 'original',
+        error_message: r.error_message || undefined,
+        updated_at: r.updated_at || new Date().toISOString()
+    };
+};
+
+export const getAllAudiobooksMeta = (): AudiobookBookMeta[] => {
+    try {
+        const rows = db.prepare('SELECT * FROM audiobook_books_meta ORDER BY queue_enabled DESC, queue_priority ASC, title ASC').all() as any[];
+        return (rows || []).map(mapBookRow);
+    } catch (e) {
+        console.error('Error fetching all audiobooks meta:', e);
+        return [];
+    }
+};
+
+export const getAudiobookMeta = (bookKey: string): AudiobookBookMeta | null => {
+    try {
+        const row = db.prepare('SELECT * FROM audiobook_books_meta WHERE book_key = ?').get(bookKey) as any;
+        return row ? mapBookRow(row) : null;
+    } catch (e) {
+        console.error('Error fetching audiobook meta:', e);
+        return null;
+    }
+};
+
+export const upsertAudiobookMeta = (meta: Partial<AudiobookBookMeta> & { book_key: string }): AudiobookBookMeta => {
+    const existing = getAudiobookMeta(meta.book_key);
+    const merged: AudiobookBookMeta = {
+        book_key: meta.book_key,
+        title: meta.title ?? existing?.title ?? 'Untitled Book',
+        author: meta.author ?? existing?.author ?? 'Unknown Author',
+        thumb: meta.thumb ?? existing?.thumb,
+        library_id: meta.library_id ?? existing?.library_id,
+        queue_priority: meta.queue_priority ?? existing?.queue_priority ?? 100,
+        queue_enabled: meta.queue_enabled ?? existing?.queue_enabled ?? false,
+        transcribe_enabled: meta.transcribe_enabled ?? existing?.transcribe_enabled ?? true,
+        illustrate_enabled: meta.illustrate_enabled ?? existing?.illustrate_enabled ?? true,
+        enhance_audio_enabled: meta.enhance_audio_enabled ?? existing?.enhance_audio_enabled ?? false,
+        voice_preset: meta.voice_preset ?? existing?.voice_preset ?? 'original',
+        total_chapters: meta.total_chapters ?? existing?.total_chapters ?? 0,
+        transcribed_chapters: meta.transcribed_chapters ?? existing?.transcribed_chapters ?? 0,
+        illustrated_chapters: meta.illustrated_chapters ?? existing?.illustrated_chapters ?? 0,
+        enhanced_chapters: meta.enhanced_chapters ?? existing?.enhanced_chapters ?? 0,
+        status: meta.status ?? existing?.status ?? 'idle',
+        updated_at: new Date().toISOString()
+    };
+
+    db.prepare(`
+        INSERT INTO audiobook_books_meta (
+            book_key, title, author, thumb, library_id, queue_priority, queue_enabled,
+            transcribe_enabled, illustrate_enabled, enhance_audio_enabled, voice_preset,
+            total_chapters, transcribed_chapters, illustrated_chapters, enhanced_chapters,
+            status, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(book_key) DO UPDATE SET
+            title = excluded.title,
+            author = excluded.author,
+            thumb = COALESCE(excluded.thumb, audiobook_books_meta.thumb),
+            library_id = COALESCE(excluded.library_id, audiobook_books_meta.library_id),
+            queue_priority = excluded.queue_priority,
+            queue_enabled = excluded.queue_enabled,
+            transcribe_enabled = excluded.transcribe_enabled,
+            illustrate_enabled = excluded.illustrate_enabled,
+            enhance_audio_enabled = excluded.enhance_audio_enabled,
+            voice_preset = excluded.voice_preset,
+            total_chapters = excluded.total_chapters,
+            transcribed_chapters = excluded.transcribed_chapters,
+            illustrated_chapters = excluded.illustrated_chapters,
+            enhanced_chapters = excluded.enhanced_chapters,
+            status = excluded.status,
+            updated_at = excluded.updated_at
+    `).run(
+        merged.book_key,
+        merged.title,
+        merged.author,
+        merged.thumb || null,
+        merged.library_id || null,
+        merged.queue_priority,
+        merged.queue_enabled ? 1 : 0,
+        merged.transcribe_enabled ? 1 : 0,
+        merged.illustrate_enabled ? 1 : 0,
+        merged.enhance_audio_enabled ? 1 : 0,
+        merged.voice_preset,
+        merged.total_chapters,
+        merged.transcribed_chapters,
+        merged.illustrated_chapters,
+        merged.enhanced_chapters,
+        merged.status,
+        merged.updated_at
+    );
+
+    return merged;
+};
+
+export const reorderAudiobookQueue = (orderedBookKeys: string[]) => {
+    try {
+        const stmt = db.prepare('UPDATE audiobook_books_meta SET queue_priority = ?, updated_at = ? WHERE book_key = ?');
+        const now = new Date().toISOString();
+        const tx = db.transaction((keys: string[]) => {
+            keys.forEach((key, idx) => {
+                stmt.run(idx + 1, now, key);
+            });
+        });
+        tx(orderedBookKeys);
+        return true;
+    } catch (e) {
+        console.error('Error reordering audiobook queue:', e);
+        return false;
+    }
+};
+
+export const getAudiobookChaptersMeta = (bookKey: string): AudiobookChapterMeta[] => {
+    try {
+        const rows = db.prepare('SELECT * FROM audiobook_chapters_meta WHERE book_key = ? ORDER BY chapter_index ASC').all(bookKey) as any[];
+        return (rows || []).map(mapChapterRow);
+    } catch (e) {
+        console.error('Error fetching audiobook chapters meta:', e);
+        return [];
+    }
+};
+
+export const getAudiobookChapterMeta = (chapterKey: string): AudiobookChapterMeta | null => {
+    try {
+        const row = db.prepare('SELECT * FROM audiobook_chapters_meta WHERE chapter_key = ?').get(chapterKey) as any;
+        return row ? mapChapterRow(row) : null;
+    } catch (e) {
+        console.error('Error fetching audiobook chapter meta:', e);
+        return null;
+    }
+};
+
+export const upsertAudiobookChapterMeta = (meta: Partial<AudiobookChapterMeta> & { chapter_key: string; book_key: string }): AudiobookChapterMeta => {
+    const existing = getAudiobookChapterMeta(meta.chapter_key);
+    const merged: AudiobookChapterMeta = {
+        chapter_key: meta.chapter_key,
+        book_key: meta.book_key,
+        chapter_index: meta.chapter_index ?? existing?.chapter_index ?? 0,
+        title: meta.title ?? existing?.title ?? 'Chapter',
+        file_path: meta.file_path ?? existing?.file_path,
+        duration_sec: meta.duration_sec ?? existing?.duration_sec ?? 0,
+        transcription_status: meta.transcription_status ?? existing?.transcription_status ?? 'idle',
+        transcription_progress: meta.transcription_progress ?? existing?.transcription_progress ?? 0,
+        synced_lyrics: meta.synced_lyrics ?? existing?.synced_lyrics,
+        plain_transcript: meta.plain_transcript ?? existing?.plain_transcript,
+        illustration_status: meta.illustration_status ?? existing?.illustration_status ?? 'idle',
+        illustration_progress: meta.illustration_progress ?? existing?.illustration_progress ?? 0,
+        images: meta.images ?? existing?.images ?? [],
+        audio_enhance_status: meta.audio_enhance_status ?? existing?.audio_enhance_status ?? 'idle',
+        audio_enhance_progress: meta.audio_enhance_progress ?? existing?.audio_enhance_progress ?? 0,
+        enhanced_audio_path: meta.enhanced_audio_path ?? existing?.enhanced_audio_path,
+        voice_preset: meta.voice_preset ?? existing?.voice_preset ?? 'original',
+        error_message: meta.error_message !== undefined ? meta.error_message : existing?.error_message,
+        updated_at: new Date().toISOString()
+    };
+
+    db.prepare(`
+        INSERT INTO audiobook_chapters_meta (
+            chapter_key, book_key, chapter_index, title, file_path, duration_sec,
+            transcription_status, transcription_progress, synced_lyrics, plain_transcript,
+            illustration_status, illustration_progress, images_json,
+            audio_enhance_status, audio_enhance_progress, enhanced_audio_path,
+            voice_preset, error_message, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(chapter_key) DO UPDATE SET
+            book_key = excluded.book_key,
+            chapter_index = excluded.chapter_index,
+            title = excluded.title,
+            file_path = COALESCE(excluded.file_path, audiobook_chapters_meta.file_path),
+            duration_sec = CASE WHEN excluded.duration_sec > 0 THEN excluded.duration_sec ELSE audiobook_chapters_meta.duration_sec END,
+            transcription_status = excluded.transcription_status,
+            transcription_progress = excluded.transcription_progress,
+            synced_lyrics = COALESCE(excluded.synced_lyrics, audiobook_chapters_meta.synced_lyrics),
+            plain_transcript = COALESCE(excluded.plain_transcript, audiobook_chapters_meta.plain_transcript),
+            illustration_status = excluded.illustration_status,
+            illustration_progress = excluded.illustration_progress,
+            images_json = excluded.images_json,
+            audio_enhance_status = excluded.audio_enhance_status,
+            audio_enhance_progress = excluded.audio_enhance_progress,
+            enhanced_audio_path = COALESCE(excluded.enhanced_audio_path, audiobook_chapters_meta.enhanced_audio_path),
+            voice_preset = excluded.voice_preset,
+            error_message = excluded.error_message,
+            updated_at = excluded.updated_at
+    `).run(
+        merged.chapter_key,
+        merged.book_key,
+        merged.chapter_index,
+        merged.title,
+        merged.file_path || null,
+        merged.duration_sec,
+        merged.transcription_status,
+        merged.transcription_progress,
+        merged.synced_lyrics || null,
+        merged.plain_transcript || null,
+        merged.illustration_status,
+        merged.illustration_progress,
+        JSON.stringify(merged.images || []),
+        merged.audio_enhance_status,
+        merged.audio_enhance_progress,
+        merged.enhanced_audio_path || null,
+        merged.voice_preset,
+        merged.error_message || null,
+        merged.updated_at
+    );
+
+    recalculateAudiobookTotals(merged.book_key);
+    return merged;
+};
+
+export const recalculateAudiobookTotals = (bookKey: string) => {
+    try {
+        const chapters = getAudiobookChaptersMeta(bookKey);
+        if (chapters.length === 0) return;
+        const transcribed = chapters.filter(c => c.transcription_status === 'completed').length;
+        const illustrated = chapters.filter(c => c.illustration_status === 'completed' && c.images.some(img => img.kept)).length;
+        const enhanced = chapters.filter(c => c.audio_enhance_status === 'completed').length;
+        const isProcessing = chapters.some(c =>
+            c.transcription_status === 'processing' ||
+            c.illustration_status === 'processing' ||
+            c.audio_enhance_status === 'processing'
+        );
+
+        const book = getAudiobookMeta(bookKey);
+        if (!book) return;
+
+        let newStatus = book.status;
+        const targetTranscribed = !book.transcribe_enabled || transcribed >= Math.max(book.total_chapters, chapters.length);
+        const targetIllustrated = !book.illustrate_enabled || illustrated >= Math.max(book.total_chapters, chapters.length);
+        const targetEnhanced = !book.enhance_audio_enabled || enhanced >= Math.max(book.total_chapters, chapters.length);
+
+        if (isProcessing) {
+            newStatus = 'processing';
+        } else if (targetTranscribed && targetIllustrated && targetEnhanced && chapters.length > 0) {
+            newStatus = 'completed';
+        } else if (book.queue_enabled) {
+            newStatus = 'queued';
+        } else {
+            newStatus = 'idle';
+        }
+
+        db.prepare(`
+            UPDATE audiobook_books_meta SET
+                total_chapters = MAX(total_chapters, ?),
+                transcribed_chapters = ?,
+                illustrated_chapters = ?,
+                enhanced_chapters = ?,
+                status = ?,
+                updated_at = ?
+            WHERE book_key = ?
+        `).run(
+            chapters.length,
+            transcribed,
+            illustrated,
+            enhanced,
+            newStatus,
+            new Date().toISOString(),
+            bookKey
+        );
+    } catch (e) {
+        console.error('Error recalculating audiobook totals:', e);
+    }
+};
+
+export const getRecentAudiobookActivity = (limit: number = 100) => {
+    try {
+        const rows = db.prepare(`
+            SELECT c.*, b.title as book_title, b.author as book_author, b.thumb as book_thumb
+            FROM audiobook_chapters_meta c
+            LEFT JOIN audiobook_books_meta b ON c.book_key = b.book_key
+            WHERE c.transcription_status = 'completed'
+               OR c.illustration_status = 'completed'
+               OR c.audio_enhance_status = 'completed'
+               OR c.transcription_status = 'processing'
+               OR c.illustration_status = 'processing'
+            ORDER BY c.updated_at DESC
+            LIMIT ?
+        `).all(limit) as any[];
+        return rows || [];
+    } catch (e) {
+        console.error('Error getting recent audiobook activity:', e);
+        return [];
+    }
+};
+
 export default db;
+

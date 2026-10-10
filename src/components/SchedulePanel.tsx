@@ -11,11 +11,12 @@ import { MediaDetailsPanel } from '@/components/MediaDetailsPanel';
 
 interface CalendarEvent {
     id: string;
+    eventCategory?: 'release' | 'download' | 'transcription' | 'playback' | 'dvr';
     instanceId: string;
     instanceName: string;
     instanceColor: string;
     type: 'radarr' | 'sonarr';
-    mediaType: 'movie' | 'series';
+    mediaType: 'movie' | 'series' | 'audiobook';
     title: string;
     fullTitle?: string;
     seriesTitle?: string;
@@ -23,7 +24,7 @@ interface CalendarEvent {
     seasonNumber?: number;
     episodeNumber?: number;
     releaseDate: string;
-    releaseType: 'digital' | 'physical' | 'cinemas' | 'tv';
+    releaseType: 'digital' | 'physical' | 'cinemas' | 'tv' | 'download' | 'transcription' | 'playback' | 'dvr';
     monitored: boolean;
     hasFile: boolean;
     overview: string;
@@ -331,9 +332,20 @@ function TimelineDateGroup({
                                             item.releaseType === 'cinemas' ? 'bg-purple-500/15 text-purple-300 border-purple-500/30' :
                                             item.releaseType === 'physical' ? 'bg-orange-500/15 text-orange-300 border-orange-500/30' :
                                             item.releaseType === 'digital' ? 'bg-blue-500/15 text-blue-300 border-blue-500/30' :
+                                            item.releaseType === 'download' ? 'bg-sky-500/20 text-sky-300 border-sky-500/40' :
+                                            item.releaseType === 'transcription' ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' :
+                                            item.releaseType === 'playback' ? 'bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-500/40' :
+                                            item.releaseType === 'dvr' ? 'bg-red-500/20 text-red-300 border-red-500/40' :
                                             'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
                                         }`}>
-                                            {item.releaseType === 'cinemas' ? 'In Cinemas' : item.releaseType === 'physical' ? 'Physical Media' : item.releaseType === 'digital' ? 'Digital VOD' : 'TV Broadcast'}
+                                            {item.releaseType === 'cinemas' ? 'In Cinemas' :
+                                             item.releaseType === 'physical' ? 'Physical Media' :
+                                             item.releaseType === 'digital' ? 'Digital VOD' :
+                                             item.releaseType === 'download' ? '⬇️ Actual Download' :
+                                             item.releaseType === 'transcription' ? '📖 Book AI / Transcription' :
+                                             item.releaseType === 'playback' ? '▶️ Playback Session' :
+                                             item.releaseType === 'dvr' ? '🔴 Live TV Recording' :
+                                             'TV Broadcast'}
                                         </span>
                                         {item.rating && item.rating > 0 && (
                                             <span className="px-2.5 py-1 rounded-xl bg-amber-500/15 text-amber-400 border border-amber-500/30 text-xs font-black flex items-center gap-1">
@@ -443,8 +455,31 @@ export function SchedulePanel() {
     const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
     const [activePreset, setActivePreset] = useState<string>('default');
 
+    // Timeline Activity Layer Toggles (Releases on by default; user can toggle Downloads, Transcriptions, Playbacks, DVR)
+    const [timelineLayers, setTimelineLayers] = useState<{
+        release: boolean;
+        download: boolean;
+        transcription: boolean;
+        playback: boolean;
+        dvr: boolean;
+    }>({
+        release: true,
+        download: false,
+        transcription: false,
+        playback: false,
+        dvr: false
+    });
+
+    const toggleTimelineLayer = (layer: keyof typeof timelineLayers) => {
+        setTimelineLayers(prev => ({
+            ...prev,
+            [layer]: !prev[layer]
+        }));
+    };
+
     // History and Back Button Management for Media Modal
     const handleSelectEvent = useCallback((ev: CalendarEvent | null) => {
+        if (ev && !ev.mediaItem) return; // Non-release activity log items don't open MediaDetailsPanel
         setSelectedEvent(ev);
         if (ev) {
             window.history.pushState({ modal: 'schedule-media-details' }, '');
@@ -670,6 +705,13 @@ export function SchedulePanel() {
     // Filter events
     const filteredEvents = useMemo(() => {
         return events.filter(e => {
+            const cat = e.eventCategory || 'release';
+            if (cat === 'release' && !timelineLayers.release) return false;
+            if (cat === 'download' && !timelineLayers.download) return false;
+            if (cat === 'transcription' && !timelineLayers.transcription) return false;
+            if (cat === 'playback' && !timelineLayers.playback) return false;
+            if (cat === 'dvr' && !timelineLayers.dvr) return false;
+
             if (selectedInstanceIds.size > 0 && !selectedInstanceIds.has(e.instanceId)) return false;
             if (typeFilter !== 'all' && e.mediaType !== typeFilter) return false;
             if (statusFilter === 'hasFile' && !e.hasFile) return false;
@@ -687,7 +729,7 @@ export function SchedulePanel() {
             }
             return true;
         });
-    }, [events, selectedInstanceIds, typeFilter, statusFilter, releaseTypeFilter, searchQuery]);
+    }, [events, timelineLayers, selectedInstanceIds, typeFilter, statusFilter, releaseTypeFilter, searchQuery]);
 
     // Group by Date for Timeline View with multi-episode consolidation
     const groupedEvents = useMemo(() => {
@@ -700,11 +742,11 @@ export function SchedulePanel() {
             consolidated: {
                 id: string;
                 isMultiEpisode: boolean;
-                mediaType: 'movie' | 'series';
+                mediaType: 'movie' | 'series' | 'audiobook';
                 seriesTitle?: string;
                 title: string;
                 releaseDate: string;
-                releaseType: 'digital' | 'physical' | 'cinemas' | 'tv';
+                releaseType: CalendarEvent['releaseType'];
                 monitored: boolean;
                 hasFile: boolean;
                 overview: string;
@@ -757,7 +799,7 @@ export function SchedulePanel() {
             const items: typeof group.consolidated = [];
 
             group.events.forEach(e => {
-                if (e.mediaType === 'series') {
+                if (e.mediaType === 'series' && (!e.eventCategory || e.eventCategory === 'release')) {
                     const cleanShowName = (e.seriesTitle || e.title.split(/[-–—]|s\d+e\d+/i)[0] || e.title).trim();
                     const showKey = cleanShowName.toLowerCase();
 
@@ -793,7 +835,7 @@ export function SchedulePanel() {
                     items.push({
                         id: e.id,
                         isMultiEpisode: false,
-                        mediaType: 'movie',
+                        mediaType: e.mediaType || 'movie',
                         title: e.title,
                         releaseDate: e.releaseDate,
                         releaseType: e.releaseType,
@@ -1162,6 +1204,73 @@ export function SchedulePanel() {
                                 <Clock size={13} /> Scheduled ({stats.missing})
                             </button>
                         </div>
+                    </div>
+                </div>
+
+                {/* Timeline Activity Layer Toggles (Releases, Actual Downloads, Transcriptions & Book AI, Playbacks, Live DVR) */}
+                <div className="pt-3 border-t border-zinc-800/80 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs font-black uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+                            <Layers size={14} className="text-emerald-400" />
+                            Timeline Layers:
+                        </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={() => toggleTimelineLayer('release')}
+                            className={`px-3.5 py-1.5 rounded-xl text-xs font-black border transition-all flex items-center gap-1.5 cursor-pointer ${
+                                timelineLayers.release
+                                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-sm'
+                                    : 'bg-zinc-950 text-zinc-500 border-zinc-800 hover:text-zinc-300'
+                            }`}
+                        >
+                            🎬 Releases ({events.filter(e => !e.eventCategory || e.eventCategory === 'release').length})
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => toggleTimelineLayer('download')}
+                            className={`px-3.5 py-1.5 rounded-xl text-xs font-black border transition-all flex items-center gap-1.5 cursor-pointer ${
+                                timelineLayers.download
+                                    ? 'bg-sky-500/20 text-sky-300 border-sky-500/50 shadow-sm'
+                                    : 'bg-zinc-950 text-zinc-500 border-zinc-800 hover:text-zinc-300'
+                            }`}
+                        >
+                            ⬇️ Actual Downloads ({events.filter(e => e.eventCategory === 'download').length})
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => toggleTimelineLayer('transcription')}
+                            className={`px-3.5 py-1.5 rounded-xl text-xs font-black border transition-all flex items-center gap-1.5 cursor-pointer ${
+                                timelineLayers.transcription
+                                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm'
+                                    : 'bg-zinc-950 text-zinc-500 border-zinc-800 hover:text-zinc-300'
+                            }`}
+                        >
+                            📖 Transcriptions &amp; Book AI ({events.filter(e => e.eventCategory === 'transcription').length})
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => toggleTimelineLayer('playback')}
+                            className={`px-3.5 py-1.5 rounded-xl text-xs font-black border transition-all flex items-center gap-1.5 cursor-pointer ${
+                                timelineLayers.playback
+                                    ? 'bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-500/50 shadow-sm'
+                                    : 'bg-zinc-950 text-zinc-500 border-zinc-800 hover:text-zinc-300'
+                            }`}
+                        >
+                            ▶️ Playbacks ({events.filter(e => e.eventCategory === 'playback').length})
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => toggleTimelineLayer('dvr')}
+                            className={`px-3.5 py-1.5 rounded-xl text-xs font-black border transition-all flex items-center gap-1.5 cursor-pointer ${
+                                timelineLayers.dvr
+                                    ? 'bg-red-500/20 text-red-300 border-red-500/50 shadow-sm'
+                                    : 'bg-zinc-950 text-zinc-500 border-zinc-800 hover:text-zinc-300'
+                            }`}
+                        >
+                            🔴 Live DVR ({events.filter(e => e.eventCategory === 'dvr').length})
+                        </button>
                     </div>
                 </div>
             </div>

@@ -10,7 +10,8 @@ import {
     Image as ImageIcon, Guitar, Activity, Zap, Layers, Music2,
     Terminal, AlertTriangle, RotateCcw, Copy, User, ExternalLink, Calendar, Radio,
     Star, ListPlus, Heart, Youtube, Wrench, Settings,
-    Globe, HardDrive, Server, CheckCircle2, AlertCircle, Folder, FolderOpen
+    Globe, HardDrive, Server, CheckCircle2, AlertCircle, Folder, FolderOpen,
+    BookOpen, Headphones, Wand2
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { sanitizeSongMetadata } from '@/lib/songSanitizer';
@@ -56,6 +57,9 @@ export interface MediaItem {
     instanceName?: string;
     libraryId?: string;
     libraryName?: string;
+    isAudiobook?: boolean;
+    bookKey?: string;
+    chapterKey?: string;
 }
 
 interface LyricsData {
@@ -564,6 +568,216 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
             audioRef.current.currentTime = nextTime;
             setAudioCurrentTime(nextTime);
             toast.info(`${seconds > 0 ? `+${seconds}` : seconds}s`);
+        }
+    };
+
+    // ── Curated Audiobook Listening States (Open Book Spread vs Plain Art, Multi-Scene Auto-Swap, Curation & Audio Enhancement) ──
+    const [audiobookArtMode, setAudiobookArtMode] = useState<'open_book' | 'plain_art'>('open_book');
+    const [audiobookChapterMeta, setAudiobookChapterMeta] = useState<any | null>(null);
+    const [audiobookBookMeta, setAudiobookBookMeta] = useState<any | null>(null);
+    const [audiobookSubTab, setAudiobookSubTab] = useState<'transcript' | 'illustrations' | 'audio_enhance'>('transcript');
+    const [shuffledSceneImages, setShuffledSceneImages] = useState<any[]>([]);
+    const [isRunningChapterStudioTask, setIsRunningChapterStudioTask] = useState<string | null>(null);
+    const [useEnhancedAudioStream, setUseEnhancedAudioStream] = useState<boolean>(true);
+    const [selectedVoicePreset, setSelectedVoicePreset] = useState<string>('original');
+
+    const isAudiobook = useMemo(() => {
+        if (!playingAudio) return false;
+        return Boolean(
+            playingAudio.isAudiobook ||
+            playingAudio.extension?.toLowerCase() === 'm4b' ||
+            playingAudio.libraryName?.toLowerCase().includes('audiobook') ||
+            playingAudio.folder?.toLowerCase().includes('audiobook') ||
+            audiobookChapterMeta
+        );
+    }, [playingAudio, audiobookChapterMeta]);
+
+    const parseLrcStringToLines = useCallback((rawLrc: string): Array<{ time: number; text: string }> => {
+        if (!rawLrc) return [];
+        const lines: Array<{ time: number; text: string }> = [];
+        for (const row of rawLrc.split('\n')) {
+            const m = row.match(/\[(\d+):(\d+(?:\.\d+)?)\]\s*(.*)/);
+            if (m) {
+                const mins = parseInt(m[1], 10);
+                const secs = parseFloat(m[2]);
+                const text = (m[3] || '').trim();
+                if (text) lines.push({ time: mins * 60 + secs, text });
+            }
+        }
+        return lines.sort((a, b) => a.time - b.time);
+    }, []);
+
+    const fetchAudiobookChapterStudio = useCallback(async (item: MediaItem) => {
+        if (!item) return;
+        const cKey = item.chapterKey || item.id;
+        try {
+            const res = await fetch(`/api/theater/audiobooks/studio?chapterKey=${encodeURIComponent(cKey)}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.chapter) {
+                    setAudiobookChapterMeta(data.chapter);
+                    setAudiobookBookMeta(data.book || null);
+                    setSelectedVoicePreset(data.chapter.voice_preset || data.book?.voice_preset || 'original');
+                    const kept = (data.chapter.images || []).filter((img: any) => img.kept !== false);
+                    // Randomly order kept images for this playback session
+                    const randomized = [...kept].sort(() => Math.random() - 0.5);
+                    setShuffledSceneImages(randomized);
+
+                    if (data.chapter.synced_lyrics) {
+                        const parsed = parseLrcStringToLines(data.chapter.synced_lyrics);
+                        if (parsed.length > 0) {
+                            setLyricsData({
+                                trackKey: cKey,
+                                artist: item.artist,
+                                title: item.title,
+                                syncedLyrics: data.chapter.synced_lyrics,
+                                plainLyrics: data.chapter.plain_transcript || parsed.map(l => l.text).join('\n'),
+                                lines: parsed,
+                                isSynced: true,
+                                source: 'audiobook-studio'
+                            });
+                        }
+                    }
+                    return;
+                }
+            }
+            setAudiobookChapterMeta(null);
+            setAudiobookBookMeta(null);
+            setShuffledSceneImages([]);
+        } catch {
+            setAudiobookChapterMeta(null);
+            setShuffledSceneImages([]);
+        }
+    }, [parseLrcStringToLines]);
+
+    const handleRunInPlayerChapterTask = async (taskType: 'transcribe' | 'illustrate' | 'enhance', voiceOverride?: string) => {
+        if (!playingAudio) return;
+        const bKey = playingAudio.bookKey || `${playingAudio.artist || 'Unknown Author'} - ${playingAudio.album || playingAudio.folder || playingAudio.title}`.toLowerCase().trim();
+        const cKey = playingAudio.chapterKey || playingAudio.id;
+        setIsRunningChapterStudioTask(taskType);
+        toast.info(
+            taskType === 'transcribe'
+                ? `Transcribing "${playingAudio.title}" (1 CPU thread)...`
+                : taskType === 'illustrate'
+                ? `Painting scene illustrations for "${playingAudio.title}"...`
+                : `Enhancing audio clarity & voice for "${playingAudio.title}"...`
+        );
+        try {
+            // Ensure book & chapter are registered first
+            await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'sync_book',
+                    bookKey: bKey,
+                    title: playingAudio.album || playingAudio.folder || playingAudio.title,
+                    author: playingAudio.artist || 'Unknown Author',
+                    thumb: playingAudio.posterUrl,
+                    tracks: [{
+                        ratingKey: cKey,
+                        title: playingAudio.title,
+                        filePath: playingAudio.path,
+                        duration: playingAudio.durationMs || (audioDuration ? audioDuration * 1000 : 300000),
+                        index: playingAudio.trackNumber || 1
+                    }]
+                })
+            });
+
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'run_chapter_task',
+                    bookKey: bKey,
+                    chapterKey: cKey,
+                    taskType,
+                    voicePreset: voiceOverride || selectedVoicePreset
+                })
+            });
+            const data = await res.json();
+            if (res.ok && data.chapter) {
+                setAudiobookChapterMeta(data.chapter);
+                setAudiobookBookMeta(data.book || null);
+                const kept = (data.chapter.images || []).filter((img: any) => img.kept !== false);
+                setShuffledSceneImages([...kept].sort(() => Math.random() - 0.5));
+                if (data.chapter.synced_lyrics) {
+                    const parsed = parseLrcStringToLines(data.chapter.synced_lyrics);
+                    setLyricsData({
+                        trackKey: cKey,
+                        artist: playingAudio.artist,
+                        title: playingAudio.title,
+                        syncedLyrics: data.chapter.synced_lyrics,
+                        plainLyrics: data.chapter.plain_transcript || parsed.map(l => l.text).join('\n'),
+                        lines: parsed,
+                        isSynced: parsed.length > 0,
+                        source: 'audiobook-studio'
+                    });
+                }
+                toast.success(
+                    taskType === 'transcribe'
+                        ? 'Synced chapter transcription ready!'
+                        : taskType === 'illustrate'
+                        ? `Generated scene illustrations for "${playingAudio.title}"!`
+                        : 'Enhanced audio ready!'
+                );
+            } else {
+                toast.error(data.error || 'Task failed');
+            }
+        } catch (e: any) {
+            toast.error(`Studio error: ${e.message}`);
+        } finally {
+            setIsRunningChapterStudioTask(null);
+        }
+    };
+
+    const handleToggleKeepSceneImage = async (imageId: string) => {
+        if (!audiobookChapterMeta) return;
+        try {
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'curate_images',
+                    chapterKey: audiobookChapterMeta.chapter_key,
+                    toggleImageId: imageId
+                })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.chapter) {
+                    setAudiobookChapterMeta(data.chapter);
+                    const kept = (data.chapter.images || []).filter((img: any) => img.kept !== false);
+                    setShuffledSceneImages(kept);
+                }
+            }
+        } catch {
+            toast.error('Failed to update image selection');
+        }
+    };
+
+    const handleDeleteSceneImage = async (imageId: string) => {
+        if (!audiobookChapterMeta) return;
+        try {
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'curate_images',
+                    chapterKey: audiobookChapterMeta.chapter_key,
+                    deleteImageId: imageId
+                })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.chapter) {
+                    setAudiobookChapterMeta(data.chapter);
+                    const kept = (data.chapter.images || []).filter((img: any) => img.kept !== false);
+                    setShuffledSceneImages(kept);
+                    toast.success('Removed scene image');
+                }
+            }
+        } catch {
+            toast.error('Failed to remove image');
         }
     };
 
@@ -2405,6 +2619,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
         setAudioPlaybackError(null);
         fetchLyrics(playingAudio);
         fetchChords(playingAudio);
+        fetchAudiobookChapterStudio(playingAudio);
 
         if (audioRef.current) {
             let effectiveStreamUrl = playingAudio.streamUrl || '';
@@ -3520,48 +3735,251 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                         </div>
                     ) : (
                     <div className="relative z-10 flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch pt-2 sm:pt-3 overflow-hidden">
-                        {/* Left / Center: Artwork & Full Controls - Scaled to fit viewport without parent scroll */}
-                        <div className={`${showExpandedSidePanel ? 'hidden lg:flex lg:col-span-5 xl:col-span-5' : 'flex col-span-1 lg:col-span-8 lg:col-start-3'} flex-col justify-between items-center h-full max-h-full mx-auto w-full max-w-md overflow-hidden py-1`}>
-                            {/* View Mode Toggle: Vinyl Turntable vs Spinning Disk vs Normal Cover Art */}
-                            <div className="flex items-center gap-1 bg-zinc-950/80 p-1 rounded-xl border border-zinc-800/80 shadow-inner backdrop-blur-md shrink-0 mb-1 sm:mb-2">
-                                <button
-                                    onClick={() => changePlayerAnimationMode('turntable')}
-                                    className={`flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
-                                        playerAnimationMode === 'turntable'
-                                            ? 'bg-amber-500 text-black shadow-md'
-                                            : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
-                                    }`}
-                                    title="Switch to Vinyl Turntable Deck Mode"
-                                >
-                                    <Disc size={13} /> Turntable
-                                </button>
-                                <button
-                                    onClick={() => changePlayerAnimationMode('disc')}
-                                    className={`flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
-                                        playerAnimationMode === 'disc'
-                                            ? 'bg-amber-500 text-black shadow-md'
-                                            : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
-                                    }`}
-                                    title="Switch to Spinning Vinyl Platter Mode"
-                                >
-                                    <Disc size={13} className="animate-spin" style={{ animationDuration: '6s' }} /> Spinning Disk
-                                </button>
-                                <button
-                                    onClick={() => changePlayerAnimationMode('art')}
-                                    className={`flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
-                                        playerAnimationMode === 'art'
-                                            ? 'bg-zinc-800 text-white border border-zinc-700 shadow-md'
-                                            : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
-                                    }`}
-                                    title="Switch to Standard Cover Artwork View"
-                                >
-                                    <ImageIcon size={13} /> Simple Art
-                                </button>
-                            </div>
+                        {/* Left / Center: Artwork & Full Controls - Wider for Audiobook Open Book UI */}
+                        <div className={`${showExpandedSidePanel ? (isAudiobook ? 'hidden lg:flex lg:col-span-6 xl:col-span-6 max-w-2xl' : 'hidden lg:flex lg:col-span-5 xl:col-span-5 max-w-md') : (isAudiobook ? 'flex col-span-1 lg:col-span-10 lg:col-start-2 max-w-3xl' : 'flex col-span-1 lg:col-span-8 lg:col-start-3 max-w-md')} flex-col justify-between items-center h-full max-h-full mx-auto w-full overflow-hidden py-1`}>
+                            {/* View Mode Toggle: Curated Audiobook Open Book vs Plain Art OR Music Turntable/Spinning Disk/Art */}
+                            {isAudiobook ? (
+                                <div className="flex items-center gap-1.5 bg-zinc-950/85 p-1 rounded-xl border border-amber-500/30 shadow-inner backdrop-blur-md shrink-0 mb-1 sm:mb-2 flex-wrap justify-center">
+                                    <button
+                                        onClick={() => setAudiobookArtMode('open_book')}
+                                        className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                            audiobookArtMode === 'open_book'
+                                                ? 'bg-amber-500 text-black shadow-md'
+                                                : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
+                                        }`}
+                                        title="Open Book Spread View (Click book to toggle Plain Art)"
+                                    >
+                                        <BookOpen size={13} /> Open Book
+                                    </button>
+                                    <button
+                                        onClick={() => setAudiobookArtMode('plain_art')}
+                                        className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                            audiobookArtMode === 'plain_art'
+                                                ? 'bg-amber-500 text-black shadow-md'
+                                                : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
+                                        }`}
+                                        title="Plain Artwork View (Click art to return to Open Book)"
+                                    >
+                                        <ImageIcon size={13} /> Plain Art
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            setShowExpandedSidePanel(true);
+                                            setExpandedSidePanel('karaoke');
+                                            setAudiobookSubTab('illustrations');
+                                        }}
+                                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/30 transition-all cursor-pointer"
+                                        title="Choose which generated scene illustrations to keep or paint new ones"
+                                    >
+                                        <Sparkles size={12} /> Scenes ({shuffledSceneImages.length})
+                                    </button>
+                                    {audiobookChapterMeta?.enhanced_audio_path && audiobookChapterMeta?.audio_enhance_status === 'done' && (
+                                        <button
+                                            onClick={() => {
+                                                const nextVal = !useEnhancedAudioStream;
+                                                setUseEnhancedAudioStream(nextVal);
+                                                if (audioRef.current && playingAudio) {
+                                                    const curTime = audioRef.current.currentTime;
+                                                    const wasPlaying = !audioRef.current.paused;
+                                                    const nextSrc = nextVal
+                                                        ? `/api/theater/audiobooks/art?audio=${encodeURIComponent(audiobookChapterMeta.enhanced_audio_path)}`
+                                                        : `/api/theater/stream?path=${encodeURIComponent(playingAudio.path)}`;
+                                                    audioRef.current.src = nextSrc;
+                                                    audioRef.current.currentTime = curTime;
+                                                    if (wasPlaying) audioRef.current.play().catch(() => {});
+                                                    toast.success(nextVal ? 'Switched to Enhanced Clarity & Voice Audio' : 'Switched to Original Recording');
+                                                }
+                                            }}
+                                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                                                useEnhancedAudioStream
+                                                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                                    : 'bg-zinc-900 text-zinc-400 border-zinc-800'
+                                            }`}
+                                            title="Toggle between Enhanced Audio (Noise Reduced / Voice Preset) and Original Audio"
+                                        >
+                                            <Wand2 size={12} /> {useEnhancedAudioStream ? 'Enhanced Audio ON' : 'Original Audio'}
+                                        </button>
+                                    )}
+                                </div>
+                            ) : (
+                                <div className="flex items-center gap-1 bg-zinc-950/80 p-1 rounded-xl border border-zinc-800/80 shadow-inner backdrop-blur-md shrink-0 mb-1 sm:mb-2">
+                                    <button
+                                        onClick={() => changePlayerAnimationMode('turntable')}
+                                        className={`flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                            playerAnimationMode === 'turntable'
+                                                ? 'bg-amber-500 text-black shadow-md'
+                                                : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
+                                        }`}
+                                        title="Switch to Vinyl Turntable Deck Mode"
+                                    >
+                                        <Disc size={13} /> Turntable
+                                    </button>
+                                    <button
+                                        onClick={() => changePlayerAnimationMode('disc')}
+                                        className={`flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                            playerAnimationMode === 'disc'
+                                                ? 'bg-amber-500 text-black shadow-md'
+                                                : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
+                                        }`}
+                                        title="Switch to Spinning Vinyl Platter Mode"
+                                    >
+                                        <Disc size={13} className="animate-spin" style={{ animationDuration: '6s' }} /> Spinning Disk
+                                    </button>
+                                    <button
+                                        onClick={() => changePlayerAnimationMode('art')}
+                                        className={`flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                            playerAnimationMode === 'art'
+                                                ? 'bg-zinc-800 text-white border border-zinc-700 shadow-md'
+                                                : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
+                                        }`}
+                                        title="Switch to Standard Cover Artwork View"
+                                    >
+                                        <ImageIcon size={13} /> Simple Art
+                                    </button>
+                                </div>
+                            )}
 
-                            {/* Main Artwork Stage: Vinyl Turntable vs Spinning Disk vs Normal Cover Art */}
+                            {/* Main Artwork Stage: Curated Audiobook Open Book Spread / Plain Art OR Music Turntable / Spinning Disk / Cover Art */}
                             <div className="flex-1 min-h-0 flex items-center justify-center w-full my-1 sm:my-2 overflow-hidden">
-                                {playerAnimationMode === 'turntable' ? (
+                                {isAudiobook ? (
+                                    (() => {
+                                        const totalScenes = shuffledSceneImages.length;
+                                        const progressRatio = effectiveDuration > 0 ? Math.min(0.9999, Math.max(0, audioCurrentTime / effectiveDuration)) : 0;
+                                        const activeSceneIdx = totalScenes > 0 ? Math.floor(progressRatio * totalScenes) : 0;
+                                        const activeSceneObj = totalScenes > 0 ? shuffledSceneImages[activeSceneIdx] : null;
+                                        const activeArtworkUrl = activeSceneObj?.url || playingAudio.posterUrl;
+                                        const activeLineText = (currentLyricIndex >= 0 && lyricsData?.lines?.[currentLyricIndex]?.text)
+                                            ? lyricsData.lines[currentLyricIndex].text
+                                            : (audiobookChapterMeta?.plain_transcript ? audiobookChapterMeta.plain_transcript.slice(0, 220) : '');
+
+                                        return audiobookArtMode === 'open_book' ? (
+                                            /* ── Curated Audiobook Wide Open Book UI Element (Click to toggle to Plain Art) ── */
+                                            <div
+                                                onClick={() => setAudiobookArtMode('plain_art')}
+                                                className="relative w-full max-w-2xl max-h-[34vh] sm:max-h-[38vh] md:max-h-[42vh] aspect-[16/10] rounded-[1.5rem] bg-gradient-to-b from-[#2a1e17] via-[#1c140f] to-[#120c09] p-2 sm:p-3 shadow-[0_25px_60px_rgba(0,0,0,0.85)] border-2 border-amber-700/40 flex items-stretch justify-center cursor-pointer select-none group transition-transform duration-300 hover:scale-[1.01]"
+                                                title="Click Open Book to switch to Plain Art view"
+                                            >
+                                                {/* Stacked Page Fore-Edges (Left & Right) */}
+                                                <div className="w-2 sm:w-2.5 h-full bg-gradient-to-r from-[#d6cbb5] via-[#ede6d6] to-[#c4b79e] rounded-l-lg border-r border-stone-400/40 shrink-0 shadow-inner" />
+
+                                                {/* Open Book Inner Spread (Left Narrative Page + Right Illustration Plate) */}
+                                                <div className="flex-1 grid grid-cols-2 bg-[#161311] text-stone-200 overflow-hidden relative shadow-inner border border-amber-500/20">
+                                                    {/* Left Page: Book & Chapter Header + Live Reading Excerpt + Progress */}
+                                                    <div className="relative p-3 sm:p-5 flex flex-col justify-between bg-gradient-to-r from-[#1c1917] via-[#211d1a] to-[#151210] border-r border-black/60 overflow-hidden">
+                                                        <div className="space-y-1">
+                                                            <div className="flex items-center justify-between gap-1 text-[10px] font-black uppercase tracking-widest text-amber-400/90">
+                                                                <span className="truncate">{playingAudio.album || playingAudio.folder || 'Audiobook'}</span>
+                                                                <BookOpen size={12} className="shrink-0 text-amber-400" />
+                                                            </div>
+                                                            <h3 className="text-xs sm:text-sm font-black text-white line-clamp-2 leading-snug font-serif">
+                                                                {playingAudio.title}
+                                                            </h3>
+                                                            <p className="text-[11px] font-semibold text-stone-400 truncate">
+                                                                By {playingAudio.artist || 'Unknown Author'}
+                                                            </p>
+                                                        </div>
+
+                                                        {/* Live Synced Excerpt on Left Page */}
+                                                        <div className="my-auto py-2 border-y border-amber-500/15">
+                                                            {activeLineText ? (
+                                                                <p className="text-xs sm:text-sm font-serif italic text-amber-100/95 line-clamp-4 leading-relaxed">
+                                                                    &ldquo;{activeLineText}&rdquo;
+                                                                </p>
+                                                            ) : (
+                                                                <p className="text-[11px] font-serif italic text-stone-400 leading-relaxed">
+                                                                    Listening to {playingAudio.title}. Open the Chapter Studio panel on the right to transcribe or generate scene illustrations.
+                                                                </p>
+                                                            )}
+                                                        </div>
+
+                                                        {/* Bottom Footer of Left Page: Multi-Scene Swap Indicator & Book Progress */}
+                                                        <div className="flex items-center justify-between text-[10px] font-mono text-stone-400 pt-1">
+                                                            {totalScenes > 1 ? (
+                                                                <span className="px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 font-bold">
+                                                                    Scene {activeSceneIdx + 1}/{totalScenes} ({Math.round(100 / totalScenes)}% swap)
+                                                                </span>
+                                                            ) : (
+                                                                <span>{activeSceneObj ? 'Illustrated Scene' : 'Cover Plate'}</span>
+                                                            )}
+                                                            <span className="text-amber-400/80 font-bold group-hover:underline">
+                                                                Plain Art ↗
+                                                            </span>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Right Page: Scene Illustration Plate */}
+                                                    <div className="relative w-full h-full bg-zinc-950 flex items-center justify-center overflow-hidden">
+                                                        {activeArtworkUrl && !normalCoverError ? (
+                                                            <img
+                                                                src={activeArtworkUrl}
+                                                                alt={playingAudio.title}
+                                                                className="w-full h-full object-cover transition-all duration-700 group-hover:scale-105"
+                                                                onError={() => setNormalCoverError(true)}
+                                                            />
+                                                        ) : (
+                                                            <div className="flex flex-col items-center justify-center text-center p-4 space-y-2">
+                                                                <BookOpen size={44} className="text-amber-500/60" />
+                                                                <span className="text-xs font-bold text-stone-400">{playingAudio.title}</span>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Subtle inner spine shadow on the left edge of the right page */}
+                                                        <div className="absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-black/75 to-transparent pointer-events-none" />
+
+                                                        {/* Scene badge & prompt overlay */}
+                                                        {activeSceneObj && (
+                                                            <div className="absolute bottom-2 left-2 right-2 px-2.5 py-1 rounded-lg bg-black/75 backdrop-blur-md border border-white/10 flex items-center justify-between text-[10px] text-amber-200">
+                                                                <span className="font-bold truncate">
+                                                                    <Sparkles size={10} className="inline mr-1 text-amber-400" />
+                                                                    {activeSceneObj.focus || 'Scene Illustration'}
+                                                                </span>
+                                                                {totalScenes > 1 && (
+                                                                    <span className="font-mono font-black text-amber-400 shrink-0 ml-1">
+                                                                        {activeSceneIdx + 1}/{totalScenes}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    {/* Central Spine Crease Shadow */}
+                                                    <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-5 bg-gradient-to-r from-black/60 via-black/90 to-black/60 pointer-events-none z-10" />
+                                                </div>
+
+                                                {/* Right Stacked Page Fore-Edge */}
+                                                <div className="w-2 sm:w-2.5 h-full bg-gradient-to-l from-[#d6cbb5] via-[#ede6d6] to-[#c4b79e] rounded-r-lg border-l border-stone-400/40 shrink-0 shadow-inner" />
+                                            </div>
+                                        ) : (
+                                            /* ── Curated Audiobook Plain Art View (Click to return to Open Book) ── */
+                                            <div
+                                                onClick={() => setAudiobookArtMode('open_book')}
+                                                className="relative max-h-[34vh] sm:max-h-[38vh] md:max-h-[42vh] aspect-square w-auto h-full rounded-[2rem] bg-zinc-900 border-2 border-amber-500/40 overflow-hidden shadow-2xl flex items-center justify-center cursor-pointer group transition-transform hover:scale-[1.02]"
+                                                title="Click Artwork to return to Open Book view"
+                                            >
+                                                {activeArtworkUrl && !normalCoverError ? (
+                                                    <img
+                                                        src={activeArtworkUrl}
+                                                        alt={playingAudio.title}
+                                                        className="w-full h-full object-cover transition-all duration-700"
+                                                        onError={() => setNormalCoverError(true)}
+                                                    />
+                                                ) : (
+                                                    <BookOpen size={72} className="text-amber-400" />
+                                                )}
+                                                <div className="absolute bottom-3 inset-x-3 px-3 py-1.5 rounded-xl bg-black/75 backdrop-blur-md border border-white/10 flex items-center justify-between text-xs text-white opacity-90 group-hover:opacity-100 transition-opacity">
+                                                    <span className="font-bold flex items-center gap-1.5">
+                                                        <BookOpen size={13} className="text-amber-400" /> Click for Open Book View
+                                                    </span>
+                                                    {totalScenes > 1 && (
+                                                        <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[10px] font-black">
+                                                            Scene {activeSceneIdx + 1}/{totalScenes}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })()
+                                ) : playerAnimationMode === 'turntable' ? (
                                     /* ── 1. Vinyl Turntable Player Representation ── */
                                     <div className="relative max-h-[28vh] sm:max-h-[32vh] md:max-h-[36vh] aspect-[1.12/1] w-auto h-full max-w-[320px] sm:max-w-[360px] md:max-w-[380px] rounded-[1.75rem] sm:rounded-[2rem] bg-gradient-to-b from-zinc-800 via-zinc-900 to-[#09090b] border-2 border-zinc-700/80 p-2 sm:p-3 shadow-2xl flex items-center justify-center select-none overflow-hidden group">
                                         {/* Turntable Plinth Inset */}
@@ -4015,7 +4433,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
 
                         {/* Right Side: Toggleable Panel (Karaoke / Artist / Queue / Playlists / Search / Specs) */}
                         {showExpandedSidePanel && (
-                            <div className="col-span-1 lg:col-span-7 xl:col-span-7 h-full max-h-full flex flex-col bg-zinc-950/80 border border-zinc-900 rounded-[2rem] p-3 sm:p-5 shadow-2xl space-y-3 min-h-0 overflow-hidden">
+                            <div className={`col-span-1 ${isAudiobook ? 'lg:col-span-6 xl:col-span-6' : 'lg:col-span-7 xl:col-span-7'} h-full max-h-full flex flex-col bg-zinc-950/80 border border-zinc-900 rounded-[2rem] p-3 sm:p-5 shadow-2xl space-y-3 min-h-0 overflow-hidden`}>
                                 {/* Panel Tab Selectors - Clean top bar */}
                                 <div className="flex items-center justify-between gap-2 pb-2 border-b border-zinc-900 shrink-0">
                                     <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar scrollbar-none py-1 px-1 bg-zinc-900/90 rounded-2xl border border-zinc-800 shrink-0 max-w-full">
@@ -4029,7 +4447,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                             <Search size={14} /> Search
                                         </button>
 
-                                        {/* 2. Nerd Logs (Replaced incomplete Information tab) */}
+                                        {/* 2. Nerd Logs */}
                                         <button
                                             onClick={() => setShowAudioNerdModal(true)}
                                             className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-black uppercase tracking-wider transition-all shrink-0 cursor-pointer ${
@@ -4042,7 +4460,7 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                             <Info size={14} /> Nerd Logs
                                         </button>
 
-                                        {/* 3. Queue (Subtabs: Queue, Playlists) */}
+                                        {/* 3. Queue */}
                                         <button
                                             onClick={() => setExpandedSidePanel('queue')}
                                             className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-black uppercase tracking-wider transition-all shrink-0 cursor-pointer ${
@@ -4051,25 +4469,354 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                     : 'text-zinc-400 hover:text-zinc-200'
                                             }`}
                                         >
-                                            <ListMusic size={14} /> Queue ({audioQueue.length})
+                                            <ListMusic size={14} /> {isAudiobook ? `Chapters (${audioQueue.length})` : `Queue (${audioQueue.length})`}
                                         </button>
 
-                                        {/* 4. Karaoke */}
+                                        {/* 4. Chapter Studio (Audiobooks) OR Karaoke (Music) */}
                                         <button
                                             onClick={() => setExpandedSidePanel('karaoke')}
                                             className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-black uppercase tracking-wider transition-all shrink-0 cursor-pointer ${
                                                 expandedSidePanel === 'karaoke' ? 'bg-amber-500 text-black shadow-sm' : 'text-zinc-400 hover:text-zinc-200'
                                             }`}
                                         >
-                                            <Mic2 size={14} /> Karaoke
+                                            {isAudiobook ? (
+                                                <>
+                                                    <BookOpen size={14} /> Book Studio
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Mic2 size={14} /> Karaoke
+                                                </>
+                                            )}
                                         </button>
                                     </div>
                                 </div>
 
-                                {/* 1. Karaoke Tab with Subtabs (Landing page is Karaoke Lyrics) */}
+                                {/* 1. Karaoke / Audiobook Studio Tab */}
                                 {expandedSidePanel === 'karaoke' && (
                                     <div className="flex-1 min-h-0 flex flex-col space-y-2.5">
-                                        {/* Sub-tabs Header inside Karaoke */}
+                                        {isAudiobook ? (
+                                            <>
+                                                {/* Curated Audiobook Sub-tabs Header */}
+                                                <div className="flex items-center justify-between gap-2 p-1 bg-zinc-900/90 rounded-2xl border border-zinc-800 shrink-0">
+                                                    <div className="flex items-center gap-1 overflow-x-auto no-scrollbar scrollbar-none">
+                                                        <button
+                                                            onClick={() => setAudiobookSubTab('transcript')}
+                                                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+                                                                audiobookSubTab === 'transcript' ? 'bg-amber-500 text-black font-black shadow-sm' : 'text-zinc-400 hover:text-white'
+                                                            }`}
+                                                        >
+                                                            <BookOpen size={12} /> Live Transcription
+                                                        </button>
+                                                        <button
+                                                            onClick={() => setAudiobookSubTab('illustrations')}
+                                                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+                                                                audiobookSubTab === 'illustrations' ? 'bg-purple-500 text-white font-black shadow-sm' : 'text-zinc-400 hover:text-white'
+                                                            }`}
+                                                        >
+                                                            <ImageIcon size={12} /> Scene Art ({shuffledSceneImages.length}/{(audiobookChapterMeta?.images || []).length})
+                                                        </button>
+                                                        <button
+                                                            onClick={() => setAudiobookSubTab('audio_enhance')}
+                                                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+                                                                audiobookSubTab === 'audio_enhance' ? 'bg-emerald-500 text-black font-black shadow-sm' : 'text-zinc-400 hover:text-white'
+                                                            }`}
+                                                        >
+                                                            <Wand2 size={12} /> Audio & Voice
+                                                        </button>
+                                                    </div>
+
+                                                    {audiobookSubTab === 'transcript' && (
+                                                        <div className="flex items-center gap-1.5 shrink-0 pr-1">
+                                                            {lyricsData?.isSynced && (
+                                                                <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[9px] font-black uppercase flex items-center gap-1">
+                                                                    <Sparkles size={10} /> Synced
+                                                                </span>
+                                                            )}
+                                                            <button
+                                                                onClick={() => handleRunInPlayerChapterTask('transcribe')}
+                                                                disabled={isRunningChapterStudioTask === 'transcribe'}
+                                                                className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer disabled:opacity-50"
+                                                                title="Run lightweight single-threaded transcription for this chapter"
+                                                            >
+                                                                <RefreshCw size={11} className={isRunningChapterStudioTask === 'transcribe' ? 'animate-spin' : ''} />
+                                                                {lyricsData?.lines?.length ? 'Re-Transcribe' : 'Transcribe'}
+                                                            </button>
+                                                            <button
+                                                                onClick={() => {
+                                                                    setLyricsSearchQuery(`${playingAudio.artist || ''} ${playingAudio.title || ''}`.trim());
+                                                                    setCustomLrcText(lyricsData?.syncedLyrics || lyricsData?.plainLyrics || '');
+                                                                    setIsLyricsEditorOpen(true);
+                                                                }}
+                                                                className="px-2 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer"
+                                                                title="Edit chapter transcription timestamps"
+                                                            >
+                                                                <Edit3 size={11} /> Edit
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {/* Audiobook Subtab 1: Live Synced Chapter Transcription (Using Karaoke Visual Auto-Scroll) */}
+                                                {audiobookSubTab === 'transcript' && (
+                                                    <div
+                                                        ref={expandedLyricsContainerRef}
+                                                        className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-3 flex flex-col"
+                                                    >
+                                                        {lyricsLoading || isRunningChapterStudioTask === 'transcribe' ? (
+                                                            <div className="flex flex-col items-center justify-center py-20 gap-3 m-auto text-center">
+                                                                <div className="w-9 h-9 border-3 border-amber-500/20 border-t-amber-500 rounded-full animate-spin" />
+                                                                <p className="text-xs text-amber-400 font-black uppercase tracking-widest">
+                                                                    {isRunningChapterStudioTask === 'transcribe'
+                                                                        ? 'Transcribing Chapter Audio (Low-CPU Single Thread)...'
+                                                                        : 'Loading Chapter Transcription...'}
+                                                                </p>
+                                                                <p className="text-[11px] text-zinc-500 max-w-sm">
+                                                                    Listening to speech cadence and building time-aligned chapter lines.
+                                                                </p>
+                                                            </div>
+                                                        ) : !lyricsData || (!lyricsData.lines?.length && !lyricsData.plainLyrics) ? (
+                                                            <div className="flex flex-col items-center justify-center py-14 text-center space-y-4 m-auto max-w-md">
+                                                                <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-full text-amber-400">
+                                                                    <BookOpen size={32} />
+                                                                </div>
+                                                                <div className="space-y-1">
+                                                                    <p className="text-sm font-black text-white">No Transcription Yet for This Chapter</p>
+                                                                    <p className="text-xs text-zinc-400 leading-relaxed">
+                                                                        Generate a time-synced reading transcription using the lightweight Unraid-friendly speech segmenter, or queue the entire book in the Bookshelf priority queue.
+                                                                    </p>
+                                                                </div>
+                                                                <div className="flex items-center gap-2 flex-wrap justify-center">
+                                                                    <button
+                                                                        onClick={() => handleRunInPlayerChapterTask('transcribe')}
+                                                                        disabled={Boolean(isRunningChapterStudioTask)}
+                                                                        className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer shadow-lg shadow-amber-500/20"
+                                                                    >
+                                                                        <Wand2 size={14} /> Transcribe This Chapter Now
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            setLyricsSearchQuery(`${playingAudio.artist || ''} ${playingAudio.title || ''}`.trim());
+                                                                            setIsLyricsEditorOpen(true);
+                                                                        }}
+                                                                        className="px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                                                                    >
+                                                                        <Edit3 size={13} /> Paste Text / LRC
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        ) : lyricsData.isSynced ? (
+                                                            <div className="space-y-4 py-8 text-center my-auto">
+                                                                {lyricsData.lines.map((line, idx) => {
+                                                                    const isActive = idx === currentLyricIndex;
+                                                                    return (
+                                                                        <p
+                                                                            key={idx}
+                                                                            ref={isActive ? expandedActiveLyricRef : null}
+                                                                            onClick={() => seekTo(line.time)}
+                                                                            className={`cursor-pointer transition-all duration-300 select-none py-2 px-4 rounded-2xl font-serif ${
+                                                                                isActive
+                                                                                    ? 'text-lg sm:text-xl lg:text-2xl font-black text-amber-300 scale-[1.03] drop-shadow-[0_0_20px_rgba(251,191,36,0.5)] bg-amber-500/15 border border-amber-500/30'
+                                                                                    : 'text-sm sm:text-base font-medium text-zinc-400 hover:text-zinc-200'
+                                                                            }`}
+                                                                        >
+                                                                            {line.text}
+                                                                        </p>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        ) : (
+                                                            <div className="p-4 text-left whitespace-pre-line text-sm sm:text-base font-serif text-zinc-200 leading-relaxed max-w-xl mx-auto">
+                                                                {lyricsData.plainLyrics || lyricsData.lines.map(l => l.text).join('\n')}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                {/* Audiobook Subtab 2: Multi-Image Scene Curation & Generation Menu */}
+                                                {audiobookSubTab === 'illustrations' && (
+                                                    <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-2 space-y-3 flex flex-col">
+                                                        <div className="p-3 bg-zinc-900/70 rounded-2xl border border-purple-500/20 flex flex-wrap items-center justify-between gap-2 shrink-0">
+                                                            <div className="space-y-0.5">
+                                                                <div className="text-xs font-black text-purple-300 flex items-center gap-1.5">
+                                                                    <Sparkles size={14} className="text-purple-400" />
+                                                                    Scene Illustrations & Multi-Image Curation
+                                                                </div>
+                                                                <p className="text-[11px] text-zinc-400">
+                                                                    Choose which generated illustrations to keep. Kept images are randomly ordered and swap every{' '}
+                                                                    <span className="text-amber-300 font-bold">
+                                                                        {shuffledSceneImages.length > 1 ? `1/${shuffledSceneImages.length} (${Math.round(100 / shuffledSceneImages.length)}%)` : '100%'}
+                                                                    </span>{' '}
+                                                                    of the chapter.
+                                                                </p>
+                                                            </div>
+                                                            <button
+                                                                onClick={() => handleRunInPlayerChapterTask('illustrate')}
+                                                                disabled={isRunningChapterStudioTask === 'illustrate'}
+                                                                className="px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-lg shadow-purple-600/20"
+                                                            >
+                                                                <RefreshCw size={13} className={isRunningChapterStudioTask === 'illustrate' ? 'animate-spin' : ''} />
+                                                                {isRunningChapterStudioTask === 'illustrate' ? 'Painting Scene...' : 'Paint New Scene Art'}
+                                                            </button>
+                                                        </div>
+
+                                                        {(audiobookChapterMeta?.images || []).length === 0 ? (
+                                                            <div className="flex-1 flex flex-col items-center justify-center py-12 text-center space-y-3 m-auto max-w-md">
+                                                                <div className="p-4 bg-purple-500/10 border border-purple-500/20 rounded-full text-purple-400">
+                                                                    <ImageIcon size={32} />
+                                                                </div>
+                                                                <p className="text-sm font-black text-white">No Scene Illustrations Generated Yet</p>
+                                                                <p className="text-xs text-zinc-400 leading-relaxed">
+                                                                    Click &ldquo;Paint New Scene Art&rdquo; above to illustrate this chapter based on its transcription, or configure scheduled daily artwork generation in Settings.
+                                                                </p>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-2">
+                                                                {(audiobookChapterMeta?.images || []).map((img: any, i: number) => {
+                                                                    const isKept = img.kept !== false;
+                                                                    return (
+                                                                        <div
+                                                                            key={img.id || i}
+                                                                            className={`group relative rounded-2xl overflow-hidden border-2 transition-all bg-zinc-900 flex flex-col ${
+                                                                                isKept ? 'border-emerald-500/50 shadow-lg shadow-emerald-500/10' : 'border-zinc-800 opacity-60'
+                                                                            }`}
+                                                                        >
+                                                                            <div className="relative aspect-[16/10] w-full bg-black overflow-hidden">
+                                                                                <img
+                                                                                    src={img.url}
+                                                                                    alt={img.prompt || `Scene ${i + 1}`}
+                                                                                    className="w-full h-full object-cover"
+                                                                                />
+                                                                                <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/75 backdrop-blur-md text-[10px] font-black uppercase text-white border border-white/10">
+                                                                                    Scene #{i + 1} • {img.focus || 'auto'}
+                                                                                </div>
+                                                                                <div className="absolute top-2 right-2 flex items-center gap-1">
+                                                                                    <button
+                                                                                        onClick={() => handleToggleKeepSceneImage(img.id)}
+                                                                                        className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase flex items-center gap-1 transition-all cursor-pointer shadow-md ${
+                                                                                            isKept
+                                                                                                ? 'bg-emerald-500 text-black'
+                                                                                                : 'bg-zinc-900/90 text-zinc-300 border border-zinc-700 hover:bg-zinc-800'
+                                                                                        }`}
+                                                                                        title={isKept ? 'Kept in rotation (Click to hide)' : 'Hidden from rotation (Click to keep)'}
+                                                                                    >
+                                                                                        <Check size={11} /> {isKept ? 'Kept' : 'Keep'}
+                                                                                    </button>
+                                                                                    <button
+                                                                                        onClick={() => handleDeleteSceneImage(img.id)}
+                                                                                        className="p-1 rounded-lg bg-red-500/80 hover:bg-red-500 text-white transition-all cursor-pointer shadow-md"
+                                                                                        title="Delete this generated image"
+                                                                                    >
+                                                                                        <Trash2 size={12} />
+                                                                                    </button>
+                                                                                </div>
+                                                                            </div>
+                                                                            {img.prompt && (
+                                                                                <div className="p-2 text-[10px] text-zinc-400 line-clamp-2 font-medium bg-zinc-950/90">
+                                                                                    {img.prompt}
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                {/* Audiobook Subtab 3: Lightweight Audio Quality & Voice Enhancer */}
+                                                {audiobookSubTab === 'audio_enhance' && (
+                                                    <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-2 space-y-3 flex flex-col">
+                                                        <div className="p-3.5 bg-zinc-900/70 rounded-2xl border border-emerald-500/20 space-y-2">
+                                                            <div className="flex items-center justify-between gap-2">
+                                                                <div className="text-xs font-black text-emerald-400 flex items-center gap-1.5">
+                                                                    <Wand2 size={14} /> Low-Power Unraid Audio Restorer & Voice Enhancer
+                                                                </div>
+                                                                {audiobookChapterMeta?.audio_enhance_status === 'done' && (
+                                                                    <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[10px] font-black uppercase">
+                                                                        Enhanced Ready
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <p className="text-xs text-zinc-400 leading-relaxed">
+                                                                Uses a single-threaded FFmpeg spectral noise-reduction filter (<code className="text-emerald-300">afftdn</code>), rumble high-pass, vocal presence EQ, and loudness normalization for old or noisy recordings, with optional narrator voice timbre transformation.
+                                                            </p>
+                                                        </div>
+
+                                                        <div className="p-3.5 bg-zinc-900/50 rounded-2xl border border-zinc-800 space-y-3">
+                                                            <label className="block text-xs font-black uppercase tracking-wider text-zinc-300">
+                                                                Narrator Voice Timbre / Pitch Preset
+                                                            </label>
+                                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                                {[
+                                                                    { id: 'original', label: 'Original Voice + Clean Noise', desc: 'Removes tape hiss/hum & boosts vocal clarity' },
+                                                                    { id: 'deep_narrator', label: 'Deep Resonant Narrator', desc: 'Warmer, deeper baritone timbre (-8% pitch)' },
+                                                                    { id: 'warm_storyteller', label: 'Warm Fireside Storyteller', desc: 'Rich chest resonance & smooth treble (-4% pitch)' },
+                                                                    { id: 'crisp_clear', label: 'Crisp Articulation', desc: 'Enhanced consonant definition for muffled tapes' },
+                                                                    { id: 'soft_velvet', label: 'Soft Velvet Reader', desc: 'Gentle slightly higher timbre (+5% pitch) & de-essed' },
+                                                                ].map(preset => (
+                                                                    <button
+                                                                        key={preset.id}
+                                                                        type="button"
+                                                                        onClick={() => setSelectedVoicePreset(preset.id)}
+                                                                        className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                                                                            selectedVoicePreset === preset.id
+                                                                                ? 'bg-emerald-500/15 border-emerald-500/50 text-white'
+                                                                                : 'bg-zinc-950/70 border-zinc-800/80 text-zinc-400 hover:border-zinc-700'
+                                                                        }`}
+                                                                    >
+                                                                        <div className="text-xs font-black text-emerald-300">{preset.label}</div>
+                                                                        <div className="text-[10px] text-zinc-400 mt-0.5">{preset.desc}</div>
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+
+                                                            <div className="flex items-center justify-between gap-2 pt-2">
+                                                                <button
+                                                                    onClick={() => handleRunInPlayerChapterTask('enhance', selectedVoicePreset)}
+                                                                    disabled={isRunningChapterStudioTask === 'enhance'}
+                                                                    className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-lg shadow-emerald-500/20"
+                                                                >
+                                                                    <Wand2 size={14} className={isRunningChapterStudioTask === 'enhance' ? 'animate-spin' : ''} />
+                                                                    {isRunningChapterStudioTask === 'enhance'
+                                                                        ? 'Enhancing Audio (1 CPU Thread)...'
+                                                                        : audiobookChapterMeta?.audio_enhance_status === 'done'
+                                                                        ? 'Re-Process Chapter Audio'
+                                                                        : 'Enhance Chapter Audio Now'}
+                                                                </button>
+
+                                                                {audiobookChapterMeta?.enhanced_audio_path && (
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            const nextVal = !useEnhancedAudioStream;
+                                                                            setUseEnhancedAudioStream(nextVal);
+                                                                            if (audioRef.current && playingAudio) {
+                                                                                const curTime = audioRef.current.currentTime;
+                                                                                const wasPlaying = !audioRef.current.paused;
+                                                                                audioRef.current.src = nextVal
+                                                                                    ? `/api/theater/audiobooks/art?audio=${encodeURIComponent(audiobookChapterMeta.enhanced_audio_path)}`
+                                                                                    : `/api/theater/stream?path=${encodeURIComponent(playingAudio.path)}`;
+                                                                                audioRef.current.currentTime = curTime;
+                                                                                if (wasPlaying) audioRef.current.play().catch(() => {});
+                                                                            }
+                                                                        }}
+                                                                        className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                                                                            useEnhancedAudioStream
+                                                                                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                                                                : 'bg-zinc-900 text-zinc-400 border-zinc-800'
+                                                                        }`}
+                                                                    >
+                                                                        {useEnhancedAudioStream ? 'Listening: Enhanced' : 'Listening: Original'}
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </>
+                                        ) : (
+                                            <>
+                                        {/* Sub-tabs Header inside Karaoke (Music Mode) */}
                                         <div className="flex items-center justify-between gap-2 p-1 bg-zinc-900/90 rounded-2xl border border-zinc-800 shrink-0">
                                             <div className="flex items-center gap-1 overflow-x-auto no-scrollbar scrollbar-none">
                                                 <button
@@ -4383,6 +5130,8 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                 duration={audioDuration}
                                                 onSeek={seekTo}
                                             />
+                                        )}
+                                            </>
                                         )}
                                     </div>
                                 )}

@@ -15,6 +15,7 @@ declare global {
 import { startSpeedMonitor } from '@/lib/speedMonitor';
 import { performStartupContainerCleanup } from '@/lib/docker';
 import { checkAndRunScheduledEpgSyncs } from '@/lib/iptvEpgSync';
+import { triggerAudiobookQueueWorker, getAudiobookStudioConfig } from '@/lib/audiobookStudio';
 
 if (!global.globalSchedulerRunning && process.env.NEXT_PHASE !== 'phase-production-build') {
     global.globalSchedulerRunning = true;
@@ -25,7 +26,7 @@ if (!global.globalSchedulerRunning && process.env.NEXT_PHASE !== 'phase-producti
     }, 30000);
 
     const startScheduler = () => {
-        console.log('🏁 Schedulearr background orchestrator active and running.');
+        console.log('🏁 Schedulearr v0.6.2 background orchestrator active and running.');
         
         // Start network speed monitor with dynamic interval
         const { networkInterval } = getSchedulerConfig();
@@ -33,7 +34,7 @@ if (!global.globalSchedulerRunning && process.env.NEXT_PHASE !== 'phase-producti
 
         const runCycle = async () => {
             const now = new Date().toISOString();
-            console.log(`[${now}] 🕒 Schedulearr running automated batch...`);
+            console.log(`[${now}] 🕒 Schedulearr v0.6.2 running automated batch...`);
             try {
                 await evaluateIndexerRules();
                 await runBatchSearch();
@@ -93,6 +94,27 @@ if (!global.globalSchedulerRunning && process.env.NEXT_PHASE !== 'phase-producti
             setTimeout(runEpgCycle, 10 * 60 * 1000);
         };
         setTimeout(runEpgCycle, 20000); // Start 20s after boot
+
+        // Low-Power Single-Threaded Audiobook Studio Queue Worker (checks every 2 minutes)
+        const runAudiobookStudioCycle = async () => {
+            try {
+                const studioCfg = getAudiobookStudioConfig();
+                if (studioCfg.enabled && studioCfg.scheduleMode !== 'manual_only') {
+                    const hour = new Date().getHours();
+                    const canRunNow =
+                        studioCfg.scheduleMode === 'continuous_low_cpu' ||
+                        studioCfg.scheduleMode === 'hourly' ||
+                        (studioCfg.scheduleMode === 'overnight' && hour >= 1 && hour < 7);
+                    if (canRunNow) {
+                        triggerAudiobookQueueWorker();
+                    }
+                }
+            } catch (err) {
+                console.error('❌ Audiobook Studio scheduler error:', err);
+            }
+            setTimeout(runAudiobookStudioCycle, 2 * 60 * 1000);
+        };
+        setTimeout(runAudiobookStudioCycle, 25000); // Start 25s after boot
     };
 
     startScheduler();

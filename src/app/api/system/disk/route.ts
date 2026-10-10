@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server';
-import { getInstances } from '@/lib/db';
+import { getInstances, getDvrStorageFolders, getDvrRecordings } from '@/lib/db';
+import { twColorToHex } from '@/lib/instanceColor';
 
 async function fetchRootFolders(url: string, apiKey: string): Promise<any[]> {
     try {
         const res = await fetch(`${url.replace(/\/$/, '')}/api/v3/rootfolder`, {
             headers: { 'X-Api-Key': apiKey },
             next: { revalidate: 0 },
-            signal: AbortSignal.timeout(5000)
+            signal: AbortSignal.timeout(4000)
         });
         if (!res.ok) return [];
         return await res.json();
@@ -20,7 +21,7 @@ async function fetchDiskSpace(url: string, apiKey: string): Promise<any[]> {
         const res = await fetch(`${url.replace(/\/$/, '')}/api/v3/diskspace`, {
             headers: { 'X-Api-Key': apiKey },
             next: { revalidate: 0 },
-            signal: AbortSignal.timeout(5000)
+            signal: AbortSignal.timeout(4000)
         });
         if (!res.ok) return [];
         return await res.json();
@@ -29,14 +30,97 @@ async function fetchDiskSpace(url: string, apiKey: string): Promise<any[]> {
     }
 }
 
+async function fetchLidarrRootFolders(url: string, apiKey: string): Promise<any[]> {
+    try {
+        const res = await fetch(`${url.replace(/\/$/, '')}/api/v1/rootfolder`, {
+            headers: { 'X-Api-Key': apiKey },
+            next: { revalidate: 0 },
+            signal: AbortSignal.timeout(4000)
+        });
+        if (!res.ok) return [];
+        return await res.json();
+    } catch {
+        return [];
+    }
+}
+
+async function fetchLidarrDiskSpace(url: string, apiKey: string): Promise<any[]> {
+    try {
+        const res = await fetch(`${url.replace(/\/$/, '')}/api/v1/diskspace`, {
+            headers: { 'X-Api-Key': apiKey },
+            next: { revalidate: 0 },
+            signal: AbortSignal.timeout(4000)
+        });
+        if (!res.ok) return [];
+        return await res.json();
+    } catch {
+        return [];
+    }
+}
+
+async function fetchRadarrMediaSize(url: string, apiKey: string): Promise<number> {
+    try {
+        const res = await fetch(`${url.replace(/\/$/, '')}/api/v3/movie`, {
+            headers: { 'X-Api-Key': apiKey },
+            next: { revalidate: 0 },
+            signal: AbortSignal.timeout(4000)
+        });
+        if (!res.ok) return 0;
+        const movies = await res.json();
+        return (movies || []).reduce((sum: number, m: any) => sum + (m.sizeOnDisk || m.statistics?.sizeOnDisk || m.movieFile?.size || 0), 0);
+    } catch {
+        return 0;
+    }
+}
+
+async function fetchSonarrMediaSize(url: string, apiKey: string): Promise<number> {
+    try {
+        const res = await fetch(`${url.replace(/\/$/, '')}/api/v3/series`, {
+            headers: { 'X-Api-Key': apiKey },
+            next: { revalidate: 0 },
+            signal: AbortSignal.timeout(4000)
+        });
+        if (!res.ok) return 0;
+        const series = await res.json();
+        return (series || []).reduce((sum: number, s: any) => sum + (s.statistics?.sizeOnDisk || s.sizeOnDisk || 0), 0);
+    } catch {
+        return 0;
+    }
+}
+
+async function fetchLidarrMediaSize(url: string, apiKey: string): Promise<number> {
+    try {
+        const res = await fetch(`${url.replace(/\/$/, '')}/api/v1/artist`, {
+            headers: { 'X-Api-Key': apiKey },
+            next: { revalidate: 0 },
+            signal: AbortSignal.timeout(4000)
+        });
+        if (!res.ok) return 0;
+        const artists = await res.json();
+        return (artists || []).reduce((sum: number, a: any) => sum + (a.statistics?.sizeOnDisk || 0), 0);
+    } catch {
+        return 0;
+    }
+}
+
 export async function GET() {
     const radarrs = getInstances('radarr', true);
     const sonarrs = getInstances('sonarr', true);
+    const lidarrs = getInstances('lidarr', true);
 
     let totalFreeBytes = 0;
     let totalBytes = 0;
-    const byInstance: { id: string; name: string; type: string; folders: { path: string; freeBytes: number; totalBytes: number }[] }[] = [];
+    const byInstance: {
+        id: string;
+        name: string;
+        type: string;
+        color?: string;
+        colorHex: string;
+        mediaBytes: number;
+        folders: { path: string; freeBytes: number; totalBytes: number }[];
+    }[] = [];
 
+    // Process Radarr & Sonarr
     for (const inst of [...radarrs, ...sonarrs]) {
         let folders = await fetchDiskSpace(inst.url, inst.api_key);
         if (folders.length === 0) {
@@ -45,9 +129,7 @@ export async function GET() {
         const instFolders = folders.map((f: any) => {
             const free = f.freeSpace ?? 0;
             let total = f.totalSpace ?? 0;
-            if (total < free) {
-                total = free;
-            }
+            if (total < free) total = free;
             return {
                 path: f.path,
                 freeBytes: free,
@@ -57,17 +139,80 @@ export async function GET() {
 
         const instFree = instFolders.reduce((s: number, f: any) => s + f.freeBytes, 0);
         const instTotal = instFolders.reduce((s: number, f: any) => s + f.totalBytes, 0);
-
-        // Avoid double-counting if Radarr and Sonarr share the same root folder
-        // We accumulate totals and de-duplicate by tracking max unique total sizes seen
         totalFreeBytes += instFree;
         totalBytes += instTotal;
+
+        // Fetch actual media content size
+        const mediaBytes = inst.type === 'radarr'
+            ? await fetchRadarrMediaSize(inst.url, inst.api_key)
+            : await fetchSonarrMediaSize(inst.url, inst.api_key);
 
         byInstance.push({
             id: inst.id,
             name: inst.name,
             type: inst.type,
+            color: inst.color,
+            colorHex: twColorToHex(inst.color),
+            mediaBytes,
             folders: instFolders
+        });
+    }
+
+    // Process Lidarr (Audio)
+    for (const inst of lidarrs) {
+        let folders = await fetchLidarrDiskSpace(inst.url, inst.api_key);
+        if (folders.length === 0) {
+            folders = await fetchLidarrRootFolders(inst.url, inst.api_key);
+        }
+        const instFolders = folders.map((f: any) => {
+            const free = f.freeSpace ?? 0;
+            let total = f.totalSpace ?? 0;
+            if (total < free) total = free;
+            return {
+                path: f.path,
+                freeBytes: free,
+                totalBytes: total
+            };
+        });
+
+        const instFree = instFolders.reduce((s: number, f: any) => s + f.freeBytes, 0);
+        const instTotal = instFolders.reduce((s: number, f: any) => s + f.totalBytes, 0);
+        totalFreeBytes += instFree;
+        totalBytes += instTotal;
+
+        const mediaBytes = await fetchLidarrMediaSize(inst.url, inst.api_key);
+
+        byInstance.push({
+            id: inst.id,
+            name: inst.name,
+            type: 'lidarr',
+            color: inst.color,
+            colorHex: twColorToHex(inst.color),
+            mediaBytes,
+            folders: instFolders
+        });
+    }
+
+    // Process IPTV DVR Recordings
+    const dvrFolders = getDvrStorageFolders();
+    const dvrRecordings = getDvrRecordings(500);
+    const dvrUsedBytes = dvrRecordings
+        .filter(r => (r.status === 'completed' || r.status === 'recording') && r.file_size)
+        .reduce((s, r) => s + (r.file_size || 0), 0);
+
+    if (dvrFolders.length > 0 || dvrUsedBytes > 0) {
+        byInstance.push({
+            id: 'iptv-dvr',
+            name: 'IPTV Recordings',
+            type: 'iptv_dvr',
+            color: 'rose',
+            colorHex: '#f43f5e',
+            mediaBytes: dvrUsedBytes,
+            folders: dvrFolders.map(f => ({
+                path: f.path,
+                freeBytes: 0,
+                totalBytes: dvrUsedBytes
+            }))
         });
     }
 

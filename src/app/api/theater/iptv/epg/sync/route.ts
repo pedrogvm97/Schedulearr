@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-    getEpgSyncStatus, executeEpgSync, updateEpgSyncStatus
+    getEpgSyncStatus, executeEpgSync, deriveXtreamEpgUrl, getAllActiveEpgSyncs
 } from '@/lib/iptvEpgSync';
 import { getTheaterLibraries, updateTheaterLibrary } from '@/lib/db';
 
@@ -12,7 +12,10 @@ export async function GET(req: NextRequest) {
         const libraryId = searchParams.get('libraryId');
 
         if (!libraryId) {
-            return NextResponse.json({ error: 'libraryId is required' }, { status: 400 });
+            return NextResponse.json({
+                success: true,
+                activeSyncs: getAllActiveEpgSyncs()
+            });
         }
 
         const status = getEpgSyncStatus(libraryId);
@@ -26,55 +29,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
     try {
         const body = await req.json();
-        const { libraryId, epgUrl, background } = body;
-
-        if (!libraryId) {
-            return NextResponse.json({ error: 'libraryId is required' }, { status: 400 });
-        }
-
-        const libs = getTheaterLibraries();
-        const currentLib = libs.find(l => l.id === libraryId);
-        if (!currentLib) {
-            return NextResponse.json({ error: 'Library not found' }, { status: 404 });
-        }
-
-        const activeEpgUrl = epgUrl || currentLib.folders?.[1];
-        if (!activeEpgUrl) {
-            return NextResponse.json({ error: 'No XMLTV EPG URL configured for this provider.' }, { status: 400 });
-        }
-
-        // Start EPG sync in background or await if not background
-        if (background) {
-            // Fire and forget
-            executeEpgSync(libraryId, activeEpgUrl).catch(err => {
-                console.error(`Background EPG sync error for library ${libraryId}:`, err);
-            });
-            return NextResponse.json({
-                success: true,
-                message: 'EPG sync started in background',
-                status: getEpgSyncStatus(libraryId)
-            });
-        }
-
-        // Trigger sync asynchronously and return initial progress state so client can poll
-        executeEpgSync(libraryId, activeEpgUrl).catch(err => {
-            console.error(`EPG sync error for library ${libraryId}:`, err);
-        });
-
-        return NextResponse.json({
-            success: true,
-            status: getEpgSyncStatus(libraryId)
-        });
-    } catch (e: any) {
-        console.error('API /theater/iptv/epg/sync POST error:', e);
-        return NextResponse.json({ error: e.message }, { status: 500 });
-    }
-}
-
-export async function PATCH(req: NextRequest) {
-    try {
-        const body = await req.json();
-        const { libraryId, intervalHours } = body;
+        const { libraryId, epgUrl, intervalHours, scopeConfig } = body;
 
         if (!libraryId) {
             return NextResponse.json({ error: 'libraryId is required' }, { status: 400 });
@@ -87,15 +42,61 @@ export async function PATCH(req: NextRequest) {
         }
 
         const streamUrl = currentLib.folders?.[0] || '';
-        const epgUrl = currentLib.folders?.[1] || '';
-        const lastSync = currentLib.folders?.[3] || '';
-        const newInterval = String(intervalHours ?? '24');
+        const activeEpgUrl = (epgUrl || currentLib.folders?.[1] || deriveXtreamEpgUrl(streamUrl)).trim();
+        if (!activeEpgUrl) {
+            return NextResponse.json({ error: 'No XMLTV EPG URL configured or derivable for this provider.' }, { status: 400 });
+        }
 
-        updateTheaterLibrary(libraryId, [streamUrl, epgUrl, newInterval, lastSync]);
+        const effectiveInterval = String(intervalHours ?? currentLib.folders?.[2] ?? '24');
+        const effectiveScope = String(scopeConfig ?? currentLib.folders?.[4] ?? 'all');
+        const lastSync = currentLib.folders?.[3] || '';
+
+        // Persist updated EPG URL, interval, and channel/shortlist scope before syncing
+        updateTheaterLibrary(libraryId, [streamUrl, activeEpgUrl, effectiveInterval, lastSync, effectiveScope]);
+
+        // Fire and forget in background so client can poll or close the window at any time
+        executeEpgSync(libraryId, activeEpgUrl, effectiveScope).catch(err => {
+            console.error(`Background EPG sync error for library ${libraryId}:`, err);
+        });
 
         return NextResponse.json({
             success: true,
-            intervalHours: newInterval
+            message: `EPG sync started in background for "${currentLib.name}"`,
+            status: getEpgSyncStatus(libraryId)
+        });
+    } catch (e: any) {
+        console.error('API /theater/iptv/epg/sync POST error:', e);
+        return NextResponse.json({ error: e.message }, { status: 500 });
+    }
+}
+
+export async function PATCH(req: NextRequest) {
+    try {
+        const body = await req.json();
+        const { libraryId, intervalHours, scopeConfig, epgUrl } = body;
+
+        if (!libraryId) {
+            return NextResponse.json({ error: 'libraryId is required' }, { status: 400 });
+        }
+
+        const libs = getTheaterLibraries();
+        const currentLib = libs.find(l => l.id === libraryId);
+        if (!currentLib) {
+            return NextResponse.json({ error: 'Library not found' }, { status: 404 });
+        }
+
+        const streamUrl = currentLib.folders?.[0] || '';
+        const activeEpg = (epgUrl ?? currentLib.folders?.[1] ?? deriveXtreamEpgUrl(streamUrl)).trim();
+        const lastSync = currentLib.folders?.[3] || '';
+        const newInterval = String(intervalHours ?? currentLib.folders?.[2] ?? '24');
+        const newScope = String(scopeConfig ?? currentLib.folders?.[4] ?? 'all');
+
+        updateTheaterLibrary(libraryId, [streamUrl, activeEpg, newInterval, lastSync, newScope]);
+
+        return NextResponse.json({
+            success: true,
+            intervalHours: newInterval,
+            scopeConfig: newScope
         });
     } catch (e: any) {
         console.error('API /theater/iptv/epg/sync PATCH error:', e);

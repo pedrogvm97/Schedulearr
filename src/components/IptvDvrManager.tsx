@@ -193,6 +193,63 @@ export function IptvDvrManager() {
     const [newFolderName, setNewFolderName] = useState('');
     const [newFolderDefault, setNewFolderDefault] = useState(false);
 
+    // Server Library Browser & Custom Folder Creator State
+    const [browserLibraries, setBrowserLibraries] = useState<Array<{ id: string; name: string; type: string; rootPath: string }>>([]);
+    const [browserCurrentPath, setBrowserCurrentPath] = useState('');
+    const [browserSubfolders, setBrowserSubfolders] = useState<Array<{ name: string; path: string }>>([]);
+    const [isLoadingBrowser, setIsLoadingBrowser] = useState(false);
+    const [customSubfolderName, setCustomSubfolderName] = useState('');
+    const [isCreatingSubfolder, setIsCreatingSubfolder] = useState(false);
+    const [showGuideFolderBrowser, setShowGuideFolderBrowser] = useState(false);
+
+    const loadServerFolders = async (targetPath?: string, libId?: string) => {
+        setIsLoadingBrowser(true);
+        try {
+            const params = new URLSearchParams();
+            if (targetPath) params.set('path', targetPath);
+            if (libId) params.set('libraryId', libId);
+            const res = await fetch(`/api/theater/folders?${params.toString()}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.libraries) setBrowserLibraries(data.libraries);
+                if (data.currentPath !== undefined) setBrowserCurrentPath(data.currentPath);
+                if (data.subfolders) setBrowserSubfolders(data.subfolders);
+            }
+        } catch {
+            // ignore
+        } finally {
+            setIsLoadingBrowser(false);
+        }
+    };
+
+    const handleCreateServerSubfolder = async (onCreated?: (createdPath: string, folderName: string) => void) => {
+        if (!browserCurrentPath || !customSubfolderName.trim()) {
+            toast.error('Select a base library folder and enter a folder name');
+            return;
+        }
+        setIsCreatingSubfolder(true);
+        try {
+            const res = await fetch('/api/theater/folders', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    parentPath: browserCurrentPath,
+                    folderName: customSubfolderName.trim()
+                })
+            });
+            const data = await res.json();
+            if (!res.ok || !data.ok) throw new Error(data.error || 'Failed to create folder');
+            toast.success(`Created folder "${data.folderName}" on server`);
+            setCustomSubfolderName('');
+            await loadServerFolders(browserCurrentPath);
+            if (onCreated) onCreated(data.createdPath, data.folderName);
+        } catch (err: any) {
+            toast.error(err.message || 'Could not create folder');
+        } finally {
+            setIsCreatingSubfolder(false);
+        }
+    };
+
     const [ruleName, setRuleName] = useState('');
     const [ruleQuery, setRuleQuery] = useState('');
     const [ruleType, setRuleType] = useState<'sports' | 'actor' | 'keyword' | 'title'>('sports');
@@ -2200,24 +2257,153 @@ export function IptvDvrManager() {
                                 </div>
                             </div>
 
-                            <div>
-                                <label className="text-xs font-bold text-zinc-400 block mb-1.5">Destination Storage Folder</label>
-                                {folders.length === 0 ? (
-                                    <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-xs text-red-400">
-                                        No storage folders configured yet. Add a folder in the Storage tab first.
-                                    </div>
-                                ) : (
-                                    <select
-                                        value={guideRecordingFolder}
-                                        onChange={e => setGuideRecordingFolder(e.target.value)}
-                                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2.5 text-xs font-bold text-white outline-none focus:border-amber-500"
-                                        required
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-xs font-bold text-zinc-400">Destination Storage Folder</label>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const next = !showGuideFolderBrowser;
+                                            setShowGuideFolderBrowser(next);
+                                            if (next && !browserCurrentPath) loadServerFolders();
+                                        }}
+                                        className="px-2.5 py-1 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[10px] font-black flex items-center gap-1 cursor-pointer"
                                     >
-                                        <option value="">Select storage folder...</option>
+                                        <Folder size={12} />
+                                        {showGuideFolderBrowser ? 'Close Browser' : '+ Browse Libraries / New Folder'}
+                                    </button>
+                                </div>
+
+                                <input
+                                    type="text"
+                                    value={guideRecordingFolder}
+                                    onChange={e => setGuideRecordingFolder(e.target.value)}
+                                    placeholder="Select or browse a server folder path..."
+                                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-mono text-white outline-none focus:border-amber-500"
+                                    required
+                                />
+
+                                {folders.length > 0 && (
+                                    <div className="flex flex-wrap gap-1.5">
                                         {folders.map(f => (
-                                            <option key={f.id} value={f.path}>{f.name} ({f.path})</option>
+                                            <button
+                                                key={f.id}
+                                                type="button"
+                                                onClick={() => setGuideRecordingFolder(f.path)}
+                                                className={`px-2.5 py-1 rounded-lg text-[10px] font-black border cursor-pointer ${
+                                                    guideRecordingFolder === f.path
+                                                        ? 'bg-amber-500 text-black border-amber-400'
+                                                        : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
+                                                }`}
+                                            >
+                                                💾 {f.name}
+                                            </button>
                                         ))}
-                                    </select>
+                                    </div>
+                                )}
+
+                                {showGuideFolderBrowser && (
+                                    <div className="p-3 bg-zinc-950 rounded-2xl border border-amber-500/30 space-y-2.5">
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {browserLibraries.map(lib => (
+                                                <button
+                                                    key={lib.id}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        loadServerFolders(lib.rootPath, lib.id);
+                                                        if (lib.rootPath) setGuideRecordingFolder(lib.rootPath);
+                                                    }}
+                                                    className={`px-2.5 py-1 rounded-lg text-[10px] font-black border cursor-pointer ${
+                                                        browserCurrentPath.startsWith(lib.rootPath) && lib.rootPath
+                                                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
+                                                            : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
+                                                    }`}
+                                                >
+                                                    📚 {lib.name} ({lib.type})
+                                                </button>
+                                            ))}
+                                        </div>
+
+                                        {browserCurrentPath && (
+                                            <div className="space-y-1.5">
+                                                <div className="flex items-center justify-between gap-2 bg-zinc-900 px-2.5 py-1.5 rounded-xl border border-zinc-800">
+                                                    <span className="text-[10px] font-mono text-zinc-300 truncate">{browserCurrentPath}</span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setGuideRecordingFolder(browserCurrentPath)}
+                                                        className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-black shrink-0 cursor-pointer"
+                                                    >
+                                                        ✓ Use Path
+                                                    </button>
+                                                </div>
+                                                {browserSubfolders.length > 0 && (
+                                                    <div className="max-h-28 overflow-y-auto custom-scrollbar grid grid-cols-2 gap-1">
+                                                        {browserSubfolders.map(sf => (
+                                                            <button
+                                                                key={sf.path}
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    loadServerFolders(sf.path);
+                                                                    setGuideRecordingFolder(sf.path);
+                                                                }}
+                                                                className="p-1.5 rounded-lg bg-zinc-900/70 hover:bg-zinc-800 border border-zinc-800 text-left text-[11px] font-bold text-zinc-300 truncate flex items-center gap-1 cursor-pointer"
+                                                            >
+                                                                <Folder size={11} className="text-amber-400 shrink-0" />
+                                                                <span className="truncate">{sf.name}</span>
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        <div className="pt-2 border-t border-zinc-900 space-y-1.5">
+                                            <div className="flex flex-wrap gap-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setCustomSubfolderName((selectedGuideProgram.program.title || 'Live Show').replace(/[<>:"/\\|?*]/g, ' ').trim())}
+                                                    className="px-2 py-0.5 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 text-[10px] font-black cursor-pointer"
+                                                >
+                                                    📺 Auto: EPG Title
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const d = new Date(selectedGuideProgram.program.start_time || Date.now()).toISOString().slice(0, 10);
+                                                        const ch = (selectedGuideProgram.channel.name || 'Channel').replace(/[<>:"/\\|?*]/g, ' ').trim();
+                                                        setCustomSubfolderName(`${ch} - ${d}`);
+                                                    }}
+                                                    className="px-2 py-0.5 rounded bg-sky-500/15 text-sky-300 border border-sky-500/30 text-[10px] font-black cursor-pointer"
+                                                >
+                                                    📅 Auto: Channel + Date
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setCustomSubfolderName('Concerts')}
+                                                    className="px-2 py-0.5 rounded bg-zinc-900 text-zinc-400 border border-zinc-800 text-[10px] font-bold cursor-pointer"
+                                                >
+                                                    🎵 Concerts
+                                                </button>
+                                            </div>
+                                            <div className="flex items-center gap-1.5">
+                                                <input
+                                                    type="text"
+                                                    value={customSubfolderName}
+                                                    onChange={e => setCustomSubfolderName(e.target.value)}
+                                                    placeholder="New subfolder name..."
+                                                    className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl px-2.5 py-1.5 text-xs text-white outline-none focus:border-amber-500"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    disabled={isCreatingSubfolder || !customSubfolderName.trim() || !browserCurrentPath}
+                                                    onClick={() => handleCreateServerSubfolder((createdPath) => setGuideRecordingFolder(createdPath))}
+                                                    className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-black font-black text-[11px] cursor-pointer"
+                                                >
+                                                    {isCreatingSubfolder ? '...' : '+ Create'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
                                 )}
                             </div>
 

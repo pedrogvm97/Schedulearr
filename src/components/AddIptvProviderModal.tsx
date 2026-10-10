@@ -98,7 +98,7 @@ export function AddIptvProviderModal({
                 body: JSON.stringify({
                     name: effectiveName,
                     type: 'live',
-                    folders: [effectiveM3u || 'local_file_upload']
+                    folders: [effectiveM3u || 'local_file_upload', effectiveEpg || '', '24', '']
                 })
             });
 

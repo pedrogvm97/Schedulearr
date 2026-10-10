@@ -139,6 +139,15 @@ export default function TheaterLiveTvPlayer({
     const [recordingDurationMode, setRecordingDurationMode] = useState<'until_end' | 'custom_minutes'>('until_end');
     const [isScheduling, setIsScheduling] = useState(false);
 
+    // Server Library Folder Browser & Custom Folder Creator for Recorder
+    const [showFolderBrowser, setShowFolderBrowser] = useState(false);
+    const [browserLibraries, setBrowserLibraries] = useState<Array<{ id: string; name: string; type: string; rootPath: string }>>([]);
+    const [browserCurrentPath, setBrowserCurrentPath] = useState<string>('');
+    const [browserSubfolders, setBrowserSubfolders] = useState<Array<{ name: string; path: string }>>([]);
+    const [isLoadingFolders, setIsLoadingFolders] = useState(false);
+    const [newCustomFolderName, setNewCustomFolderName] = useState('');
+    const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+
     // Player state
     const videoRef = useRef<HTMLVideoElement>(null);
     const hlsRef = useRef<Hls | null>(null);
@@ -564,6 +573,76 @@ export default function TheaterLiveTvPlayer({
         setSelectedDestIds(prev =>
             prev.includes(id) ? (prev.length > 1 ? prev.filter(x => x !== id) : prev) : [...prev, id]
         );
+    };
+
+    const loadServerFolderPath = async (targetPath?: string, libId?: string) => {
+        setIsLoadingFolders(true);
+        try {
+            const params = new URLSearchParams();
+            if (targetPath) params.set('path', targetPath);
+            if (libId) params.set('libraryId', libId);
+            const res = await fetch(`/api/theater/folders?${params.toString()}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.libraries) setBrowserLibraries(data.libraries);
+                if (data.currentPath !== undefined) setBrowserCurrentPath(data.currentPath);
+                if (data.subfolders) setBrowserSubfolders(data.subfolders);
+            }
+        } catch {
+            // ignore
+        } finally {
+            setIsLoadingFolders(false);
+        }
+    };
+
+    const handleSelectBrowsedFolder = (folderPath: string, folderName: string, badgeLabel = 'Custom Folder') => {
+        const cleanId = `custom-${folderPath.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+        setDestinations(prev => {
+            if (prev.some(d => d.path === folderPath)) {
+                const existing = prev.find(d => d.path === folderPath)!;
+                setSelectedDestIds(ids => ids.includes(existing.id) ? ids : [...ids, existing.id]);
+                return prev;
+            }
+            const newDest: DestinationOption = {
+                id: cleanId,
+                name: folderName,
+                path: folderPath,
+                type: 'library',
+                badge: badgeLabel
+            };
+            setSelectedDestIds(ids => ids.includes(cleanId) ? ids : [...ids, cleanId]);
+            return [newDest, ...prev];
+        });
+        toast.success(`Added "${folderName}" as recording destination`);
+    };
+
+    const handleCreateCustomRecordingFolder = async () => {
+        if (!browserCurrentPath || !newCustomFolderName.trim()) {
+            toast.error('Please pick a base library folder and enter a folder name');
+            return;
+        }
+        setIsCreatingFolder(true);
+        try {
+            const res = await fetch('/api/theater/folders', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    parentPath: browserCurrentPath,
+                    folderName: newCustomFolderName.trim()
+                })
+            });
+            const data = await res.json();
+            if (!res.ok || !data.ok) {
+                throw new Error(data.error || 'Could not create folder on server');
+            }
+            handleSelectBrowsedFolder(data.createdPath, data.folderName, '★ Custom Created Folder');
+            setNewCustomFolderName('');
+            await loadServerFolderPath(browserCurrentPath);
+        } catch (err: any) {
+            toast.error(err.message || 'Failed to create folder');
+        } finally {
+            setIsCreatingFolder(false);
+        }
     };
 
     // Video Player Stream Handler (Stable & Non-Interrupted on State Changes)
@@ -1441,10 +1520,237 @@ export default function TheaterLiveTvPlayer({
                         </div>
 
                         {/* Storage Destinations Multi-Selection Checklist */}
-                        <div className="space-y-2">
-                            <label className="text-xs font-black text-zinc-300 uppercase tracking-wider block">
-                                Select Destination(s) (Multiple Allowed):
-                            </label>
+                        <div className="space-y-2.5">
+                            <div className="flex items-center justify-between gap-2">
+                                <label className="text-xs font-black text-zinc-300 uppercase tracking-wider block">
+                                    Select Destination(s) (Multiple Allowed):
+                                </label>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const next = !showFolderBrowser;
+                                        setShowFolderBrowser(next);
+                                        if (next && !browserCurrentPath) {
+                                            loadServerFolderPath();
+                                        }
+                                    }}
+                                    className={`px-3 py-1.5 rounded-xl text-[11px] font-black flex items-center gap-1.5 border transition-all cursor-pointer ${
+                                        showFolderBrowser
+                                            ? 'bg-amber-500 text-black border-amber-400 shadow-md'
+                                            : 'bg-zinc-900 hover:bg-zinc-800 text-amber-400 border-amber-500/30'
+                                    }`}
+                                >
+                                    <Folder size={13} />
+                                    <span>{showFolderBrowser ? 'Close Folder Browser' : '+ Browse / New Folder'}</span>
+                                </button>
+                            </div>
+
+                            {/* Interactive Server Library Browser & Custom Folder Creator */}
+                            {showFolderBrowser && (
+                                <div className="p-3.5 rounded-2xl bg-zinc-950 border border-amber-500/30 space-y-3 shadow-inner">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-[11px] font-black text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                                            <Folder size={13} /> Browse Server Libraries &amp; Subfolders
+                                        </span>
+                                        {isLoadingFolders && (
+                                            <RefreshCw size={12} className="animate-spin text-amber-400" />
+                                        )}
+                                    </div>
+
+                                    {/* 1. Pick Base Library or DVR Root */}
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {browserLibraries.map(lib => (
+                                            <button
+                                                key={lib.id}
+                                                type="button"
+                                                onClick={() => loadServerFolderPath(lib.rootPath, lib.id)}
+                                                className={`px-2.5 py-1 rounded-xl text-[11px] font-black border transition-all cursor-pointer ${
+                                                    browserCurrentPath.startsWith(lib.rootPath) && lib.rootPath
+                                                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
+                                                        : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
+                                                }`}
+                                            >
+                                                📚 {lib.name} ({lib.type})
+                                            </button>
+                                        ))}
+                                        {dvrFolders.map(df => (
+                                            <button
+                                                key={df.id}
+                                                type="button"
+                                                onClick={() => loadServerFolderPath(df.path)}
+                                                className={`px-2.5 py-1 rounded-xl text-[11px] font-black border transition-all cursor-pointer ${
+                                                    browserCurrentPath.startsWith(df.path)
+                                                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
+                                                        : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
+                                                }`}
+                                            >
+                                                💾 {df.name}
+                                            </button>
+                                        ))}
+                                    </div>
+
+                                    {/* 2. Current Active Path & Subfolder Explorer */}
+                                    {browserCurrentPath && (
+                                        <div className="space-y-2">
+                                            <div className="flex items-center justify-between gap-2 bg-zinc-900/90 px-3 py-2 rounded-xl border border-zinc-800">
+                                                <div className="min-w-0 flex-1">
+                                                    <span className="text-[9px] font-bold uppercase text-zinc-500 block">Current Server Directory</span>
+                                                    <p className="text-[11px] font-mono text-zinc-200 truncate">{browserCurrentPath}</p>
+                                                </div>
+                                                <div className="flex items-center gap-1.5 shrink-0">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const parts = browserCurrentPath.replace(/\\/g, '/').split('/').filter(Boolean);
+                                                            if (parts.length > 1) {
+                                                                const isWin = browserCurrentPath.includes('\\') || /^[A-Za-z]:/.test(browserCurrentPath);
+                                                                const parent = isWin ? parts.slice(0, -1).join('\\') : '/' + parts.slice(0, -1).join('/');
+                                                                loadServerFolderPath(parent);
+                                                            }
+                                                        }}
+                                                        className="px-2 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[10px] font-bold cursor-pointer"
+                                                        title="Go to parent directory"
+                                                    >
+                                                        ⬆️ Up
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const baseName = browserCurrentPath.replace(/\\/g, '/').split('/').filter(Boolean).pop() || 'Selected Folder';
+                                                            handleSelectBrowsedFolder(browserCurrentPath, baseName, 'Server Folder');
+                                                        }}
+                                                        className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[10px] font-black cursor-pointer"
+                                                    >
+                                                        ✓ Use Current
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            {/* Existing Subfolders inside Current Library */}
+                                            {browserSubfolders.length > 0 ? (
+                                                <div className="max-h-32 overflow-y-auto custom-scrollbar grid grid-cols-1 sm:grid-cols-2 gap-1.5 pr-1">
+                                                    {browserSubfolders.map(sf => (
+                                                        <div
+                                                            key={sf.path}
+                                                            className="flex items-center justify-between gap-1.5 p-2 rounded-xl bg-zinc-900/70 border border-zinc-800/80 hover:border-zinc-700"
+                                                        >
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => loadServerFolderPath(sf.path)}
+                                                                className="flex items-center gap-1.5 min-w-0 flex-1 text-left text-xs font-bold text-zinc-300 hover:text-amber-300 truncate cursor-pointer"
+                                                                title={`Open ${sf.name}`}
+                                                            >
+                                                                <Folder size={13} className="text-amber-400 shrink-0" />
+                                                                <span className="truncate">{sf.name}</span>
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleSelectBrowsedFolder(sf.path, sf.name, 'Library Subfolder')}
+                                                                className="px-2 py-0.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-[10px] font-black shrink-0 cursor-pointer"
+                                                            >
+                                                                + Pick
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <p className="text-[11px] text-zinc-500 italic px-1">
+                                                    No subfolders inside this directory yet. Create one below or use current directory.
+                                                </p>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* 3. Create New Custom Folder with Auto-Name Presets */}
+                                    <div className="pt-2.5 border-t border-zinc-800/80 space-y-2">
+                                        <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400 block">
+                                            Create New Folder Inside Current Directory:
+                                        </span>
+
+                                        {/* Auto-Naming Shortcut Buttons */}
+                                        <div className="flex flex-wrap gap-1.5">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const cleanTitle = (recordingModalData.program.title || 'Live Program')
+                                                        .replace(/[<>:"/\\|?*]/g, ' ')
+                                                        .replace(/\s+/g, ' ')
+                                                        .trim();
+                                                    setNewCustomFolderName(cleanTitle);
+                                                }}
+                                                className="px-2.5 py-1 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 text-[10px] font-black cursor-pointer"
+                                                title="Auto-fill folder name from EPG Program Title"
+                                            >
+                                                📺 Auto: EPG Title
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const dateStr = new Date(recordingModalData.program.start_time || Date.now()).toISOString().slice(0, 10);
+                                                    const chan = (recordingModalData.channel.cleanName || recordingModalData.channel.name || 'Channel')
+                                                        .replace(/[<>:"/\\|?*]/g, ' ')
+                                                        .replace(/\s+/g, ' ')
+                                                        .trim();
+                                                    setNewCustomFolderName(`${chan} - ${dateStr}`);
+                                                }}
+                                                className="px-2.5 py-1 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 text-[10px] font-black cursor-pointer"
+                                                title="Auto-fill folder name with Channel Name + Date"
+                                            >
+                                                📅 Auto: Channel + Date
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const dateStr = new Date(recordingModalData.program.start_time || Date.now()).toISOString().slice(0, 10);
+                                                    const chan = (recordingModalData.channel.cleanName || recordingModalData.channel.name || 'Channel')
+                                                        .replace(/[<>:"/\\|?*]/g, ' ')
+                                                        .trim();
+                                                    const title = (recordingModalData.program.title || 'Broadcast')
+                                                        .replace(/[<>:"/\\|?*]/g, ' ')
+                                                        .trim();
+                                                    setNewCustomFolderName(`${title} (${chan} ${dateStr})`);
+                                                }}
+                                                className="px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-[10px] font-black cursor-pointer"
+                                                title="Auto-fill with EPG Title + Channel + Date"
+                                            >
+                                                🎬 Auto: EPG + Channel + Date
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setNewCustomFolderName('Concerts')}
+                                                className="px-2 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 text-[10px] font-bold cursor-pointer"
+                                            >
+                                                🎵 Concerts
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setNewCustomFolderName('Live TV Movies')}
+                                                className="px-2 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 text-[10px] font-bold cursor-pointer"
+                                            >
+                                                🍿 Live TV Movies
+                                            </button>
+                                        </div>
+
+                                        <div className="flex items-center gap-2">
+                                            <input
+                                                type="text"
+                                                value={newCustomFolderName}
+                                                onChange={e => setNewCustomFolderName(e.target.value)}
+                                                placeholder="Folder name (e.g. Concerts, Live TV Movies...)"
+                                                className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 outline-none focus:border-amber-500"
+                                            />
+                                            <button
+                                                type="button"
+                                                disabled={isCreatingFolder || !newCustomFolderName.trim() || !browserCurrentPath}
+                                                onClick={handleCreateCustomRecordingFolder}
+                                                className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-black font-black text-xs shrink-0 transition-all cursor-pointer"
+                                            >
+                                                {isCreatingFolder ? 'Creating...' : '+ Create & Select'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
 
                             <div className="space-y-2 max-h-52 overflow-y-auto custom-scrollbar pr-1">
                                 {destinations.map(d => {

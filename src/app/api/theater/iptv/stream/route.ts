@@ -16,13 +16,15 @@ export async function GET(req: NextRequest) {
 
         const isDirectHls = streamUrl.toLowerCase().includes('.m3u8');
         const ffmpegBin = getFFmpegPath();
+        const maskedUrl = streamUrl.replace(/password=[^&]+/i, 'password=***');
+        console.log(`[${new Date().toISOString()}] 📺 [IPTV-STREAM] Starting live stream playback -> ${maskedUrl}`);
 
         // 1. If requesting an HLS Playlist (.m3u8), proxy & rewrite segment URLs to avoid Mixed Content & CORS
         if (isDirectHls) {
             try {
                 const hlsRes = await axios.get(streamUrl, {
                     timeout: 10000,
-                    headers: { 'User-Agent': 'VLC/3.0.18 LibVLC/3.0.18 Schedulearr/0.5.42' },
+                    headers: { 'User-Agent': 'VLC/3.0.18 LibVLC/3.0.18 Schedulearr/0.6.2' },
                     responseType: 'text',
                     validateStatus: () => true
                 });
@@ -54,8 +56,7 @@ export async function GET(req: NextRequest) {
             }
         }
 
-        // 2. High-Performance Universal Live Transmuxer (0% CPU - Video Copy to Fragmented MP4)
-        // Solves Mixed Content, CORS, and raw MPEG-TS playback natively in all browsers
+        // 2. High-Performance Universal Live Transmuxer (Low-Latency Fast Start + Video Copy to Fragmented MP4)
         const directProxy = searchParams.get('direct') === 'true';
 
         if (!directProxy) {
@@ -63,17 +64,21 @@ export async function GET(req: NextRequest) {
                 const ffmpegArgs = [
                     '-hide_banner',
                     '-loglevel', 'error',
+                    '-fflags', '+nobuffer+flush_packets+genpts',
+                    '-flags', 'low_delay',
+                    '-probesize', '500000',
+                    '-analyzeduration', '700000',
                     '-reconnect', '1',
                     '-reconnect_at_eof', '1',
                     '-reconnect_streamed', '1',
                     '-reconnect_delay_max', '5',
-                    '-user_agent', 'VLC/3.0.18 LibVLC/3.0.18 Schedulearr/0.5.55',
+                    '-user_agent', 'VLC/3.0.18 LibVLC/3.0.18 Schedulearr/0.6.2',
                     '-i', streamUrl,
                     '-c:v', 'copy',
                     '-c:a', 'aac',
                     '-b:a', '192k',
                     '-f', 'mp4',
-                    '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+                    '-movflags', 'frag_keyframe+empty_moov+default_base_moof+faststart',
                     'pipe:1'
                 ];
 

@@ -6,8 +6,9 @@ import { usePathname } from 'next/navigation';
 import {
     Film, Play, Download, Sliders, Calendar,
     BarChart3, Settings, Menu, X, Tv, ShieldCheck,
-    HardDrive, Sparkles, ChevronRight
+    HardDrive, Sparkles, ChevronRight, Activity, Radio, BookOpen
 } from 'lucide-react';
+import { useMusicPlayer } from '@/context/MusicPlayerContext';
 
 const primaryNavItems = [
     {
@@ -72,21 +73,37 @@ const mobileCoreNavItems = [
 export function Navigation() {
     const pathname = usePathname();
     const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
-    const [appVersion, setAppVersion] = useState('0.6.0');
+    const [appVersion, setAppVersion] = useState('0.6.2');
     const [activeMusicCount, setActiveMusicCount] = useState(0);
+    const [ongoingTasks, setOngoingTasks] = useState<Array<{
+        id: string;
+        category: string;
+        title: string;
+        detail: string;
+        progress?: number;
+    }>>([]);
+
+    const { playingAudio, isAudioPlaying, openExpandedPlayer } = useMusicPlayer();
 
     useEffect(() => {
-        const checkQueue = async () => {
+        const checkQueueAndOngoing = async () => {
             try {
-                const res = await fetch('/api/theater/music/queue');
-                if (res.ok) {
-                    const data = await res.json();
+                const [qRes, oRes] = await Promise.all([
+                    fetch('/api/theater/music/queue'),
+                    fetch('/api/system/ongoing')
+                ]);
+                if (qRes.ok) {
+                    const data = await qRes.json();
                     setActiveMusicCount((data.activeCount || 0) + (data.queuedCount || 0));
+                }
+                if (oRes.ok) {
+                    const oData = await oRes.json();
+                    setOngoingTasks(oData.items || []);
                 }
             } catch {}
         };
-        checkQueue();
-        const interval = setInterval(checkQueue, 4000);
+        checkQueueAndOngoing();
+        const interval = setInterval(checkQueueAndOngoing, 4000);
 
         fetch('/api/system/version')
             .then(r => r.ok ? r.json() : null)
@@ -101,6 +118,7 @@ export function Navigation() {
     const allNavItems = [...primaryNavItems, ...secondaryNavItems];
 
     const isMoreTabActive = ['/profiles', '/analytics', '/settings', '/tv'].includes(pathname);
+    const hasOngoingActivity = Boolean(playingAudio || ongoingTasks.length > 0);
 
     return (
         <>
@@ -167,6 +185,50 @@ export function Navigation() {
                     </div>
                 </div>
             </nav>
+
+            {/* ── Global "Ongoing" Summary Banner (Active Playback, EPG Sync, Audiobook Studio, DVR & Housekeeping) ── */}
+            {hasOngoingActivity && (
+                <div className="w-full bg-gradient-to-r from-zinc-950 via-[#101418] to-zinc-950 border-b border-emerald-500/20 px-4 py-1.5 z-40">
+                    <div className="max-w-7xl mx-auto flex items-center justify-between gap-3 overflow-x-auto no-scrollbar scrollbar-none">
+                        <div className="flex items-center gap-2 shrink-0">
+                            <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                                Ongoing
+                            </span>
+                        </div>
+
+                        <div className="flex items-center gap-2.5 flex-1 min-w-0 overflow-x-auto no-scrollbar scrollbar-none">
+                            {playingAudio && (
+                                <button
+                                    onClick={() => openExpandedPlayer()}
+                                    className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-[11px] text-amber-200 flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors"
+                                >
+                                    <Play size={11} className={isAudioPlaying ? 'text-amber-400 fill-amber-400 animate-pulse' : 'text-zinc-400'} />
+                                    <span className="font-black">{playingAudio.isAudiobook ? 'Reading:' : 'Playing:'}</span>
+                                    <span className="truncate max-w-[180px] font-semibold">{playingAudio.title}</span>
+                                </button>
+                            )}
+
+                            {ongoingTasks.map(task => (
+                                <div
+                                    key={task.id}
+                                    className="px-2.5 py-1 rounded-lg bg-zinc-900/90 border border-zinc-800 text-[11px] text-zinc-200 flex items-center gap-1.5 shrink-0"
+                                >
+                                    {task.category === 'epg' ? (
+                                        <Radio size={11} className="text-amber-400 animate-spin" />
+                                    ) : task.category === 'audiobook' ? (
+                                        <BookOpen size={11} className="text-orange-400 animate-pulse" />
+                                    ) : (
+                                        <Activity size={11} className="text-emerald-400 animate-pulse" />
+                                    )}
+                                    <span className="font-bold text-white">{task.title}:</span>
+                                    <span className="text-zinc-400 truncate max-w-[220px]">{task.detail}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* ── Modern Floating Glass Bottom Tab Bar (<640px Mobile Only) ── */}
             <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-50 px-3 pb-3 pointer-events-none" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
