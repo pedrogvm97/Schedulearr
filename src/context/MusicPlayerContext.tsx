@@ -4849,68 +4849,33 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                             )}
                                         </div>
 
-                                        {/* ── LIVE CAPTIONS / SYNCED SPEECH-TO-TEXT TRANSCRIPTION READER ── */}
+                                        {/* ── LIVE KARAOKE TEXT ── */}
                                         <div className="h-[34%] min-h-[175px] bg-zinc-900/50 border border-zinc-800/90 rounded-2xl p-4 flex flex-col overflow-hidden shrink-0">
-                                            <div className="flex items-center justify-between gap-2 pb-2 mb-2 border-b border-zinc-800/80 shrink-0 flex-wrap">
-                                                <span className="text-xs font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
-                                                    <BookOpen size={14} /> Live Synced Speech-to-Text
+                                            <div className="flex items-center justify-between gap-2 pb-2 mb-2 border-b border-zinc-800/80 shrink-0">
+                                                <span className="text-sm font-black uppercase tracking-wider text-amber-400 flex items-center gap-2">
+                                                    <BookOpen size={16} /> Text
                                                 </span>
-                                                <div className="flex items-center gap-1.5">
-                                                    <button
-                                                        type="button"
-                                                        disabled={Boolean(isRunningChapterStudioTask)}
-                                                        onClick={() => handleRunInPlayerChapterTask('transcribe')}
-                                                        className="px-2.5 py-1 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-xs font-black flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                                                        title="Run real Speech-to-Text on this chapter's audio stream"
-                                                    >
-                                                        <RefreshCw size={12} className={isRunningChapterStudioTask === 'transcribe' ? 'animate-spin' : ''} />
-                                                        <span>{lyricsData?.lines?.length ? 'Redo STT' : 'Transcribe'}</span>
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            if (!isEditingChapterTranscript) {
-                                                                setChapterTranscriptDraft(audiobookChapterMeta?.synced_lyrics || lyricsData?.syncedLyrics || '');
-                                                            }
-                                                            setIsEditingChapterTranscript(prev => !prev);
-                                                        }}
-                                                        className="px-2.5 py-1 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-black flex items-center gap-1 cursor-pointer"
-                                                        title="Manually edit or paste synced transcript lines ([mm:ss.xx] text)"
-                                                    >
-                                                        <Edit3 size={12} />
-                                                        <span>{isEditingChapterTranscript ? 'Cancel' : 'Edit'}</span>
-                                                    </button>
-                                                </div>
+                                                <button
+                                                    type="button"
+                                                    disabled={Boolean(isRunningChapterStudioTask)}
+                                                    onClick={() => handleRunInPlayerChapterTask('transcribe')}
+                                                    className="px-3.5 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-xs sm:text-sm font-black flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                                    title="Generate synced Speech-to-Text from chapter audio"
+                                                >
+                                                    <RefreshCw size={14} className={isRunningChapterStudioTask === 'transcribe' ? 'animate-spin' : ''} />
+                                                    <span>{lyricsData?.lines?.length ? 'Redo' : 'Transcribe'}</span>
+                                                </button>
                                             </div>
 
                                             <div
                                                 ref={expandedLyricsContainerRef}
                                                 className="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-2 space-y-2.5"
                                             >
-                                                {isEditingChapterTranscript ? (
-                                                    <div className="h-full flex flex-col gap-2">
-                                                        <textarea
-                                                            value={chapterTranscriptDraft}
-                                                            onChange={e => setChapterTranscriptDraft(e.target.value)}
-                                                            placeholder="[00:00.00] Paste or edit chapter transcript lines here..."
-                                                            className="flex-1 w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-sm text-zinc-200 font-mono focus:outline-none focus:border-amber-500 resize-none"
-                                                        />
-                                                        <div className="flex justify-end gap-2 shrink-0">
-                                                            <button
-                                                                type="button"
-                                                                onClick={handleSaveChapterTranscriptDraft}
-                                                                className="px-4 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-black uppercase cursor-pointer"
-                                                                title="Save Chapter Transcript"
-                                                            >
-                                                                Save Transcript
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                ) : isRunningChapterStudioTask === 'transcribe' ? (
+                                                {isRunningChapterStudioTask === 'transcribe' ? (
                                                     <div className="h-full flex flex-col items-center justify-center text-center gap-2">
-                                                        <div className="w-6 h-6 border-2 border-amber-500/20 border-t-amber-500 rounded-full animate-spin" />
+                                                        <div className="w-7 h-7 border-2 border-amber-500/20 border-t-amber-500 rounded-full animate-spin" />
                                                         <p className="text-sm font-bold text-amber-300">
-                                                            Running Speech-to-Text on chapter audio...
+                                                            Transcribing...
                                                         </p>
                                                     </div>
                                                 ) : lyricsData?.lines && lyricsData.lines.length > 0 ? (
@@ -4934,28 +4899,21 @@ export function MusicPlayerProvider({ children }: { children: React.ReactNode })
                                                         })}
                                                     </div>
                                                 ) : (
-                                                    <div className="h-full flex flex-col items-center justify-center text-center space-y-2.5">
-                                                        <p className="text-sm font-bold text-zinc-300">
-                                                            {audiobookChapterMeta?.error_message || 'No Speech-to-Text transcript for this chapter yet.'}
-                                                        </p>
-                                                        <div className="flex items-center gap-2">
-                                                            <button
-                                                                type="button"
-                                                                disabled={Boolean(isRunningChapterStudioTask)}
-                                                                onClick={() => handleRunInPlayerChapterTask('transcribe')}
-                                                                className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                                                                title="Run real Speech-to-Text on this chapter right now"
-                                                            >
-                                                                <Mic2 size={14} /> Transcribe Audio Now
-                                                            </button>
-                                                            <a
-                                                                href={editBookHref}
-                                                                className="px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
-                                                                title="Open Book Studio in Media tab"
-                                                            >
-                                                                <Edit3 size={13} /> Studio
-                                                            </a>
-                                                        </div>
+                                                    <div className="h-full flex flex-col items-center justify-center text-center gap-3">
+                                                        {audiobookChapterMeta?.error_message && (
+                                                            <p className="text-xs font-mono text-red-400">
+                                                                {audiobookChapterMeta.error_message}
+                                                            </p>
+                                                        )}
+                                                        <button
+                                                            type="button"
+                                                            disabled={Boolean(isRunningChapterStudioTask)}
+                                                            onClick={() => handleRunInPlayerChapterTask('transcribe')}
+                                                            className="px-5 py-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black text-sm font-black uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50 shadow-lg"
+                                                            title="Generate synced text from chapter audio"
+                                                        >
+                                                            <Mic2 size={18} /> Transcribe
+                                                        </button>
                                                     </div>
                                                 )}
                                             </div>

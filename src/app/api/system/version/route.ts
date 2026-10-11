@@ -8,6 +8,10 @@ import { initAutoUpdater } from '@/lib/autoUpdater';
 export const dynamic = 'force-dynamic';
 
 const FALLBACK_GIT_NOTES = [
+  '• [v0.6.15] Streamline Audiobook Book & AI views with Illustration/Transcription/Voice subtabs, fix chapter duplication & book titles, and add Genre/Author/Sort filters in Media',
+  '  - Replace verbose descriptors and .M4A file badges across Theater & Media with a clean [Book] | [AI] layout featuring rich hardcover placeholders and automatic metadata lookup',
+  '  - Add dedicated AI tab with ONLY 3 subtabs (Illustration, Transcription, Voice), each topped by a prominent Gen Options + Auto Gen Scenes + Gen All control bar and expandable per-chapter/scene Delete, Add, and Regen tools below (no manual transcript typing)',
+  '  - Fix 01 - prefix stripping, author canonicalization, Genre/Author/Sort filters in Media -> Audiobooks, and automatic SQLite chapter deduplication so 3-chapter books never report 6 chapters or 0 scenes',
   '• [v0.6.14] Purge fake Wikipedia/literary transcripts, wire instant 0ms WebAudio live audio filter presets + .m4a file export, and redesign Master-Detail Audiobook Chapters & Scenes Studio',
   '  - Remove Wikipedia/Gutenberg literary summary fallback from transcription pipeline and automatically detect & purge fake/Wikipedia transcripts from SQLite and .lrc/.txt sidecars so only real Speech-to-Text or genuine local sidecars are shown',
   '  - Replace roleplay voice names with honest Audio Filter presets (Original Audio, Clear Voice, Warm Studio, Deeper Voice -8%, Crisp Treble, Higher Voice +6%, Night Leveler) wired to live 0ms WebAudio DSP + pitch shift and permanent .m4a file export',
@@ -72,7 +76,7 @@ export async function GET() {
 
   try {
     // 1. Get current version from package.json or system fallback
-    let currentVersion = '0.6.12';
+    let currentVersion = '0.6.15';
     const possiblePaths = [
       path.join(process.cwd(), 'package.json'),
       path.join(process.cwd(), '..', 'package.json'),

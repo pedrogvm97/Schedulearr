@@ -2515,8 +2515,19 @@ const mapChapterRow = (r: any): AudiobookChapterMeta => {
     };
 };
 
+let hasReconciledAudiobookChaptersThisBoot = false;
+
 export const getAllAudiobooksMeta = (): AudiobookBookMeta[] => {
     try {
+        if (!hasReconciledAudiobookChaptersThisBoot) {
+            hasReconciledAudiobookChaptersThisBoot = true;
+            try {
+                const rawKeys = db.prepare('SELECT book_key FROM audiobook_books_meta').all() as Array<{ book_key: string }>;
+                for (const rk of (rawKeys || [])) {
+                    if (rk.book_key) recalculateAudiobookTotals(rk.book_key);
+                }
+            } catch {}
+        }
         const rows = db.prepare('SELECT * FROM audiobook_books_meta ORDER BY queue_enabled DESC, queue_priority ASC, title ASC').all() as any[];
         return (rows || []).map(mapBookRow);
     } catch (e) {
@@ -2711,7 +2722,105 @@ export const reorderAudiobookQueue = (orderedBookKeys: string[]) => {
 export const getAudiobookChaptersMeta = (bookKey: string): AudiobookChapterMeta[] => {
     try {
         const rows = db.prepare('SELECT * FROM audiobook_chapters_meta WHERE book_key = ? ORDER BY chapter_index ASC').all(bookKey) as any[];
-        return (rows || []).map(mapChapterRow);
+        const mapped = (rows || []).map(mapChapterRow);
+        if (mapped.length <= 1) return mapped;
+
+        // Deduplicate chapters that represent the same audio track (e.g. '::ch1' vs 'plex-...' or 0-based vs 1-based index)
+        const canonicalByTrack = new Map<string, AudiobookChapterMeta>();
+        const duplicateKeysToDelete: string[] = [];
+
+        for (const ch of mapped) {
+            const normFile = (ch.file_path || '').trim().toLowerCase();
+            const normTitle = (ch.title || '').trim().toLowerCase();
+            const canonicalKey = normFile
+                ? `file:${normFile}`
+                : `title:${normTitle}::dur:${Math.round((ch.duration_sec || 0) / 5)}`;
+
+            const existing = canonicalByTrack.get(canonicalKey);
+            if (!existing) {
+                canonicalByTrack.set(canonicalKey, ch);
+            } else {
+                // Merge assets into the preferred row (prefer '::ch' key or the one with more scenes/lyrics)
+                const preferCurrent =
+                    ch.chapter_key.includes('::ch') && !existing.chapter_key.includes('::ch');
+                const keeper = preferCurrent ? ch : existing;
+                const donor = preferCurrent ? existing : ch;
+
+                // Merge images without duplicates
+                const combinedImages = [...(keeper.images || [])];
+                for (const img of (donor.images || [])) {
+                    if (img?.url && !combinedImages.some(k => k.url === img.url)) {
+                        combinedImages.push(img);
+                    }
+                }
+                keeper.images = combinedImages;
+                if (combinedImages.some(i => i.kept !== false) && keeper.illustration_status !== 'completed') {
+                    keeper.illustration_status = 'completed';
+                    keeper.illustration_progress = 100;
+                }
+                if (!keeper.synced_lyrics && donor.synced_lyrics) {
+                    keeper.synced_lyrics = donor.synced_lyrics;
+                    keeper.plain_transcript = keeper.plain_transcript || donor.plain_transcript;
+                    keeper.transcription_status = donor.transcription_status;
+                    keeper.transcription_progress = donor.transcription_progress;
+                    keeper.transcribed_seconds = Math.max(keeper.transcribed_seconds || 0, donor.transcribed_seconds || 0);
+                }
+                if (!keeper.enhanced_audio_path && donor.enhanced_audio_path) {
+                    keeper.enhanced_audio_path = donor.enhanced_audio_path;
+                    keeper.audio_enhance_status = donor.audio_enhance_status;
+                    keeper.audio_enhance_progress = donor.audio_enhance_progress;
+                }
+                if ((!keeper.duration_sec || keeper.duration_sec <= 0) && donor.duration_sec > 0) {
+                    keeper.duration_sec = donor.duration_sec;
+                }
+
+                canonicalByTrack.set(canonicalKey, keeper);
+                duplicateKeysToDelete.push(donor.chapter_key);
+            }
+        }
+
+        if (duplicateKeysToDelete.length > 0) {
+            try {
+                const delStmt = db.prepare('DELETE FROM audiobook_chapters_meta WHERE chapter_key = ?');
+                for (const dk of duplicateKeysToDelete) {
+                    delStmt.run(dk);
+                }
+                for (const kept of canonicalByTrack.values()) {
+                    db.prepare(`
+                        UPDATE audiobook_chapters_meta SET
+                            images_json = ?,
+                            illustration_status = ?,
+                            illustration_progress = ?,
+                            synced_lyrics = ?,
+                            plain_transcript = ?,
+                            transcription_status = ?,
+                            transcription_progress = ?,
+                            transcribed_seconds = ?,
+                            enhanced_audio_path = ?,
+                            audio_enhance_status = ?,
+                            audio_enhance_progress = ?,
+                            duration_sec = ?
+                        WHERE chapter_key = ?
+                    `).run(
+                        JSON.stringify(kept.images || []),
+                        kept.illustration_status,
+                        kept.illustration_progress,
+                        kept.synced_lyrics || null,
+                        kept.plain_transcript || null,
+                        kept.transcription_status,
+                        kept.transcription_progress,
+                        kept.transcribed_seconds || 0,
+                        kept.enhanced_audio_path || null,
+                        kept.audio_enhance_status,
+                        kept.audio_enhance_progress,
+                        kept.duration_sec || 0,
+                        kept.chapter_key
+                    );
+                }
+            } catch {}
+        }
+
+        return Array.from(canonicalByTrack.values()).sort((a, b) => a.chapter_index - b.chapter_index);
     } catch (e) {
         console.error('Error fetching audiobook chapters meta:', e);
         return [];
@@ -2919,7 +3028,7 @@ export const recalculateAudiobookTotals = (bookKey: string) => {
         const chapters = getAudiobookChaptersMeta(bookKey);
         if (chapters.length === 0) return;
         const transcribed = chapters.filter(c => c.transcription_status === 'completed').length;
-        const illustrated = chapters.filter(c => c.illustration_status === 'completed' && c.images.some(img => img.kept)).length;
+        const illustrated = chapters.filter(c => (c.images || []).some(img => img.kept !== false && img.url && !String(img.url).toLowerCase().includes('.svg'))).length;
         const enhanced = chapters.filter(c => c.audio_enhance_status === 'completed').length;
         const totalDurationSec = chapters.reduce((acc, c) => acc + (Number(c.duration_sec) || 0), 0);
         const transcribedSeconds = chapters.reduce((acc, c) => {
@@ -2931,7 +3040,7 @@ export const recalculateAudiobookTotals = (bookKey: string) => {
             }
             return acc;
         }, 0);
-        const illustratedScenes = chapters.reduce((acc, c) => acc + (c.images || []).filter(img => img.kept).length, 0);
+        const illustratedScenes = chapters.reduce((acc, c) => acc + (c.images || []).filter(img => img.kept !== false && img.url && !String(img.url).toLowerCase().includes('.svg')).length, 0);
 
         const isProcessing = chapters.some(c =>
             c.transcription_status === 'processing' ||
@@ -2943,9 +3052,9 @@ export const recalculateAudiobookTotals = (bookKey: string) => {
         if (!book) return;
 
         let newStatus = book.status;
-        const targetTranscribed = !book.transcribe_enabled || transcribed >= Math.max(book.total_chapters, chapters.length);
-        const targetIllustrated = !book.illustrate_enabled || illustrated >= Math.max(book.total_chapters, chapters.length);
-        const targetEnhanced = !book.enhance_audio_enabled || enhanced >= Math.max(book.total_chapters, chapters.length);
+        const targetTranscribed = !book.transcribe_enabled || transcribed >= chapters.length;
+        const targetIllustrated = !book.illustrate_enabled || illustrated >= chapters.length;
+        const targetEnhanced = !book.enhance_audio_enabled || enhanced >= chapters.length;
 
         if (isProcessing) {
             newStatus = 'processing';
@@ -2959,7 +3068,7 @@ export const recalculateAudiobookTotals = (bookKey: string) => {
 
         db.prepare(`
             UPDATE audiobook_books_meta SET
-                total_chapters = MAX(total_chapters, ?),
+                total_chapters = ?,
                 transcribed_chapters = ?,
                 illustrated_chapters = ?,
                 enhanced_chapters = ?,

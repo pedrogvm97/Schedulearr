@@ -86,11 +86,14 @@ export async function GET(request: Request) {
             });
         }
 
+        const allChapters = books.flatMap(b => getAudiobookChaptersMeta(b.book_key));
+
         return NextResponse.json({
             success: true,
             config,
             status,
             books,
+            chapters: allChapters,
             collectionsState,
             queueBreakdown,
             queueHistory

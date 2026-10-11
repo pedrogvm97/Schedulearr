@@ -1,5 +1,27 @@
-# Accessibility & Visual Design Rules (MANDATORY)
-- **Vision & Readability**: The user has poor eyesight. ALWAYS use **LARGER IMAGES, LARGER FONTS, LARGER NAMES/TITLES, AND LARGER BUTTONS** across all UI views, cards, modals, and navigation (at least ~125%+ larger than standard compact UIs).
-- **No Tiny Text or Cramped Cards**: Never use microscopic text (`text-[9px]`, `text-[10px]`) for meaningful information, and never truncate book/media names into unreadable fragments when a multi-line or larger layout can show them clearly.
-- **Icon-First Buttons with Single-Word Labels & Hover Tooltips**: For UI buttons and controls, always prefer **big, clear icons/symbols paired with at most a single word** (or icon-only where appropriate) to save UI space and keep controls large and legible. Always attach a descriptive `title="..."` attribute so hovering over any button shows its full clear explanation.
-- **Authentic Visuals Only**: Never generate or substitute fake SVG placeholders when real story/content-specific generated raster artwork (illustrating exact characters, events, and locations) is expected.
+# Accessibility & Human-Centric Design Rules (MANDATORY)
+
+1. **Zero Descriptors, Subtitles, or Instructional Paragraphs**:
+   - NEVER render helper sentences explaining how to use the UI (e.g., *"Click any book to open..."*, *"Each scene covers a specific time window..."*, *"No transcript yet, click Transcribe above..."*).
+   - Explanations belong strictly in hover `title="..."` tooltips.
+
+2. **Non-Grandiose Wording (Plain 1-Word Labels or Pure Symbols)**:
+   - NEVER use verbose or pompous headings (*"Audiobook Library & Bedside Table"*, *"Chapter Speech-to-Text Transcript"*, *"Chapter Scenes Breakdown"*).
+   - Use plain, single-word labels (`Books`, `Chapters`, `Scenes`, `Text`, `Art`, `Voice`, `Generate`, `Settings`, `Info`) or pure symbols.
+
+3. **Big Symbols + Visual Custom UIs**:
+   - Prefer **large, high-contrast icons** (`20px–28px`) paired with at most **1 word** and a `title="..."` tooltip.
+   - Replace text-heavy status blocks with visual cards, progress rings/bars, and direct icon buttons inside the element being controlled.
+
+4. **Vision & Readability (125%+ Scale)**:
+   - ALWAYS use **LARGER IMAGES, LARGER FONTS, LARGER TITLES, AND LARGER BUTTONS** across all views, cards, modals, and navigation.
+   - Never use microscopic text (`text-[9px]`, `text-[10px]`) or truncate book titles into unreadable fragments.
+
+5. **Never Ask Users to Type Automated Data**:
+   - Live karaoke transcripts require exact audio timestamps from Speech-to-Text. Never offer manual transcript typing/pasting UIs — only show the synced lines or a single `Transcribe` / `Redo` button.
+
+6. **Consistent Clean Book Names, Filters & Sorting Everywhere**:
+   - Always strip raw file prefixes (`01 - `, `2012 - `, `[Book 1]`) and canonicalize authors identically across Theater and Media.
+   - Always provide **Author**, **Genre**, **Sort**, and **Search** filters on book grids.
+
+7. **Authentic Visuals Only**:
+   - Never generate or substitute fake SVG placeholders or Wikipedia summaries when real raster artwork or real Speech-to-Text is expected.

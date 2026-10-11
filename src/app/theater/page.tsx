@@ -18,7 +18,7 @@ import {
     Headphones, RadioTower, Info, Mic2, FileText, Edit3, ChevronDown,
     Terminal, AlertTriangle, Bug, Code, Cpu, Monitor, RefreshCcw, RotateCcw, CheckCheck, Zap,
     UploadCloud, Clapperboard, AlertCircle, GripVertical,
-    BookOpen, BookMarked, BookText
+    BookOpen, BookMarked, BookText, Wand2
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import Hls from 'hls.js';
@@ -2141,6 +2141,11 @@ function TheaterPageContent() {
         }
     ];
 
+    const [bookModalAiSubTab, setBookModalAiSubTab] = useState<'illustration' | 'transcription' | 'voice'>('illustration');
+    const [theaterScenePromptDrafts, setTheaterScenePromptDrafts] = useState<Record<string, string>>({});
+    const [theaterRepaintingSceneKey, setTheaterRepaintingSceneKey] = useState<string | null>(null);
+    const [theaterExpandedChapters, setTheaterExpandedChapters] = useState<Record<number, boolean>>({ 0: true });
+
     const fetchAudiobooksStudioOverview = useCallback(async () => {
         try {
             const res = await fetch('/api/theater/audiobooks/studio');
@@ -2151,6 +2156,13 @@ function TheaterPageContent() {
                     map[b.book_key] = b;
                 }
                 setAudiobooksStudioMap(map);
+                if (Array.isArray(data.chapters)) {
+                    const chMap: Record<string, any> = {};
+                    for (const ch of data.chapters) {
+                        if (ch?.chapter_key) chMap[ch.chapter_key] = ch;
+                    }
+                    setAudiobookChaptersStudioMap(prev => ({ ...prev, ...chMap }));
+                }
                 setAudiobookStudioStatus(data.status || null);
                 setAudiobookStudioConfig(data.config || null);
                 if (data.queueBreakdown) {
@@ -2183,10 +2195,10 @@ function TheaterPageContent() {
             if (res.ok) {
                 const data = await res.json();
                 if (data.config) setAudiobookStudioConfig(data.config);
-                toast.success('Shelf default settings saved for all books');
+                toast.success('Saved default settings');
             }
         } catch {
-            toast.error('Failed to save shelf defaults');
+            toast.error('Failed to save settings');
         }
     };
 
@@ -2236,7 +2248,6 @@ function TheaterPageContent() {
         if (!book) return;
         const bKey = book.bookKey || `${book.author || 'Unknown Author'} - ${book.title}`.toLowerCase().trim();
         try {
-            // Sync chapters to DB if not already registered so progress bars are accurate
             await fetch('/api/theater/audiobooks/studio', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -2249,7 +2260,7 @@ function TheaterPageContent() {
                     posterUrl: book.posterUrl,
                     chapters: (book.chapters || []).map((c: any, idx: number) => ({
                         id: c.id,
-                        chapterKey: c.chapterKey || c.id,
+                        chapterKey: `${bKey}::ch${idx + 1}`,
                         title: c.title || c.name,
                         path: c.path,
                         trackNumber: c.trackNumber || idx + 1,
@@ -2268,7 +2279,7 @@ function TheaterPageContent() {
                 for (const ch of data.chapters || []) {
                     chMap[ch.chapter_key] = ch;
                 }
-                setAudiobookChaptersStudioMap(chMap);
+                setAudiobookChaptersStudioMap(prev => ({ ...prev, ...chMap }));
             }
         } catch {
             // ignore
@@ -5650,7 +5661,7 @@ function TheaterPageContent() {
                                     <div className="space-y-1.5">
                                         <div className="flex items-center gap-3 flex-wrap">
                                             <h3 className="text-xl sm:text-2xl font-black text-amber-50 tracking-tight">
-                                                Audiobook Library &amp; Bedside Table
+                                                Audiobooks
                                             </h3>
                                             <span className="px-3.5 py-1 rounded-xl bg-black/60 text-amber-300 border border-amber-800/50 text-sm font-mono font-black">
                                                 {audiobooks.length} {audiobooks.length === 1 ? 'Book' : 'Books'} • {audiobookShelfData.authorsList.length} {audiobookShelfData.authorsList.length === 1 ? 'Author' : 'Authors'}
@@ -5659,16 +5670,13 @@ function TheaterPageContent() {
                                                 <Link
                                                     href="/tasks"
                                                     className="px-3.5 py-1 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs sm:text-sm font-black uppercase flex items-center gap-2 animate-pulse"
-                                                    title="Background Audiobook Studio task is running. Click to open the live Tasks monitor."
+                                                    title="Background Audiobook task is running. Click to open Tasks."
                                                 >
                                                     <RefreshCw size={15} className="animate-spin" />
                                                     Active: {audiobookStudioStatus.currentBookTitle}
                                                 </Link>
                                             )}
                                         </div>
-                                        <p className="text-sm sm:text-base text-amber-200/80">
-                                            Click any hardcover book to open chapters &amp; Studio tools, or hover a cover to Play, place on your Bedside Table, or mark Finished.
-                                        </p>
                                     </div>
                                 </div>
 
@@ -6139,15 +6147,12 @@ function TheaterPageContent() {
                                                 <div>
                                                     <div className="flex items-center gap-2.5">
                                                         <h4 className="text-lg sm:text-xl font-black text-amber-50">
-                                                            My Bedside Table
+                                                            Bedside
                                                         </h4>
                                                         <span className="px-3 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/35 text-xs sm:text-sm font-black">
                                                             {audiobookShelfData.bedsideBooks.length} {audiobookShelfData.bedsideBooks.length === 1 ? 'Book' : 'Books'}
                                                         </span>
                                                     </div>
-                                                    <p className="text-sm text-amber-200/80">
-                                                        Books you&apos;ve started listening to or placed by your bedside for instant playback.
-                                                    </p>
                                                 </div>
                                             </div>
                                         </div>
@@ -6155,10 +6160,7 @@ function TheaterPageContent() {
                                         {audiobookShelfData.bedsideBooks.length === 0 ? (
                                             <div className="py-12 text-center space-y-2.5">
                                                 <Bookmark size={40} className="mx-auto text-amber-500/40" />
-                                                <p className="text-base sm:text-lg font-bold text-amber-100">Your Bedside Table is empty</p>
-                                                <p className="text-sm text-amber-200/70 max-w-md mx-auto">
-                                                    Start playing any audiobook or click the Bedside button on any book cover to keep it right here.
-                                                </p>
+                                                <p className="text-base sm:text-lg font-bold text-amber-100">Empty</p>
                                             </div>
                                         ) : (
                                             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
@@ -6292,11 +6294,8 @@ function TheaterPageContent() {
                                                 </div>
                                                 <div>
                                                     <h4 className="text-base sm:text-lg font-black text-white">
-                                                        My Reads — Finished Audiobooks ({audiobookShelfData.finishedBooks.length})
+                                                        Done ({audiobookShelfData.finishedBooks.length})
                                                     </h4>
-                                                    <p className="text-xs text-emerald-200/70">
-                                                        All audiobooks you have completed. Click any book to listen again or move it back to Ongoing.
-                                                    </p>
                                                 </div>
                                             </div>
                                         </div>
@@ -6304,10 +6303,7 @@ function TheaterPageContent() {
                                         {audiobookShelfData.finishedBooks.length === 0 ? (
                                             <div className="p-14 rounded-3xl bg-zinc-950/50 border border-zinc-900 text-center space-y-2">
                                                 <Check size={36} className="mx-auto text-emerald-500/40" />
-                                                <p className="text-base font-bold text-white">No finished books yet</p>
-                                                <p className="text-xs text-zinc-400">
-                                                    Mark any audiobook as Finished from your Bedside Table or Library Shelf to build your completed reading log.
-                                                </p>
+                                                <p className="text-base font-bold text-white">Empty</p>
                                             </div>
                                         ) : (
                                             renderWoodenShelfRows(
@@ -7732,23 +7728,16 @@ function TheaterPageContent() {
                 return (
                 <div
                     onClick={(e) => { if (e.target === e.currentTarget) closeAudiobookModal(); }}
-                    className="fixed inset-0 z-[225] flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-md animate-in fade-in duration-200"
+                    className="fixed inset-0 z-[225] flex items-center justify-center p-4 sm:p-6 bg-black/75 backdrop-blur-md animate-in fade-in duration-200"
                 >
-                    <div className="bg-[#0c0c0c] border border-zinc-800 rounded-[2.5rem] w-full max-w-4xl p-6 sm:p-8 space-y-6 shadow-2xl relative max-h-[88vh] overflow-y-auto custom-scrollbar flex flex-col">
-                        <button
-                            onClick={closeAudiobookModal}
-                            className="absolute top-6 right-6 p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all cursor-pointer"
-                        >
-                            <X size={20} />
-                        </button>
-
+                    <div className="bg-[#0c0c0c] border-2 border-zinc-800 rounded-[2.5rem] w-full max-w-5xl p-6 sm:p-8 space-y-6 shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar flex flex-col">
                         {/* Top Book Overview Banner */}
                         <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 pb-6 border-b border-zinc-900">
-                            {/* Left Column: Main Book Artwork */}
-                            <div className="w-44 sm:w-48 shrink-0 space-y-3">
-                                <div className="w-full aspect-square rounded-3xl bg-zinc-900 border border-zinc-800 overflow-hidden flex items-center justify-center text-orange-400 shadow-2xl relative">
+                            {/* Left Column: Main Book Artwork or Styled Hardcover Placeholder */}
+                            <div className="w-40 sm:w-44 shrink-0 space-y-3">
+                                <div className="w-full aspect-[3/4] rounded-3xl bg-gradient-to-b from-[#2e1d11] to-[#120b07] border-2 border-amber-500/40 overflow-hidden flex items-center justify-center text-orange-400 shadow-2xl relative">
                                     {(() => {
-                                        const customCoverActive = Boolean(bMeta?.use_custom_cover && bMeta?.custom_cover_url);
+                                        const customCoverActive = Boolean(bMeta?.use_custom_cover && bMeta?.custom_cover_url && !String(bMeta.custom_cover_url).toLowerCase().includes('.svg'));
                                         const effectiveCoverUrl = customCoverActive ? bMeta.custom_cover_url : (audiobookDetails?.coverUrl || selectedAudiobook.posterUrl);
 
                                         return effectiveCoverUrl ? (
@@ -7758,82 +7747,89 @@ function TheaterPageContent() {
                                                 className="w-full h-full object-cover"
                                             />
                                         ) : (
-                                            <div className="flex flex-col items-center gap-2 text-zinc-600">
-                                                <BookOpen size={64} className="text-orange-500/40" />
-                                                <span className="text-[10px] font-mono text-zinc-500">Audiobook</span>
+                                            <div className="p-4 text-center flex flex-col items-center justify-center h-full w-full">
+                                                <BookOpen size={44} className="text-amber-400 mb-2" />
+                                                <span className="text-sm font-black text-amber-100 line-clamp-3 leading-tight">
+                                                    {selectedAudiobook.title}
+                                                </span>
+                                                <span className="text-xs font-bold text-amber-400/80 mt-1.5 line-clamp-1">
+                                                    {selectedAudiobook.author}
+                                                </span>
                                             </div>
                                         );
                                     })()}
-                                    {isBookQueued && (
-                                        <div className="absolute top-2.5 left-2.5 px-2.5 py-0.5 rounded-lg bg-amber-500 text-black text-[10px] font-black uppercase shadow">
-                                            Queue #{bMeta?.queue_order || 1}
-                                        </div>
-                                    )}
                                 </div>
                             </div>
 
                             <div className="space-y-3 text-center sm:text-left flex-1 min-w-0">
-                                <div className="flex items-center justify-center sm:justify-start gap-2 flex-wrap">
-                                    <span className="px-2.5 py-0.5 rounded-lg bg-orange-500/15 text-orange-400 border border-orange-500/30 text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
-                                        <BookOpen size={11} /> Audiobook
-                                    </span>
-                                    {(audiobookDetails?.releaseYear || bMeta?.published_year || (selectedAudiobook as any).publishedYear) && (
-                                        <span className="px-2.5 py-0.5 rounded-lg bg-zinc-800 text-zinc-300 text-[10px] font-mono font-bold">
-                                            {audiobookDetails?.releaseYear || bMeta?.published_year || (selectedAudiobook as any).publishedYear}
+                                <div className="flex items-center justify-between gap-3 flex-wrap">
+                                    <div className="flex items-center justify-center sm:justify-start gap-2 flex-wrap">
+                                        {(audiobookDetails?.releaseYear || bMeta?.published_year || (selectedAudiobook as any).releaseYear) && (
+                                            <span className="px-3 py-1 rounded-xl bg-zinc-900 border border-zinc-700 text-amber-300 text-xs sm:text-sm font-mono font-black">
+                                                {audiobookDetails?.releaseYear || bMeta?.published_year || (selectedAudiobook as any).releaseYear}
+                                            </span>
+                                        )}
+                                        {(audiobookDetails?.genre || bMeta?.genre || (selectedAudiobook as any).genre) && (
+                                            <span className="px-3 py-1 rounded-xl bg-amber-500/15 border border-amber-500/35 text-amber-300 text-xs sm:text-sm font-black">
+                                                {audiobookDetails?.genre || bMeta?.genre || (selectedAudiobook as any).genre}
+                                            </span>
+                                        )}
+                                        <span className="px-3 py-1 rounded-xl bg-zinc-900 text-zinc-300 text-xs sm:text-sm font-mono font-bold">
+                                            {selectedAudiobook.chapters.length} {selectedAudiobook.chapters.length === 1 ? 'Ch' : 'Chapters'}
                                         </span>
-                                    )}
-                                    {(audiobookDetails?.genre || bMeta?.genre || (selectedAudiobook as any).genre) && (
-                                        <span className="px-2.5 py-0.5 rounded-lg bg-zinc-800 text-zinc-300 text-[10px] font-bold">
-                                            {audiobookDetails?.genre || bMeta?.genre || (selectedAudiobook as any).genre}
-                                        </span>
-                                    )}
-                                    {isFinished && (
-                                        <span className="px-2.5 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/35 text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
-                                            <Check size={11} /> Finished
-                                        </span>
-                                    )}
-                                    {audiobookDetails?.loading && (
-                                        <span className="text-[10px] text-orange-400 font-mono animate-pulse flex items-center gap-1">
-                                            <RefreshCw size={10} className="animate-spin" /> Fetching author bio & synopsis...
-                                        </span>
-                                    )}
+                                        {selectedAudiobook.totalDurationMs > 0 && (
+                                            <span className="px-3 py-1 rounded-xl bg-zinc-900 text-zinc-300 text-xs sm:text-sm font-mono font-bold">
+                                                {formatBookDuration(selectedAudiobook.totalDurationMs)}
+                                            </span>
+                                        )}
+                                    </div>
+
+                                    {/* Main Modal Switcher: [Book] | [AI] + Close */}
+                                    <div className="flex items-center gap-2">
+                                        <div className="flex items-center gap-1.5 bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800">
+                                            <button
+                                                onClick={() => setBookModalTab('overview')}
+                                                className={`px-4 py-2 rounded-xl text-sm font-black uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer ${
+                                                    bookModalTab === 'overview'
+                                                        ? 'bg-white text-black shadow'
+                                                        : 'text-zinc-400 hover:text-white'
+                                                }`}
+                                            >
+                                                <BookOpen size={17} />
+                                                <span>Book</span>
+                                            </button>
+                                            <button
+                                                onClick={() => setBookModalTab('generate')}
+                                                className={`px-4 py-2 rounded-xl text-sm font-black uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer ${
+                                                    bookModalTab === 'generate'
+                                                        ? 'bg-amber-500 text-black shadow'
+                                                        : 'text-zinc-400 hover:text-white'
+                                                }`}
+                                            >
+                                                <Sparkles size={17} />
+                                                <span>AI</span>
+                                            </button>
+                                        </div>
+
+                                        <button
+                                            onClick={closeAudiobookModal}
+                                            title="Close"
+                                            className="p-2.5 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 cursor-pointer"
+                                        >
+                                            <X size={20} />
+                                        </button>
+                                    </div>
                                 </div>
 
                                 <h2 className="text-2xl sm:text-3xl font-black text-white leading-snug">
                                     {selectedAudiobook.title}
                                 </h2>
 
-                                <div className="space-y-1">
-                                    <p className="text-base font-bold text-orange-400">
-                                        by {selectedAudiobook.author}
-                                    </p>
-                                    {(bMeta?.translator || (selectedAudiobook as any).translator) && (
-                                        <p className="text-xs text-zinc-400 font-medium">
-                                            Translated by <span className="text-zinc-200 font-semibold">{bMeta?.translator || (selectedAudiobook as any).translator}</span>
-                                        </p>
-                                    )}
-                                    {(audiobookDetails?.narrator || selectedAudiobook.narrator || bMeta?.narrator) && (
-                                        <p className="text-xs text-zinc-400 flex items-center justify-center sm:justify-start gap-1.5 font-medium">
-                                            <Headphones size={13} className="text-zinc-500" />
-                                            Narrated by <span className="text-zinc-200 font-semibold">{audiobookDetails?.narrator || selectedAudiobook.narrator || bMeta?.narrator}</span>
-                                        </p>
-                                    )}
-                                </div>
+                                <p className="text-base sm:text-lg font-bold text-orange-400">
+                                    {selectedAudiobook.author}
+                                </p>
 
-                                <div className="flex items-center justify-center sm:justify-start gap-3 flex-wrap text-xs text-zinc-400 font-semibold pt-1">
-                                    <span className="flex items-center gap-1.5 text-emerald-400 font-bold">
-                                        <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                                        {selectedAudiobook.chapters.length} {selectedAudiobook.chapters.length === 1 ? 'Part' : 'Chapters'}
-                                    </span>
-                                    {selectedAudiobook.totalDurationMs > 0 && (
-                                        <>
-                                            <span className="text-zinc-700">•</span>
-                                            <span className="text-zinc-300 font-mono">{formatBookDuration(selectedAudiobook.totalDurationMs)}</span>
-                                        </>
-                                    )}
-                                </div>
-
-                                {/* Primary Consumption Actions + Reading Status Toggles */}
+                                {/* Primary Consumption Actions */}
                                 <div className="pt-2 flex items-center justify-center sm:justify-start gap-2.5 flex-wrap">
                                     <button
                                         disabled={selectedAudiobook.chapters.length === 0}
@@ -7848,9 +7844,10 @@ function TheaterPageContent() {
                                                 openExpandedPlayer();
                                             }
                                         }}
-                                        className="px-5 py-2.5 rounded-2xl bg-orange-500 hover:bg-orange-400 text-black font-black text-xs uppercase tracking-wider transition-all flex items-center gap-2 shadow-lg cursor-pointer disabled:opacity-40"
+                                        title="Play this audiobook"
+                                        className="px-5 py-2.5 rounded-2xl bg-orange-500 hover:bg-orange-400 text-black font-black text-sm uppercase tracking-wider transition-all flex items-center gap-2 shadow-lg cursor-pointer disabled:opacity-40"
                                     >
-                                        <Play size={16} className="fill-black" /> Listen Now
+                                        <Play size={18} className="fill-black" /> Play
                                     </button>
 
                                     <button
@@ -7860,14 +7857,15 @@ function TheaterPageContent() {
                                                 readingStatus: !isOnBedside ? 'ongoing' : (isFinished ? 'finished' : 'unstarted')
                                             })
                                         }
-                                        className={`px-4 py-2.5 rounded-2xl font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer border ${
+                                        title="Toggle Bedside status"
+                                        className={`px-4 py-2.5 rounded-2xl font-bold text-sm flex items-center gap-2 transition-all cursor-pointer border ${
                                             isOnBedside
                                                 ? 'bg-orange-500/20 text-orange-300 border-orange-500/40'
                                                 : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
                                         }`}
                                     >
-                                        <Bookmark size={14} />
-                                        {isOnBedside ? 'On Bedside Table' : 'Add to Bedside Table'}
+                                        <Bookmark size={16} />
+                                        <span>Bedside</span>
                                     </button>
 
                                     <button
@@ -7878,194 +7876,650 @@ function TheaterPageContent() {
                                                 progressPercent: isFinished ? 50 : 100
                                             })
                                         }
-                                        className={`px-4 py-2.5 rounded-2xl font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer border ${
+                                        title="Mark book as Done"
+                                        className={`px-4 py-2.5 rounded-2xl font-bold text-sm flex items-center gap-2 transition-all cursor-pointer border ${
                                             isFinished
                                                 ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
                                                 : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
                                         }`}
                                     >
-                                        <Check size={14} />
-                                        {isFinished ? 'Finished (In My Reads)' : 'Mark Finished'}
+                                        <Check size={16} />
+                                        <span>Done</span>
                                     </button>
-                                    <Link
-                                        href={`/discover?tab=audiobooks&bookKey=${encodeURIComponent(bKey)}`}
-                                        className="px-4 py-2.5 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-amber-200 border border-zinc-800 font-bold text-xs flex items-center gap-1.5 transition-all"
-                                        title="Open this audiobook in the Media tab to edit metadata, chapters, transcriptions, and scene illustrations"
-                                    >
-                                        <Sliders size={14} className="text-amber-400" />
-                                        <span>Edit in Media</span>
-                                    </Link>
                                 </div>
+                            </div>
+                        </div>
 
-                                {/* Quick Playback Settings Strip (Voice Preset & Cover View) */}
-                                <div className="pt-3 flex items-center justify-center sm:justify-start gap-3 flex-wrap">
-                                    <div className="flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-zinc-950 border border-zinc-800">
-                                        <Headphones size={15} className="text-emerald-400 shrink-0" />
-                                        <span className="text-xs font-black uppercase tracking-wider text-zinc-400">Filter:</span>
-                                        <select
-                                            value={bMeta?.voice_preset || 'original'}
-                                            onChange={(e) => handleSaveBookStudioSettings(selectedAudiobook, { voicePreset: e.target.value })}
-                                            className="bg-transparent text-xs sm:text-sm font-bold text-white focus:outline-none cursor-pointer"
-                                            title="Select default audio filter preset for playback"
-                                        >
-                                            <option value="original" className="bg-zinc-900 text-white">Original Audio</option>
-                                            <option value="clear_voice" className="bg-zinc-900 text-white">Clear Voice (Vocal Boost)</option>
-                                            <option value="warm_bass" className="bg-zinc-900 text-white">Warm Studio (Rich Bass)</option>
-                                            <option value="deep_pitch" className="bg-zinc-900 text-white">Deeper Voice (-8% Pitch)</option>
-                                            <option value="crisp_treble" className="bg-zinc-900 text-white">Crisp Treble</option>
-                                            <option value="bright_pitch" className="bg-zinc-900 text-white">Higher Voice (+6% Pitch)</option>
-                                            <option value="night_compress" className="bg-zinc-900 text-white">Night Leveler</option>
-                                        </select>
+                        {/* ═══════════════════════════════════════════════════════════════════
+                            TAB 1: BOOK (Synopsis, Author Bio & Chapters Tracklist)
+                           ═══════════════════════════════════════════════════════════════════ */}
+                        {bookModalTab === 'overview' && (
+                            <div className="space-y-6">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="p-5 rounded-3xl bg-zinc-950/70 border border-zinc-900 space-y-2">
+                                        <h3 className="text-sm font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                                            <BookText size={16} className="text-orange-400" />
+                                            Synopsis
+                                        </h3>
+                                        {audiobookDetails?.description ? (
+                                            <p className="text-sm text-zinc-300 leading-relaxed max-h-48 overflow-y-auto custom-scrollbar pr-1">
+                                                {audiobookDetails.description}
+                                            </p>
+                                        ) : audiobookDetails?.loading ? (
+                                            <p className="text-xs text-zinc-500 italic">Loading...</p>
+                                        ) : (
+                                            <p className="text-xs text-zinc-600 italic">None</p>
+                                        )}
                                     </div>
 
-                                    {bMeta?.custom_cover_url && !bMeta.custom_cover_url.toLowerCase().includes('.svg') && (
-                                        <button
-                                            onClick={() => handleToggleCustomCoverForBook(selectedAudiobook)}
-                                            className="px-3.5 py-2 rounded-2xl bg-zinc-950 hover:bg-zinc-900 text-amber-300 border border-zinc-800 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-                                            title="Switch between Original Cover and AI Cover for playback display"
-                                        >
-                                            <ImageIcon size={14} />
-                                            <span>{bMeta?.use_custom_cover ? 'Cover: Custom AI' : 'Cover: Original'}</span>
-                                        </button>
-                                    )}
+                                    <div className="p-5 rounded-3xl bg-zinc-950/70 border border-zinc-900 space-y-2">
+                                        <h3 className="text-sm font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                                            <User size={16} className="text-amber-400" />
+                                            Author
+                                        </h3>
+                                        {audiobookDetails?.authorBio ? (
+                                            <p className="text-sm text-zinc-300 leading-relaxed max-h-48 overflow-y-auto custom-scrollbar pr-1 whitespace-pre-line">
+                                                {audiobookDetails.authorBio}
+                                            </p>
+                                        ) : audiobookDetails?.loading ? (
+                                            <p className="text-xs text-zinc-500 italic">Loading...</p>
+                                        ) : (
+                                            <p className="text-xs text-zinc-600 italic">None</p>
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
-                        </div>
 
-                        {/* ── OVERVIEW: SYNOPSIS & AUTHOR BIO ── */}
-                        <div className="space-y-5">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                {/* Book Synopsis */}
-                                <div className="p-5 rounded-3xl bg-zinc-950/70 border border-zinc-900 space-y-2">
-                                    <h3 className="text-xs font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
-                                        <BookText size={14} className="text-orange-400" />
-                                        Book Synopsis
+                                <div className="space-y-3 pt-1">
+                                    <h3 className="text-sm font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                                        <BookMarked size={16} className="text-orange-400" />
+                                        Chapters ({selectedAudiobook.chapters.length})
                                     </h3>
-                                    {audiobookDetails?.description ? (
-                                        <p className="text-xs sm:text-sm text-zinc-300 leading-relaxed max-h-48 overflow-y-auto custom-scrollbar pr-1">
-                                            {audiobookDetails.description}
-                                        </p>
-                                    ) : audiobookDetails?.loading ? (
-                                        <p className="text-xs text-zinc-500 italic">Looking up book synopsis from OpenLibrary &amp; iTunes...</p>
-                                    ) : (
-                                        <p className="text-xs text-zinc-600 italic">No synopsis available for this title.</p>
-                                    )}
-                                </div>
 
-                                {/* Writer / Author Biography */}
-                                <div className="p-5 rounded-3xl bg-zinc-950/70 border border-zinc-900 space-y-2">
-                                    <h3 className="text-xs font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
-                                        <User size={14} className="text-amber-400" />
-                                        About the Author ({selectedAudiobook.author})
-                                    </h3>
-                                    {audiobookDetails?.authorBio ? (
-                                        <p className="text-xs sm:text-sm text-zinc-300 leading-relaxed max-h-48 overflow-y-auto custom-scrollbar pr-1 whitespace-pre-line">
-                                            {audiobookDetails.authorBio}
-                                        </p>
-                                    ) : audiobookDetails?.loading ? (
-                                        <p className="text-xs text-zinc-500 italic">Fetching writer biography...</p>
-                                    ) : (
-                                        <p className="text-xs text-zinc-600 italic">No author biography found on OpenLibrary.</p>
-                                    )}
+                                    <div className="divide-y divide-zinc-900/80 bg-zinc-950/60 rounded-3xl border border-zinc-900 overflow-hidden">
+                                        {selectedAudiobook.chapters.map((ch, idx) => {
+                                            const cKey = `${bKey}::ch${idx + 1}`;
+                                            const cMeta =
+                                                audiobookChaptersStudioMap[cKey] ||
+                                                audiobookChaptersStudioMap[(ch as any).chapterKey] ||
+                                                audiobookChaptersStudioMap[ch.id] ||
+                                                Object.values(audiobookChaptersStudioMap).find(
+                                                    (m: any) => m.book_key === bKey && (Number(m.chapter_index) === idx + 1 || Number(m.chapter_index) === idx)
+                                                );
+                                            const isTransDone = cMeta?.transcription_status === 'done' || cMeta?.transcription_status === 'completed';
+                                            const isEnhDone = cMeta?.audio_enhance_status === 'done' || cMeta?.audio_enhance_status === 'completed';
+                                            const chImages = cMeta?.images || [];
+                                            const keptImages = chImages.filter((im: any) => im.kept !== false && im.url && !String(im.url).toLowerCase().includes('.svg'));
+
+                                            return (
+                                                <div
+                                                    key={ch.id || idx}
+                                                    onClick={() => {
+                                                        playAlbum(selectedAudiobook.chapters, idx);
+                                                        closeAudiobookModal();
+                                                        openExpandedPlayer();
+                                                    }}
+                                                    className="p-3.5 sm:p-4 flex items-center justify-between gap-3 hover:bg-zinc-900/45 transition-colors cursor-pointer group"
+                                                >
+                                                    <div className="flex items-center gap-3.5 min-w-0">
+                                                        <span className="w-7 text-center font-mono text-xs sm:text-sm text-zinc-500 font-bold group-hover:text-orange-400 transition-colors">
+                                                            {ch.trackNumber || idx + 1}
+                                                        </span>
+                                                        <div className="min-w-0 space-y-0.5">
+                                                            <h4 className="font-bold text-white text-sm sm:text-base truncate group-hover:text-orange-400 transition-colors">
+                                                                {ch.title || ch.name}
+                                                            </h4>
+                                                            <div className="flex items-center gap-2 text-xs text-zinc-500 font-medium flex-wrap">
+                                                                {isTransDone && (
+                                                                    <span className="px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 font-bold">
+                                                                        Text
+                                                                    </span>
+                                                                )}
+                                                                {keptImages.length > 0 && (
+                                                                    <span className="px-2 py-0.5 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30 font-bold">
+                                                                        {keptImages.length} {keptImages.length === 1 ? 'Scene' : 'Scenes'}
+                                                                    </span>
+                                                                )}
+                                                                {isEnhDone && (
+                                                                    <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold">
+                                                                        Voice
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-2 shrink-0">
+                                                        {ch.durationMs ? (
+                                                            <span className="font-mono text-xs sm:text-sm text-zinc-500 group-hover:text-zinc-300 mr-1">
+                                                                {formatTime(ch.durationMs / 1000)}
+                                                            </span>
+                                                        ) : ch.duration ? (
+                                                            <span className="font-mono text-xs sm:text-sm text-zinc-500 group-hover:text-zinc-300 mr-1">
+                                                                {ch.duration}
+                                                            </span>
+                                                        ) : null}
+
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                playAlbum(selectedAudiobook.chapters, idx);
+                                                            }}
+                                                            className="w-9 h-9 rounded-xl bg-zinc-900 group-hover:bg-orange-500 text-zinc-400 group-hover:text-black flex items-center justify-center transition-all cursor-pointer"
+                                                            title="Play Chapter"
+                                                        >
+                                                            <Play size={16} className="ml-0.5 fill-current" />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
+                        )}
 
-                        {/* Chapters Tracklist (Pure Playback) */}
-                        <div className="space-y-3 pt-1">
-                            <div className="flex items-center justify-between gap-2 flex-wrap">
-                                <h3 className="text-xs sm:text-sm font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
-                                    <BookMarked size={15} className="text-orange-400" />
-                                    Chapters ({selectedAudiobook.chapters.length})
-                                </h3>
-                                <span className="text-xs text-zinc-500">
-                                    Click any chapter to start listening
-                                </span>
-                            </div>
+                        {/* ═══════════════════════════════════════════════════════════════════
+                            TAB 2: AI FEATURES (ONLY Illustration | Transcription | Voice)
+                           ═══════════════════════════════════════════════════════════════════ */}
+                        {bookModalTab === 'generate' && (
+                            <div className="space-y-6">
+                                {/* 3 AI Subtabs */}
+                                <div className="grid grid-cols-3 gap-3 bg-zinc-900/80 p-2 rounded-3xl border border-zinc-800">
+                                    <button
+                                        onClick={() => setBookModalAiSubTab('illustration')}
+                                        className={`py-3.5 px-4 rounded-2xl text-sm sm:text-base font-black uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all cursor-pointer ${
+                                            bookModalAiSubTab === 'illustration'
+                                                ? 'bg-purple-500 text-black shadow-lg'
+                                                : 'text-zinc-300 hover:text-white'
+                                        }`}
+                                    >
+                                        <ImageIcon size={20} />
+                                        <span>Illustration</span>
+                                    </button>
+                                    <button
+                                        onClick={() => setBookModalAiSubTab('transcription')}
+                                        className={`py-3.5 px-4 rounded-2xl text-sm sm:text-base font-black uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all cursor-pointer ${
+                                            bookModalAiSubTab === 'transcription'
+                                                ? 'bg-amber-500 text-black shadow-lg'
+                                                : 'text-zinc-300 hover:text-white'
+                                        }`}
+                                    >
+                                        <FileText size={20} />
+                                        <span>Transcription</span>
+                                    </button>
+                                    <button
+                                        onClick={() => setBookModalAiSubTab('voice')}
+                                        className={`py-3.5 px-4 rounded-2xl text-sm sm:text-base font-black uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all cursor-pointer ${
+                                            bookModalAiSubTab === 'voice'
+                                                ? 'bg-emerald-500 text-black shadow-lg'
+                                                : 'text-zinc-300 hover:text-white'
+                                        }`}
+                                    >
+                                        <Headphones size={20} />
+                                        <span>Voice</span>
+                                    </button>
+                                </div>
 
-                            <div className="divide-y divide-zinc-900/80 bg-zinc-950/60 rounded-3xl border border-zinc-900 overflow-hidden">
-                                {selectedAudiobook.chapters.map((ch, idx) => {
-                                    const cKey = (ch as any).chapterKey || ch.id;
-                                    const cMeta = audiobookChaptersStudioMap[cKey];
-                                    const isTransDone = cMeta?.transcription_status === 'done' || cMeta?.transcription_status === 'completed';
-                                    const isEnhDone = cMeta?.audio_enhance_status === 'done' || cMeta?.audio_enhance_status === 'completed';
-                                    const chImages = cMeta?.images || [];
-                                    const keptImages = chImages.filter((im: any) => im.kept !== false);
+                                {/* SUBTAB 1: ILLUSTRATION */}
+                                {bookModalAiSubTab === 'illustration' && (
+                                    <div className="space-y-5">
+                                        {/* Prominent Top Creation Menu */}
+                                        <div className="p-5 rounded-3xl bg-gradient-to-br from-purple-950/40 via-zinc-900 to-zinc-950 border-2 border-purple-500/50 space-y-4">
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                                <div>
+                                                    <label className="block text-xs font-black text-purple-300 uppercase mb-1.5">Style</label>
+                                                    <select
+                                                        value={bMeta?.art_style || 'Cinematic Concept Art'}
+                                                        onChange={e => handleSaveBookStudioSettings(selectedAudiobook, { artStyle: e.target.value })}
+                                                        className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-purple-500/40 text-sm sm:text-base font-bold text-white cursor-pointer"
+                                                    >
+                                                        <option value="Cinematic Concept Art">Cinematic Concept Art</option>
+                                                        <option value="Oil Painting">Classic Oil Painting</option>
+                                                        <option value="Dark Fantasy">Dark Atmospheric Painting</option>
+                                                        <option value="Watercolor">Storybook Watercolor</option>
+                                                        <option value="Graphic Novel">Graphic Novel Ink</option>
+                                                        <option value="Anime">Anime Masterpiece</option>
+                                                        <option value="Vintage Book Plate">Vintage Book Engraving</option>
+                                                        <option value="Photorealistic">Photorealistic Film Still</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-black text-purple-300 uppercase mb-1.5">Scenes / Chapter</label>
+                                                    <select
+                                                        value={bMeta?.images_per_chapter || 3}
+                                                        onChange={e => handleSaveBookStudioSettings(selectedAudiobook, { imagesPerChapter: Number(e.target.value) })}
+                                                        className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-purple-500/40 text-sm sm:text-base font-bold text-white cursor-pointer"
+                                                    >
+                                                        <option value={1}>1 Scene / Chapter</option>
+                                                        <option value={2}>2 Scenes / Chapter</option>
+                                                        <option value={3}>3 Scenes / Chapter</option>
+                                                        <option value={4}>4 Scenes / Chapter</option>
+                                                        <option value={6}>6 Scenes / Chapter</option>
+                                                        <option value={8}>8 Scenes / Chapter</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-black text-purple-300 uppercase mb-1.5">Focus</label>
+                                                    <select
+                                                        value={bMeta?.art_focus || 'auto-choice'}
+                                                        onChange={e => handleSaveBookStudioSettings(selectedAudiobook, { artFocus: e.target.value })}
+                                                        className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-purple-500/40 text-sm sm:text-base font-bold text-white cursor-pointer"
+                                                    >
+                                                        <option value="auto-choice">Auto Story Focus</option>
+                                                        <option value="characters">Characters &amp; Faces</option>
+                                                        <option value="landscapes">World &amp; Architecture</option>
+                                                        <option value="ambient">Mood &amp; Atmosphere</option>
+                                                    </select>
+                                                </div>
+                                            </div>
 
-                                    return (
-                                        <div
-                                            key={ch.id || idx}
-                                            onClick={() => {
-                                                playAlbum(selectedAudiobook.chapters, idx);
-                                                closeAudiobookModal();
-                                                openExpandedPlayer();
-                                            }}
-                                            className="p-3.5 sm:p-4 flex flex-col gap-2.5 hover:bg-zinc-900/45 transition-colors cursor-pointer group"
-                                        >
-                                            <div className="flex items-center justify-between gap-3">
-                                                <div className="flex items-center gap-3.5 min-w-0">
-                                                    <span className="w-7 text-center font-mono text-xs sm:text-sm text-zinc-500 font-bold group-hover:text-orange-400 transition-colors">
-                                                        {ch.trackNumber || idx + 1}
-                                                    </span>
-                                                    <div className="min-w-0 space-y-0.5">
-                                                        <h4 className="font-bold text-white text-sm sm:text-base truncate group-hover:text-orange-400 transition-colors">
-                                                            {ch.title || ch.name}
-                                                        </h4>
-                                                        <div className="flex items-center gap-2 text-xs text-zinc-500 font-medium flex-wrap">
-                                                            <span className="uppercase font-mono font-bold text-zinc-400">{ch.extension}</span>
-                                                            {ch.sizeBytes > 0 && (
-                                                                <>
-                                                                    <span>•</span>
-                                                                    <span className="font-mono">{formatBytes(ch.sizeBytes)}</span>
-                                                                </>
-                                                            )}
-                                                            {isTransDone && (
-                                                                <span className="px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 font-bold">
-                                                                    Synced Transcript
+                                            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                                                <button
+                                                    onClick={async () => {
+                                                        toast.info('Discovering book scenes...');
+                                                        await fetch('/api/theater/audiobooks/studio', {
+                                                            method: 'POST',
+                                                            headers: { 'Content-Type': 'application/json' },
+                                                            body: JSON.stringify({ action: 'discover_book_structure', bookKey: bKey })
+                                                        });
+                                                        toast.success('Auto-generated scenes');
+                                                        loadBookStudioChapters(selectedAudiobook);
+                                                    }}
+                                                    className="sm:col-span-5 py-3.5 px-5 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-purple-200 border-2 border-purple-500/50 font-black text-sm sm:text-base uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer"
+                                                >
+                                                    <Wand2 size={20} className="text-purple-400" />
+                                                    <span>Auto Gen Scenes</span>
+                                                </button>
+                                                <button
+                                                    onClick={() => handleResetAndRedoBookAssets(selectedAudiobook, 'art')}
+                                                    className="sm:col-span-5 py-3.5 px-5 rounded-2xl bg-purple-500 hover:bg-purple-400 text-black font-black text-sm sm:text-base uppercase tracking-wider flex items-center justify-center gap-2 shadow-xl cursor-pointer"
+                                                >
+                                                    <Sparkles size={20} />
+                                                    <span>Gen All</span>
+                                                </button>
+                                                <button
+                                                    onClick={async () => {
+                                                        await fetch('/api/theater/audiobooks/studio', {
+                                                            method: 'POST',
+                                                            headers: { 'Content-Type': 'application/json' },
+                                                            body: JSON.stringify({ action: 'reset_and_redo', bookKey: bKey, target: 'art', redoNow: false })
+                                                        });
+                                                        toast.success('Deleted illustrations');
+                                                        loadBookStudioChapters(selectedAudiobook);
+                                                    }}
+                                                    className="sm:col-span-2 py-3.5 px-4 rounded-2xl bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/40 font-black text-xs uppercase flex items-center justify-center gap-1.5 cursor-pointer"
+                                                >
+                                                    <Trash2 size={16} />
+                                                    <span>Delete All</span>
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* Chapters & Scenes Division Below */}
+                                        <div className="space-y-4">
+                                            {selectedAudiobook.chapters.map((ch, idx) => {
+                                                const cKey = `${bKey}::ch${idx + 1}`;
+                                                const cMeta =
+                                                    audiobookChaptersStudioMap[cKey] ||
+                                                    audiobookChaptersStudioMap[(ch as any).chapterKey] ||
+                                                    audiobookChaptersStudioMap[ch.id] ||
+                                                    Object.values(audiobookChaptersStudioMap).find(
+                                                        (m: any) => m.book_key === bKey && (Number(m.chapter_index) === idx + 1 || Number(m.chapter_index) === idx)
+                                                    );
+                                                const keptImages = (cMeta?.images || []).filter((im: any) => im.kept !== false && im.url && !String(im.url).toLowerCase().includes('.svg'));
+                                                const durSec = ch.durationMs ? Math.round(ch.durationMs / 1000) : 300;
+                                                const targetCount = Math.max(Number(bMeta?.images_per_chapter || 3), keptImages.length, 1);
+                                                const isExpanded = Boolean(theaterExpandedChapters[idx]);
+
+                                                return (
+                                                    <div key={cKey} className="rounded-3xl bg-zinc-900/50 border border-zinc-800 overflow-hidden">
+                                                        <div
+                                                            onClick={() => setTheaterExpandedChapters(prev => ({ ...prev, [idx]: !prev[idx] }))}
+                                                            className="p-4 bg-zinc-900/90 flex items-center justify-between gap-3 cursor-pointer"
+                                                        >
+                                                            <div className="flex items-center gap-3 min-w-0">
+                                                                <span className="w-8 h-8 rounded-xl bg-purple-500/20 text-purple-300 font-mono text-sm font-black flex items-center justify-center">
+                                                                    {idx + 1}
                                                                 </span>
-                                                            )}
-                                                            {keptImages.length > 0 && (
-                                                                <span className="px-2 py-0.5 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30 font-bold">
-                                                                    {keptImages.length} {keptImages.length === 1 ? 'Scene' : 'Scenes'}
+                                                                <span className="font-bold text-white text-base truncate">{ch.title || ch.name}</span>
+                                                                <span className="text-xs font-black text-purple-300">{keptImages.length} Scenes</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                                                                <button
+                                                                    onClick={() => handleRunChapterTaskFromBookModal(selectedAudiobook, { ...ch, chapterKey: cKey }, idx, 'illustrate')}
+                                                                    className="px-3.5 py-2 rounded-xl bg-purple-500 hover:bg-purple-400 text-black font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer"
+                                                                >
+                                                                    <RefreshCw size={14} className={runningBookModalTask === `${cKey}:illustrate` ? 'animate-spin' : ''} />
+                                                                    <span>{keptImages.length > 0 ? 'Regen Ch' : 'Gen Ch'}</span>
+                                                                </button>
+                                                                {keptImages.length > 0 && (
+                                                                    <button
+                                                                        onClick={() => handleResetAndRedoBookAssets(selectedAudiobook, 'art', cKey)}
+                                                                        className="p-2 rounded-xl bg-red-500/15 text-red-300 cursor-pointer"
+                                                                        title="Reset Chapter Art"
+                                                                    >
+                                                                        <Trash2 size={15} />
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        </div>
+
+                                                        {isExpanded && (
+                                                            <div className="p-4 border-t border-zinc-800 grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                                {Array.from({ length: targetCount }).map((_, sIdx) => {
+                                                                    const img = keptImages[sIdx];
+                                                                    const sliceSec = Math.max(15, Math.round(durSec / targetCount));
+                                                                    const startSec = img?.timestampSec ?? (sIdx * sliceSec);
+                                                                    const endSec = img?.endTimestampSec ?? Math.min(durSec, (sIdx + 1) * sliceSec);
+                                                                    const draftKey = `${cKey}::s${sIdx}`;
+                                                                    const promptVal = theaterScenePromptDrafts[draftKey] !== undefined
+                                                                        ? theaterScenePromptDrafts[draftKey]
+                                                                        : (img?.prompt || '');
+                                                                    const isBusy = theaterRepaintingSceneKey === draftKey;
+
+                                                                    return (
+                                                                        <div key={img?.id || sIdx} className="rounded-2xl bg-zinc-950 border border-zinc-800 overflow-hidden flex flex-col justify-between">
+                                                                            <div className="aspect-video bg-zinc-900 relative flex items-center justify-center overflow-hidden">
+                                                                                {img?.url ? (
+                                                                                    <img src={img.url} alt={`Scene ${sIdx + 1}`} className="w-full h-full object-cover" />
+                                                                                ) : (
+                                                                                    <button
+                                                                                        onClick={async () => {
+                                                                                            setTheaterRepaintingSceneKey(draftKey);
+                                                                                            await fetch('/api/theater/audiobooks/studio', {
+                                                                                                method: 'POST',
+                                                                                                headers: { 'Content-Type': 'application/json' },
+                                                                                                body: JSON.stringify({
+                                                                                                    action: 'regenerate_single_scene',
+                                                                                                    bookKey: bKey,
+                                                                                                    bookTitle: selectedAudiobook.title,
+                                                                                                    author: selectedAudiobook.author,
+                                                                                                    chapterKey: cKey,
+                                                                                                    chapterIndex: idx + 1,
+                                                                                                    chapterTitle: ch.title || ch.name,
+                                                                                                    filePath: ch.path || '',
+                                                                                                    durationSec: durSec,
+                                                                                                    sceneIndex: sIdx,
+                                                                                                    customPrompt: promptVal.trim() || undefined,
+                                                                                                    startSec,
+                                                                                                    endSec
+                                                                                                })
+                                                                                            });
+                                                                                            setTheaterRepaintingSceneKey(null);
+                                                                                            loadBookStudioChapters(selectedAudiobook);
+                                                                                        }}
+                                                                                        disabled={isBusy}
+                                                                                        className="px-4 py-2.5 rounded-xl bg-purple-500 text-black font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer"
+                                                                                    >
+                                                                                        <Sparkles size={15} className={isBusy ? 'animate-spin' : ''} />
+                                                                                        <span>{isBusy ? 'Painting...' : 'Gen Scene'}</span>
+                                                                                    </button>
+                                                                                )}
+                                                                                <span className="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/80 text-white text-xs font-black">
+                                                                                    Scene {sIdx + 1}
+                                                                                </span>
+                                                                            </div>
+                                                                            <div className="p-3 space-y-2">
+                                                                                <input
+                                                                                    type="text"
+                                                                                    value={promptVal}
+                                                                                    onChange={e => setTheaterScenePromptDrafts(prev => ({ ...prev, [draftKey]: e.target.value }))}
+                                                                                    placeholder="Scene prompt..."
+                                                                                    className="w-full px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-xs text-white"
+                                                                                />
+                                                                                <div className="flex items-center justify-between gap-2">
+                                                                                    <button
+                                                                                        onClick={async () => {
+                                                                                            setTheaterRepaintingSceneKey(draftKey);
+                                                                                            await fetch('/api/theater/audiobooks/studio', {
+                                                                                                method: 'POST',
+                                                                                                headers: { 'Content-Type': 'application/json' },
+                                                                                                body: JSON.stringify({
+                                                                                                    action: 'regenerate_single_scene',
+                                                                                                    bookKey: bKey,
+                                                                                                    bookTitle: selectedAudiobook.title,
+                                                                                                    author: selectedAudiobook.author,
+                                                                                                    chapterKey: cKey,
+                                                                                                    chapterIndex: idx + 1,
+                                                                                                    chapterTitle: ch.title || ch.name,
+                                                                                                    filePath: ch.path || '',
+                                                                                                    durationSec: durSec,
+                                                                                                    imageId: img?.id,
+                                                                                                    sceneIndex: sIdx,
+                                                                                                    customPrompt: promptVal.trim() || undefined,
+                                                                                                    startSec,
+                                                                                                    endSec
+                                                                                                })
+                                                                                            });
+                                                                                            setTheaterRepaintingSceneKey(null);
+                                                                                            loadBookStudioChapters(selectedAudiobook);
+                                                                                        }}
+                                                                                        disabled={isBusy}
+                                                                                        className="flex-1 py-1.5 rounded-lg bg-purple-500/20 text-purple-200 border border-purple-500/40 text-xs font-black uppercase cursor-pointer"
+                                                                                    >
+                                                                                        {img ? 'Regen' : 'Gen'}
+                                                                                    </button>
+                                                                                    {img?.id && (
+                                                                                        <button
+                                                                                            onClick={async () => {
+                                                                                                await fetch('/api/theater/audiobooks/studio', {
+                                                                                                    method: 'POST',
+                                                                                                    headers: { 'Content-Type': 'application/json' },
+                                                                                                    body: JSON.stringify({
+                                                                                                        action: 'curate_images',
+                                                                                                        chapterKey: cKey,
+                                                                                                        imageId: img.id,
+                                                                                                        subAction: 'delete'
+                                                                                                    })
+                                                                                                });
+                                                                                                loadBookStudioChapters(selectedAudiobook);
+                                                                                            }}
+                                                                                            className="p-1.5 rounded-lg bg-red-500/15 text-red-300 cursor-pointer"
+                                                                                        >
+                                                                                            <Trash2 size={14} />
+                                                                                        </button>
+                                                                                    )}
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* SUBTAB 2: TRANSCRIPTION */}
+                                {bookModalAiSubTab === 'transcription' && (
+                                    <div className="space-y-5">
+                                        <div className="p-5 rounded-3xl bg-gradient-to-br from-amber-950/40 via-zinc-900 to-zinc-950 border-2 border-amber-500/50 space-y-4">
+                                            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                                                <button
+                                                    onClick={() => handleResetAndRedoBookAssets(selectedAudiobook, 'transcriptions')}
+                                                    className="sm:col-span-9 py-4 px-6 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-black text-base uppercase tracking-wider flex items-center justify-center gap-2 shadow-xl cursor-pointer"
+                                                >
+                                                    <Sparkles size={20} />
+                                                    <span>Gen All Transcriptions</span>
+                                                </button>
+                                                <button
+                                                    onClick={async () => {
+                                                        await fetch('/api/theater/audiobooks/studio', {
+                                                            method: 'POST',
+                                                            headers: { 'Content-Type': 'application/json' },
+                                                            body: JSON.stringify({ action: 'reset_and_redo', bookKey: bKey, target: 'transcriptions', redoNow: false })
+                                                        });
+                                                        toast.success('Deleted transcripts');
+                                                        loadBookStudioChapters(selectedAudiobook);
+                                                    }}
+                                                    className="sm:col-span-3 py-4 px-4 rounded-2xl bg-red-500/15 text-red-300 border border-red-500/40 font-black text-xs uppercase flex items-center justify-center gap-1.5 cursor-pointer"
+                                                >
+                                                    <Trash2 size={16} />
+                                                    <span>Delete All</span>
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-3">
+                                            {selectedAudiobook.chapters.map((ch, idx) => {
+                                                const cKey = `${bKey}::ch${idx + 1}`;
+                                                const cMeta =
+                                                    audiobookChaptersStudioMap[cKey] ||
+                                                    audiobookChaptersStudioMap[(ch as any).chapterKey] ||
+                                                    audiobookChaptersStudioMap[ch.id] ||
+                                                    Object.values(audiobookChaptersStudioMap).find(
+                                                        (m: any) => m.book_key === bKey && (Number(m.chapter_index) === idx + 1 || Number(m.chapter_index) === idx)
+                                                    );
+                                                const lines = String(cMeta?.synced_lyrics || '').split('\n').filter(Boolean);
+                                                return (
+                                                    <div key={cKey} className="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800 flex items-center justify-between gap-3">
+                                                        <div className="flex items-center gap-3 min-w-0">
+                                                            <span className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-300 font-mono text-sm font-black flex items-center justify-center">
+                                                                {idx + 1}
+                                                            </span>
+                                                            <div>
+                                                                <h5 className="font-bold text-white text-base truncate">{ch.title || ch.name}</h5>
+                                                                <span className="text-xs font-bold text-amber-300">
+                                                                    {lines.length > 0 ? `${lines.length} Synced Lines` : 'Not Transcribed'}
                                                                 </span>
-                                                            )}
-                                                            {isEnhDone && (
-                                                                <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold">
-                                                                    HQ Voice
-                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                onClick={() => handleRunChapterTaskFromBookModal(selectedAudiobook, { ...ch, chapterKey: cKey }, idx, 'transcribe')}
+                                                                className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer"
+                                                            >
+                                                                <RefreshCw size={14} className={runningBookModalTask === `${cKey}:transcribe` ? 'animate-spin' : ''} />
+                                                                <span>{lines.length > 0 ? 'Regen' : 'Gen'}</span>
+                                                            </button>
+                                                            {lines.length > 0 && (
+                                                                <button
+                                                                    onClick={async () => {
+                                                                        await fetch('/api/theater/audiobooks/studio', {
+                                                                            method: 'POST',
+                                                                            headers: { 'Content-Type': 'application/json' },
+                                                                            body: JSON.stringify({ action: 'reset_and_redo', bookKey: bKey, chapterKey: cKey, target: 'transcriptions', redoNow: false })
+                                                                        });
+                                                                        loadBookStudioChapters(selectedAudiobook);
+                                                                    }}
+                                                                    className="p-2 rounded-xl bg-red-500/15 text-red-300 cursor-pointer"
+                                                                >
+                                                                    <Trash2 size={15} />
+                                                                </button>
                                                             )}
                                                         </div>
                                                     </div>
-                                                </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
 
-                                                <div className="flex items-center gap-2 shrink-0">
-                                                    {ch.durationMs ? (
-                                                        <span className="font-mono text-xs sm:text-sm text-zinc-500 group-hover:text-zinc-300 mr-1">
-                                                            {formatTime(ch.durationMs / 1000)}
-                                                        </span>
-                                                    ) : ch.duration ? (
-                                                        <span className="font-mono text-xs sm:text-sm text-zinc-500 group-hover:text-zinc-300 mr-1">
-                                                            {ch.duration}
-                                                        </span>
-                                                    ) : null}
-
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            playAlbum(selectedAudiobook.chapters, idx);
-                                                        }}
-                                                        className="w-9 h-9 rounded-xl bg-zinc-900 group-hover:bg-orange-500 text-zinc-400 group-hover:text-black flex items-center justify-center transition-all cursor-pointer"
-                                                        title="Play Chapter"
-                                                    >
-                                                        <Play size={16} className="ml-0.5 fill-current" />
-                                                    </button>
-                                                </div>
+                                {/* SUBTAB 3: VOICE */}
+                                {bookModalAiSubTab === 'voice' && (
+                                    <div className="space-y-5">
+                                        <div className="p-5 rounded-3xl bg-gradient-to-br from-emerald-950/40 via-zinc-900 to-zinc-950 border-2 border-emerald-500/50 space-y-4">
+                                            <div>
+                                                <label className="block text-xs font-black text-emerald-300 uppercase mb-1.5">Voice Style</label>
+                                                <select
+                                                    value={bMeta?.voice_preset || 'clear_voice'}
+                                                    onChange={e => handleSaveBookStudioSettings(selectedAudiobook, { voicePreset: e.target.value })}
+                                                    className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-emerald-500/40 text-sm sm:text-base font-bold text-white cursor-pointer"
+                                                >
+                                                    <option value="clear_voice">Clear Voice (Vocal Presence)</option>
+                                                    <option value="warm_bass">Warm Studio Narrator</option>
+                                                    <option value="deep_pitch">Deeper Baritone (-8% Pitch)</option>
+                                                    <option value="crisp_treble">Crisp Articulation</option>
+                                                    <option value="bright_pitch">Brighter Voice (+6% Pitch)</option>
+                                                    <option value="night_compress">Night Leveler</option>
+                                                    <option value="original">Original Voice</option>
+                                                </select>
+                                            </div>
+                                            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                                                <button
+                                                    onClick={() => handleResetAndRedoBookAssets(selectedAudiobook, 'voices')}
+                                                    className="sm:col-span-9 py-4 px-6 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-base uppercase tracking-wider flex items-center justify-center gap-2 shadow-xl cursor-pointer"
+                                                >
+                                                    <Sparkles size={20} />
+                                                    <span>Gen All Voice Tracks</span>
+                                                </button>
+                                                <button
+                                                    onClick={async () => {
+                                                        await fetch('/api/theater/audiobooks/studio', {
+                                                            method: 'POST',
+                                                            headers: { 'Content-Type': 'application/json' },
+                                                            body: JSON.stringify({ action: 'reset_and_redo', bookKey: bKey, target: 'voices', redoNow: false })
+                                                        });
+                                                        toast.success('Deleted enhanced voices');
+                                                        loadBookStudioChapters(selectedAudiobook);
+                                                    }}
+                                                    className="sm:col-span-3 py-4 px-4 rounded-2xl bg-red-500/15 text-red-300 border border-red-500/40 font-black text-xs uppercase flex items-center justify-center gap-1.5 cursor-pointer"
+                                                >
+                                                    <Trash2 size={16} />
+                                                    <span>Delete All</span>
+                                                </button>
                                             </div>
                                         </div>
-                                    );
-                                })}
+
+                                        <div className="space-y-3">
+                                            {selectedAudiobook.chapters.map((ch, idx) => {
+                                                const cKey = `${bKey}::ch${idx + 1}`;
+                                                const cMeta =
+                                                    audiobookChaptersStudioMap[cKey] ||
+                                                    audiobookChaptersStudioMap[(ch as any).chapterKey] ||
+                                                    audiobookChaptersStudioMap[ch.id] ||
+                                                    Object.values(audiobookChaptersStudioMap).find(
+                                                        (m: any) => m.book_key === bKey && (Number(m.chapter_index) === idx + 1 || Number(m.chapter_index) === idx)
+                                                    );
+                                                const isEnhDone = cMeta?.audio_enhance_status === 'completed' || Boolean(cMeta?.enhanced_audio_path);
+                                                return (
+                                                    <div key={cKey} className="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800 flex items-center justify-between gap-3">
+                                                        <div className="flex items-center gap-3 min-w-0">
+                                                            <span className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-300 font-mono text-sm font-black flex items-center justify-center">
+                                                                {idx + 1}
+                                                            </span>
+                                                            <div>
+                                                                <h5 className="font-bold text-white text-base truncate">{ch.title || ch.name}</h5>
+                                                                <span className="text-xs font-bold text-emerald-300">
+                                                                    {isEnhDone ? 'Enhanced Voice' : 'Original Audio'}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                onClick={() => handleRunChapterTaskFromBookModal(selectedAudiobook, { ...ch, chapterKey: cKey }, idx, 'enhance')}
+                                                                className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer"
+                                                            >
+                                                                <RefreshCw size={14} className={runningBookModalTask === `${cKey}:enhance` ? 'animate-spin' : ''} />
+                                                                <span>{isEnhDone ? 'Regen' : 'Gen'}</span>
+                                                            </button>
+                                                            {isEnhDone && (
+                                                                <button
+                                                                    onClick={async () => {
+                                                                        await fetch('/api/theater/audiobooks/studio', {
+                                                                            method: 'POST',
+                                                                            headers: { 'Content-Type': 'application/json' },
+                                                                            body: JSON.stringify({ action: 'reset_and_redo', bookKey: bKey, chapterKey: cKey, target: 'voices', redoNow: false })
+                                                                        });
+                                                                        loadBookStudioChapters(selectedAudiobook);
+                                                                    }}
+                                                                    className="p-2 rounded-xl bg-red-500/15 text-red-300 cursor-pointer"
+                                                                >
+                                                                    <Trash2 size={15} />
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
-                        </div>
+                        )}
                     </div>
                 </div>
                 );
