@@ -280,7 +280,7 @@ export const maskApiKeyString = (rawKey: string): string => {
 
 const inferProviderFromKeyString = (rawKey: string): { provider: StudioApiKeyEntry['provider']; label: string } => {
     const k = (rawKey || '').trim();
-    if (k.startsWith('AIza')) return { provider: 'gemini', label: 'Google Gemini API' };
+    if (k.startsWith('AIza') || k.startsWith('AQ.')) return { provider: 'gemini', label: 'Google Gemini API' };
     if (k.startsWith('sk-ant-')) return { provider: 'claude', label: 'Anthropic Claude API' };
     if (k.startsWith('gsk_')) return { provider: 'groq', label: 'Groq LPU API' };
     if (k.startsWith('sk-')) return { provider: 'openai', label: 'OpenAI Platform API' };
@@ -304,7 +304,22 @@ export const getAudiobookStudioConfig = (): AudiobookStudioConfig => {
         };
 
         // Ensure any single key (including rawUnifiedApiKey) is represented in apiKeys pool
-        const existingKeys = [...(merged.apiKeys || [])];
+        let keyUpgraded = false;
+        const existingKeys = [...(merged.apiKeys || [])].map(entry => {
+            const cleanKey = (entry.key || '').trim();
+            if ((cleanKey.startsWith('AIza') || cleanKey.startsWith('AQ.')) && entry.provider !== 'gemini') {
+                keyUpgraded = true;
+                if (!merged.geminiApiKey) merged.geminiApiKey = cleanKey;
+                if (merged.detectedProvider === 'custom') merged.detectedProvider = 'gemini';
+                return {
+                    ...entry,
+                    provider: 'gemini' as const,
+                    label: 'Google Gemini API',
+                    tier: entry.tier === 'Saved as Custom Key' ? 'Google AI Studio (Gemini Flash)' : entry.tier
+                };
+            }
+            return entry;
+        });
         const addLegacyIfMissing = (k: string | undefined, provider: StudioApiKeyEntry['provider'], label: string) => {
             const clean = (k || '').trim();
             if (!clean) return;
@@ -354,9 +369,11 @@ export const getAudiobookStudioConfig = (): AudiobookStudioConfig => {
         }
 
         const today = new Date().toISOString().slice(0, 10);
-        if (merged.quotaResetDate !== today) {
-            merged.imagesGeneratedToday = 0;
-            merged.quotaResetDate = today;
+        if (merged.quotaResetDate !== today || keyUpgraded) {
+            if (merged.quotaResetDate !== today) {
+                merged.imagesGeneratedToday = 0;
+                merged.quotaResetDate = today;
+            }
             setSetting('audiobook_studio_config', JSON.stringify(merged));
         }
         return merged;
@@ -620,20 +637,23 @@ export const detectAndVerifyAiApiKey = async (
         return { probe: freeProbe, config: updated };
     }
 
-    // 1. Google Gemini (AIza...)
-    if (key.startsWith('AIza')) {
+    // 1. Google Gemini (AIza... or AQ....)
+    if (key.startsWith('AIza') || key.startsWith('AQ.')) {
         try {
             const resp = await axios.get(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`, { timeout: 12000 });
             const modelList: string[] = (resp.data?.models || []).map((m: any) => String(m.name || '').replace('models/', ''));
-            const hasImagen = modelList.some(m => m.includes('imagen') || m.includes('image-generation'));
-            const hasFlash = modelList.some(m => m.includes('gemini-2.0-flash') || m.includes('gemini-1.5-flash'));
+            const hasImagen = modelList.some(m => m.includes('imagen') || m.includes('image'));
+            const hasFlash = modelList.some(m => m.includes('flash'));
+            const preferredFlashModel =
+                modelList.find(m => m === 'gemini-flash-lite-latest' || m === 'gemini-3-flash-preview' || m === 'gemini-flash-latest' || m === 'gemini-2.0-flash') ||
+                'gemini-flash-lite-latest';
 
             let tier = 'Google AI Studio (Free / Standard Tier — 15 RPM)';
             let rateLimitInfo = '15 Requests/min • 1,500 Req/day (Gemini Flash Audio + Scene Director)';
             let recommendedRpm = 15;
             try {
                 const testResp = await axios.post(
-                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(key)}`,
+                    `https://generativelanguage.googleapis.com/v1beta/models/${preferredFlashModel}:generateContent?key=${encodeURIComponent(key)}`,
                     { contents: [{ parts: [{ text: 'Ping' }] }], generationConfig: { maxOutputTokens: 3 } },
                     { timeout: 10000 }
                 );
@@ -652,7 +672,7 @@ export const detectAndVerifyAiApiKey = async (
             }
 
             const capabilities = [
-                'Multimodal Audio Transcription (Gemini 2.0 Flash)',
+                'Multimodal Audio Transcription (Gemini Flash)',
                 'Real-World Book Chapter & Scene Discovery',
                 'Dynamic Scene Prompt Director (Gemini Flash)',
                 hasImagen ? 'Gemini Image Generation (+ Flux Fallback)' : 'Flux Painting with Gemini Scene Director'
@@ -668,7 +688,7 @@ export const detectAndVerifyAiApiKey = async (
                 models: modelList.filter(m => m.includes('gemini') || m.includes('imagen')).slice(0, 8),
                 recommendedRpm,
                 recommendedDailyQuota: hasImagen ? 40 : 30,
-                message: `Verified Google Gemini key (${hasFlash ? 'Gemini 2.0 Audio STT + ' : ''}${hasImagen ? 'Gemini Image Gen' : 'Scene Director'} ready).`,
+                message: `Verified Google Gemini key (${hasFlash ? 'Gemini Flash Audio STT + ' : ''}${hasImagen ? 'Gemini Image Gen' : 'Scene Director'} ready).`,
                 checkedAt: nowIso
             };
 
@@ -1033,7 +1053,8 @@ const formatLrcTimestamp = (seconds: number): string => {
 };
 
 const probeAudioDuration = async (filePath?: string): Promise<number> => {
-    if (!filePath || !fs.existsSync(filePath)) return 300;
+    const isRemote = /^https?:\/\//i.test(filePath || '');
+    if (!filePath || (!isRemote && !fs.existsSync(filePath))) return 300;
     return new Promise<number>((resolve) => {
         const proc = spawn('ffprobe', [
             '-v', 'error',
@@ -1042,12 +1063,20 @@ const probeAudioDuration = async (filePath?: string): Promise<number> => {
             filePath
         ]);
         let out = '';
+        const killTimer = setTimeout(() => {
+            try { proc.kill('SIGKILL'); } catch {}
+            resolve(300);
+        }, 12000);
         proc.stdout.on('data', d => { out += d.toString(); });
         proc.on('close', () => {
+            clearTimeout(killTimer);
             const parsed = parseFloat(out.trim());
             resolve(Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : 300);
         });
-        proc.on('error', () => resolve(300));
+        proc.on('error', () => {
+            clearTimeout(killTimer);
+            resolve(300);
+        });
     });
 };
 
@@ -1070,25 +1099,34 @@ export const callStudioTextLlmWithFailover = async (params: {
     for (const keyEntry of candidates) {
         try {
             if (keyEntry.provider === 'gemini') {
-                const resp = await axios.post(
-                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(keyEntry.key)}`,
-                    {
-                        contents: [{ parts: [{ text: params.prompt }] }],
-                        generationConfig: { temperature, maxOutputTokens: maxTokens }
-                    },
-                    { timeout: 22000 }
-                );
-                const text = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-                if (text) {
-                    recordStudioApiMetric({
-                        task: params.task,
-                        keyOrProvider: keyEntry.id,
-                        providerLabel: `${keyEntry.label} (${keyEntry.maskedKey})`,
-                        success: true,
-                        description: params.description
-                    });
-                    return { text, providerUsed: `${keyEntry.label} (${keyEntry.maskedKey})` };
+                const geminiModels = ['gemini-flash-lite-latest', 'gemini-3-flash-preview', 'gemini-flash-latest', 'gemini-2.0-flash'];
+                let lastGemErr: any = null;
+                for (const modelName of geminiModels) {
+                    try {
+                        const resp = await axios.post(
+                            `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(keyEntry.key)}`,
+                            {
+                                contents: [{ parts: [{ text: params.prompt }] }],
+                                generationConfig: { temperature, maxOutputTokens: maxTokens }
+                            },
+                            { timeout: 22000 }
+                        );
+                        const text = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+                        if (text) {
+                            recordStudioApiMetric({
+                                task: params.task,
+                                keyOrProvider: keyEntry.id,
+                                providerLabel: `${keyEntry.label} (${keyEntry.maskedKey})`,
+                                success: true,
+                                description: params.description
+                            });
+                            return { text, providerUsed: `${keyEntry.label} (${keyEntry.maskedKey})` };
+                        }
+                    } catch (gemErr: any) {
+                        lastGemErr = gemErr;
+                    }
                 }
+                if (lastGemErr) throw lastGemErr;
             } else if (keyEntry.provider === 'claude') {
                 const resp = await axios.post(
                     'https://api.anthropic.com/v1/messages',
@@ -1690,10 +1728,15 @@ export const resolveChapterAudioStreamSource = async (
                     bookItems.push(it);
                 }
 
+                const itFileNorm = String(it.filePath || it.path || '').trim().toLowerCase();
+                const chapFileNorm = String(chapter.file_path || '').trim().toLowerCase();
+                const exactFileMatch = Boolean(chapFileNorm && itFileNorm && (itFileNorm === chapFileNorm || itFileNorm.endsWith(path.basename(chapFileNorm))));
+
                 const exactIdMatch =
                     it.id === chapter.chapter_key ||
                     String(it.ratingKey || '') === chapter.chapter_key ||
-                    `plex-${it.ratingKey}` === chapter.chapter_key;
+                    `plex-${it.ratingKey}` === chapter.chapter_key ||
+                    exactFileMatch;
 
                 const exactChapMatch = isSameBook && targetChapNorm && (
                     itTitleNorm === targetChapNorm ||
@@ -1744,7 +1787,7 @@ export const resolveChapterAudioStreamSource = async (
         }
     } catch {}
 
-    // 2. Direct Plex search fallback if chapter_key is a ratingKey or by searching book.title on Plex
+    // 2. Direct Plex search fallback if chapter_key is a ratingKey or by searching book.title / chapter.title on Plex
     for (const plex of plexInstances) {
         try {
             const plexUrlBase = String(plex.url || '').replace(/\/$/, '');
@@ -1764,31 +1807,47 @@ export const resolveChapterAudioStreamSource = async (
                 }
             }
 
-            const searchRes = await axios.get(`${plexUrlBase}/hubs/search?query=${encodeURIComponent(book.title)}&limit=20`, {
-                headers: { 'X-Plex-Token': plex.api_key, Accept: 'application/json' },
-                timeout: 6000
-            });
-            const hubs = searchRes.data?.MediaContainer?.Hub || [];
-            for (const hub of hubs) {
-                for (const md of (hub.Metadata || [])) {
-                    if (md.type === 'album' && md.ratingKey) {
-                        const leavesRes = await axios.get(`${plexUrlBase}/library/metadata/${md.ratingKey}/allLeaves`, {
-                            headers: { 'X-Plex-Token': plex.api_key, Accept: 'application/json' },
-                            timeout: 6000
-                        });
-                        const leaves = leavesRes.data?.MediaContainer?.Metadata || [];
-                        if (leaves.length > 0) {
-                            const targetChapLower = (chapter.title || '').toLowerCase().trim();
-                            const matchedLeaf =
-                                leaves.find((l: any) => String(l.title || '').toLowerCase().trim() === targetChapLower) ||
-                                leaves[Math.max(0, Math.min(leaves.length - 1, (chapter.chapter_index || 1) - 1))];
-                            const part = matchedLeaf?.Media?.[0]?.Part?.[0];
-                            if (part?.file) {
-                                const loc = resolveLocalPathCandidates(part.file);
-                                if (loc) return { inputSource: loc, localPath: loc, isRemoteUrl: false };
+            const queries = Array.from(new Set([book.title, chapter.title].filter(Boolean)));
+            const targetChapLower = (chapter.title || '').toLowerCase().trim();
+            for (const q of queries) {
+                const searchRes = await axios.get(`${plexUrlBase}/hubs/search?query=${encodeURIComponent(q)}&limit=25`, {
+                    headers: { 'X-Plex-Token': plex.api_key, Accept: 'application/json' },
+                    timeout: 6000
+                });
+                const hubs = searchRes.data?.MediaContainer?.Hub || [];
+                for (const hub of hubs) {
+                    for (const md of (hub.Metadata || [])) {
+                        if (md.type === 'track' && md.Media?.[0]?.Part?.[0]) {
+                            const mdTitleLower = String(md.title || '').toLowerCase().trim();
+                            const part = md.Media[0].Part[0];
+                            if (mdTitleLower === targetChapLower || (chapter.file_path && part.file === chapter.file_path)) {
+                                if (part.file) {
+                                    const loc = resolveLocalPathCandidates(part.file);
+                                    if (loc) return { inputSource: loc, localPath: loc, isRemoteUrl: false };
+                                }
+                                if (part.key) {
+                                    return { inputSource: buildPlexPartUrl(plex, part.key), isRemoteUrl: true };
+                                }
                             }
-                            if (part?.key) {
-                                return { inputSource: buildPlexPartUrl(plex, part.key), isRemoteUrl: true };
+                        }
+                        if (md.type === 'album' && md.ratingKey) {
+                            const leavesRes = await axios.get(`${plexUrlBase}/library/metadata/${md.ratingKey}/allLeaves`, {
+                                headers: { 'X-Plex-Token': plex.api_key, Accept: 'application/json' },
+                                timeout: 6000
+                            });
+                            const leaves = leavesRes.data?.MediaContainer?.Metadata || [];
+                            if (leaves.length > 0) {
+                                const matchedLeaf =
+                                    leaves.find((l: any) => String(l.title || '').toLowerCase().trim() === targetChapLower) ||
+                                    leaves[Math.max(0, Math.min(leaves.length - 1, (chapter.chapter_index || 1) - 1))];
+                                const part = matchedLeaf?.Media?.[0]?.Part?.[0];
+                                if (part?.file) {
+                                    const loc = resolveLocalPathCandidates(part.file);
+                                    if (loc) return { inputSource: loc, localPath: loc, isRemoteUrl: false };
+                                }
+                                if (part?.key) {
+                                    return { inputSource: buildPlexPartUrl(plex, part.key), isRemoteUrl: true };
+                                }
                             }
                         }
                     }
@@ -2216,7 +2275,7 @@ const transcribeSingleExtractedAudioFile = async (params: {
                     `3. Output ONLY the [MM:SS.xx] transcript lines.`
                 ].join('\n');
 
-                const geminiModels = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
+                const geminiModels = ['gemini-flash-lite-latest', 'gemini-3-flash-preview', 'gemini-flash-latest', 'gemini-2.0-flash', 'gemini-1.5-flash'];
                 let rawOut = '';
                 for (const modelName of geminiModels) {
                     try {
@@ -2545,10 +2604,11 @@ export const transcribeAudiobookChapter = async (
         chapter.file_path = resolvedFilePath;
     }
 
-    const probedDur = chapter.duration_sec > 0
+    const needsRealProbe = !chapter.duration_sec || chapter.duration_sec <= 0 || chapter.duration_sec === 300;
+    const probedDur = (!needsRealProbe && chapter.duration_sec > 0)
         ? chapter.duration_sec
-        : (ffmpegInputSource ? await probeAudioDuration(ffmpegInputSource) : 600);
-    const durationSec = Math.max(60, probedDur || 600);
+        : (ffmpegInputSource ? await probeAudioDuration(ffmpegInputSource) : (chapter.duration_sec || 300));
+    let durationSec = Math.max(30, probedDur || chapter.duration_sec || 300);
     const safeChapterId = chapter.chapter_key.replace(/[^a-zA-Z0-9_-]/g, '_');
     const serverLrcPath = path.join(getAudiobookTranscriptsDir(), `${safeChapterId}.lrc`);
     const serverTxtPath = path.join(getAudiobookTranscriptsDir(), `${safeChapterId}.txt`);
@@ -2582,13 +2642,14 @@ export const transcribeAudiobookChapter = async (
             console.warn(`⚠️ [AudiobookStudio] Could not write transcript files to disk:`, err.message);
         }
 
-        const pct = isFinal ? 100 : Math.min(98, Math.max(3, Math.round((transcribedSec / durationSec) * 100)));
+        const effectiveDur = isFinal && transcribedSec > 0 ? Math.max(30, Math.round(transcribedSec)) : durationSec;
+        const pct = isFinal ? 100 : Math.min(98, Math.max(3, Math.round((transcribedSec / Math.max(1, effectiveDur)) * 100)));
         upsertAudiobookChapterMeta({
             chapter_key: chapter.chapter_key,
             book_key: book.book_key,
             file_path: resolvedFilePath || chapter.file_path,
-            duration_sec: durationSec,
-            transcribed_seconds: isFinal ? Math.max(transcribedSec, durationSec) : transcribedSec,
+            duration_sec: effectiveDur,
+            transcribed_seconds: isFinal ? Math.max(transcribedSec, effectiveDur) : transcribedSec,
             transcription_status: isFinal ? 'completed' : 'processing',
             transcription_progress: pct,
             synced_lyrics: syncedLyrics,
@@ -2606,8 +2667,8 @@ export const transcribeAudiobookChapter = async (
                 chapterTitle: chapter.title,
                 queueType: 'transcription',
                 status: 'completed',
-                providerUsed,
-                detail: `Transcribed ${Math.round(Math.max(transcribedSec, durationSec))}s (${syncedLyrics.split('\n').length} timed lines)`,
+                providerUsed: providerUsed || 'Local Whisper.cpp (Offline CPU)',
+                detail: `Transcribed ${Math.round(Math.max(transcribedSec, effectiveDur))}s (${syncedLyrics.split('\n').length} timed lines)`,
                 serverFileUrl: `/api/theater/audiobooks/art?transcript=${encodeURIComponent(`${safeChapterId}.lrc`)}`
             });
         }
@@ -2647,13 +2708,15 @@ export const transcribeAudiobookChapter = async (
 
     // Use 180s chunks when cloud STT keys exist, or 60s chunks for local/free Whisper so live lines appear every minute
     const chunkDurationSec = sttCandidates.length > 0 ? 180 : 60;
-    const totalToTranscribeSec = Math.max(durationSec, 60);
+    const totalToTranscribeSec = Math.max(durationSec, 30);
     const numChunks = Math.max(1, Math.ceil(totalToTranscribeSec / chunkDurationSec));
     const allLrcLines: string[] = [];
     const allPlainParts: string[] = [];
     let completedSec = 0;
     let winningProviderLabel = '';
     let lastSttError = '';
+    let newChunksTranscribed = 0;
+    let reachedAudioEof = false;
 
     // Resume from existing valid partial transcript if interrupted previously
     if (
@@ -2681,7 +2744,10 @@ export const transcribeAudiobookChapter = async (
         for (let chunkIdx = startChunkIdx; chunkIdx < numChunks; chunkIdx++) {
             const startOffsetSec = chunkIdx * chunkDurationSec;
             const currentChunkLenSec = Math.min(chunkDurationSec, totalToTranscribeSec - startOffsetSec);
-            if (currentChunkLenSec <= 2) break;
+            if (currentChunkLenSec <= 2) {
+                reachedAudioEof = true;
+                break;
+            }
 
             const tmpSample = path.join(
                 getAudiobookEnhancedDir(),
@@ -2719,7 +2785,12 @@ export const transcribeAudiobookChapter = async (
                 });
 
                 if (!fs.existsSync(tmpSample) || fs.statSync(tmpSample).size < 256) {
-                    lastSttError = `FFmpeg could not extract audio stream for "${chapter.title}" at ${formatLrcTimestamp(startOffsetSec)}`;
+                    if (chunkIdx > 0 && allLrcLines.length > 0) {
+                        // Audio file ended before the estimated/placeholder duration — treat existing chunks as complete!
+                        reachedAudioEof = true;
+                    } else {
+                        lastSttError = `FFmpeg could not extract audio stream for "${chapter.title}" at ${formatLrcTimestamp(startOffsetSec)}`;
+                    }
                     break;
                 }
 
@@ -2739,18 +2810,24 @@ export const transcribeAudiobookChapter = async (
                     allPlainParts.push(...chunkRes.plainParts);
                     completedSec = startOffsetSec + currentChunkLenSec;
                     winningProviderLabel = chunkRes.providerLabel;
+                    newChunksTranscribed++;
 
                     // Immediately persist live partial transcript so the UI shows lines appearing in real time!
                     persistTranscriptToServer(
                         allLrcLines.join('\n'),
                         allPlainParts.join(' '),
-                        winningProviderLabel || 'Speech-to-Text',
+                        winningProviderLabel || 'Local Whisper.cpp (Offline CPU)',
                         completedSec,
                         false
                     );
                     recalculateAudiobookTotals(book.book_key);
                 } else {
-                    lastSttError = chunkRes.error || 'Speech-to-Text returned empty transcript for chunk';
+                    if (chunkIdx > 0 && allLrcLines.length > 0 && !chunkRes.error) {
+                        // Trailing silence at the end of chapter audio
+                        reachedAudioEof = true;
+                    } else {
+                        lastSttError = chunkRes.error || 'Speech-to-Text returned empty transcript for chunk';
+                    }
                     break;
                 }
             } finally {
@@ -2762,16 +2839,22 @@ export const transcribeAudiobookChapter = async (
     if (allLrcLines.length > 0 && !isFakePlaceholderTranscript(allLrcLines.join('\n'))) {
         const syncedLyrics = allLrcLines.join('\n');
         const plainTranscript = allPlainParts.join(' ');
-        const isFullyDone = completedSec >= totalToTranscribeSec - 15;
+        const isFullyDone = reachedAudioEof || newChunksTranscribed === 0 || completedSec >= totalToTranscribeSec - 15;
+        if (isFullyDone && completedSec > 0) {
+            durationSec = Math.max(30, Math.round(completedSec));
+        }
+        const effectiveProviderLabel = winningProviderLabel || 'Local Whisper.cpp (Offline CPU)';
         persistTranscriptToServer(
             syncedLyrics,
             plainTranscript,
-            winningProviderLabel || 'Speech-to-Text',
+            effectiveProviderLabel,
             completedSec || durationSec,
             isFullyDone
         );
         recalculateAudiobookTotals(book.book_key);
-        console.log(`✅ [AudiobookStudio] Completed real audio transcription for "${book.title}" — ${chapter.title} (${winningProviderLabel}, ${Math.round(completedSec)}s/${Math.round(totalToTranscribeSec)}s)`);
+        if (newChunksTranscribed > 0) {
+            console.log(`✅ [AudiobookStudio] Completed real audio transcription for "${book.title}" — ${chapter.title} (${effectiveProviderLabel}, ${Math.round(completedSec)}s/${Math.round(durationSec)}s)`);
+        }
         return { syncedLyrics, plainTranscript };
     }
 
@@ -3053,42 +3136,48 @@ const validateGeneratedStudioImage = async (params: {
         try {
             if (keyEntry.provider === 'gemini') {
                 const b64 = buf.toString('base64');
-                const resp = await axios.post(
-                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(keyEntry.key)}`,
-                    {
-                        contents: [{
-                            parts: [
-                                { text: visionSystemRubric },
-                                { inlineData: { mimeType: 'image/jpeg', data: b64 } }
-                            ]
-                        }],
-                        generationConfig: { temperature: 0.1, maxOutputTokens: 300 }
-                    },
-                    { timeout: 20000 }
-                );
-                const rawText = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-                const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-                if (jsonMatch) {
-                    const parsed = JSON.parse(jsonMatch[0]);
-                    if (typeof parsed.accepted === 'boolean') {
-                        if (!parsed.accepted) {
-                            const fallbackRewrite = sanitizeAndGroundScenePrompt({
-                                rawPrompt: parsed.rewrittenPrompt || promptUsed,
-                                sceneSnippet,
-                                bookTitle: book.title,
-                                author: book.author,
-                                chapterTitle,
-                                effectiveStyle,
-                                attempt: attempt + 1
-                            });
-                            return {
-                                accepted: false,
-                                reason: parsed.reason || 'Rejected by AI Vision quality check',
-                                rewrittenPrompt: fallbackRewrite
-                            };
+                const geminiModels = ['gemini-flash-lite-latest', 'gemini-3-flash-preview', 'gemini-flash-latest', 'gemini-2.0-flash'];
+                for (const modelName of geminiModels) {
+                    try {
+                        const resp = await axios.post(
+                            `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(keyEntry.key)}`,
+                            {
+                                contents: [{
+                                    parts: [
+                                        { text: visionSystemRubric },
+                                        { inlineData: { mimeType: 'image/jpeg', data: b64 } }
+                                    ]
+                                }],
+                                generationConfig: { temperature: 0.1, maxOutputTokens: 300 }
+                            },
+                            { timeout: 20000 }
+                        );
+                        const rawText = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+                        const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+                        if (jsonMatch) {
+                            const parsed = JSON.parse(jsonMatch[0]);
+                            if (typeof parsed.accepted === 'boolean') {
+                                if (!parsed.accepted) {
+                                    const fallbackRewrite = sanitizeAndGroundScenePrompt({
+                                        rawPrompt: parsed.rewrittenPrompt || promptUsed,
+                                        sceneSnippet,
+                                        bookTitle: book.title,
+                                        author: book.author,
+                                        chapterTitle,
+                                        effectiveStyle,
+                                        attempt: attempt + 1
+                                    });
+                                    return {
+                                        accepted: false,
+                                        reason: parsed.reason || 'Rejected by AI Vision quality check',
+                                        rewrittenPrompt: fallbackRewrite
+                                    };
+                                }
+                                return { accepted: true, reason: parsed.reason || 'Verified by Gemini Vision' };
+                            }
                         }
-                        return { accepted: true, reason: parsed.reason || 'Verified by Gemini Vision' };
-                    }
+                        break;
+                    } catch {}
                 }
             } else if (keyEntry.provider === 'openai') {
                 const b64 = buf.toString('base64');
@@ -3476,6 +3565,7 @@ const generateRawCandidateImageBuffer = async (params: {
     for (const keyEntry of imageKeyCandidates) {
         if (keyEntry.provider === 'gemini') {
             const geminiImageModels = [
+                'gemini-2.5-flash-image',
                 'gemini-2.0-flash-exp-image-generation',
                 'gemini-2.0-flash-preview-image-generation'
             ];
@@ -3599,7 +3689,34 @@ const generateRawCandidateImageBuffer = async (params: {
         } catch {}
     }
 
-    // 3. HuggingFace Official Flux.1-schnell Gradio Space API
+    // 3. SubNP Free Flux / Magic Image Generator (fast 4s real JPEG generation, no API key required)
+    const subnpModels = ['magic', 'flux', 'turbo'];
+    for (const subModel of subnpModels) {
+        try {
+            const subResp = await axios.post(
+                'https://subnp.com/api/free/generate',
+                { prompt: `${promptToUse.slice(0, 900)}, no text, no watermark`, model: subModel },
+                { timeout: 35000, responseType: 'text', headers: { 'Content-Type': 'application/json' } }
+            );
+            const sseText = String(subResp.data || '');
+            const lines = sseText.split('\n').map(l => l.trim()).filter(l => l.startsWith('data:'));
+            for (const line of lines.reverse()) {
+                try {
+                    const parsed = JSON.parse(line.replace(/^data:\s*/, ''));
+                    const imageUrl = parsed?.imageUrl || parsed?.url;
+                    if (imageUrl && typeof imageUrl === 'string' && imageUrl.startsWith('http')) {
+                        const imgBin = await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 25000 });
+                        const buf = Buffer.from(imgBin.data || []);
+                        if (isValidImageBuffer(buf)) {
+                            return { buf, providerUsed: `Flux Studio (${subModel})` };
+                        }
+                    }
+                } catch {}
+            }
+        } catch {}
+    }
+
+    // 4. HuggingFace Official Flux.1-schnell Gradio Space API
     const hfSpaces = [
         'https://black-forest-labs-flux-1-schnell.hf.space',
         'https://multimodalart-flux-1-merged.hf.space'
@@ -3639,7 +3756,7 @@ const generateRawCandidateImageBuffer = async (params: {
         } catch {}
     }
 
-    // 4. Sanitized Pollinations Flux / Turbo endpoints with retry backoff and explicit negative prompt
+    // 5. Sanitized Pollinations Flux / Turbo endpoints with retry backoff and explicit negative prompt
     const seed = Math.floor(Math.random() * 900000) + attempt * 1337;
     const sanitizedPrompt = promptToUse
         .replace(/[^a-zA-Z0-9 ,.-]/g, ' ')
@@ -3681,22 +3798,21 @@ const generateRawCandidateImageBuffer = async (params: {
         }
     }
 
-    // 5. AI Horde anonymous community GPU cluster (real SDXL / Flux raster image generation)
+    // 6. AI Horde anonymous community GPU cluster (512x512 avoids 403 KudosUpfront)
     try {
-        const hordeW = width > height ? 768 : width < height ? 512 : 640;
-        const hordeH = width > height ? 512 : width < height ? 768 : 640;
         const hordeInit = await axios.post(
             'https://stablehorde.net/api/v2/generate/async',
             {
                 prompt: `${promptToUse.slice(0, 620)} ### body horror, gore, mutated insect hybrid, deformed face, nightmare fuel, text, watermark, signature, blurry, ugly`,
                 params: {
-                    width: hordeW,
-                    height: hordeH,
+                    width: 512,
+                    height: 512,
                     steps: 20,
                     cfg_scale: 7,
                     sampler_name: 'k_euler_a',
                     n: 1
                 },
+                models: ['Deliberate', 'stable_diffusion'],
                 nsfw: false,
                 censor_nsfw: false,
                 r2: true
@@ -4975,13 +5091,15 @@ export const processAudiobookPriorityQueueStep = async (
 
                 // STAGE 1: Audio -> Timestamped Text (Must complete BEFORE Stage 2 LLM Scene Detection!)
                 if ((book.transcribe_enabled || book.illustrate_enabled) && !hasRealTranscript) {
-                    if (chapter.transcription_status === 'failed' && !forceChapterKey && !forceIgnoreQuota) {
+                    if (chapter.transcription_status === 'failed') {
                         failedChaptersCount++;
                         if (chapter.error_message && !lastFailedError) lastFailedError = chapter.error_message;
                     } else {
                         await transcribeAudiobookChapter(book, chapter, config);
                         recalculateAudiobookTotals(book.book_key);
-                        updateLiveStatus({ isRunning: false, activeTask: null, progress: 100 });
+                        if (!g.__audiobookWorkerLoopRunning) {
+                            updateLiveStatus({ isRunning: false, activeTask: null, progress: 100 });
+                        }
                         return true;
                     }
                 }
@@ -5009,7 +5127,9 @@ export const processAudiobookPriorityQueueStep = async (
                         forceRedetect: false
                     });
                     recalculateAudiobookTotals(book.book_key);
-                    updateLiveStatus({ isRunning: false, activeTask: null, progress: 100 });
+                    if (!g.__audiobookWorkerLoopRunning) {
+                        updateLiveStatus({ isRunning: false, activeTask: null, progress: 100 });
+                    }
                     return true;
                 }
 
@@ -5021,7 +5141,7 @@ export const processAudiobookPriorityQueueStep = async (
 
                 if (latestBook.illustrate_enabled && scenesAfterDetect.length > 0 && unpaintedScenes.length > 0) {
                     const bypassQuota = Boolean(forceChapterKey) || Boolean(forceBookKey) || Boolean(forceIgnoreQuota);
-                    if (afterSceneChapter.illustration_status === 'failed' && !bypassQuota) {
+                    if (afterSceneChapter.illustration_status === 'failed') {
                         failedChaptersCount++;
                         if (afterSceneChapter.error_message && !lastFailedError) lastFailedError = afterSceneChapter.error_message;
                     } else if (!bypassQuota && freshCfg.imagesGeneratedToday >= freshCfg.dailyImageQuota) {
@@ -5029,20 +5149,24 @@ export const processAudiobookPriorityQueueStep = async (
                     } else {
                         await paintAudiobookChapterScenes(latestBook, afterSceneChapter, freshCfg, bypassQuota);
                         recalculateAudiobookTotals(book.book_key);
-                        updateLiveStatus({ isRunning: false, activeTask: null, progress: 100 });
+                        if (!g.__audiobookWorkerLoopRunning) {
+                            updateLiveStatus({ isRunning: false, activeTask: null, progress: 100 });
+                        }
                         return true;
                     }
                 }
 
                 // STAGE 1B: Audio -> Cadence-Matched Voices (Local CPU FFmpeg DSP)
                 if (latestBook.enhance_audio_enabled && afterSceneChapter.audio_enhance_status !== 'completed') {
-                    if (afterSceneChapter.audio_enhance_status === 'failed' && !forceChapterKey && !forceIgnoreQuota) {
+                    if (afterSceneChapter.audio_enhance_status === 'failed') {
                         failedChaptersCount++;
                         if (afterSceneChapter.error_message && !lastFailedError) lastFailedError = afterSceneChapter.error_message;
                     } else {
                         await enhanceAudiobookChapterAudio(latestBook, afterSceneChapter, config);
                         recalculateAudiobookTotals(book.book_key);
-                        updateLiveStatus({ isRunning: false, activeTask: null, progress: 100 });
+                        if (!g.__audiobookWorkerLoopRunning) {
+                            updateLiveStatus({ isRunning: false, activeTask: null, progress: 100 });
+                        }
                         return true;
                     }
                 }
@@ -5051,7 +5175,9 @@ export const processAudiobookPriorityQueueStep = async (
             // Optional Book Cover Art only if book has no cover at all or user explicitly turned on custom cover
             if (book.illustrate_enabled && !book.custom_cover_url && (!book.thumb || book.use_custom_cover) && !forceChapterKey) {
                 await generateAudiobookCoverArt(book, false);
-                updateLiveStatus({ isRunning: false, activeTask: null, progress: 100 });
+                if (!g.__audiobookWorkerLoopRunning) {
+                    updateLiveStatus({ isRunning: false, activeTask: null, progress: 100 });
+                }
                 return true;
             }
 
@@ -5103,8 +5229,8 @@ export const triggerAudiobookQueueWorker = (
     forceIgnoreQuota?: boolean
 ) => {
     setTimeout(async () => {
-        // When user explicitly starts a whole-book or manual queue run, reset any 'failed' statuses to 'queued' so they are retried
-        if ((forceBookKey && !forceChapterKey) || forceIgnoreQuota) {
+        // When user explicitly starts a whole-book, chapter, or manual queue run, reset any 'failed' statuses to 'queued' ONCE so they are retried cleanly
+        if (forceBookKey || forceChapterKey || forceIgnoreQuota) {
             const targetBooks = forceBookKey
                 ? [getAudiobookMeta(forceBookKey)].filter(Boolean)
                 : getAllAudiobooksMeta().filter(b => b.queue_enabled);
@@ -5112,6 +5238,7 @@ export const triggerAudiobookQueueWorker = (
                 if (!b) continue;
                 const chapters = getAudiobookChaptersMeta(b.book_key);
                 for (const ch of chapters) {
+                    if (forceChapterKey && ch.chapter_key !== forceChapterKey) continue;
                     if (ch.transcription_status === 'failed' || ch.illustration_status === 'failed' || ch.audio_enhance_status === 'failed') {
                         upsertAudiobookChapterMeta({
                             chapter_key: ch.chapter_key,
@@ -5126,14 +5253,22 @@ export const triggerAudiobookQueueWorker = (
                 recalculateAudiobookTotals(b.book_key);
             }
         }
-        // Process up to 35 steps sequentially with a 1.2s breather between steps for low-power Intel CPU
-        for (let step = 0; step < 35; step++) {
-            const cfg = getAudiobookStudioConfig();
-            if (!cfg.enabled && !forceBookKey && !forceChapterKey && !forceIgnoreQuota) break;
-            const didWork = await processAudiobookPriorityQueueStep(forceBookKey, forceChapterKey, forceIgnoreQuota);
-            if (!didWork) break;
-            if (forceChapterKey) break; // Single chapter manual trigger finishes after all steps for that chapter
-            await new Promise(r => setTimeout(r, 1200));
+
+        if (g.__audiobookWorkerLoopRunning) {
+            return;
+        }
+        g.__audiobookWorkerLoopRunning = true;
+        try {
+            // Process up to 35 steps sequentially with a 1.2s breather between steps for low-power Intel CPU
+            for (let step = 0; step < 35; step++) {
+                const cfg = getAudiobookStudioConfig();
+                if (!cfg.enabled && !forceBookKey && !forceChapterKey && !forceIgnoreQuota) break;
+                const didWork = await processAudiobookPriorityQueueStep(forceBookKey, forceChapterKey, forceIgnoreQuota);
+                if (!didWork) break;
+                await new Promise(r => setTimeout(r, 1200));
+            }
+        } finally {
+            g.__audiobookWorkerLoopRunning = false;
         }
     }, 50);
 };
@@ -5435,19 +5570,25 @@ export const organizeAudiobookCollectionsWithAi = async (
     let aiJsonText = '';
 
     if (config.geminiApiKey) {
-        try {
-            const resp = await axios.post(
-                `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(config.geminiApiKey)}`,
-                {
-                    contents: [{ parts: [{ text: fullPrompt }] }],
-                    generationConfig: { temperature: 0.2, maxOutputTokens: 2048 }
-                },
-                { timeout: 22000 }
-            );
-            aiJsonText = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-            if (aiJsonText) usedProvider = 'Google Gemini 2.0 Flash';
-        } catch (e: any) {
-            console.warn('⚠️ [AudiobookStudio] Gemini collection organizer fallback:', e.message);
+        const geminiModels = ['gemini-flash-lite-latest', 'gemini-3-flash-preview', 'gemini-flash-latest', 'gemini-2.0-flash'];
+        for (const modelName of geminiModels) {
+            try {
+                const resp = await axios.post(
+                    `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(config.geminiApiKey)}`,
+                    {
+                        contents: [{ parts: [{ text: fullPrompt }] }],
+                        generationConfig: { temperature: 0.2, maxOutputTokens: 2048 }
+                    },
+                    { timeout: 22000 }
+                );
+                aiJsonText = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                if (aiJsonText) {
+                    usedProvider = 'Google Gemini Flash';
+                    break;
+                }
+            } catch (e: any) {
+                console.warn('⚠️ [AudiobookStudio] Gemini collection organizer fallback:', e.message);
+            }
         }
     } else if (config.anthropicApiKey) {
         try {

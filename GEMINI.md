@@ -25,3 +25,12 @@
 
 7. **Authentic Visuals Only**:
    - Never generate or substitute fake SVG placeholders or Wikipedia summaries when real raster artwork or real Speech-to-Text is expected.
+
+# Live Server & Log Testing Locations (Saved for Future Testing)
+- **Direct Local/Tailscale App URL (No Cloudflare Auth Barrier)**: `http://100.74.103.79:3010`
+  - Tasks UI: `http://100.74.103.79:3010/tasks`
+  - Tasks & Studio Telemetry API: `http://100.74.103.79:3010/api/tasks`
+  - Audiobook Studio API: `http://100.74.103.79:3010/api/theater/audiobooks/studio`
+- **Public Tasks URL**: `https://schedulearr.flashnas.vip/tasks`
+- **Unraid Container Log Terminal**: `http://100.74.103.79/logterminal/Schedulearr.log/`
+

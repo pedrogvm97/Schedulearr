@@ -13,6 +13,7 @@ import {
     getQueueBreakdownAndHistory,
     getStudioQueueHistory,
     triggerAudiobookQueueWorker,
+    resetAndRedoAudiobookAssets,
     purgeAllFakeSvgArtFromDbAndDisk
 } from '@/lib/audiobookStudio';
 import {
@@ -482,8 +483,7 @@ export async function POST(request: Request) {
 
             if (subAction === 'redo_art' || subAction === 'redo_transcriptions' || subAction === 'redo_all') {
                 const target = subAction === 'redo_art' ? 'art' : subAction === 'redo_transcriptions' ? 'transcriptions' : 'all';
-                resetAudiobookAssetsInDb(bookKey, undefined, target);
-                triggerAudiobookQueueWorker(bookKey, undefined, true);
+                await resetAndRedoAudiobookAssets({ bookKey, target, redoNow: true });
                 return NextResponse.json({ ok: true, message: `Reset ${target} for "${existing.title}" and queued regeneration.` });
             }
         }

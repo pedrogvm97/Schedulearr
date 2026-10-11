@@ -2883,8 +2883,11 @@ export const getAudiobookChaptersMeta = (bookKey: string): AudiobookChapterMeta[
             if (!existing) {
                 canonicalByTrack.set(canonicalKey, ch);
             } else {
-                const preferCurrent =
-                    ch.chapter_key.includes('::ch') && !existing.chapter_key.includes('::ch');
+                const curIsPlex = /^plex[-_]\d+/i.test(ch.chapter_key);
+                const existIsPlex = /^plex[-_]\d+/i.test(existing.chapter_key);
+                const preferCurrent = curIsPlex && !existIsPlex
+                    ? true
+                    : (!existIsPlex && ch.chapter_key.includes('::ch') && !existing.chapter_key.includes('::ch'));
                 const keeper = preferCurrent ? ch : existing;
                 const donor = preferCurrent ? existing : ch;
 
@@ -3188,9 +3191,10 @@ export const resetAudiobookAssetsInDb = (
                 UPDATE audiobook_books_meta SET
                     custom_cover_url = NULL,
                     use_custom_cover = 0,
+                    real_structure_json = CASE WHEN ? = 'all' THEN NULL ELSE real_structure_json END,
                     updated_at = ?
                 WHERE book_key = ?
-            `).run(now, bookKey);
+            `).run(target, now, bookKey);
         }
 
         recalculateAudiobookTotals(bookKey);
