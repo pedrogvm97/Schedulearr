@@ -2369,6 +2369,8 @@ export interface AudiobookChapterSceneImage {
     endSec?: number;
     sceneTitle?: string;
     chapterTitle?: string;
+    transitionReason?: string;
+    characters?: string[];
     createdAt: string;
 }
 

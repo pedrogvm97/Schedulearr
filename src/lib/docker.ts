@@ -80,17 +80,9 @@ export async function findSelfContainer(docker: any, hostname: string): Promise<
     console.warn('Failed to resolve container ID from mountinfo:', e);
   }
 
-  // 3. Try direct lookup using hostname
-  try {
-    const res = await docker.get(`/containers/${hostname}/json`);
-    if (res.data) return res.data;
-  } catch (e) {
-    console.warn(`Direct container lookup for hostname "${hostname}" failed, searching fallback names...`);
-  }
-
-  // 4. Try standard default names (e.g. casing discrepancies)
-  const fallbackNames = ['Schedulearr', 'schedulearr', 'schedule-arr'];
-  for (const name of fallbackNames) {
+  // 3. Try direct lookup using standard container names and hostname silently
+  const directCandidates = Array.from(new Set(['Schedulearr', 'schedulearr', 'schedule-arr', hostname].filter(Boolean)));
+  for (const name of directCandidates) {
     try {
       const res = await docker.get(`/containers/${name}/json`);
       if (res.data) return res.data;

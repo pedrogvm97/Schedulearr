@@ -8,6 +8,12 @@ import { initAutoUpdater } from '@/lib/autoUpdater';
 export const dynamic = 'force-dynamic';
 
 const FALLBACK_GIT_NOTES = [
+  '• [v0.6.16] Slow-feed chronological LLM scene transition detector, real native + local Whisper.cpp transcription, visual Series cards grid, character-grounded art prompts, and dark scrollbars',
+  '  - Replace broken dynamic form-data import in Docker standalone with native Node 20 FormData/Blob + compiled local C++ whisper-cli (whisper.cpp) + active HuggingFace Whisper Spaces, with full-chapter checkpointing and live progress polling',
+  '  - Replace fixed "Scenes / Chapter" math division with a chronological 3-minute excerpt-by-excerpt LLM scene transition detector that reads each file window, identifies exact transition timestamps, reasons, and characters, and paints story-specific scenes',
+  '  - Remove empty-room prompt overrides so characters and plot actions are preserved in every generated illustration',
+  '  - Redesign the Series tab into a full-width visual Series cards grid combining saved series and auto-detected series from book metadata with a visual Series builder modal',
+  '  - Eliminate white OS scrollbars globally and wrap Genre filter pills cleanly',
   '• [v0.6.15] Streamline Audiobook Book & AI views with Illustration/Transcription/Voice subtabs, fix chapter duplication & book titles, and add Genre/Author/Sort filters in Media',
   '  - Replace verbose descriptors and .M4A file badges across Theater & Media with a clean [Book] | [AI] layout featuring rich hardcover placeholders and automatic metadata lookup',
   '  - Add dedicated AI tab with ONLY 3 subtabs (Illustration, Transcription, Voice), each topped by a prominent Gen Options + Auto Gen Scenes + Gen All control bar and expandable per-chapter/scene Delete, Add, and Regen tools below (no manual transcript typing)',
@@ -76,7 +82,7 @@ export async function GET() {
 
   try {
     // 1. Get current version from package.json or system fallback
-    let currentVersion = '0.6.15';
+    let currentVersion = '0.6.16';
     const possiblePaths = [
       path.join(process.cwd(), 'package.json'),
       path.join(process.cwd(), '..', 'package.json'),

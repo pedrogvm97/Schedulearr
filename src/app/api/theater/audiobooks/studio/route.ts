@@ -633,24 +633,134 @@ export async function POST(request: Request) {
             }
 
             const config = getAudiobookStudioConfig();
+            const runInBackground = Boolean(body.runInBackground);
+            const allChapters = Boolean(body.allChapters);
 
-            if (effectiveTaskType === 'transcribe') {
-                await transcribeAudiobookChapter(book, chapter, config);
-            } else if (effectiveTaskType === 'illustrate') {
-                const freshChapter = getAudiobookChapterMeta(chapterKey) || chapter;
-                await generateAudiobookChapterIllustrations(book, freshChapter, config, true);
-            } else if (effectiveTaskType === 'enhance') {
-                const freshChapter = getAudiobookChapterMeta(chapterKey) || chapter;
-                await enhanceAudiobookChapterAudio(book, freshChapter, config, body.voicePreset);
-            } else {
-                triggerAudiobookQueueWorker(resolvedBookKey, chapterKey);
+            const executeSingleChapter = async (targetChKey: string) => {
+                const targetCh = getAudiobookChapterMeta(targetChKey);
+                if (!targetCh) return;
+                const freshBook = getAudiobookMeta(resolvedBookKey) || book!;
+                if (effectiveTaskType === 'transcribe') {
+                    if (body.forceRestart) {
+                        upsertAudiobookChapterMeta({
+                            chapter_key: targetChKey,
+                            book_key: resolvedBookKey,
+                            synced_lyrics: '',
+                            plain_transcript: '',
+                            transcribed_seconds: 0,
+                            transcription_status: 'processing',
+                            transcription_progress: 2,
+                            error_message: ''
+                        });
+                    }
+                    const freshCh = getAudiobookChapterMeta(targetChKey) || targetCh;
+                    await transcribeAudiobookChapter(freshBook, freshCh, config);
+                } else if (effectiveTaskType === 'illustrate') {
+                    const freshChapter = getAudiobookChapterMeta(targetChKey) || targetCh;
+                    await generateAudiobookChapterIllustrations(freshBook, freshChapter, config, true);
+                } else if (effectiveTaskType === 'enhance') {
+                    const freshChapter = getAudiobookChapterMeta(targetChKey) || targetCh;
+                    await enhanceAudiobookChapterAudio(freshBook, freshChapter, config, body.voicePreset);
+                } else {
+                    triggerAudiobookQueueWorker(resolvedBookKey, targetChKey);
+                }
+                recalculateAudiobookTotals(resolvedBookKey);
+            };
+
+            const executeTask = async () => {
+                if (allChapters) {
+                    const bookChapters = getAudiobookChaptersMeta(resolvedBookKey).sort(
+                        (a, b) => (a.chapter_index || 0) - (b.chapter_index || 0)
+                    );
+                    for (const chItem of bookChapters) {
+                        await executeSingleChapter(chItem.chapter_key);
+                    }
+                } else {
+                    await executeSingleChapter(chapterKey);
+                }
+            };
+
+            if (runInBackground) {
+                if (effectiveTaskType === 'transcribe') {
+                    upsertAudiobookChapterMeta({
+                        chapter_key: chapterKey,
+                        book_key: resolvedBookKey,
+                        transcription_status: 'processing',
+                        transcription_progress: Math.max(2, chapter.transcription_progress || 2),
+                        error_message: ''
+                    });
+                } else if (effectiveTaskType === 'illustrate') {
+                    upsertAudiobookChapterMeta({
+                        chapter_key: chapterKey,
+                        book_key: resolvedBookKey,
+                        illustration_status: 'processing',
+                        illustration_progress: Math.max(5, chapter.illustration_progress || 5),
+                        error_message: ''
+                    });
+                } else if (effectiveTaskType === 'enhance') {
+                    upsertAudiobookChapterMeta({
+                        chapter_key: chapterKey,
+                        book_key: resolvedBookKey,
+                        audio_enhance_status: 'processing',
+                        audio_enhance_progress: 15,
+                        error_message: ''
+                    });
+                }
+                void executeTask().catch(err => {
+                    console.error(`❌ [AudiobookStudio] Background chapter task (${effectiveTaskType}) error:`, err);
+                });
+                return NextResponse.json({
+                    success: true,
+                    background: true,
+                    book: getAudiobookMeta(resolvedBookKey),
+                    chapter: getAudiobookChapterMeta(chapterKey),
+                    chapters: getAudiobookChaptersMeta(resolvedBookKey),
+                    books: getAllAudiobooksMeta(),
+                    status: getAudiobookStudioStatus()
+                });
             }
 
-            recalculateAudiobookTotals(resolvedBookKey);
+            await executeTask();
+            const finalChapter = getAudiobookChapterMeta(chapterKey);
+
+            if (effectiveTaskType === 'transcribe' && (!finalChapter?.synced_lyrics || finalChapter.transcription_status === 'failed')) {
+                return NextResponse.json({
+                    success: false,
+                    error: finalChapter?.error_message || 'Speech-to-Text failed to transcribe audio.',
+                    book: getAudiobookMeta(resolvedBookKey),
+                    chapter: finalChapter,
+                    chapters: getAudiobookChaptersMeta(resolvedBookKey),
+                    books: getAllAudiobooksMeta(),
+                    status: getAudiobookStudioStatus()
+                });
+            }
+            if (effectiveTaskType === 'illustrate' && (finalChapter?.illustration_status === 'failed' || !(finalChapter?.images?.length))) {
+                return NextResponse.json({
+                    success: false,
+                    error: finalChapter?.error_message || 'Scene illustration failed.',
+                    book: getAudiobookMeta(resolvedBookKey),
+                    chapter: finalChapter,
+                    chapters: getAudiobookChaptersMeta(resolvedBookKey),
+                    books: getAllAudiobooksMeta(),
+                    status: getAudiobookStudioStatus()
+                });
+            }
+            if (effectiveTaskType === 'enhance' && (finalChapter?.audio_enhance_status === 'failed' || !finalChapter?.enhanced_audio_path)) {
+                return NextResponse.json({
+                    success: false,
+                    error: finalChapter?.error_message || 'Voice enhancement failed.',
+                    book: getAudiobookMeta(resolvedBookKey),
+                    chapter: finalChapter,
+                    chapters: getAudiobookChaptersMeta(resolvedBookKey),
+                    books: getAllAudiobooksMeta(),
+                    status: getAudiobookStudioStatus()
+                });
+            }
+
             return NextResponse.json({
                 success: true,
                 book: getAudiobookMeta(resolvedBookKey),
-                chapter: getAudiobookChapterMeta(chapterKey),
+                chapter: finalChapter,
                 chapters: getAudiobookChaptersMeta(resolvedBookKey),
                 books: getAllAudiobooksMeta(),
                 status: getAudiobookStudioStatus()
@@ -934,8 +1044,8 @@ export async function POST(request: Request) {
             });
         }
 
-        if (action === 'preview_rename_books') {
-            const items = Array.isArray(body.items) ? body.items : [];
+        if (action === 'preview_rename_books' || action === 'preview_rename') {
+            const items = Array.isArray(body.items) ? body.items : (Array.isArray(body.books) ? body.books : []);
             const template = String(body.template || '{Author} - {Title} ({Year}) [{AudioVersion}]');
             const versionMode = body.versionMode || 'auto';
             const previews = previewRenameAudiobookFiles(items, template, versionMode);
@@ -945,8 +1055,8 @@ export async function POST(request: Request) {
             });
         }
 
-        if (action === 'execute_rename_books') {
-            const items = Array.isArray(body.items) ? body.items : [];
+        if (action === 'execute_rename_books' || action === 'execute_rename') {
+            const items = Array.isArray(body.items) ? body.items : (Array.isArray(body.books) ? body.books : []);
             const template = String(body.template || '{Author} - {Title} ({Year}) [{AudioVersion}]');
             const versionMode = body.versionMode || 'auto';
             const outcome = executeRenameAudiobookFiles(items, template, versionMode);

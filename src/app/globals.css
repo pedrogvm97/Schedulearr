@@ -5,7 +5,8 @@
   --color-zinc-950: #09090b;
 }
 
-html, body {
+:root, html, body {
+  color-scheme: dark;
   overflow-x: hidden !important;
   max-width: 100vw !important;
   width: 100% !important;
@@ -17,6 +18,30 @@ body {
   color: white;
 }
 
+/* Global dark scrollbars so no container or textarea ever renders a white OS scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #3f3f46 #09090b;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #27272a;
+  border-radius: 10px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46;
+}
+
 /* Mobile bottom tab bar: add padding so content isn't hidden underneath it */
 @media (max-width: 767px) {
   main {
@@ -26,6 +51,7 @@ body {
 
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
