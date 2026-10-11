@@ -385,8 +385,19 @@ function TheaterPageContent() {
         releaseYear?: string;
         genre?: string;
         coverUrl?: string;
+        availableCovers?: Array<{ url: string; label: string; source: string }>;
         loading?: boolean;
     } | null>(null);
+    const [showTheaterBookCustomize, setShowTheaterBookCustomize] = useState(false);
+    const [theaterEditSynopsis, setTheaterEditSynopsis] = useState('');
+    const [theaterEditAuthorBio, setTheaterEditAuthorBio] = useState('');
+    const [theaterEditTitle, setTheaterEditTitle] = useState('');
+    const [theaterEditAuthor, setTheaterEditAuthor] = useState('');
+    const [theaterEditYear, setTheaterEditYear] = useState('');
+    const [theaterEditGenre, setTheaterEditGenre] = useState('');
+    const [theaterEditNarrator, setTheaterEditNarrator] = useState('');
+    const [theaterEditCoverUrl, setTheaterEditCoverUrl] = useState('');
+    const [isSavingTheaterBookMeta, setIsSavingTheaterBookMeta] = useState(false);
 
     const [selectedAlbum, setSelectedAlbum] = useState<{ name: string; artist: string; posterUrl?: string; tracks: MediaItem[] } | null>(null);
     const [albumOfficialData, setAlbumOfficialData] = useState<{ album?: any; tracks: any[] } | null>(null);
@@ -2590,14 +2601,26 @@ function TheaterPageContent() {
     };
 
     const openAudiobookModal = async (book: any, openSettingsFirst = false) => {
+        const bKey = book.bookKey || `${book.author || 'Unknown Author'} - ${book.title}`.toLowerCase().trim();
+        const bMeta = audiobooksStudioMap[bKey];
+        const savedMeta = (audiobookCollectionsState?.bookMetadata as any)?.[bKey];
         setSelectedAudiobook(book);
         setShowBookStudioSettings(openSettingsFirst);
+        setShowTheaterBookCustomize(false);
         setBookModalTab(openSettingsFirst ? 'generate' : 'overview');
         setEditingModalChapterKey(null);
+        setTheaterEditTitle(book.cleanTitle || book.title || '');
+        setTheaterEditAuthor(book.author || '');
+        setTheaterEditYear(book.releaseYear || bMeta?.published_year || '');
+        setTheaterEditGenre(book.genre || bMeta?.genre || '');
+        setTheaterEditNarrator(book.narrator || bMeta?.narrator || '');
+        setTheaterEditCoverUrl(bMeta?.thumb || book.posterUrl || '');
+        setTheaterEditSynopsis(savedMeta?.synopsis || '');
+        setTheaterEditAuthorBio(savedMeta?.authorBio || '');
         setAudiobookDetails({ loading: true });
         loadBookStudioChapters(book);
         try {
-            const res = await fetch(`/api/theater/audiobooks?title=${encodeURIComponent(book.title)}&author=${encodeURIComponent(book.author)}`);
+            const res = await fetch(`/api/theater/audiobooks?title=${encodeURIComponent(book.cleanTitle || book.title)}&author=${encodeURIComponent(book.author)}`);
             if (res.ok) {
                 const data = await res.json();
                 if (data.book) {
@@ -2608,8 +2631,14 @@ function TheaterPageContent() {
                         releaseYear: data.book.releaseYear,
                         genre: data.book.genre,
                         coverUrl: data.book.coverUrl,
+                        availableCovers: Array.isArray(data.book.availableCovers) ? data.book.availableCovers : [],
                         loading: false
                     });
+                    if (data.book.description && !savedMeta?.synopsis) setTheaterEditSynopsis(data.book.description);
+                    if (data.book.authorBio && !savedMeta?.authorBio) setTheaterEditAuthorBio(data.book.authorBio);
+                    if (data.book.releaseYear && !book.releaseYear) setTheaterEditYear(data.book.releaseYear);
+                    if (data.book.genre && !book.genre) setTheaterEditGenre(data.book.genre);
+                    if (data.book.narrator && !book.narrator) setTheaterEditNarrator(data.book.narrator);
                     fetchAudiobooksStudioOverview();
                 } else {
                     setAudiobookDetails({ loading: false });
@@ -2622,9 +2651,107 @@ function TheaterPageContent() {
         }
     };
 
+    const handleSelectTheaterBookCover = async (book: any, url: string) => {
+        if (!book || !url) return;
+        const bKey = book.bookKey || `${book.author || 'Unknown Author'} - ${book.title}`.toLowerCase().trim();
+        setTheaterEditCoverUrl(url);
+        try {
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'edit_book_metadata',
+                    bookKey: bKey,
+                    title: theaterEditTitle || book.cleanTitle || book.title,
+                    author: theaterEditAuthor || book.author,
+                    releaseYear: theaterEditYear || book.releaseYear,
+                    genre: theaterEditGenre || book.genre,
+                    narrator: theaterEditNarrator || book.narrator,
+                    coverUrl: url,
+                    synopsis: theaterEditSynopsis,
+                    authorBio: theaterEditAuthorBio
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                if (data.book) {
+                    setAudiobooksStudioMap(prev => ({ ...prev, [bKey]: data.book }));
+                }
+                setAudiobookDetails(prev => prev ? { ...prev, coverUrl: url } : prev);
+                toast.success('Updated book cover art');
+                fetchAudiobooksStudioOverview();
+            } else {
+                toast.error(data.error || 'Failed to update cover');
+            }
+        } catch {
+            toast.error('Failed to update cover');
+        }
+    };
+
+    const handleSaveTheaterBookMetadata = async (book: any) => {
+        if (!book) return;
+        const bKey = book.bookKey || `${book.author || 'Unknown Author'} - ${book.title}`.toLowerCase().trim();
+        setIsSavingTheaterBookMeta(true);
+        try {
+            const res = await fetch('/api/theater/audiobooks/studio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'edit_book_metadata',
+                    bookKey: bKey,
+                    title: theaterEditTitle.trim() || book.cleanTitle || book.title,
+                    author: theaterEditAuthor.trim() || book.author,
+                    releaseYear: theaterEditYear.trim() || book.releaseYear,
+                    genre: theaterEditGenre.trim() || book.genre,
+                    narrator: theaterEditNarrator.trim() || book.narrator,
+                    coverUrl: theaterEditCoverUrl.trim() || undefined,
+                    synopsis: theaterEditSynopsis,
+                    authorBio: theaterEditAuthorBio
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                if (data.book) {
+                    setAudiobooksStudioMap(prev => ({ ...prev, [bKey]: data.book }));
+                }
+                if (data.collectionsState) {
+                    setAudiobookCollectionsState(data.collectionsState);
+                }
+                setAudiobookDetails(prev => prev ? {
+                    ...prev,
+                    description: theaterEditSynopsis || prev.description,
+                    authorBio: theaterEditAuthorBio || prev.authorBio,
+                    releaseYear: theaterEditYear || prev.releaseYear,
+                    genre: theaterEditGenre || prev.genre,
+                    narrator: theaterEditNarrator || prev.narrator,
+                    coverUrl: theaterEditCoverUrl || prev.coverUrl
+                } : prev);
+                setSelectedAudiobook((prev: any) => prev ? {
+                    ...prev,
+                    title: theaterEditTitle.trim() || prev.title,
+                    cleanTitle: theaterEditTitle.trim() || prev.cleanTitle,
+                    author: theaterEditAuthor.trim() || prev.author,
+                    releaseYear: theaterEditYear.trim() || prev.releaseYear,
+                    genre: theaterEditGenre.trim() || prev.genre,
+                    narrator: theaterEditNarrator.trim() || prev.narrator,
+                    posterUrl: theaterEditCoverUrl.trim() || prev.posterUrl
+                } : prev);
+                toast.success('Saved book details & synopsis');
+                fetchAudiobooksStudioOverview();
+            } else {
+                toast.error(data.error || 'Failed to save book details');
+            }
+        } catch {
+            toast.error('Failed to save book details');
+        } finally {
+            setIsSavingTheaterBookMeta(false);
+        }
+    };
+
     const closeAudiobookModal = () => {
         setSelectedAudiobook(null);
         setAudiobookDetails(null);
+        setShowTheaterBookCustomize(false);
     };
 
     // Helper to search local server items for matching artist and title, prioritizing highest quality (FLAC > WAV > M4A > MP3)
@@ -3379,10 +3506,11 @@ function TheaterPageContent() {
             { pattern: /\bzima\s+blue\b/i, cleanTitle: 'Zima Blue and Other Stories', collection: '', bookNumber: 0, releaseYear: '2006' },
             { pattern: /\bthousandth\s+night\b/i, cleanTitle: 'Thousandth Night', collection: '', bookNumber: 0, releaseYear: '2005' },
             { pattern: /\bbelladonna\s+nights\b/i, cleanTitle: 'Belladonna Nights', collection: '', bookNumber: 0, releaseYear: '2021' },
-            // Cixin Liu — Remembrance of Earth's Past (Three-Body Trilogy)
-            { pattern: /\b(the\s+)?three[- ]body\s+problem\b/i, cleanTitle: 'The Three-Body Problem', collection: "Remembrance of Earth's Past", bookNumber: 1, releaseYear: '2008' },
+            // Cixin Liu / Baoshu — Remembrance of Earth's Past (Three-Body Trilogy)
+            { pattern: /\b(the\s+)?three[- \u2010-\u2015]body\s+problem\b/i, cleanTitle: 'The Three-Body Problem', collection: "Remembrance of Earth's Past", bookNumber: 1, releaseYear: '2008' },
             { pattern: /\b(the\s+)?dark\s+forest\b/i, cleanTitle: 'The Dark Forest', collection: "Remembrance of Earth's Past", bookNumber: 2, releaseYear: '2008' },
-            { pattern: /\bdeath'?s\s+end\b/i, cleanTitle: "Death's End", collection: "Remembrance of Earth's Past", bookNumber: 3, releaseYear: '2010' },
+            { pattern: /\bdeath['’]?s\s+end\b/i, cleanTitle: "Death's End", collection: "Remembrance of Earth's Past", bookNumber: 3, releaseYear: '2010' },
+            { pattern: /\b(the\s+)?redemption\s+of\s+time\b/i, cleanTitle: 'The Redemption of Time', collection: "Remembrance of Earth's Past", bookNumber: 4, releaseYear: '2011' },
             // Frank Herbert — Pandora Sequence
             { pattern: /\bdestination[:\s]+void\b/i, cleanTitle: 'Destination: Void', collection: 'Pandora Sequence', bookNumber: 1, releaseYear: '1966' },
             { pattern: /\bthe\s+jesus\s+incident\b/i, cleanTitle: 'The Jesus Incident', collection: 'Pandora Sequence', bookNumber: 2, releaseYear: '1979' },
@@ -3403,7 +3531,10 @@ function TheaterPageContent() {
         ];
 
         const parseBookMetaClient = (rawBookTitle: string, folder?: string, filePath?: string) => {
-            let working = (rawBookTitle || '').trim();
+            let working = (rawBookTitle || '')
+                .replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]/g, '-')
+                .replace(/[\u2018\u2019]/g, "'")
+                .trim();
             let releaseYear: string | undefined;
             let bookNumber: number | undefined;
             let inferredCollection: string | undefined;
@@ -3745,7 +3876,7 @@ function TheaterPageContent() {
                     illustratedScenes: bStudio?.illustrated_scenes || 0,
                     authorThumb: (item as any).authorThumb,
                     folder: item.folder,
-                    posterUrl: item.posterUrl || bStudio?.thumb || bStudio?.custom_cover_url || undefined,
+                    posterUrl: (bStudio?.use_custom_cover && bStudio?.custom_cover_url) ? bStudio.custom_cover_url : (bStudio?.thumb || item.posterUrl || bStudio?.custom_cover_url || undefined),
                     chapters: [],
                     totalDurationMs: 0,
                     hasOptimizedAudio,
@@ -7756,23 +7887,31 @@ function TheaterPageContent() {
                     <div className="bg-[#0c0c0c] border-2 border-zinc-800 rounded-[2.5rem] w-full max-w-5xl p-6 sm:p-8 space-y-6 shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar flex flex-col">
                         {/* Top Book Overview Banner */}
                         <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 pb-6 border-b border-zinc-900">
-                            {/* Left Column: Main Book Artwork or Styled Hardcover Placeholder */}
-                            <div className="w-40 sm:w-44 shrink-0 space-y-3">
-                                <div className="w-full aspect-[3/4] rounded-3xl bg-gradient-to-b from-[#2e1d11] to-[#120b07] border-2 border-amber-500/40 overflow-hidden flex items-center justify-center text-orange-400 shadow-2xl relative">
+                            {/* Left Column: Main Book Artwork Showcase with Settings Icon */}
+                            <div className="w-44 sm:w-52 shrink-0 space-y-3">
+                                <div
+                                    onClick={() => {
+                                        setBookModalTab('overview');
+                                        setShowTheaterBookCustomize(prev => !prev);
+                                    }}
+                                    title="Click to customize cover art, synopsis & details"
+                                    className="w-full aspect-[3/4] rounded-r-3xl rounded-l-lg bg-gradient-to-b from-[#2e1d11] to-[#120b07] border-2 border-amber-500/40 hover:border-amber-400 overflow-hidden flex items-center justify-center text-orange-400 shadow-[12px_16px_32px_rgba(0,0,0,0.85)] relative cursor-pointer group"
+                                >
+                                    <div className="absolute inset-y-0 left-0 w-3.5 bg-gradient-to-r from-white/25 via-black/45 to-transparent z-10 pointer-events-none" />
                                     {(() => {
                                         const customCoverActive = Boolean(bMeta?.use_custom_cover && bMeta?.custom_cover_url && !String(bMeta.custom_cover_url).toLowerCase().includes('.svg'));
-                                        const effectiveCoverUrl = customCoverActive ? bMeta.custom_cover_url : (audiobookDetails?.coverUrl || bMeta?.thumb || selectedAudiobook.posterUrl);
+                                        const effectiveCoverUrl = customCoverActive ? bMeta.custom_cover_url : (bMeta?.thumb || audiobookDetails?.coverUrl || selectedAudiobook.posterUrl);
 
                                         return effectiveCoverUrl ? (
                                             <img
                                                 src={effectiveCoverUrl}
                                                 alt={selectedAudiobook.title}
-                                                className="w-full h-full object-cover"
+                                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                                             />
                                         ) : (
                                             <div className="p-4 text-center flex flex-col items-center justify-center h-full w-full">
-                                                <BookOpen size={44} className="text-amber-400 mb-2" />
-                                                <span className="text-sm font-black text-amber-100 line-clamp-3 leading-tight">
+                                                <BookOpen size={48} className="text-amber-400 mb-2" />
+                                                <span className="text-base font-black text-amber-100 line-clamp-3 leading-tight">
                                                     {selectedAudiobook.title}
                                                 </span>
                                                 <span className="text-xs font-bold text-amber-400/80 mt-1.5 line-clamp-1">
@@ -7781,6 +7920,22 @@ function TheaterPageContent() {
                                             </div>
                                         );
                                     })()}
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setBookModalTab('overview');
+                                            setShowTheaterBookCustomize(prev => !prev);
+                                        }}
+                                        title="Customize cover art, synopsis & book metadata"
+                                        className={`absolute top-3 right-3 z-20 p-2.5 rounded-2xl border shadow-xl transition-all cursor-pointer flex items-center gap-1.5 ${
+                                            showTheaterBookCustomize
+                                                ? 'bg-amber-500 text-black border-amber-300'
+                                                : 'bg-black/80 hover:bg-amber-500 text-amber-300 hover:text-black border-amber-500/40'
+                                        }`}
+                                    >
+                                        <Sliders size={18} />
+                                    </button>
                                 </div>
                             </div>
 
@@ -7909,21 +8064,228 @@ function TheaterPageContent() {
                                         <Check size={16} />
                                         <span>Done</span>
                                     </button>
+
+                                    <button
+                                        onClick={() => {
+                                            setBookModalTab('overview');
+                                            setShowTheaterBookCustomize(prev => !prev);
+                                        }}
+                                        title="Swap cover art, edit synopsis & metadata"
+                                        className={`px-4 py-2.5 rounded-2xl font-bold text-sm flex items-center gap-2 transition-all cursor-pointer border ${
+                                            showTheaterBookCustomize
+                                                ? 'bg-amber-500 text-black border-amber-400'
+                                                : 'bg-zinc-900 hover:bg-zinc-800 text-amber-300 border-zinc-800'
+                                        }`}
+                                    >
+                                        <Sliders size={16} />
+                                        <span>Settings</span>
+                                    </button>
                                 </div>
                             </div>
                         </div>
 
                         {/* ═══════════════════════════════════════════════════════════════════
-                            TAB 1: BOOK (Synopsis, Author Bio & Chapters Tracklist)
+                            TAB 1: BOOK (Cover Arts Switcher, Synopsis, Author Bio & Chapters)
                            ═══════════════════════════════════════════════════════════════════ */}
                         {bookModalTab === 'overview' && (
                             <div className="space-y-6">
+                                {showTheaterBookCustomize && (() => {
+                                    const allCovers: Array<{ url: string; label: string }> = [];
+                                    const addCover = (url: string | undefined | null, label: string) => {
+                                        if (!url || typeof url !== 'string' || !url.trim() || url.toLowerCase().includes('.svg')) return;
+                                        const clean = url.trim();
+                                        if (!allCovers.some(c => c.url === clean)) {
+                                            allCovers.push({ url: clean, label });
+                                        }
+                                    };
+                                    addCover(bMeta?.thumb, 'Saved');
+                                    addCover(bMeta?.custom_cover_url, 'AI Art');
+                                    addCover(selectedAudiobook.posterUrl, 'Original');
+                                    addCover(audiobookDetails?.coverUrl, 'Catalog');
+                                    for (const c of (audiobookDetails?.availableCovers || [])) {
+                                        addCover(c.url, c.label || c.source || 'Art');
+                                    }
+                                    const activeCoverUrl = (bMeta?.use_custom_cover && bMeta?.custom_cover_url)
+                                        ? bMeta.custom_cover_url
+                                        : (bMeta?.thumb || audiobookDetails?.coverUrl || selectedAudiobook.posterUrl || '');
+
+                                    return (
+                                        <div className="p-5 sm:p-6 rounded-3xl bg-zinc-950 border-2 border-amber-500/40 space-y-6 animate-in fade-in duration-200">
+                                            {/* Available Cover Arts Gallery */}
+                                            <div className="space-y-3">
+                                                <div className="flex items-center justify-between gap-3 flex-wrap">
+                                                    <h3 className="text-base font-black text-amber-300 uppercase tracking-wider flex items-center gap-2">
+                                                        <ImageIcon size={18} />
+                                                        <span>Arts ({allCovers.length})</span>
+                                                    </h3>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleToggleCustomCoverForBook(selectedAudiobook)}
+                                                        title="Generate or toggle bespoke AI cover art"
+                                                        className="px-3.5 py-2 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/40 text-purple-200 font-black text-xs uppercase flex items-center gap-1.5 cursor-pointer"
+                                                    >
+                                                        <Sparkles size={14} />
+                                                        <span>AI Cover</span>
+                                                    </button>
+                                                </div>
+
+                                                {allCovers.length > 0 && (
+                                                    <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 gap-3">
+                                                        {allCovers.map((cov, idx) => {
+                                                            const isSelected = activeCoverUrl === cov.url;
+                                                            return (
+                                                                <button
+                                                                    key={`${cov.url}-${idx}`}
+                                                                    type="button"
+                                                                    onClick={() => handleSelectTheaterBookCover(selectedAudiobook, cov.url)}
+                                                                    title={`Use ${cov.label} cover art`}
+                                                                    className={`group relative aspect-[3/4] rounded-2xl overflow-hidden border-2 transition-all cursor-pointer ${
+                                                                        isSelected
+                                                                            ? 'border-amber-400 ring-2 ring-amber-400/40 scale-[1.02]'
+                                                                            : 'border-zinc-800 hover:border-amber-500/60 opacity-85 hover:opacity-100'
+                                                                    }`}
+                                                                >
+                                                                    <img src={cov.url} alt={cov.label} className="w-full h-full object-cover" />
+                                                                    <span className="absolute bottom-1.5 inset-x-1.5 px-2 py-0.5 rounded-lg bg-black/85 text-[11px] font-black text-amber-200 truncate text-center">
+                                                                        {cov.label}
+                                                                    </span>
+                                                                    {isSelected && (
+                                                                        <span className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-amber-400 text-black flex items-center justify-center shadow">
+                                                                            <Check size={14} />
+                                                                        </span>
+                                                                    )}
+                                                                </button>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                )}
+
+                                                <div className="flex items-center gap-2 pt-1">
+                                                    <input
+                                                        type="text"
+                                                        value={theaterEditCoverUrl}
+                                                        onChange={e => setTheaterEditCoverUrl(e.target.value)}
+                                                        placeholder="Custom cover image URL..."
+                                                        className="flex-1 px-4 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-sm font-bold text-white"
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleSelectTheaterBookCover(selectedAudiobook, theaterEditCoverUrl)}
+                                                        disabled={!theaterEditCoverUrl.trim()}
+                                                        title="Apply custom cover URL"
+                                                        className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase cursor-pointer disabled:opacity-40"
+                                                    >
+                                                        Apply
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            {/* Editable Book Details, Synopsis & Author Bio */}
+                                            <div className="space-y-4 pt-4 border-t border-zinc-800">
+                                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                                    <div>
+                                                        <label className="block text-xs font-black text-zinc-400 uppercase mb-1">Title</label>
+                                                        <input
+                                                            type="text"
+                                                            value={theaterEditTitle}
+                                                            onChange={e => setTheaterEditTitle(e.target.value)}
+                                                            className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-sm font-bold text-white"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-black text-zinc-400 uppercase mb-1">Author</label>
+                                                        <input
+                                                            type="text"
+                                                            value={theaterEditAuthor}
+                                                            onChange={e => setTheaterEditAuthor(e.target.value)}
+                                                            className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-sm font-bold text-white"
+                                                        />
+                                                    </div>
+                                                    <div className="grid grid-cols-2 gap-2">
+                                                        <div>
+                                                            <label className="block text-xs font-black text-zinc-400 uppercase mb-1">Year</label>
+                                                            <input
+                                                                type="text"
+                                                                value={theaterEditYear}
+                                                                onChange={e => setTheaterEditYear(e.target.value)}
+                                                                className="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-sm font-bold text-white"
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-xs font-black text-zinc-400 uppercase mb-1">Genre</label>
+                                                            <input
+                                                                type="text"
+                                                                value={theaterEditGenre}
+                                                                onChange={e => setTheaterEditGenre(e.target.value)}
+                                                                className="w-full px-3 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-sm font-bold text-white"
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                    <div>
+                                                        <label className="block text-xs font-black text-orange-400 uppercase mb-1">Synopsis</label>
+                                                        <textarea
+                                                            rows={4}
+                                                            value={theaterEditSynopsis}
+                                                            onChange={e => setTheaterEditSynopsis(e.target.value)}
+                                                            placeholder="Book synopsis..."
+                                                            className="w-full p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 text-sm text-white leading-relaxed custom-scrollbar"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-black text-amber-400 uppercase mb-1">Author</label>
+                                                        <textarea
+                                                            rows={4}
+                                                            value={theaterEditAuthorBio}
+                                                            onChange={e => setTheaterEditAuthorBio(e.target.value)}
+                                                            placeholder="Author biography..."
+                                                            className="w-full p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 text-sm text-white leading-relaxed custom-scrollbar"
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center justify-end gap-2.5">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setShowTheaterBookCustomize(false)}
+                                                        className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 font-bold text-sm cursor-pointer"
+                                                    >
+                                                        Done
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        disabled={isSavingTheaterBookMeta}
+                                                        onClick={() => handleSaveTheaterBookMetadata(selectedAudiobook)}
+                                                        title="Save synopsis, cover & metadata"
+                                                        className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                                                    >
+                                                        <Check size={16} />
+                                                        <span>{isSavingTheaterBookMeta ? 'Saving...' : 'Save'}</span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
+
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="p-5 rounded-3xl bg-zinc-950/70 border border-zinc-900 space-y-2">
-                                        <h3 className="text-sm font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
-                                            <BookText size={16} className="text-orange-400" />
-                                            Synopsis
-                                        </h3>
+                                        <div className="flex items-center justify-between gap-2">
+                                            <h3 className="text-sm font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                                                <BookText size={16} className="text-orange-400" />
+                                                Synopsis
+                                            </h3>
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowTheaterBookCustomize(prev => !prev)}
+                                                title="Edit synopsis"
+                                                className="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-amber-300 cursor-pointer"
+                                            >
+                                                <Sliders size={14} />
+                                            </button>
+                                        </div>
                                         {audiobookDetails?.description ? (
                                             <p className="text-sm text-zinc-300 leading-relaxed max-h-48 overflow-y-auto custom-scrollbar pr-1">
                                                 {audiobookDetails.description}
@@ -7936,10 +8298,20 @@ function TheaterPageContent() {
                                     </div>
 
                                     <div className="p-5 rounded-3xl bg-zinc-950/70 border border-zinc-900 space-y-2">
-                                        <h3 className="text-sm font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
-                                            <User size={16} className="text-amber-400" />
-                                            Author
-                                        </h3>
+                                        <div className="flex items-center justify-between gap-2">
+                                            <h3 className="text-sm font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                                                <User size={16} className="text-amber-400" />
+                                                Author
+                                            </h3>
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowTheaterBookCustomize(prev => !prev)}
+                                                title="Edit author bio"
+                                                className="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-amber-300 cursor-pointer"
+                                            >
+                                                <Sliders size={14} />
+                                            </button>
+                                        </div>
                                         {audiobookDetails?.authorBio ? (
                                             <p className="text-sm text-zinc-300 leading-relaxed max-h-48 overflow-y-auto custom-scrollbar pr-1 whitespace-pre-line">
                                                 {audiobookDetails.authorBio}
@@ -8125,13 +8497,15 @@ function TheaterPageContent() {
                                                 <div className="flex flex-wrap items-center gap-2">
                                                     <button
                                                         onClick={() => handleResetAndRedoBookAssets(selectedAudiobook, 'transcriptions')}
+                                                        disabled={runningBookModalTask !== null}
                                                         title="Stage 1: Transcribe audio to timestamped text across all chapters"
-                                                        className="py-2.5 px-4 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer"
+                                                        className="py-2.5 px-4 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed"
                                                     >
                                                         <FileText size={16} />
                                                         <span>1. Transcribe</span>
                                                     </button>
                                                     <button
+                                                        disabled={transCh === 0 || runningBookModalTask !== null}
                                                         onClick={async () => {
                                                             toast.info('Detecting scene transitions from transcripts...');
                                                             for (let i = 0; i < selectedAudiobook.chapters.length; i++) {
@@ -8140,13 +8514,14 @@ function TheaterPageContent() {
                                                                 await handleRunChapterTaskFromBookModal(selectedAudiobook, { ...ch, chapterKey: cKey }, i, 'detect_scenes');
                                                             }
                                                         }}
-                                                        title="Stage 2: LLM divides timestamped transcript into scene transitions & prompts"
-                                                        className="py-2.5 px-4 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer"
+                                                        title={transCh === 0 ? 'Requires Stage 1 (Transcribe) first' : 'Stage 2: LLM divides timestamped transcript into scene transitions & prompts'}
+                                                        className="py-2.5 px-4 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed"
                                                     >
                                                         <Wand2 size={16} />
                                                         <span>2. Detect Scenes</span>
                                                     </button>
                                                     <button
+                                                        disabled={totalBookScenes === 0 || runningBookModalTask !== null}
                                                         onClick={async () => {
                                                             toast.info('Painting detected scenes...');
                                                             for (let i = 0; i < selectedAudiobook.chapters.length; i++) {
@@ -8155,8 +8530,8 @@ function TheaterPageContent() {
                                                                 await handleRunChapterTaskFromBookModal(selectedAudiobook, { ...ch, chapterKey: cKey }, i, 'paint_scenes');
                                                             }
                                                         }}
-                                                        title="Stage 3: Paint artwork for detected scenes"
-                                                        className="py-2.5 px-4 rounded-xl bg-purple-500 hover:bg-purple-400 text-black font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 shadow cursor-pointer"
+                                                        title={totalBookScenes === 0 ? 'Requires Stage 2 (Detect Scenes) first' : 'Stage 3: Paint artwork for detected scenes'}
+                                                        className="py-2.5 px-4 rounded-xl bg-purple-500 hover:bg-purple-400 text-black font-black text-xs sm:text-sm uppercase tracking-wider flex items-center gap-2 shadow cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed"
                                                     >
                                                         <Sparkles size={16} />
                                                         <span>3. Paint Art</span>
@@ -9049,15 +9424,20 @@ function TheaterPageContent() {
                             </div>
                             <div className="space-y-1.5">
                                 <label className="text-xs font-black uppercase tracking-wider text-purple-300">
-                                    Author
+                                    Author Filter
                                 </label>
-                                <input
-                                    type="text"
+                                <select
                                     value={collectionFormAuthor}
                                     onChange={(e) => setCollectionFormAuthor(e.target.value)}
-                                    placeholder="e.g. Alastair Reynolds"
-                                    className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-sm font-bold text-white focus:outline-none focus:border-purple-400"
-                                />
+                                    className="w-full px-4 py-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-sm font-bold text-white focus:outline-none focus:border-purple-400 cursor-pointer"
+                                >
+                                    <option value="">All Authors ({audiobooks.length} Books)</option>
+                                    {audiobookShelfData.authorsList.map(a => (
+                                        <option key={a.name} value={a.name}>
+                                            {a.name} ({a.books.length})
+                                        </option>
+                                    ))}
+                                </select>
                             </div>
                         </div>
 
@@ -9082,7 +9462,25 @@ function TheaterPageContent() {
                             </div>
 
                             <div className="divide-y divide-zinc-900 bg-zinc-950/90 rounded-2xl border border-zinc-800 overflow-y-auto max-h-80 custom-scrollbar">
-                                {audiobooks.map(book => {
+                                {audiobooks
+                                    .filter(book => {
+                                        if (collectionFormSelectedKeys.includes(book.bookKey)) return true;
+                                        if (!collectionFormAuthor.trim()) return true;
+                                        const q = collectionFormAuthor.trim().toLowerCase();
+                                        return (
+                                            book.author.toLowerCase().includes(q) ||
+                                            (book.inferredCollection || '').toLowerCase().includes(q)
+                                        );
+                                    })
+                                    .sort((a, b) => {
+                                        const idxA = collectionFormSelectedKeys.indexOf(a.bookKey);
+                                        const idxB = collectionFormSelectedKeys.indexOf(b.bookKey);
+                                        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+                                        if (idxA !== -1) return -1;
+                                        if (idxB !== -1) return 1;
+                                        return (a.bookNumber || 999) - (b.bookNumber || 999) || a.cleanTitle.localeCompare(b.cleanTitle);
+                                    })
+                                    .map(book => {
                                     const checked = collectionFormSelectedKeys.includes(book.bookKey);
                                     return (
                                         <label

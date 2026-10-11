@@ -498,7 +498,10 @@ export async function POST(request: Request) {
                 artStyle,
                 imagesPerChapter,
                 artFocus,
-                customPrompt
+                customPrompt,
+                synopsis,
+                description,
+                authorBio
             } = body;
             if (!bookKey) {
                 return NextResponse.json({ success: false, error: 'Missing bookKey' }, { status: 400 });
@@ -523,19 +526,27 @@ export async function POST(request: Request) {
                 custom_prompt: customPrompt !== undefined ? String(customPrompt) : existing?.custom_prompt
             });
 
-            if (title !== undefined || publishedYear !== undefined) {
+            const incomingSynopsis = synopsis !== undefined ? synopsis : description;
+            if (title !== undefined || publishedYear !== undefined || incomingSynopsis !== undefined || authorBio !== undefined) {
                 const colState = getAudiobookCollectionsState();
                 const prevEnrich = colState.bookMetadata[updated.book_key] || colState.bookMetadata[bookKey] || { bookKey: updated.book_key };
+                const nextEntry = {
+                    ...prevEnrich,
+                    bookKey: updated.book_key,
+                    cleanTitle: title !== undefined ? String(title).trim() : prevEnrich.cleanTitle,
+                    releaseYear: publishedYear !== undefined && publishedYear !== null ? String(publishedYear).trim() : prevEnrich.releaseYear,
+                    synopsis: incomingSynopsis !== undefined ? String(incomingSynopsis).trim() : prevEnrich.synopsis,
+                    authorBio: authorBio !== undefined ? String(authorBio).trim() : prevEnrich.authorBio
+                };
+                const nextMetaMap: typeof colState.bookMetadata = {
+                    ...colState.bookMetadata,
+                    [updated.book_key]: nextEntry
+                };
+                if (bookKey && bookKey !== updated.book_key) {
+                    nextMetaMap[bookKey] = { ...nextEntry, bookKey };
+                }
                 saveAudiobookCollectionsState({
-                    bookMetadata: {
-                        ...colState.bookMetadata,
-                        [updated.book_key]: {
-                            ...prevEnrich,
-                            bookKey: updated.book_key,
-                            cleanTitle: title !== undefined ? String(title).trim() : prevEnrich.cleanTitle,
-                            releaseYear: publishedYear !== undefined && publishedYear !== null ? String(publishedYear).trim() : prevEnrich.releaseYear
-                        }
-                    }
+                    bookMetadata: nextMetaMap
                 });
             }
 
@@ -998,13 +1009,17 @@ export async function POST(request: Request) {
         }
 
         if (action === 'save_collection') {
-            const { id, name, author, description, bookKeys, bookMetadataPatch } = body;
+            const src = (body.collection && typeof body.collection === 'object') ? body.collection : body;
+            const { id, name, author, description, bookKeys } = src;
+            const bookMetadataPatch = src.bookMetadataPatch || body.bookMetadataPatch;
             if (!name || !Array.isArray(bookKeys) || bookKeys.length === 0) {
                 return NextResponse.json({ success: false, error: 'Collection name and at least 1 book are required' }, { status: 400 });
             }
             const cur = getAudiobookCollectionsState();
             const colId = id || `col_manual_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
             const existingIdx = cur.collections.findIndex(c => c.id === colId);
+            const existingCol = existingIdx >= 0 ? cur.collections[existingIdx] : undefined;
+            const removedKeys = existingCol ? existingCol.bookKeys.filter(k => !bookKeys.includes(k)) : [];
 
             // Remove selected bookKeys from any other collection so a book only belongs to one collection at a time
             const cleanedCollections = cur.collections.map(c => {
@@ -1034,20 +1049,34 @@ export async function POST(request: Request) {
             }
 
             const nextMeta = { ...cur.bookMetadata, ...(bookMetadataPatch || {}) };
+            for (const rk of removedKeys) {
+                if (nextMeta[rk] && nextMeta[rk].collectionId === colId) {
+                    nextMeta[rk] = {
+                        ...nextMeta[rk],
+                        collectionId: undefined,
+                        collectionName: undefined
+                    };
+                }
+            }
             bookKeys.forEach((k: string, idx: number) => {
                 nextMeta[k] = {
                     ...(nextMeta[k] || { bookKey: k }),
                     bookKey: k,
                     collectionId: colId,
                     collectionName: String(name).trim(),
-                    bookNumber: nextMeta[k]?.bookNumber || (idx + 1)
+                    bookNumber: bookMetadataPatch?.[k]?.bookNumber ?? (idx + 1)
                 };
             });
+
+            const nextUngrouped = Array.from(new Set([
+                ...cur.ungroupedBookKeys.filter(uk => !bookKeys.includes(uk)),
+                ...removedKeys
+            ]));
 
             const saved = saveAudiobookCollectionsState({
                 collections: cleanedCollections,
                 explodedCollectionIds: cur.explodedCollectionIds.filter(eid => eid !== colId),
-                ungroupedBookKeys: cur.ungroupedBookKeys.filter(uk => !bookKeys.includes(uk)),
+                ungroupedBookKeys: nextUngrouped,
                 bookMetadata: nextMeta
             });
 

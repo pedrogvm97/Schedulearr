@@ -5294,6 +5294,8 @@ export interface AudiobookBookEnrichment {
     releaseYear?: string;
     collectionId?: string;
     collectionName?: string;
+    synopsis?: string;
+    authorBio?: string;
 }
 
 export interface AudiobookCollectionsState {
@@ -5386,9 +5388,10 @@ const KNOWN_BOOK_CATALOG: Array<{
     { pattern: /\bthousandth\s+night\b/i, cleanTitle: 'Thousandth Night', author: 'Alastair Reynolds', collection: '', bookNumber: 0, releaseYear: '2005' },
     { pattern: /\bbelladonna\s+nights\b/i, cleanTitle: 'Belladonna Nights', author: 'Alastair Reynolds', collection: '', bookNumber: 0, releaseYear: '2021' },
     // Cixin Liu — Remembrance of Earth's Past (Three-Body Trilogy)
-    { pattern: /\b(the\s+)?three[- ]body\s+problem\b/i, cleanTitle: 'The Three-Body Problem', author: 'Cixin Liu', collection: "Remembrance of Earth's Past", bookNumber: 1, releaseYear: '2008' },
+    { pattern: /\b(the\s+)?three[-‐‑‒–— ]body\s+problem\b/i, cleanTitle: 'The Three-Body Problem', author: 'Cixin Liu', collection: "Remembrance of Earth's Past", bookNumber: 1, releaseYear: '2008' },
     { pattern: /\b(the\s+)?dark\s+forest\b/i, cleanTitle: 'The Dark Forest', author: 'Cixin Liu', collection: "Remembrance of Earth's Past", bookNumber: 2, releaseYear: '2008' },
     { pattern: /\bdeath'?s\s+end\b/i, cleanTitle: "Death's End", author: 'Cixin Liu', collection: "Remembrance of Earth's Past", bookNumber: 3, releaseYear: '2010' },
+    { pattern: /\b(the\s+)?redemption\s+of\s+time\b/i, cleanTitle: 'The Redemption of Time', author: 'Cixin Liu', collection: "Remembrance of Earth's Past", bookNumber: 4, releaseYear: '2011' },
     // Frank Herbert — Pandora Sequence / WorShip
     { pattern: /\bdestination[:\s]+void\b/i, cleanTitle: 'Destination: Void', author: 'Frank Herbert', collection: 'Pandora Sequence', bookNumber: 1, releaseYear: '1966' },
     { pattern: /\bthe\s+jesus\s+incident\b/i, cleanTitle: 'The Jesus Incident', author: 'Frank Herbert', collection: 'Pandora Sequence', bookNumber: 2, releaseYear: '1979' },
@@ -5412,7 +5415,10 @@ export const parseCleanBookTitleAndNumber = (rawTitle: string, folder?: string, 
     releaseYear?: string;
     inferredCollection?: string;
 } => {
-    let working = (rawTitle || '').trim();
+    let working = (rawTitle || '')
+        .replace(/[\u2010-\u2015\u2212]/g, '-')
+        .replace(/[\u2018\u2019]/g, "'")
+        .trim();
     let releaseYear: string | undefined;
     let bookNumber: number | undefined;
     let inferredCollection: string | undefined;
